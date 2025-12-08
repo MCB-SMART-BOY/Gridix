@@ -11,18 +11,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            name: linux-x86_64
-            ext: ""
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             name: windows-x86_64
             ext: ".exe"
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            name: macos-x86_64
-            ext: ""
           - os: macos-latest
             target: aarch64-apple-darwin
             name: macos-arm64
@@ -38,21 +30,9 @@ jobs:
         with:
           targets: ${{ matrix.target }}
         
-      - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
-          
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
         
-      - name: Package (Linux)
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          cd target/${{ matrix.target }}/release
-          tar czvf ../../../rust-db-manager-${{ matrix.name }}.tar.gz rust-db-manager
-          
       - name: Package (macOS)
         if: matrix.os == 'macos-latest'
         run: |
