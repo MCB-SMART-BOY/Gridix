@@ -90,13 +90,16 @@ impl DataGrid {
             state.filters.push(new_filter);
         }
 
-        // 显示筛选栏
-        filter::show_filter_bar(ui, result, state);
+        // 显示筛选栏（修改筛选条件时会使缓存失效）
+        let filter_changed = filter::show_filter_bar(ui, result, state);
+        if filter_changed {
+            state.filter_cache.invalidate();
+        }
 
         ui.add_space(4.0);
 
-        // 过滤行
-        let filtered_rows = filter::filter_rows(result, search_text, search_column, &state.filters);
+        // 过滤行（使用缓存）
+        let filtered_rows = filter::filter_rows_cached(result, search_text, search_column, state);
         let filtered_count = filtered_rows.len();
         let total_count = result.rows.len();
 

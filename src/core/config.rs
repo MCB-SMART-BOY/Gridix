@@ -71,16 +71,32 @@ impl AppConfig {
     }
 
     pub fn load() -> Self {
-        if let Some(path) = Self::config_path() {
-            if path.exists() {
-                if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(config) = toml::from_str(&content) {
-                        return config;
-                    }
-                }
+        let Some(path) = Self::config_path() else {
+            eprintln!("[config] 无法获取配置文件路径");
+            return Self::default();
+        };
+        
+        if !path.exists() {
+            // 首次启动，配置文件不存在是正常的
+            return Self::default();
+        }
+        
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[config] 读取配置文件失败: {}", e);
+                return Self::default();
+            }
+        };
+        
+        match toml::from_str(&content) {
+            Ok(config) => config,
+            Err(e) => {
+                eprintln!("[config] 解析配置文件失败: {}", e);
+                eprintln!("[config] 配置文件路径: {:?}", path);
+                Self::default()
             }
         }
-        Self::default()
     }
 
     pub fn save(&self) -> Result<(), String> {

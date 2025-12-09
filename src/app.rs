@@ -243,25 +243,27 @@ impl DbManagerApp {
     fn connect(&mut self, name: String) {
         if let Some(conn) = self.manager.connections.get(&name) {
             let config = conn.config.clone();
-            let name_clone = name.clone();
             let tx = self.tx.clone();
 
             self.connecting = true;
             self.manager.active = Some(name.clone());
 
             self.runtime.spawn(async move {
-                let result = connect_database(&config).await;
+                use tokio::time::{timeout, Duration};
+                // 30秒连接超时
+                let result = timeout(Duration::from_secs(30), connect_database(&config)).await;
                 match result {
-                    Ok(ConnectResult::Tables(tables)) => {
-                        // SQLite 模式：直接返回表列表
-                        tx.send(Message::ConnectedWithTables(name_clone, Ok(tables))).ok();
+                    Ok(Ok(ConnectResult::Tables(tables))) => {
+                        tx.send(Message::ConnectedWithTables(name, Ok(tables))).ok();
                     }
-                    Ok(ConnectResult::Databases(databases)) => {
-                        // MySQL/PostgreSQL 模式：返回数据库列表
-                        tx.send(Message::ConnectedWithDatabases(name_clone, Ok(databases))).ok();
+                    Ok(Ok(ConnectResult::Databases(databases))) => {
+                        tx.send(Message::ConnectedWithDatabases(name, Ok(databases))).ok();
                     }
-                    Err(e) => {
-                        tx.send(Message::ConnectedWithTables(name_clone, Err(e.to_string()))).ok();
+                    Ok(Err(e)) => {
+                        tx.send(Message::ConnectedWithTables(name, Err(e.to_string()))).ok();
+                    }
+                    Err(_) => {
+                        tx.send(Message::ConnectedWithTables(name, Err("连接超时".to_string()))).ok();
                     }
                 }
             });
@@ -274,15 +276,22 @@ impl DbManagerApp {
             if let Some(conn) = self.manager.connections.get(&active_name) {
                 let config = conn.config.clone();
                 let tx = self.tx.clone();
-                let name_clone = active_name.clone();
-                let db_clone = database.clone();
 
                 self.connecting = true;
 
                 self.runtime.spawn(async move {
-                    let result = get_tables_for_database(&config, &db_clone).await;
-                    let tables_result = result.map_err(|e| e.to_string());
-                    tx.send(Message::DatabaseSelected(name_clone, db_clone, tables_result)).ok();
+                    use tokio::time::{timeout, Duration};
+                    let result = timeout(
+                        Duration::from_secs(30),
+                        get_tables_for_database(&config, &database),
+                    )
+                    .await;
+                    let tables_result = match result {
+                        Ok(Ok(tables)) => Ok(tables),
+                        Ok(Err(e)) => Err(e.to_string()),
+                        Err(_) => Err("获取表列表超时".to_string()),
+                    };
+                    tx.send(Message::DatabaseSelected(active_name, database, tables_result)).ok();
                 });
             }
         }
@@ -321,7 +330,6 @@ impl DbManagerApp {
             if let Some(conn) = self.manager.connections.get(&active_name) {
                 let config = conn.config.clone();
                 let tx = self.tx.clone();
-                let sql_clone = sql.clone();
 
                 // 添加到命令历史
                 if self.command_history.first() != Some(&sql) {
@@ -341,12 +349,17 @@ impl DbManagerApp {
                 self.last_query_time_ms = None;
 
                 self.runtime.spawn(async move {
+                    use tokio::time::{timeout, Duration};
                     let start = Instant::now();
-                    let result = execute_query(&config, &sql_clone).await;
+                    // 查询超时 5 分钟
+                    let result = timeout(Duration::from_secs(300), execute_query(&config, &sql)).await;
                     let elapsed_ms = start.elapsed().as_millis() as u64;
-                    let query_result = result.map_err(|e| e.to_string());
-                    tx.send(Message::QueryDone(sql_clone, query_result, elapsed_ms))
-                        .ok();
+                    let query_result = match result {
+                        Ok(Ok(res)) => Ok(res),
+                        Ok(Err(e)) => Err(e.to_string()),
+                        Err(_) => Err("查询超时".to_string()),
+                    };
+                    tx.send(Message::QueryDone(sql, query_result, elapsed_ms)).ok();
                 });
             }
         } else {
@@ -360,25 +373,25 @@ impl DbManagerApp {
                 Message::ConnectedWithTables(name, result) => {
                     // SQLite 模式：直接获得表列表
                     self.connecting = false;
-                    match &result {
+                    match result {
                         Ok(tables) => {
                             self.last_message =
                                 Some(format!("已连接到 {} ({} 张表)", name, tables.len()));
-                            // 更新自动补全的表列表
-                            self.autocomplete.set_tables(tables.clone());
                             // 加载该连接的历史记录
                             self.load_history_for_connection(&name);
+                            // 更新自动补全的表列表
+                            self.autocomplete.set_tables(tables.clone());
+                            // 设置连接状态
+                            if let Some(conn) = self.manager.connections.get_mut(&name) {
+                                conn.set_connected(tables);
+                            }
                         }
                         Err(e) => {
                             self.last_message = Some(format!("连接失败: {}", e));
                             self.autocomplete.clear();
-                        }
-                    }
-                    // 使用旧的 handler（对于 SQLite）
-                    if let Some(conn) = self.manager.connections.get_mut(&name) {
-                        match result {
-                            Ok(tables) => conn.set_connected(tables),
-                            Err(e) => conn.set_error(e),
+                            if let Some(conn) = self.manager.connections.get_mut(&name) {
+                                conn.set_error(e);
+                            }
                         }
                     }
                     ctx.request_repaint();
@@ -386,7 +399,7 @@ impl DbManagerApp {
                 Message::ConnectedWithDatabases(name, result) => {
                     // MySQL/PostgreSQL 模式：获得数据库列表
                     self.connecting = false;
-                    match &result {
+                    match result {
                         Ok(databases) => {
                             self.last_message =
                                 Some(format!("已连接到 {} ({} 个数据库)", name, databases.len()));
@@ -394,16 +407,16 @@ impl DbManagerApp {
                             self.load_history_for_connection(&name);
                             // 清空表的自动补全，等选择数据库后再设置
                             self.autocomplete.clear();
+                            if let Some(conn) = self.manager.connections.get_mut(&name) {
+                                conn.set_connected_with_databases(databases);
+                            }
                         }
                         Err(e) => {
                             self.last_message = Some(format!("连接失败: {}", e));
                             self.autocomplete.clear();
-                        }
-                    }
-                    if let Some(conn) = self.manager.connections.get_mut(&name) {
-                        match result {
-                            Ok(databases) => conn.set_connected_with_databases(databases),
-                            Err(e) => conn.set_error(e),
+                            if let Some(conn) = self.manager.connections.get_mut(&name) {
+                                conn.set_error(e);
+                            }
                         }
                     }
                     ctx.request_repaint();
@@ -411,23 +424,18 @@ impl DbManagerApp {
                 Message::DatabaseSelected(conn_name, db_name, result) => {
                     // 数据库选择完成：获得表列表
                     self.connecting = false;
-                    match &result {
+                    match result {
                         Ok(tables) => {
                             self.last_message =
                                 Some(format!("已选择数据库 {} ({} 张表)", db_name, tables.len()));
                             // 更新自动补全的表列表
                             self.autocomplete.set_tables(tables.clone());
+                            if let Some(conn) = self.manager.connections.get_mut(&conn_name) {
+                                conn.set_database(db_name, tables);
+                            }
                         }
                         Err(e) => {
                             self.last_message = Some(format!("选择数据库失败: {}", e));
-                        }
-                    }
-                    if let Some(conn) = self.manager.connections.get_mut(&conn_name) {
-                        match result {
-                            Ok(tables) => conn.set_database(db_name, tables),
-                            Err(e) => {
-                                self.last_message = Some(format!("选择数据库失败: {}", e));
-                            }
                         }
                     }
                     // 清空已选择的表
@@ -445,10 +453,10 @@ impl DbManagerApp {
                         .map(|c| c.config.db_type.display_name().to_string())
                         .unwrap_or_default();
 
-                    match &result {
+                    match result {
                         Ok(res) => {
                             self.query_history.add(
-                                sql.clone(),
+                                sql,
                                 db_type,
                                 true,
                                 if res.affected_rows > 0 {
@@ -471,7 +479,7 @@ impl DbManagerApp {
                                 ));
                             }
 
-                            self.result = Some(res.clone());
+                            self.result = Some(res);
                             self.selected_row = None;
                             self.selected_cell = None;
                             self.search_text.clear();
@@ -479,12 +487,7 @@ impl DbManagerApp {
                         Err(e) => {
                             self.query_history.add(sql, db_type, false, None);
                             self.last_message = Some(format!("错误: {}", e));
-                            self.result = Some(QueryResult {
-                                columns: vec![],
-                                rows: vec![],
-                                message: format!("错误: {}", e),
-                                affected_rows: 0,
-                            });
+                            self.result = Some(QueryResult::default());
                         }
                     }
                     ctx.request_repaint();

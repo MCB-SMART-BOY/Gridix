@@ -196,17 +196,6 @@ impl ConnectionConfig {
 
 
 
-    /// 验证配置是否有效
-    #[allow(dead_code)]
-    pub fn is_valid(&self) -> bool {
-        if self.name.is_empty() {
-            return false;
-        }
-        match self.db_type {
-            DatabaseType::SQLite => !self.database.is_empty(),
-            _ => !self.host.is_empty() && !self.database.is_empty() && self.port > 0,
-        }
-    }
 }
 
 // ============================================================================
@@ -218,47 +207,7 @@ impl ConnectionConfig {
 pub struct QueryResult {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<String>>,
-    #[allow(dead_code)]
-    pub message: String,
     pub affected_rows: u64,
-}
-
-#[allow(dead_code)]
-impl QueryResult {
-    /// 创建查询结果（有数据返回）
-    pub fn with_data(columns: Vec<String>, rows: Vec<Vec<String>>) -> Self {
-        Self {
-            columns,
-            rows,
-            message: String::new(),
-            affected_rows: 0,
-        }
-    }
-
-    /// 创建执行结果（无数据返回）
-    pub fn with_affected(affected_rows: u64) -> Self {
-        Self {
-            columns: vec![],
-            rows: vec![],
-            message: String::new(),
-            affected_rows,
-        }
-    }
-
-    /// 空结果
-    pub fn empty() -> Self {
-        Self::default()
-    }
-
-    /// 是否有数据
-    pub fn has_data(&self) -> bool {
-        !self.columns.is_empty()
-    }
-
-    /// 行数
-    pub fn row_count(&self) -> usize {
-        self.rows.len()
-    }
 }
 
 // ============================================================================

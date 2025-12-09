@@ -234,11 +234,14 @@ impl FilterOperator {
     }
 }
 
-/// 显示筛选栏
-pub fn show_filter_bar(ui: &mut egui::Ui, result: &QueryResult, state: &mut DataGridState) {
+/// 显示筛选栏，返回是否有修改（用于使缓存失效）
+pub fn show_filter_bar(ui: &mut egui::Ui, result: &QueryResult, state: &mut DataGridState) -> bool {
     if state.filters.is_empty() {
-        return;
+        return false;
     }
+    
+    // 记录初始状态用于检测变更
+    let initial_filter_count = state.filters.len();
 
     // 计算启用的筛选条件数量
     let enabled_count = state.filters.iter().filter(|f| f.enabled).count();
@@ -472,6 +475,9 @@ pub fn show_filter_bar(ui: &mut egui::Ui, result: &QueryResult, state: &mut Data
             state.filters.remove(idx);
         }
     });
+    
+    // 检测是否有变更（筛选条件数量变化）
+    state.filters.len() != initial_filter_count
 }
 
 /// 快速筛选菜单（右键单元格时显示）
@@ -557,8 +563,67 @@ pub fn show_quick_filter_menu(
     }
 }
 
-/// 过滤行数据
-pub fn filter_rows<'a>(
+/// 计算筛选条件的哈希值（用于缓存比较）
+fn compute_filter_hash(filters: &[ColumnFilter]) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    
+    let mut hasher = DefaultHasher::new();
+    for f in filters {
+        f.column.hash(&mut hasher);
+        f.value.hash(&mut hasher);
+        f.value2.hash(&mut hasher);
+        f.enabled.hash(&mut hasher);
+        f.case_sensitive.hash(&mut hasher);
+        // operator 和 logic 也需要 hash
+        std::mem::discriminant(&f.operator).hash(&mut hasher);
+        std::mem::discriminant(&f.logic).hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// 带缓存的过滤行数据
+pub fn filter_rows_cached<'a>(
+    result: &'a QueryResult,
+    search_text: &str,
+    search_column: &Option<String>,
+    state: &mut super::state::DataGridState,
+) -> Vec<(usize, &'a Vec<String>)> {
+    let filter_hash = compute_filter_hash(&state.filters);
+    let cache = &mut state.filter_cache;
+    
+    // 检查缓存是否有效
+    let cache_valid = cache.valid
+        && cache.last_search_text == search_text
+        && cache.last_search_column == *search_column
+        && cache.last_filter_hash == filter_hash
+        && cache.last_row_count == result.rows.len();
+    
+    if cache_valid {
+        // 使用缓存的索引构建结果
+        return cache
+            .filtered_indices
+            .iter()
+            .filter_map(|&idx| result.rows.get(idx).map(|row| (idx, row)))
+            .collect();
+    }
+    
+    // 重新计算筛选结果
+    let filtered = filter_rows_internal(result, search_text, search_column, &state.filters);
+    
+    // 更新缓存
+    cache.filtered_indices = filtered.iter().map(|(idx, _)| *idx).collect();
+    cache.last_search_text = search_text.to_string();
+    cache.last_search_column = search_column.clone();
+    cache.last_filter_hash = filter_hash;
+    cache.last_row_count = result.rows.len();
+    cache.valid = true;
+    
+    filtered
+}
+
+/// 过滤行数据（内部实现）
+fn filter_rows_internal<'a>(
     result: &'a QueryResult,
     search_text: &str,
     search_column: &Option<String>,

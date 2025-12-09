@@ -4,6 +4,30 @@ use super::filter::ColumnFilter;
 use super::mode::GridMode;
 use std::collections::HashMap;
 
+/// 筛选结果缓存
+#[derive(Default)]
+pub struct FilterCache {
+    /// 缓存的筛选结果（原始行索引列表）
+    pub filtered_indices: Vec<usize>,
+    /// 上次筛选使用的搜索文本
+    pub last_search_text: String,
+    /// 上次筛选使用的搜索列
+    pub last_search_column: Option<String>,
+    /// 上次筛选条件的哈希值（用于快速比较）
+    pub last_filter_hash: u64,
+    /// 上次数据行数（用于检测数据变化）
+    pub last_row_count: usize,
+    /// 缓存是否有效
+    pub valid: bool,
+}
+
+impl FilterCache {
+    /// 使缓存失效
+    pub fn invalidate(&mut self) {
+        self.valid = false;
+    }
+}
+
 /// 表格编辑状态
 #[derive(Default)]
 pub struct DataGridState {
@@ -57,6 +81,8 @@ pub struct DataGridState {
     pub show_quick_filter: bool,
     /// 快速筛选输入内容
     pub quick_filter_input: String,
+    /// 筛选结果缓存
+    pub filter_cache: FilterCache,
 }
 
 impl DataGridState {

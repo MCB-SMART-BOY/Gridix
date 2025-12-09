@@ -110,11 +110,9 @@ fn is_query_statement(sql: &str, db_type: &DatabaseType) -> bool {
 /// 构建查询成功的结果
 #[inline]
 fn query_result(columns: Vec<String>, rows: Vec<Vec<String>>) -> QueryResult {
-    let msg = format!("返回 {} 行", rows.len());
     QueryResult {
         columns,
         rows,
-        message: msg,
         affected_rows: 0,
     }
 }
@@ -122,11 +120,9 @@ fn query_result(columns: Vec<String>, rows: Vec<Vec<String>>) -> QueryResult {
 /// 构建执行成功的结果
 #[inline]
 fn exec_result(affected: u64) -> QueryResult {
-    let msg = format!("影响 {} 行", affected);
     QueryResult {
         columns: vec![],
         rows: vec![],
-        message: msg,
         affected_rows: affected,
     }
 }
@@ -137,7 +133,6 @@ fn empty_result() -> QueryResult {
     QueryResult {
         columns: vec![],
         rows: vec![],
-        message: "无结果".to_string(),
         affected_rows: 0,
     }
 }
@@ -171,7 +166,7 @@ fn execute_sqlite(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, D
             .prepare(sql)
             .map_err(|e| DbError::Query(e.to_string()))?;
 
-        let columns: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+        let columns: Vec<String> = stmt.column_names().into_iter().map(String::from).collect();
 
         let rows: Result<Vec<Vec<String>>, _> = stmt
             .query_map([], |row| {
@@ -197,10 +192,10 @@ fn sqlite_value_to_string(
     val: Result<ValueRef<'_>, rusqlite::Error>,
 ) -> Result<String, rusqlite::Error> {
     Ok(match val? {
-        ValueRef::Null => "NULL".to_string(),
+        ValueRef::Null => String::from("NULL"),
         ValueRef::Integer(i) => i.to_string(),
         ValueRef::Real(f) => f.to_string(),
-        ValueRef::Text(t) => String::from_utf8_lossy(t).to_string(),
+        ValueRef::Text(t) => String::from_utf8_lossy(t).into_owned(),
         ValueRef::Blob(b) => format!("<Blob {} bytes>", b.len()),
     })
 }
@@ -261,7 +256,7 @@ async fn execute_postgres(config: &ConnectionConfig, sql: &str) -> Result<QueryR
         let columns: Vec<String> = rows[0]
             .columns()
             .iter()
-            .map(|c| c.name().to_string())
+            .map(|c| c.name().to_owned())
             .collect();
 
         let data: Vec<Vec<String>> = rows
@@ -303,7 +298,7 @@ fn postgres_row_to_strings(row: &tokio_postgres::Row, col_count: usize) -> Vec<S
                     row.try_get::<_, chrono::NaiveTime>(i)
                         .map(|v| v.format("%H:%M:%S").to_string())
                 })
-                .unwrap_or_else(|_| "NULL".to_string())
+                .unwrap_or_else(|_| String::from("NULL"))
         })
         .collect()
 }
@@ -371,18 +366,13 @@ async fn execute_mysql(config: &ConnectionConfig, sql: &str) -> Result<QueryResu
             .map_err(|e| DbError::Query(e.to_string()))?;
 
         if result.is_empty() {
-            return Ok(QueryResult {
-                columns: vec![],
-                rows: vec![],
-                message: "查询完成，无数据返回".to_string(),
-                affected_rows: 0,
-            });
+            return Ok(empty_result());
         }
 
         let columns: Vec<String> = result[0]
             .columns_ref()
             .iter()
-            .map(|c| c.name_str().to_string())
+            .map(|c| c.name_str().into_owned())
             .collect();
 
         let data: Vec<Vec<String>> = result
@@ -412,7 +402,7 @@ fn mysql_row_to_strings(row: &mysql_async::Row, col_count: usize) -> Vec<String>
         .map(|i| {
             row.get::<mysql_async::Value, _>(i)
                 .map(mysql_value_to_string)
-                .unwrap_or_else(|| "NULL".to_string())
+                .unwrap_or_else(|| String::from("NULL"))
         })
         .collect()
 }
@@ -421,8 +411,8 @@ fn mysql_row_to_strings(row: &mysql_async::Row, col_count: usize) -> Vec<String>
 fn mysql_value_to_string(val: mysql_async::Value) -> String {
     use mysql_async::Value;
     match val {
-        Value::NULL => "NULL".to_string(),
-        Value::Bytes(b) => String::from_utf8_lossy(&b).to_string(),
+        Value::NULL => String::from("NULL"),
+        Value::Bytes(b) => String::from_utf8_lossy(&b).into_owned(),
         Value::Int(i) => i.to_string(),
         Value::UInt(u) => u.to_string(),
         Value::Float(f) => f.to_string(),
