@@ -12,24 +12,57 @@ use tokio::task;
 // 公共入口函数
 // ============================================================================
 
-/// 连接数据库并获取表列表
+/// 连接结果类型
+pub enum ConnectResult {
+    /// SQLite: 直接返回表列表
+    Tables(Vec<String>),
+    /// MySQL/PostgreSQL: 返回数据库列表
+    Databases(Vec<String>),
+}
+
+/// 连接数据库
 ///
-/// # Arguments
-/// * `config` - 数据库连接配置
-///
-/// # Returns
-/// 成功返回表名列表，失败返回错误
-pub async fn connect_and_get_tables(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
+/// - SQLite: 返回表列表
+/// - MySQL/PostgreSQL: 返回数据库列表
+pub async fn connect_database(config: &ConnectionConfig) -> Result<ConnectResult, DbError> {
     let config = config.clone();
+
+    match config.db_type {
+        DatabaseType::SQLite => {
+            let tables = task::spawn_blocking(move || connect_sqlite(&config))
+                .await
+                .map_err(|e| DbError::Connection(format!("任务执行失败: {}", e)))??;
+            Ok(ConnectResult::Tables(tables))
+        }
+        DatabaseType::PostgreSQL => {
+            let databases = get_postgres_databases(&config).await?;
+            Ok(ConnectResult::Databases(databases))
+        }
+        DatabaseType::MySQL => {
+            let databases = get_mysql_databases(&config).await?;
+            Ok(ConnectResult::Databases(databases))
+        }
+    }
+}
+
+/// 获取指定数据库的表列表
+pub async fn get_tables_for_database(
+    config: &ConnectionConfig,
+    database: &str,
+) -> Result<Vec<String>, DbError> {
+    let config = config.clone();
+    let database = database.to_string();
 
     match config.db_type {
         DatabaseType::SQLite => task::spawn_blocking(move || connect_sqlite(&config))
             .await
             .map_err(|e| DbError::Connection(format!("任务执行失败: {}", e)))?,
-        DatabaseType::PostgreSQL => connect_postgres(&config).await,
-        DatabaseType::MySQL => connect_mysql(&config).await,
+        DatabaseType::PostgreSQL => get_postgres_tables(&config, &database).await,
+        DatabaseType::MySQL => get_mysql_tables(&config, &database).await,
     }
 }
+
+
 
 /// 执行 SQL 查询或命令
 ///
@@ -176,8 +209,28 @@ fn sqlite_value_to_string(
 // PostgreSQL 实现（使用连接池）
 // ============================================================================
 
-async fn connect_postgres(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
+/// 获取 PostgreSQL 数据库列表
+async fn get_postgres_databases(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
     let client = POOL_MANAGER.get_pg_client(config).await?;
+
+    let rows = client
+        .query(
+            "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname",
+            &[],
+        )
+        .await
+        .map_err(|e| DbError::Query(e.to_string()))?;
+
+    Ok(rows.iter().map(|r| r.get(0)).collect())
+}
+
+/// 获取 PostgreSQL 指定数据库的表列表
+async fn get_postgres_tables(config: &ConnectionConfig, database: &str) -> Result<Vec<String>, DbError> {
+    // 创建一个临时配置，连接到指定数据库
+    let mut db_config = config.clone();
+    db_config.database = database.to_string();
+    
+    let client = POOL_MANAGER.get_pg_client(&db_config).await?;
 
     let rows = client
         .query(
@@ -189,6 +242,8 @@ async fn connect_postgres(config: &ConnectionConfig) -> Result<Vec<String>, DbEr
 
     Ok(rows.iter().map(|r| r.get(0)).collect())
 }
+
+
 
 async fn execute_postgres(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbError> {
     let client = POOL_MANAGER.get_pg_client(config).await?;
@@ -257,8 +312,34 @@ fn postgres_row_to_strings(row: &tokio_postgres::Row, col_count: usize) -> Vec<S
 // MySQL 实现（使用连接池）
 // ============================================================================
 
-async fn connect_mysql(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
+/// 获取 MySQL 数据库列表
+async fn get_mysql_databases(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
     let pool = POOL_MANAGER.get_mysql_pool(config).await?;
+
+    let mut conn = pool
+        .get_conn()
+        .await
+        .map_err(|e| DbError::Connection(format!("MySQL 获取连接失败: {}", e)))?;
+
+    let databases: Vec<String> = conn
+        .query("SHOW DATABASES")
+        .await
+        .map_err(|e| DbError::Query(e.to_string()))?;
+
+    // 过滤系统数据库
+    Ok(databases
+        .into_iter()
+        .filter(|db| !matches!(db.as_str(), "information_schema" | "mysql" | "performance_schema" | "sys"))
+        .collect())
+}
+
+/// 获取 MySQL 指定数据库的表列表
+async fn get_mysql_tables(config: &ConnectionConfig, database: &str) -> Result<Vec<String>, DbError> {
+    // 创建一个临时配置，连接到指定数据库
+    let mut db_config = config.clone();
+    db_config.database = database.to_string();
+    
+    let pool = POOL_MANAGER.get_mysql_pool(&db_config).await?;
 
     let mut conn = pool
         .get_conn()
@@ -272,6 +353,8 @@ async fn connect_mysql(config: &ConnectionConfig) -> Result<Vec<String>, DbError
 
     Ok(tables)
 }
+
+
 
 async fn execute_mysql(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbError> {
     let pool = POOL_MANAGER.get_mysql_pool(config).await?;

@@ -116,7 +116,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(125, 207, 255),
                 border: Color32::from_rgb(41, 46, 66),
                 border_hover: Color32::from_rgb(122, 162, 247),
-                selection: Color32::from_rgba_unmultiplied(122, 162, 247, 60),
+                selection: Color32::from_rgba_unmultiplied(70, 100, 160, 120),
                 highlight: Color32::from_rgba_unmultiplied(224, 175, 104, 40),
             },
             ThemePreset::TokyoNightStorm => ThemeColors {
@@ -134,7 +134,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(125, 207, 255),
                 border: Color32::from_rgb(59, 66, 97),
                 border_hover: Color32::from_rgb(122, 162, 247),
-                selection: Color32::from_rgba_unmultiplied(122, 162, 247, 60),
+                selection: Color32::from_rgba_unmultiplied(70, 100, 160, 120),
                 highlight: Color32::from_rgba_unmultiplied(224, 175, 104, 40),
             },
             ThemePreset::TokyoNightLight => ThemeColors {
@@ -152,7 +152,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(14, 108, 153),
                 border: Color32::from_rgb(200, 201, 206),
                 border_hover: Color32::from_rgb(52, 84, 138),
-                selection: Color32::from_rgba_unmultiplied(52, 84, 138, 60),
+                selection: Color32::from_rgba_unmultiplied(52, 84, 138, 90),
                 highlight: Color32::from_rgba_unmultiplied(143, 95, 24, 40),
             },
 
@@ -172,7 +172,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(137, 220, 235),
                 border: Color32::from_rgb(69, 71, 90),
                 border_hover: Color32::from_rgb(137, 180, 250),
-                selection: Color32::from_rgba_unmultiplied(137, 180, 250, 60),
+                selection: Color32::from_rgba_unmultiplied(80, 110, 170, 120),
                 highlight: Color32::from_rgba_unmultiplied(249, 226, 175, 40),
             },
             ThemePreset::CatppuccinMacchiato => ThemeColors {
@@ -190,7 +190,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(145, 215, 227),
                 border: Color32::from_rgb(73, 77, 100),
                 border_hover: Color32::from_rgb(138, 173, 244),
-                selection: Color32::from_rgba_unmultiplied(138, 173, 244, 60),
+                selection: Color32::from_rgba_unmultiplied(80, 110, 170, 120),
                 highlight: Color32::from_rgba_unmultiplied(238, 212, 159, 40),
             },
             ThemePreset::CatppuccinFrappe => ThemeColors {
@@ -208,7 +208,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(153, 209, 219),
                 border: Color32::from_rgb(81, 87, 109),
                 border_hover: Color32::from_rgb(140, 170, 238),
-                selection: Color32::from_rgba_unmultiplied(140, 170, 238, 60),
+                selection: Color32::from_rgba_unmultiplied(80, 110, 170, 120),
                 highlight: Color32::from_rgba_unmultiplied(229, 200, 144, 40),
             },
             ThemePreset::CatppuccinLatte => ThemeColors {
@@ -226,7 +226,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(4, 165, 229),
                 border: Color32::from_rgb(204, 208, 218),
                 border_hover: Color32::from_rgb(30, 102, 245),
-                selection: Color32::from_rgba_unmultiplied(30, 102, 245, 50),
+                selection: Color32::from_rgba_unmultiplied(30, 102, 245, 90),
                 highlight: Color32::from_rgba_unmultiplied(223, 142, 29, 40),
             },
 
@@ -246,7 +246,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(86, 182, 194),
                 border: Color32::from_rgb(62, 68, 81),
                 border_hover: Color32::from_rgb(97, 175, 239),
-                selection: Color32::from_rgba_unmultiplied(97, 175, 239, 60),
+                selection: Color32::from_rgba_unmultiplied(60, 100, 150, 120),
                 highlight: Color32::from_rgba_unmultiplied(229, 192, 123, 40),
             },
             ThemePreset::OneDarkVivid => ThemeColors {
@@ -264,7 +264,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(42, 195, 222),
                 border: Color32::from_rgb(62, 68, 81),
                 border_hover: Color32::from_rgb(82, 139, 255),
-                selection: Color32::from_rgba_unmultiplied(82, 139, 255, 60),
+                selection: Color32::from_rgba_unmultiplied(60, 100, 150, 120),
                 highlight: Color32::from_rgba_unmultiplied(239, 191, 107, 40),
             },
             ThemePreset::OneLight => ThemeColors {
@@ -282,7 +282,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(1, 132, 188),
                 border: Color32::from_rgb(218, 219, 220),
                 border_hover: Color32::from_rgb(64, 120, 242),
-                selection: Color32::from_rgba_unmultiplied(64, 120, 242, 50),
+                selection: Color32::from_rgba_unmultiplied(64, 120, 242, 90),
                 highlight: Color32::from_rgba_unmultiplied(152, 104, 1, 40),
             },
 
@@ -302,7 +302,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(131, 165, 152),
                 border: Color32::from_rgb(80, 73, 69),
                 border_hover: Color32::from_rgb(131, 165, 152),
-                selection: Color32::from_rgba_unmultiplied(131, 165, 152, 60),
+                selection: Color32::from_rgba_unmultiplied(80, 110, 100, 120),
                 highlight: Color32::from_rgba_unmultiplied(250, 189, 47, 40),
             },
             ThemePreset::GruvboxLight => ThemeColors {
@@ -320,7 +320,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(69, 133, 136),
                 border: Color32::from_rgb(213, 196, 161),
                 border_hover: Color32::from_rgb(69, 133, 136),
-                selection: Color32::from_rgba_unmultiplied(69, 133, 136, 50),
+                selection: Color32::from_rgba_unmultiplied(69, 133, 136, 90),
                 highlight: Color32::from_rgba_unmultiplied(181, 118, 20, 40),
             },
 
@@ -340,7 +340,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(139, 233, 253),
                 border: Color32::from_rgb(68, 71, 90),
                 border_hover: Color32::from_rgb(189, 147, 249),
-                selection: Color32::from_rgba_unmultiplied(189, 147, 249, 60),
+                selection: Color32::from_rgba_unmultiplied(100, 80, 140, 120),
                 highlight: Color32::from_rgba_unmultiplied(241, 250, 140, 40),
             },
 
@@ -360,7 +360,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(136, 192, 208),
                 border: Color32::from_rgb(67, 76, 94),
                 border_hover: Color32::from_rgb(136, 192, 208),
-                selection: Color32::from_rgba_unmultiplied(136, 192, 208, 60),
+                selection: Color32::from_rgba_unmultiplied(70, 110, 130, 120),
                 highlight: Color32::from_rgba_unmultiplied(235, 203, 139, 40),
             },
 
@@ -380,7 +380,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(42, 161, 152),
                 border: Color32::from_rgb(88, 110, 117),
                 border_hover: Color32::from_rgb(38, 139, 210),
-                selection: Color32::from_rgba_unmultiplied(38, 139, 210, 60),
+                selection: Color32::from_rgba_unmultiplied(40, 90, 130, 120),
                 highlight: Color32::from_rgba_unmultiplied(181, 137, 0, 40),
             },
             ThemePreset::SolarizedLight => ThemeColors {
@@ -398,7 +398,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(42, 161, 152),
                 border: Color32::from_rgb(147, 161, 161),
                 border_hover: Color32::from_rgb(38, 139, 210),
-                selection: Color32::from_rgba_unmultiplied(38, 139, 210, 50),
+                selection: Color32::from_rgba_unmultiplied(38, 139, 210, 90),
                 highlight: Color32::from_rgba_unmultiplied(181, 137, 0, 40),
             },
 
@@ -418,7 +418,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(120, 220, 232),
                 border: Color32::from_rgb(69, 65, 71),
                 border_hover: Color32::from_rgb(255, 216, 102),
-                selection: Color32::from_rgba_unmultiplied(255, 216, 102, 60),
+                selection: Color32::from_rgba_unmultiplied(120, 100, 60, 120),
                 highlight: Color32::from_rgba_unmultiplied(171, 157, 242, 40),
             },
 
@@ -438,7 +438,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(56, 139, 253),
                 border: Color32::from_rgb(48, 54, 61),
                 border_hover: Color32::from_rgb(88, 166, 255),
-                selection: Color32::from_rgba_unmultiplied(88, 166, 255, 60),
+                selection: Color32::from_rgba_unmultiplied(50, 90, 140, 120),
                 highlight: Color32::from_rgba_unmultiplied(210, 153, 34, 40),
             },
             ThemePreset::GithubLight => ThemeColors {
@@ -456,7 +456,7 @@ impl ThemePreset {
                 info: Color32::from_rgb(9, 105, 218),
                 border: Color32::from_rgb(208, 215, 222),
                 border_hover: Color32::from_rgb(9, 105, 218),
-                selection: Color32::from_rgba_unmultiplied(9, 105, 218, 50),
+                selection: Color32::from_rgba_unmultiplied(9, 105, 218, 90),
                 highlight: Color32::from_rgba_unmultiplied(154, 103, 0, 40),
             },
         }
@@ -579,6 +579,9 @@ impl ThemeManager {
 
         // 条纹表格背景
         visuals.striped = true;
+
+        // 设置默认文字颜色（确保白天模式用深色字，黑夜模式用浅色字）
+        visuals.override_text_color = Some(colors.fg_primary);
 
         ctx.set_visuals(visuals);
 

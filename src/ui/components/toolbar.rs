@@ -33,11 +33,17 @@ pub struct ToolbarActions {
     pub theme_changed: Option<ThemePreset>,
     pub toggle_dark_mode: bool,
     pub switch_connection: Option<String>,
+    pub switch_database: Option<String>,
     pub switch_table: Option<String>,
     // 快捷键触发的下拉框打开
     pub open_theme_selector: bool,
     pub open_connection_selector: bool,
+    pub open_database_selector: bool,
     pub open_table_selector: bool,
+    // 缩放操作
+    pub zoom_in: bool,
+    pub zoom_out: bool,
+    pub zoom_reset: bool,
 }
 
 // 暗色主题列表
@@ -68,6 +74,7 @@ const LIGHT_THEMES: &[ThemePreset] = &[
 ];
 
 impl Toolbar {
+    #[allow(clippy::too_many_arguments)]
     pub fn show(
         ui: &mut egui::Ui,
         theme_manager: &ThemeManager,
@@ -78,8 +85,11 @@ impl Toolbar {
         actions: &mut ToolbarActions,
         connections: &[String],
         active_connection: Option<&str>,
+        databases: &[String],
+        selected_database: Option<&str>,
         tables: &[String],
         selected_table: Option<&str>,
+        ui_scale: f32,
     ) {
         actions.show_editor = show_editor;
 
@@ -97,11 +107,13 @@ impl Toolbar {
                     Self::separator(ui);
                     ui.add_space(4.0);
 
-                    // 连接和表选择器
+                    // 连接、数据库和表选择器
                     Self::show_selectors(
                         ui,
                         connections,
                         active_connection,
+                        databases,
+                        selected_database,
                         tables,
                         selected_table,
                         actions,
@@ -121,6 +133,13 @@ impl Toolbar {
                         ui.add_space(8.0);
                         Self::separator(ui);
                         ui.add_space(8.0);
+
+                        // 缩放控制
+                        Self::show_zoom_controls(ui, ui_scale, actions);
+
+                        ui.add_space(4.0);
+                        Self::separator(ui);
+                        ui.add_space(4.0);
 
                         // 主题选择器 - 根据当前模式显示对应主题列表
                         let themes = if is_dark_mode { DARK_THEMES } else { LIGHT_THEMES };
@@ -147,7 +166,11 @@ impl Toolbar {
                         ui.add_space(4.0);
 
                         // 日/夜模式切换按钮
-                        let mode_icon = if is_dark_mode { "🌙" } else { "☀" };
+                        let mode_icon = if is_dark_mode {
+                            "夜 [Ctrl+D]"
+                        } else {
+                            "日 [Ctrl+D]"
+                        };
                         let mode_tooltip = if is_dark_mode {
                             "切换到日间模式 [Ctrl+D]"
                         } else {
@@ -188,6 +211,8 @@ impl Toolbar {
         ui: &mut egui::Ui,
         connections: &[String],
         active_connection: Option<&str>,
+        databases: &[String],
+        selected_database: Option<&str>,
         tables: &[String],
         selected_table: Option<&str>,
         actions: &mut ToolbarActions,
@@ -196,8 +221,8 @@ impl Toolbar {
         if let Some(idx) = Self::helix_combo(
             ui,
             "connection_selector",
-            "🔌",
-            "连接",
+            "[C]",
+            "连接 [Ctrl+1]",
             connections,
             active_connection.and_then(|ac| connections.iter().position(|c| c == ac)),
             180.0,
@@ -209,12 +234,31 @@ impl Toolbar {
         }
         actions.open_connection_selector = false;
 
+        // 数据库选择器（仅当有数据库列表时显示）
+        if !databases.is_empty() {
+            if let Some(idx) = Self::helix_combo(
+                ui,
+                "database_selector",
+                "[D]",
+                "库 [Ctrl+2]",
+                databases,
+                selected_database.and_then(|sd| databases.iter().position(|d| d == sd)),
+                180.0,
+                actions.open_database_selector,
+            ) {
+                if let Some(db_name) = databases.get(idx) {
+                    actions.switch_database = Some(db_name.clone());
+                }
+            }
+            actions.open_database_selector = false;
+        }
+
         // 表选择器
         if let Some(idx) = Self::helix_combo(
             ui,
             "table_selector",
-            "📋",
-            "表",
+            "[T]",
+            "表 [Ctrl+3]",
             tables,
             selected_table.and_then(|st| tables.iter().position(|t| t == st)),
             180.0,
@@ -227,35 +271,73 @@ impl Toolbar {
         actions.open_table_selector = false;
     }
 
+    /// 显示缩放控制
+    fn show_zoom_controls(ui: &mut egui::Ui, ui_scale: f32, actions: &mut ToolbarActions) {
+        // 放大按钮
+        if ui
+            .add(Self::small_button("+"))
+            .on_hover_text("放大 [Ctrl++]")
+            .clicked()
+        {
+            actions.zoom_in = true;
+        }
+
+        // 缩放比例显示（可点击重置）
+        let scale_text = format!("{}%", (ui_scale * 100.0).round() as i32);
+        if ui
+            .add(Self::styled_button(&scale_text))
+            .on_hover_text("重置缩放 [Ctrl+0]")
+            .clicked()
+        {
+            actions.zoom_reset = true;
+        }
+
+        // 缩小按钮
+        if ui
+            .add(Self::small_button("-"))
+            .on_hover_text("缩小 [Ctrl+-]")
+            .clicked()
+        {
+            actions.zoom_out = true;
+        }
+    }
+
+    /// 小按钮样式
+    fn small_button(text: &str) -> egui::Button<'_> {
+        egui::Button::new(RichText::new(text).size(13.0))
+            .rounding(Rounding::same(6.0))
+            .min_size(Vec2::new(28.0, 28.0))
+    }
+
     /// 显示操作按钮
     fn show_action_buttons(ui: &mut egui::Ui, has_result: bool, actions: &mut ToolbarActions) {
         // 刷新
-        if ui.add(Self::styled_button("🔄 刷新 [F5]")).clicked() {
+        if ui.add(Self::styled_button("刷新 [F5]")).clicked() {
             actions.refresh_tables = true;
         }
 
         // 导出
         if ui
-            .add_enabled(has_result, Self::styled_button("📤 导出 [Ctrl+E]"))
+            .add_enabled(has_result, Self::styled_button("导出 [Ctrl+E]"))
             .clicked()
         {
             actions.export = true;
         }
 
         // 导入
-        if ui.add(Self::styled_button("📥 导入 [Ctrl+I]")).clicked() {
+        if ui.add(Self::styled_button("导入 [Ctrl+I]")).clicked() {
             actions.import = true;
         }
 
         Self::separator(ui);
 
         // 历史
-        if ui.add(Self::styled_button("📜 历史 [Ctrl+H]")).clicked() {
+        if ui.add(Self::styled_button("历史 [Ctrl+H]")).clicked() {
             actions.show_history = true;
         }
 
         // 帮助
-        if ui.add(Self::styled_button("❓ 帮助 [F1]")).clicked() {
+        if ui.add(Self::styled_button("帮助 [F1]")).clicked() {
             actions.show_help = true;
         }
     }
@@ -321,7 +403,7 @@ impl Toolbar {
                 .and_then(|i| items.get(i))
                 .map(|s| truncate_text(s, 15))
                 .unwrap_or_else(|| "选择...".to_string());
-            format!("{} {}: {} ▾", icon, label, item_text)
+            format!("{} {}: {}", icon, label, item_text)
         };
 
         // 按钮
@@ -492,10 +574,10 @@ impl Toolbar {
         }
 
         // 按钮
-        let display_text = format!("🎨 {} ▾", current_theme.display_name());
+        let display_text = format!("{} [Ctrl+T]", current_theme.display_name());
         let response = ui
             .add(Self::styled_button(&display_text))
-            .on_hover_text("选择主题");
+            .on_hover_text("选择主题 [Ctrl+T]");
 
         if response.clicked() {
             state.is_open = !state.is_open;
@@ -656,7 +738,7 @@ impl Toolbar {
                 ui.set_min_width(ui.available_width());
                 ui.horizontal(|ui| {
                     // 选中指示器
-                    let indicator = if is_hover { "▸" } else { " " };
+                    let indicator = if is_hover { ">" } else { " " };
                     ui.label(
                         RichText::new(indicator)
                             .color(Color32::from_rgb(130, 180, 255))
@@ -674,7 +756,7 @@ impl Toolbar {
                     // 浅色主题标识
                     if is_light_theme {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(RichText::new("☀").small().color(Color32::from_rgb(255, 200, 100)));
+                            ui.label(RichText::new("日").small().color(Color32::from_rgb(255, 200, 100)));
                         });
                     }
                 });

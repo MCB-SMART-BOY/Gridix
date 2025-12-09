@@ -20,7 +20,7 @@ mod render;
 mod state;
 
 pub use actions::DataGridActions;
-pub use filter::{ColumnFilter, FilterOperator};
+pub use filter::ColumnFilter;
 pub use mode::GridMode;
 pub use state::DataGridState;
 
@@ -36,14 +36,15 @@ use egui_extras::{Column, TableBuilder};
 pub(crate) const TEXT_HEIGHT: f32 = 20.0;
 pub(crate) const ROW_HEIGHT: f32 = TEXT_HEIGHT + 8.0;
 pub(crate) const HEADER_HEIGHT: f32 = 28.0;
-pub(crate) const MIN_COL_WIDTH: f32 = 80.0;
+pub(crate) const MIN_COL_WIDTH: f32 = 60.0;
+pub(crate) const MAX_COL_WIDTH: f32 = 300.0;
 pub(crate) const ROW_NUM_WIDTH: f32 = 50.0;
 pub(crate) const CELL_TRUNCATE_LEN: usize = 50;
+/// 每个字符的估计宽度（像素）
+pub(crate) const CHAR_WIDTH: f32 = 8.0;
 
 use egui::Color32;
 pub(crate) const COLOR_CELL_SELECTED: Color32 = Color32::from_rgb(60, 100, 180);
-pub(crate) const COLOR_ROW_SELECTED: Color32 = Color32::from_rgb(50, 50, 70);
-pub(crate) const COLOR_ROW_NUM_BG: Color32 = Color32::from_rgb(40, 40, 45);
 pub(crate) const COLOR_CELL_EDITING: Color32 = Color32::from_rgb(80, 120, 200);
 pub(crate) const COLOR_CELL_MODIFIED: Color32 = Color32::from_rgb(100, 150, 80);
 pub(crate) const COLOR_VISUAL_SELECT: Color32 = Color32::from_rgb(120, 80, 160);
@@ -84,6 +85,11 @@ impl DataGrid {
         // 显示保存确认对话框
         Self::show_save_confirm_dialog(ui.ctx(), state, &mut actions);
 
+        // 显示快速筛选对话框
+        if let Some(new_filter) = filter::show_quick_filter_dialog(ui.ctx(), state, &result.columns) {
+            state.filters.push(new_filter);
+        }
+
         // 显示筛选栏
         filter::show_filter_bar(ui, result, state);
 
@@ -111,40 +117,74 @@ impl DataGrid {
         *selected_row = Some(state.cursor.0);
         *selected_cell = Some(state.cursor);
 
-        // 计算列宽
-        let available_width = ui.available_width();
-        let data_width = available_width - ROW_NUM_WIDTH;
-        let col_width = (data_width / result.columns.len() as f32).max(MIN_COL_WIDTH);
+        // 计算每列的最佳宽度（基于内容长度）
+        let col_widths = Self::calculate_column_widths(result, &filtered_rows);
 
         // 收集需要添加筛选的列
         let mut columns_to_filter: Vec<String> = Vec::new();
 
-        // 获取需要滚动到的行
+        // 获取需要滚动到的行（表格内部处理垂直滚动）
         let scroll_to_row = state.scroll_to_row.take();
+        let _ = state.scroll_to_col.take();
+        
+        // 获取可用宽度
+        let available_width = ui.available_width();
+        
+        // 计算目标列的位置信息
+        let current_col = state.cursor.1;
+        let mut col_left = ROW_NUM_WIDTH;
+        for i in 0..current_col {
+            if let Some(&w) = col_widths.get(i) {
+                col_left += w;
+            }
+        }
+        let col_width = col_widths.get(current_col).copied().unwrap_or(MIN_COL_WIDTH);
+        let col_right = col_left + col_width;
+        
+        // 检测光标列是否改变
+        let col_changed = current_col != state.last_cursor_col;
+        state.last_cursor_col = current_col;
+        
+        // 计算水平滚动偏移
+        let mut target_h_offset = state.h_scroll_offset;
+        if col_changed {
+            // 向左移动时：确保列的左边缘可见
+            if col_left < state.h_scroll_offset + ROW_NUM_WIDTH {
+                target_h_offset = (col_left - ROW_NUM_WIDTH).max(0.0);
+            }
+            // 向右移动时：确保列的右边缘完全可见（预留100像素边距）
+            else if col_right > state.h_scroll_offset + available_width - 100.0 {
+                target_h_offset = col_right - available_width + 100.0;
+            }
+        }
 
         // 创建表格
         let table_response = egui::Frame::none().show(ui, |ui| {
-            egui::ScrollArea::both()
+            let scroll_output = egui::ScrollArea::horizontal()
                 .auto_shrink([false, false])
+                .scroll_offset(egui::vec2(target_h_offset, 0.0))
                 .show(ui, |ui| {
-                    // 构建表格，使用 scroll_to_row 实现滚动跟随
+                    // 构建表格，保留内部垂直滚动
                     let mut table_builder = TableBuilder::new(ui)
-                        .striped(false) // 我们自己实现斑马线
+                        .striped(true)
                         .resizable(true)
                         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                        .column(Column::exact(ROW_NUM_WIDTH))
-                        .columns(
-                            Column::initial(col_width)
+                        .column(Column::exact(ROW_NUM_WIDTH));
+
+                    // 为每列设置基于内容的初始宽度
+                    for &width in &col_widths {
+                        table_builder = table_builder.column(
+                            Column::initial(width)
                                 .at_least(MIN_COL_WIDTH)
                                 .clip(true),
-                            result.columns.len(),
                         );
-
-                    // 如果需要滚动到某行
-                    if let Some(target_row) = scroll_to_row {
-                        table_builder =
-                            table_builder.scroll_to_row(target_row, Some(egui::Align::Center));
                     }
+
+                    // 使用表格内部的垂直滚动
+                    if let Some(target_row) = scroll_to_row {
+                        table_builder = table_builder.scroll_to_row(target_row, Some(egui::Align::Center));
+                    }
+
 
                     table_builder
                         .header(HEADER_HEIGHT, |mut header| {
@@ -175,6 +215,9 @@ impl DataGrid {
                                     let is_row_deleted =
                                         state.rows_to_delete.contains(original_idx);
 
+                                    // 使用 set_selected 设置整行高亮（行级别）
+                                    row.set_selected(is_cursor_row || is_row_deleted);
+
                                     // 行号列
                                     row.col(|ui| {
                                         render::render_row_number(
@@ -204,16 +247,14 @@ impl DataGrid {
                             });
                         });
                 });
+            // 更新保存的水平滚动偏移量
+            state.h_scroll_offset = scroll_output.state.offset.x;
         });
 
         // 处理列筛选点击
         for col_name in columns_to_filter {
             if !state.filters.iter().any(|f| f.column == col_name) {
-                state.filters.push(ColumnFilter {
-                    column: col_name,
-                    operator: FilterOperator::Contains,
-                    value: String::new(),
-                });
+                state.filters.push(ColumnFilter::new(col_name));
             }
         }
 
@@ -279,11 +320,9 @@ impl DataGrid {
                 .on_hover_text("添加数据筛选条件\n快捷键: / (在 Normal 模式)")
                 .clicked()
             {
-                state.filters.push(ColumnFilter {
-                    column: result.columns.first().cloned().unwrap_or_default(),
-                    operator: FilterOperator::Contains,
-                    value: String::new(),
-                });
+                state.filters.push(ColumnFilter::new(
+                    result.columns.first().cloned().unwrap_or_default(),
+                ));
             }
 
             // 操作按钮
@@ -300,8 +339,8 @@ impl DataGrid {
 
                 let has_changes = state.has_changes();
                 if ui
-                    .add_enabled(has_changes, egui::Button::new("保存 [:w]"))
-                    .on_hover_text("保存所有修改到数据库\n快捷键: :w")
+                    .add_enabled(has_changes, egui::Button::new("保存 [Ctrl+S]"))
+                    .on_hover_text("保存所有修改到数据库\n快捷键: Ctrl+S")
                     .clicked()
                 {
                     if let Some(table) = table_name {
@@ -310,8 +349,8 @@ impl DataGrid {
                 }
 
                 if ui
-                    .add_enabled(has_changes, egui::Button::new("放弃 [:q!]"))
-                    .on_hover_text("放弃所有未保存的修改\n快捷键: :q!")
+                    .add_enabled(has_changes, egui::Button::new("放弃 [Ctrl+Shift+Z]"))
+                    .on_hover_text("放弃所有未保存的修改\n快捷键: Ctrl+Shift+Z")
                     .clicked()
                 {
                     state.clear_edits();
@@ -349,6 +388,40 @@ impl DataGrid {
                 ui.label(RichText::new(help).small().color(GRAY));
             });
         });
+    }
+
+    /// 计算每列的最佳宽度（基于内容长度）
+    fn calculate_column_widths(
+        result: &QueryResult,
+        filtered_rows: &[(usize, &Vec<String>)],
+    ) -> Vec<f32> {
+        let mut col_widths = Vec::with_capacity(result.columns.len());
+
+        for (col_idx, col_name) in result.columns.iter().enumerate() {
+            // 从列名开始计算最大长度
+            let mut max_len = col_name.chars().count();
+
+            // 采样前 100 行来计算内容最大长度（避免大数据集性能问题）
+            let sample_count = filtered_rows.len().min(100);
+            for (_, row_data) in filtered_rows.iter().take(sample_count) {
+                if let Some(cell) = row_data.get(col_idx) {
+                    let cell_len = cell.chars().count();
+                    if cell_len > max_len {
+                        max_len = cell_len;
+                    }
+                }
+            }
+
+            // 计算宽度：字符数 * 字符宽度 + 内边距
+            let padding = 24.0; // 左右内边距 + 筛选按钮空间
+            let width = (max_len as f32 * CHAR_WIDTH + padding)
+                .max(MIN_COL_WIDTH)
+                .min(MAX_COL_WIDTH);
+
+            col_widths.push(width);
+        }
+
+        col_widths
     }
 
     /// 显示空状态

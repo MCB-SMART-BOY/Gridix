@@ -47,6 +47,7 @@ impl SqlEditor {
         autocomplete: &AutoComplete,
         show_autocomplete: &mut bool,
         selected_completion: &mut usize,
+        request_focus: &mut bool,
     ) -> SqlEditorActions {
         let mut actions = SqlEditorActions::default();
 
@@ -179,6 +180,12 @@ impl SqlEditor {
                                             .hint_text("输入 SQL... (Enter 执行)")
                                             .layouter(&mut layouter),
                                     );
+
+                                    // 如果请求聚焦，则聚焦到编辑器
+                                    if *request_focus {
+                                        response.request_focus();
+                                        *request_focus = false;
+                                    }
 
                                     // 处理快捷键
                                     if response.has_focus() {

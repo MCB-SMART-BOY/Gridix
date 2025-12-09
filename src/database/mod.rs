@@ -88,6 +88,8 @@ pub struct ConnectionConfig {
         deserialize_with = "decode_password"
     )]
     pub password: String,
+    /// 数据库名（SQLite 为文件路径，MySQL/PostgreSQL 为可选的默认数据库）
+    #[serde(default)]
     pub database: String,
 }
 
@@ -147,33 +149,52 @@ impl ConnectionConfig {
         }
     }
 
-    /// 生成连接字符串
+    /// 生成连接字符串（带数据库名）
     pub fn connection_string(&self) -> String {
+        self.connection_string_with_db(Some(&self.database))
+    }
+
+    /// 生成连接字符串（可指定数据库名）
+    pub fn connection_string_with_db(&self, database: Option<&str>) -> String {
         match self.db_type {
             DatabaseType::SQLite => self.database.clone(),
-            DatabaseType::PostgreSQL => format!(
-                "host={} port={} user={} password={} dbname={}",
-                self.host, self.port, self.username, self.password, self.database
-            ),
-            DatabaseType::MySQL => format!(
-                "mysql://{}:{}@{}:{}/{}",
-                self.username, self.password, self.host, self.port, self.database
-            ),
+            DatabaseType::PostgreSQL => {
+                let db = database.filter(|s| !s.is_empty()).unwrap_or("postgres");
+                format!(
+                    "host={} port={} user={} password={} dbname={}",
+                    self.host, self.port, self.username, self.password, db
+                )
+            }
+            DatabaseType::MySQL => {
+                if let Some(db) = database.filter(|s| !s.is_empty()) {
+                    format!(
+                        "mysql://{}:{}@{}:{}/{}",
+                        self.username, self.password, self.host, self.port, db
+                    )
+                } else {
+                    format!(
+                        "mysql://{}:{}@{}:{}",
+                        self.username, self.password, self.host, self.port
+                    )
+                }
+            }
         }
     }
 
-    /// 生成唯一的连接标识符（用于连接池缓存）
+    /// 生成唯一的连接标识符（用于连接池缓存，按用户+主机区分）
     pub fn pool_key(&self) -> String {
         match self.db_type {
             DatabaseType::SQLite => format!("sqlite:{}", self.database),
             DatabaseType::PostgreSQL => {
-                format!("pg:{}:{}:{}", self.host, self.port, self.database)
+                format!("pg:{}:{}:{}", self.host, self.port, self.username)
             }
             DatabaseType::MySQL => {
-                format!("mysql:{}:{}:{}", self.host, self.port, self.database)
+                format!("mysql:{}:{}:{}", self.host, self.port, self.username)
             }
         }
     }
+
+
 
     /// 验证配置是否有效
     #[allow(dead_code)]
@@ -249,6 +270,11 @@ impl QueryResult {
 pub struct Connection {
     pub config: ConnectionConfig,
     pub connected: bool,
+    /// 可用的数据库列表（MySQL/PostgreSQL）
+    pub databases: Vec<String>,
+    /// 当前选中的数据库
+    pub selected_database: Option<String>,
+    /// 当前数据库的表列表
     pub tables: Vec<String>,
     pub error: Option<String>,
 }
@@ -265,20 +291,40 @@ impl Connection {
     /// 重置连接状态
     pub fn reset(&mut self) {
         self.connected = false;
+        self.databases.clear();
+        self.selected_database = None;
         self.tables.clear();
         self.error = None;
     }
 
-    /// 设置连接成功
+    /// 设置连接成功（带数据库列表）
+    pub fn set_connected_with_databases(&mut self, databases: Vec<String>) {
+        self.connected = true;
+        self.databases = databases;
+        self.tables.clear();
+        self.error = None;
+    }
+
+    /// 设置连接成功（SQLite 模式，直接设置表）
     pub fn set_connected(&mut self, tables: Vec<String>) {
         self.connected = true;
+        self.databases.clear();
+        self.selected_database = None;
         self.tables = tables;
         self.error = None;
+    }
+
+    /// 设置选中的数据库及其表列表
+    pub fn set_database(&mut self, database: String, tables: Vec<String>) {
+        self.selected_database = Some(database);
+        self.tables = tables;
     }
 
     /// 设置连接失败
     pub fn set_error(&mut self, error: String) {
         self.connected = false;
+        self.databases.clear();
+        self.selected_database = None;
         self.tables.clear();
         self.error = Some(error);
     }
@@ -510,4 +556,4 @@ lazy_static::lazy_static! {
 
 mod query;
 
-pub use query::{connect_and_get_tables, execute_query};
+pub use query::{connect_database, execute_query, get_tables_for_database, ConnectResult};

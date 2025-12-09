@@ -12,6 +12,8 @@ struct ConnectionItemData {
     is_connected: bool,
     db_type: String,
     host: String,
+    databases: Vec<String>,
+    selected_database: Option<String>,
     tables: Vec<String>,
     error: Option<String>,
 }
@@ -22,6 +24,7 @@ pub struct SidebarActions {
     pub connect: Option<String>,
     pub disconnect: Option<String>,
     pub delete: Option<String>,
+    pub select_database: Option<String>,
     pub show_table_schema: Option<String>,
     pub query_table: Option<String>,
 }
@@ -34,6 +37,7 @@ impl SidebarActions {
         self.connect.is_some()
             || self.disconnect.is_some()
             || self.delete.is_some()
+            || self.select_database.is_some()
             || self.show_table_schema.is_some()
             || self.query_table.is_some()
     }
@@ -186,6 +190,8 @@ impl Sidebar {
                 is_connected: conn.connected,
                 db_type: conn.config.db_type.display_name().to_string(),
                 host: conn.config.host.clone(),
+                databases: conn.databases.clone(),
+                selected_database: conn.selected_database.clone(),
                 tables: conn.tables.clone(),
                 error: conn.error.clone(),
             }
@@ -219,8 +225,20 @@ impl Sidebar {
 
                     ui.add_space(SPACING_MD);
 
-                    // 表列表
-                    if conn_data.is_connected {
+                    // 如果有数据库列表（MySQL/PostgreSQL），显示数据库列表
+                    if conn_data.is_connected && !conn_data.databases.is_empty() {
+                        Self::show_database_list(
+                            ui,
+                            name,
+                            &conn_data.databases,
+                            conn_data.selected_database.as_deref(),
+                            &conn_data.tables,
+                            connection_manager,
+                            selected_table,
+                            actions,
+                        );
+                    } else if conn_data.is_connected {
+                        // SQLite 模式：直接显示表列表
                         Self::show_table_list(
                             ui,
                             name,
@@ -242,7 +260,7 @@ impl Sidebar {
                 let is_active_for_menu = conn_data.is_active;
                 header_response.header_response.context_menu(|ui| {
                     if is_active_for_menu {
-                        if ui.button("🔌 断开连接").clicked() {
+                        if ui.button("断开连接").clicked() {
                             actions.disconnect = Some(name.to_string());
                             ui.close_menu();
                         }
@@ -346,7 +364,132 @@ impl Sidebar {
         });
     }
 
-    /// 显示表列表
+    /// 显示数据库列表（MySQL/PostgreSQL）
+    #[allow(clippy::too_many_arguments)]
+    fn show_database_list(
+        ui: &mut egui::Ui,
+        conn_name: &str,
+        databases: &[String],
+        selected_database: Option<&str>,
+        tables: &[String],
+        connection_manager: &mut ConnectionManager,
+        selected_table: &mut Option<String>,
+        actions: &mut SidebarActions,
+    ) {
+        // 数据库列表
+        for database in databases {
+            let is_selected = selected_database == Some(database.as_str());
+
+            // 数据库项 - 整行可点击
+            let db_response = egui::Frame::none()
+                .fill(if is_selected {
+                    Color32::from_rgba_unmultiplied(80, 140, 80, 50)
+                } else {
+                    Color32::TRANSPARENT
+                })
+                .rounding(Rounding::same(4.0))
+                .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        // 数据库名称
+                        let db_color = if is_selected {
+                            Color32::from_rgb(140, 220, 140)
+                        } else {
+                            Color32::from_rgb(180, 180, 190)
+                        };
+                        ui.label(RichText::new(database).color(db_color));
+                        
+                        // 表数量提示（选中时显示）
+                        if is_selected {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(RichText::new(format!("{} 表", tables.len())).small().color(MUTED));
+                            });
+                        }
+                    });
+                })
+                .response
+                .interact(egui::Sense::click());
+
+            // 左键点击 - 选择数据库
+            if db_response.clicked() {
+                connection_manager.active = Some(conn_name.to_string());
+                actions.select_database = Some(database.clone());
+            }
+
+            // 如果此数据库被选中，显示其下的表列表
+            if is_selected && !tables.is_empty() {
+                Self::show_table_list_nested(
+                    ui,
+                    conn_name,
+                    tables,
+                    connection_manager,
+                    selected_table,
+                    actions,
+                );
+            }
+        }
+    }
+
+    /// 显示嵌套的表列表（在数据库下方）
+    fn show_table_list_nested(
+        ui: &mut egui::Ui,
+        conn_name: &str,
+        tables: &[String],
+        connection_manager: &mut ConnectionManager,
+        selected_table: &mut Option<String>,
+        actions: &mut SidebarActions,
+    ) {
+        // 表列表
+        for table in tables {
+            let is_selected = selected_table.as_deref() == Some(table);
+
+            // 表项 - 带缩进
+            ui.horizontal(|ui| {
+                ui.add_space(SPACING_LG);
+
+                let response = egui::Frame::none()
+                    .fill(if is_selected {
+                        Color32::from_rgba_unmultiplied(80, 120, 180, 50)
+                    } else {
+                        Color32::TRANSPARENT
+                    })
+                    .rounding(Rounding::same(4.0))
+                    .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+                    .show(ui, |ui| {
+                        ui.set_min_width(ui.available_width() - 8.0);
+                        let text_color = if is_selected {
+                            Color32::from_rgb(150, 200, 255)
+                        } else {
+                            Color32::from_rgb(170, 170, 180)
+                        };
+                        ui.label(RichText::new(table).color(text_color));
+                    })
+                    .response
+                    .interact(egui::Sense::click());
+
+                // 左键点击 - 查询表数据
+                if response.clicked() {
+                    *selected_table = Some(table.clone());
+                    connection_manager.active = Some(conn_name.to_string());
+                    actions.query_table = Some(table.clone());
+                }
+
+                // 右键菜单
+                response.context_menu(|ui| {
+                    if ui.button("查询前 100 行").clicked() {
+                        actions.query_table = Some(table.clone());
+                        ui.close_menu();
+                    }
+                    if ui.button("查看表结构").clicked() {
+                        actions.show_table_schema = Some(table.clone());
+                        ui.close_menu();
+                    }
+                });
+            });
+        }
+    }
+
+    /// 显示表列表（SQLite 模式，直接在连接下）
     fn show_table_list(
         ui: &mut egui::Ui,
         conn_name: &str,
@@ -367,7 +510,7 @@ impl Sidebar {
         ui.horizontal(|ui| {
             ui.add_space(SPACING_LG);
             ui.label(
-                RichText::new(format!("📋 数据表 ({})", tables.len()))
+                RichText::new(format!("数据表 ({})", tables.len()))
                     .small()
                     .strong()
                     .color(GRAY),
@@ -394,7 +537,7 @@ impl Sidebar {
                     .inner_margin(egui::Margin::symmetric(8.0, 4.0))
                     .show(ui, |ui| {
                         ui.set_min_width(ui.available_width() - 8.0);
-                        let icon = if is_selected { "▸" } else { " " };
+                        let icon = if is_selected { ">" } else { " " };
                         let color = if is_selected {
                             Color32::from_rgb(150, 200, 255)
                         } else {

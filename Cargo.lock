@@ -3741,6 +3741,7 @@ dependencies = [
  "egui_extras",
  "lazy_static",
  "mysql_async",
+ "regex",
  "rfd",
  "rusqlite",
  "serde",

@@ -12,14 +12,19 @@ use crate::core::{
     AutoComplete, ExportFormat, HighlightColors, QueryHistory, ThemeManager, ThemePreset,
 };
 use crate::database::{
-    connect_and_get_tables, execute_query, ConnectionConfig, ConnectionManager, QueryResult,
+    connect_database, execute_query, get_tables_for_database, ConnectResult,
+    ConnectionConfig, ConnectionManager, QueryResult,
 };
 use crate::ui::{self, SqlEditorActions, ToolbarActions};
 
 /// 异步任务完成后发送的消息
 enum Message {
-    /// 数据库连接完成 (连接名, 表列表结果)
-    Connected(String, Result<Vec<String>, String>),
+    /// 数据库连接完成 - SQLite 模式 (连接名, 表列表结果)
+    ConnectedWithTables(String, Result<Vec<String>, String>),
+    /// 数据库连接完成 - MySQL/PostgreSQL 模式 (连接名, 数据库列表结果)
+    ConnectedWithDatabases(String, Result<Vec<String>, String>),
+    /// 数据库选择完成 (连接名, 数据库名, 表列表结果)
+    DatabaseSelected(String, String, Result<Vec<String>, String>),
     /// 查询执行完成 (SQL语句, 查询结果, 耗时毫秒)
     QueryDone(String, Result<QueryResult, String>, u64),
 }
@@ -93,12 +98,18 @@ pub struct DbManagerApp {
 
     // SQL 编辑器显示状态
     show_sql_editor: bool,
+    // SQL 编辑器需要聚焦
+    focus_sql_editor: bool,
     // 侧边栏显示状态
     show_sidebar: bool,
     // 帮助面板显示状态
     show_help: bool,
     // 帮助面板滚动位置
     help_scroll_offset: f32,
+    // UI 缩放比例
+    ui_scale: f32,
+    // 基础 DPI 缩放（系统设置）
+    base_pixels_per_point: f32,
 }
 
 impl DbManagerApp {
@@ -117,6 +128,11 @@ impl DbManagerApp {
 
         // 应用主题
         theme_manager.apply(&cc.egui_ctx);
+
+        // 获取基础 DPI 缩放并应用用户缩放设置
+        let base_pixels_per_point = cc.egui_ctx.pixels_per_point();
+        let ui_scale = app_config.ui_scale.clamp(0.5, 2.0);
+        cc.egui_ctx.set_pixels_per_point(base_pixels_per_point * ui_scale);
 
         // 从配置恢复连接
         let mut manager = ConnectionManager::default();
@@ -160,10 +176,22 @@ impl DbManagerApp {
             show_autocomplete: false,
             selected_completion: 0,
             show_sql_editor: true,
+            focus_sql_editor: false,
             show_sidebar: true,
             show_help: false,
             help_scroll_offset: 0.0,
+            ui_scale,
+            base_pixels_per_point,
         }
+    }
+
+    /// 设置 UI 缩放比例
+    fn set_ui_scale(&mut self, ctx: &egui::Context, scale: f32) {
+        let scale = scale.clamp(0.5, 2.0);
+        self.ui_scale = scale;
+        self.app_config.ui_scale = scale;
+        ctx.set_pixels_per_point(self.base_pixels_per_point * scale);
+        let _ = self.app_config.save();
     }
 
     fn set_theme(&mut self, ctx: &egui::Context, preset: ThemePreset) {
@@ -222,10 +250,41 @@ impl DbManagerApp {
             self.manager.active = Some(name.clone());
 
             self.runtime.spawn(async move {
-                let result = connect_and_get_tables(&config).await;
-                let tables_result = result.map_err(|e| e.to_string());
-                tx.send(Message::Connected(name_clone, tables_result)).ok();
+                let result = connect_database(&config).await;
+                match result {
+                    Ok(ConnectResult::Tables(tables)) => {
+                        // SQLite 模式：直接返回表列表
+                        tx.send(Message::ConnectedWithTables(name_clone, Ok(tables))).ok();
+                    }
+                    Ok(ConnectResult::Databases(databases)) => {
+                        // MySQL/PostgreSQL 模式：返回数据库列表
+                        tx.send(Message::ConnectedWithDatabases(name_clone, Ok(databases))).ok();
+                    }
+                    Err(e) => {
+                        tx.send(Message::ConnectedWithTables(name_clone, Err(e.to_string()))).ok();
+                    }
+                }
             });
+        }
+    }
+
+    /// 选择数据库（MySQL/PostgreSQL）
+    fn select_database(&mut self, database: String) {
+        if let Some(active_name) = self.manager.active.clone() {
+            if let Some(conn) = self.manager.connections.get(&active_name) {
+                let config = conn.config.clone();
+                let tx = self.tx.clone();
+                let name_clone = active_name.clone();
+                let db_clone = database.clone();
+
+                self.connecting = true;
+
+                self.runtime.spawn(async move {
+                    let result = get_tables_for_database(&config, &db_clone).await;
+                    let tables_result = result.map_err(|e| e.to_string());
+                    tx.send(Message::DatabaseSelected(name_clone, db_clone, tables_result)).ok();
+                });
+            }
         }
     }
 
@@ -298,7 +357,8 @@ impl DbManagerApp {
     fn handle_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
             match msg {
-                Message::Connected(name, result) => {
+                Message::ConnectedWithTables(name, result) => {
+                    // SQLite 模式：直接获得表列表
                     self.connecting = false;
                     match &result {
                         Ok(tables) => {
@@ -314,7 +374,65 @@ impl DbManagerApp {
                             self.autocomplete.clear();
                         }
                     }
-                    self.manager.handle_connect_result(&name, result);
+                    // 使用旧的 handler（对于 SQLite）
+                    if let Some(conn) = self.manager.connections.get_mut(&name) {
+                        match result {
+                            Ok(tables) => conn.set_connected(tables),
+                            Err(e) => conn.set_error(e),
+                        }
+                    }
+                    ctx.request_repaint();
+                }
+                Message::ConnectedWithDatabases(name, result) => {
+                    // MySQL/PostgreSQL 模式：获得数据库列表
+                    self.connecting = false;
+                    match &result {
+                        Ok(databases) => {
+                            self.last_message =
+                                Some(format!("已连接到 {} ({} 个数据库)", name, databases.len()));
+                            // 加载该连接的历史记录
+                            self.load_history_for_connection(&name);
+                            // 清空表的自动补全，等选择数据库后再设置
+                            self.autocomplete.clear();
+                        }
+                        Err(e) => {
+                            self.last_message = Some(format!("连接失败: {}", e));
+                            self.autocomplete.clear();
+                        }
+                    }
+                    if let Some(conn) = self.manager.connections.get_mut(&name) {
+                        match result {
+                            Ok(databases) => conn.set_connected_with_databases(databases),
+                            Err(e) => conn.set_error(e),
+                        }
+                    }
+                    ctx.request_repaint();
+                }
+                Message::DatabaseSelected(conn_name, db_name, result) => {
+                    // 数据库选择完成：获得表列表
+                    self.connecting = false;
+                    match &result {
+                        Ok(tables) => {
+                            self.last_message =
+                                Some(format!("已选择数据库 {} ({} 张表)", db_name, tables.len()));
+                            // 更新自动补全的表列表
+                            self.autocomplete.set_tables(tables.clone());
+                        }
+                        Err(e) => {
+                            self.last_message = Some(format!("选择数据库失败: {}", e));
+                        }
+                    }
+                    if let Some(conn) = self.manager.connections.get_mut(&conn_name) {
+                        match result {
+                            Ok(tables) => conn.set_database(db_name, tables),
+                            Err(e) => {
+                                self.last_message = Some(format!("选择数据库失败: {}", e));
+                            }
+                        }
+                    }
+                    // 清空已选择的表
+                    self.selected_table = None;
+                    self.result = None;
                     ctx.request_repaint();
                 }
                 Message::QueryDone(sql, result, elapsed_ms) => {
@@ -469,6 +587,14 @@ impl DbManagerApp {
             // Ctrl+J: 切换 SQL 编辑器显示
             if i.modifiers.ctrl && i.key_pressed(egui::Key::J) {
                 self.show_sql_editor = !self.show_sql_editor;
+                if self.show_sql_editor {
+                    // 打开时自动聚焦到编辑器
+                    self.focus_sql_editor = true;
+                    self.grid_state.focused = false;
+                } else {
+                    // 关闭时将焦点还给数据表格
+                    self.grid_state.focused = true;
+                }
             }
 
             // Ctrl+B: 切换侧边栏显示
@@ -490,11 +616,7 @@ impl DbManagerApp {
             if i.modifiers.ctrl && i.key_pressed(egui::Key::F) && !i.modifiers.shift {
                 if let Some(result) = &self.result {
                     if let Some(col) = result.columns.first() {
-                        self.grid_state.filters.push(ui::components::ColumnFilter {
-                            column: col.clone(),
-                            operator: ui::components::FilterOperator::Contains,
-                            value: String::new(),
-                        });
+                        self.grid_state.filters.push(ui::components::ColumnFilter::new(col.clone()));
                     }
                 }
             }
@@ -516,12 +638,56 @@ impl DbManagerApp {
             }
         });
     }
+
+    /// 处理缩放快捷键（需要在 update 中调用以获取 ctx）
+    fn handle_zoom_shortcuts(&mut self, ctx: &egui::Context) {
+        let zoom_delta = ctx.input(|i| {
+            let mut delta = 0.0f32;
+
+            // Ctrl++ 或 Ctrl+= 放大
+            if i.modifiers.ctrl && (i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals)) {
+                delta = 0.1;
+            }
+
+            // Ctrl+- 缩小
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::Minus) {
+                delta = -0.1;
+            }
+
+            // Ctrl+0 重置缩放
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::Num0) {
+                return Some(-999.0); // 特殊值表示重置
+            }
+
+            // Ctrl+滚轮缩放
+            if i.modifiers.ctrl && i.raw_scroll_delta.y != 0.0 {
+                delta = i.raw_scroll_delta.y * 0.001;
+            }
+
+            if delta != 0.0 {
+                Some(delta)
+            } else {
+                None
+            }
+        });
+
+        if let Some(delta) = zoom_delta {
+            if delta == -999.0 {
+                // 重置为 1.0
+                self.set_ui_scale(ctx, 1.0);
+            } else {
+                let new_scale = self.ui_scale + delta;
+                self.set_ui_scale(ctx, new_scale);
+            }
+        }
+    }
 }
 
 impl eframe::App for DbManagerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_messages(ctx);
         self.handle_keyboard_shortcuts(ctx);
+        self.handle_zoom_shortcuts(ctx);
 
         let mut save_connection = false;
         let mut toolbar_actions = ToolbarActions::default();
@@ -536,8 +702,12 @@ impl eframe::App for DbManagerApp {
             if i.modifiers.ctrl && i.key_pressed(egui::Key::Num1) {
                 toolbar_actions.open_connection_selector = true;
             }
-            // Ctrl+2: 打开表选择器
+            // Ctrl+2: 打开数据库选择器
             if i.modifiers.ctrl && i.key_pressed(egui::Key::Num2) {
+                toolbar_actions.open_database_selector = true;
+            }
+            // Ctrl+3: 打开表选择器
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::Num3) {
                 toolbar_actions.open_table_selector = true;
             }
             // Ctrl+D: 切换日/夜模式
@@ -659,19 +829,26 @@ impl eframe::App for DbManagerApp {
                         &self.autocomplete,
                         &mut self.show_autocomplete,
                         &mut self.selected_completion,
+                        &mut self.focus_sql_editor,
                     );
                 });
         }
 
         // ===== 中心面板 =====
         egui::CentralPanel::default().show(ctx, |ui| {
-            // 准备连接和表列表数据
+            // 准备连接、数据库和表列表数据
             let connections: Vec<String> = self.manager.connections.keys().cloned().collect();
             let active_connection = self.manager.active.as_deref();
-            let tables: Vec<String> = self
+            let (databases, selected_database, tables): (Vec<String>, Option<&str>, Vec<String>) = self
                 .manager
                 .get_active()
-                .map(|c| c.tables.clone())
+                .map(|c| {
+                    (
+                        c.databases.clone(),
+                        c.selected_database.as_deref(),
+                        c.tables.clone(),
+                    )
+                })
                 .unwrap_or_default();
             let selected_table = self.selected_table.as_deref();
 
@@ -686,8 +863,11 @@ impl eframe::App for DbManagerApp {
                 &mut toolbar_actions,
                 &connections,
                 active_connection,
+                &databases,
+                selected_database,
                 &tables,
                 selected_table,
+                self.ui_scale,
             );
 
             ui.separator();
@@ -835,12 +1015,18 @@ impl eframe::App for DbManagerApp {
             }
         }
 
+        // 处理数据库切换
+        if let Some(db_name) = toolbar_actions.switch_database {
+            self.select_database(db_name);
+        }
+
         // 处理表切换
         if let Some(table_name) = toolbar_actions.switch_table {
             self.selected_table = Some(table_name.clone());
             let query_sql = format!("SELECT * FROM {} LIMIT 100;", table_name);
-            self.sql = query_sql.clone();
             self.execute(query_sql);
+            // 切换表后清空编辑区，不残留自动生成的查询语句
+            self.sql.clear();
         }
 
         if toolbar_actions.export {
@@ -872,6 +1058,17 @@ impl eframe::App for DbManagerApp {
             self.set_theme(ctx, new_theme);
         }
 
+        // 处理缩放操作
+        if toolbar_actions.zoom_in {
+            self.set_ui_scale(ctx, self.ui_scale + 0.1);
+        }
+        if toolbar_actions.zoom_out {
+            self.set_ui_scale(ctx, self.ui_scale - 0.1);
+        }
+        if toolbar_actions.zoom_reset {
+            self.set_ui_scale(ctx, 1.0);
+        }
+
         if toolbar_actions.show_history {
             self.show_history_panel = true;
         }
@@ -887,6 +1084,11 @@ impl eframe::App for DbManagerApp {
 
         if let Some(name) = sidebar_actions.disconnect {
             self.disconnect(name);
+        }
+
+        // 处理侧边栏数据库选择
+        if let Some(db_name) = sidebar_actions.select_database {
+            self.select_database(db_name);
         }
 
         // 处理删除请求
@@ -917,17 +1119,19 @@ impl eframe::App for DbManagerApp {
                         format!("DESCRIBE `{}`;", table)
                     }
                 };
-                self.sql = schema_sql.clone();
                 self.execute(schema_sql);
+                // 不在编辑区残留自动生成的查询语句
+                self.sql.clear();
             }
         }
 
-        // 处理查询表数据
+        // 处理查询表数据（从侧边栏双击表）
         if let Some(table) = sidebar_actions.query_table {
             self.selected_table = Some(table.clone());
             let query_sql = format!("SELECT * FROM {} LIMIT 100;", table);
-            self.sql = query_sql.clone();
             self.execute(query_sql);
+            // 不在编辑区残留自动生成的查询语句
+            self.sql.clear();
         }
 
         // 处理 SQL 编辑器操作

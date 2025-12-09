@@ -40,49 +40,43 @@ fn main() -> eframe::Result<()> {
         "Rust 数据库管理器",
         options,
         Box::new(|cc| {
-            // 配置中文字体
+            // 配置字体
             setup_fonts(&cc.egui_ctx);
             egui_extras::install_image_loaders(&cc.egui_ctx);
-
-            // 根据屏幕 DPI 自动缩放界面
-            // egui 默认会使用系统 DPI 设置，这里确保字体大小合适
-            let pixels_per_point = cc.egui_ctx.pixels_per_point();
-            if pixels_per_point > 1.0 {
-                cc.egui_ctx.set_pixels_per_point(pixels_per_point);
-            }
 
             Box::new(DbManagerApp::new(cc))
         }),
     )
 }
 
-/// 内嵌的中文字体（霞鹜文楷 Lite）
-const EMBEDDED_CHINESE_FONT: &[u8] = include_bytes!("../assets/fonts/LXGWWenKaiLite-Regular.ttf");
+/// 内嵌的 Noto Sans SC 字体（思源黑体，支持完整 Unicode）
+const EMBEDDED_NOTO_SANS_SC: &[u8] = include_bytes!("../assets/fonts/NotoSansSC-Regular.ttf");
 
 /// 配置字体
 ///
-/// 使用内嵌的中文字体，确保在所有平台上都能正确显示中文。
+/// 使用 Noto Sans SC（思源黑体）字体，支持完整的 Unicode 字符集，
+/// 包括中文、日文、韩文以及各种特殊符号。
 fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 
-    // 使用内嵌的中文字体
+    // 使用 Noto Sans SC 字体（支持完整 Unicode）
     fonts.font_data.insert(
-        "chinese_font".to_owned(),
-        egui::FontData::from_static(EMBEDDED_CHINESE_FONT),
+        "noto_sans_sc".to_owned(),
+        egui::FontData::from_static(EMBEDDED_NOTO_SANS_SC),
     );
 
-    // 配置字体优先级：中文字体优先
+    // 配置字体优先级：Noto Sans SC 优先，然后是默认字体作为后备
     fonts
         .families
         .entry(egui::FontFamily::Proportional)
         .or_default()
-        .insert(0, "chinese_font".to_owned());
+        .insert(0, "noto_sans_sc".to_owned());
 
     fonts
         .families
         .entry(egui::FontFamily::Monospace)
         .or_default()
-        .insert(0, "chinese_font".to_owned());
+        .insert(0, "noto_sans_sc".to_owned());
 
     ctx.set_fonts(fonts);
 }

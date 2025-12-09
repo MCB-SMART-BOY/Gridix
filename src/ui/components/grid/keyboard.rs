@@ -21,7 +21,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use super::actions::DataGridActions;
-use super::filter::{ColumnFilter, FilterOperator};
+use super::filter::ColumnFilter;
 use super::mode::GridMode;
 use super::state::DataGridState;
 use crate::database::QueryResult;
@@ -34,7 +34,8 @@ pub fn handle_keyboard(
     filtered_rows: &[(usize, &Vec<String>)],
     actions: &mut DataGridActions,
 ) {
-    if !state.focused || state.mode == GridMode::Insert {
+    // 如果表格未聚焦或处于编辑模式或快速筛选对话框打开，不处理表格快捷键
+    if !state.focused || state.mode == GridMode::Insert || state.show_quick_filter {
         return;
     }
 
@@ -99,18 +100,20 @@ fn handle_normal_mode(
     max_col: usize,
     half_page: usize,
 ) {
-    // === 基本移动 ===
-    if i.key_pressed(Key::H) || i.key_pressed(Key::ArrowLeft) {
-        state.move_cursor(0, -1, max_row, max_col);
-    }
-    if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown) {
-        state.move_cursor(1, 0, max_row, max_col);
-    }
-    if i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp) {
-        state.move_cursor(-1, 0, max_row, max_col);
-    }
-    if i.key_pressed(Key::L) || i.key_pressed(Key::ArrowRight) {
-        state.move_cursor(0, 1, max_row, max_col);
+    // === 基本移动（仅在无命令前缀时生效） ===
+    if state.command_buffer.is_empty() {
+        if i.key_pressed(Key::H) || i.key_pressed(Key::ArrowLeft) {
+            state.move_cursor(0, -1, max_row, max_col);
+        }
+        if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown) {
+            state.move_cursor(1, 0, max_row, max_col);
+        }
+        if i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp) {
+            state.move_cursor(-1, 0, max_row, max_col);
+        }
+        if i.key_pressed(Key::L) || i.key_pressed(Key::ArrowRight) {
+            state.move_cursor(0, 1, max_row, max_col);
+        }
     }
 
     // w/b 移动
@@ -129,7 +132,7 @@ fn handle_normal_mode(
         state.goto_line_end(max_col);
     }
 
-    // Ctrl+u/d 翻页
+    // Ctrl+U 向上翻半页（Ctrl+D 已用于切换日夜主题，使用 PageUp/PageDown 代替）
     if i.modifiers.ctrl && i.key_pressed(Key::U) {
         let count = state.count.unwrap_or(1);
         let delta = half_page * count;
@@ -137,7 +140,15 @@ fn handle_normal_mode(
         state.scroll_to_row = Some(state.cursor.0);
         state.count = None;
     }
-    if i.modifiers.ctrl && i.key_pressed(Key::D) {
+    // PageUp/PageDown 翻页
+    if i.key_pressed(Key::PageUp) {
+        let count = state.count.unwrap_or(1);
+        let delta = half_page * count;
+        state.cursor.0 = state.cursor.0.saturating_sub(delta);
+        state.scroll_to_row = Some(state.cursor.0);
+        state.count = None;
+    }
+    if i.key_pressed(Key::PageDown) {
         let count = state.count.unwrap_or(1);
         let delta = half_page * count;
         state.cursor.0 = (state.cursor.0 + delta).min(max_row.saturating_sub(1));
@@ -182,13 +193,15 @@ fn handle_normal_mode(
         }
         state.command_buffer.clear();
     }
-    if i.key_pressed(Key::W) && state.command_buffer == " " {
-        actions.message = Some("请点击保存按钮执行保存 (Space+w)".to_string());
+    // Ctrl+S 保存
+    if i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(Key::S) {
+        state.pending_save = true;
         state.command_buffer.clear();
     }
-    if i.key_pressed(Key::Q) && state.command_buffer == " " {
+    // Ctrl+Shift+Z 放弃修改
+    if i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(Key::Z) {
         state.clear_edits();
-        actions.message = Some("已放弃所有修改 (Space+q)".to_string());
+        actions.message = Some("已放弃所有修改 (Ctrl+Shift+Z)".to_string());
         state.command_buffer.clear();
     }
 
@@ -269,22 +282,16 @@ fn handle_normal_mode(
     }
 
     // === 筛选 ===
+    // / 打开快速筛选对话框（键盘用户友好）
     if i.key_pressed(Key::Slash) && state.command_buffer.is_empty() {
-        state.filters.push(ColumnFilter {
-            column: result.columns.first().cloned().unwrap_or_default(),
-            operator: FilterOperator::Contains,
-            value: String::new(),
-        });
-        actions.message = Some("添加筛选条件 (/)".to_string());
+        state.show_quick_filter = true;
+        state.quick_filter_input.clear();
     }
+    // f 为当前列快速添加筛选（鼠标用户也可用）
     if i.key_pressed(Key::F) && !i.modifiers.ctrl && state.command_buffer.is_empty() {
         if let Some(col_name) = result.columns.get(state.cursor.1) {
             if !state.filters.iter().any(|f| &f.column == col_name) {
-                state.filters.push(ColumnFilter {
-                    column: col_name.clone(),
-                    operator: FilterOperator::Contains,
-                    value: String::new(),
-                });
+                state.filters.push(ColumnFilter::new(col_name.clone()));
                 actions.message = Some(format!("为列 {} 添加筛选 (f)", col_name));
             }
         }

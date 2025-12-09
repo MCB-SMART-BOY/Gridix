@@ -37,6 +37,12 @@ pub struct DataGridState {
     pub count: Option<usize>,
     /// 需要滚动到的行
     pub scroll_to_row: Option<usize>,
+    /// 需要滚动到的列
+    pub scroll_to_col: Option<usize>,
+    /// 当前水平滚动偏移量
+    pub h_scroll_offset: f32,
+    /// 上一次光标所在列
+    pub last_cursor_col: usize,
     /// 显示跳转对话框
     pub show_goto_dialog: bool,
     /// 跳转输入
@@ -47,6 +53,10 @@ pub struct DataGridState {
     pub show_save_confirm: bool,
     /// 待确认的 SQL 语句
     pub pending_sql: Vec<String>,
+    /// 显示快速筛选输入框
+    pub show_quick_filter: bool,
+    /// 快速筛选输入内容
+    pub quick_filter_input: String,
 }
 
 impl DataGridState {
@@ -110,6 +120,7 @@ impl DataGridState {
         self.cursor = (new_row, new_col);
         self.count = None;
         self.scroll_to_row = Some(new_row);
+        self.scroll_to_col = Some(new_col);
     }
 
     /// 跳转到行首

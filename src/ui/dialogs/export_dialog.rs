@@ -19,7 +19,7 @@ impl ExportDialog {
             return;
         }
 
-        egui::Window::new("📤 导出数据")
+        egui::Window::new("导出数据")
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -73,7 +73,7 @@ impl ExportDialog {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // 导出按钮
                         let export_btn = egui::Button::new(
-                            RichText::new("📥 导出文件 [Enter]")
+                            RichText::new("导出文件 [Enter]")
                                 .color(Color32::WHITE)
                         )
                         .fill(SUCCESS)

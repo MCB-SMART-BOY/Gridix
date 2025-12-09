@@ -169,32 +169,19 @@ impl ConnectionDialog {
                             ui.end_row();
                         }
 
-                        // 数据库/文件路径
-                        let label = match config.db_type {
-                            DatabaseType::SQLite => "文件路径",
-                            _ => "数据库名",
-                        };
-                        ui.label(RichText::new(label).color(GRAY));
+                        // SQLite 文件路径（必填）
+                        if matches!(config.db_type, DatabaseType::SQLite) {
+                            ui.label(RichText::new("文件路径").color(GRAY));
 
-                        ui.horizontal(|ui| {
-                            let hint = match config.db_type {
-                                DatabaseType::SQLite => "/path/to/database.db",
-                                _ => "database_name",
-                            };
-                            let width = if matches!(config.db_type, DatabaseType::SQLite) {
-                                200.0
-                            } else {
-                                280.0
-                            };
-                            ui.add(
-                                TextEdit::singleline(&mut config.database)
-                                    .hint_text(hint)
-                                    .desired_width(width)
-                            );
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    TextEdit::singleline(&mut config.database)
+                                        .hint_text("/path/to/database.db")
+                                        .desired_width(200.0)
+                                );
 
-                            if matches!(config.db_type, DatabaseType::SQLite) {
                                 if ui.add(
-                                    egui::Button::new("📂 浏览")
+                                    egui::Button::new("浏览")
                                         .rounding(Rounding::same(4.0))
                                 ).clicked() {
                                     if let Some(path) = rfd::FileDialog::new()
@@ -205,9 +192,9 @@ impl ConnectionDialog {
                                         config.database = path.display().to_string();
                                     }
                                 }
-                            }
-                        });
-                        ui.end_row();
+                            });
+                            ui.end_row();
+                        }
                     });
             });
 
@@ -215,12 +202,11 @@ impl ConnectionDialog {
         ui.add_space(SPACING_SM);
         ui.horizontal(|ui| {
             ui.add_space(SPACING_MD);
-            ui.label(RichText::new("💡").size(12.0));
             ui.add_space(4.0);
             let tip = match config.db_type {
                 DatabaseType::SQLite => "输入 SQLite 数据库文件路径，文件不存在时将自动创建",
-                DatabaseType::PostgreSQL => "默认端口 5432，请确保 PostgreSQL 服务已启动",
-                DatabaseType::MySQL => "默认端口 3306，请确保 MySQL 服务已启动",
+                DatabaseType::PostgreSQL => "默认端口 5432，连接后可选择数据库",
+                DatabaseType::MySQL => "默认端口 3306，连接后可选择数据库",
             };
             ui.label(RichText::new(tip).small().color(MUTED));
         });
@@ -264,9 +250,12 @@ impl ConnectionDialog {
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // SQLite 需要文件路径，MySQL/PostgreSQL 只需要主机地址
                 let can_save = !config.name.is_empty()
-                    && (matches!(config.db_type, DatabaseType::SQLite)
-                        || (!config.host.is_empty() && !config.database.is_empty()));
+                    && match config.db_type {
+                        DatabaseType::SQLite => !config.database.is_empty(),
+                        _ => !config.host.is_empty(),
+                    };
 
                 // 保存按钮
                 let save_btn = egui::Button::new(

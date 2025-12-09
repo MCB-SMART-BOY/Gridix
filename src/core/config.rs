@@ -25,6 +25,13 @@ pub struct AppConfig {
     /// 每个连接的 SQL 命令历史记录 (连接名 -> SQL 列表)
     #[serde(default)]
     pub command_history: HashMap<String, Vec<String>>,
+    /// UI 缩放比例 (0.5 - 2.0)
+    #[serde(default = "default_ui_scale")]
+    pub ui_scale: f32,
+}
+
+fn default_ui_scale() -> f32 {
+    1.0
 }
 
 fn default_light_theme() -> ThemePreset {
@@ -49,6 +56,7 @@ impl Default for AppConfig {
             is_dark_mode: default_dark_mode(),
             query_history: QueryHistory::new(100),
             command_history: HashMap::new(),
+            ui_scale: default_ui_scale(),
         }
     }
 }

@@ -6,13 +6,12 @@ use super::mode::GridMode;
 use super::state::DataGridState;
 use super::{
     CELL_TRUNCATE_LEN, COLOR_CELL_EDITING, COLOR_CELL_MODIFIED, COLOR_CELL_SELECTED,
-    COLOR_ROW_NUM_BG, COLOR_ROW_SELECTED, COLOR_VISUAL_SELECT,
+    COLOR_VISUAL_SELECT,
 };
 use crate::ui::styles::GRAY;
 use egui::{self, Color32, Key, RichText, Sense, TextEdit};
 
-// 偶数行背景色（斑马线效果）
-const COLOR_ROW_EVEN: Color32 = Color32::from_rgb(35, 38, 45);
+
 // NULL 值颜色
 const COLOR_NULL: Color32 = Color32::from_rgb(120, 120, 140);
 
@@ -28,6 +27,7 @@ pub fn render_column_header(
         let is_cursor_col = state.cursor.1 == col_idx;
         let has_filter = state.filters.iter().any(|f| f.column == col_name);
 
+        // 列名文字 - 确保在所有主题下都清晰可见
         let text = if is_cursor_col {
             RichText::new(col_name).strong().color(state.mode.color())
         } else if has_filter {
@@ -35,6 +35,7 @@ pub fn render_column_header(
                 .strong()
                 .color(Color32::from_rgb(150, 200, 100))
         } else {
+            // 使用默认文字颜色（由主题控制），不单独设置颜色
             RichText::new(col_name).strong()
         };
         ui.label(text);
@@ -63,16 +64,11 @@ pub fn render_row_number(
     is_deleted: bool,
     state: &mut DataGridState,
 ) {
-    let is_even_row = row_idx.is_multiple_of(2);
+    // 只在删除状态时设置背景色，普通行由表格的 set_selected 和 striped 效果处理
     let bg = if is_deleted {
         Color32::from_rgb(150, 50, 50)
-    } else if is_cursor_row {
-        COLOR_ROW_SELECTED
-    } else if is_even_row {
-        // 偶数行使用稍深的背景色
-        Color32::from_rgb(35, 35, 40)
     } else {
-        COLOR_ROW_NUM_BG
+        Color32::TRANSPARENT
     };
 
     egui::Frame::none()
@@ -122,7 +118,7 @@ pub fn render_editable_cell(
     cell: &str,
     row_idx: usize,
     col_idx: usize,
-    is_cursor_row: bool,
+    _is_cursor_row: bool, // 行级别高亮由 set_selected 处理
     is_row_deleted: bool,
     state: &mut DataGridState,
 ) {
@@ -130,7 +126,6 @@ pub fn render_editable_cell(
     let is_editing = state.editing_cell == Some((row_idx, col_idx));
     let is_modified = state.modified_cells.contains_key(&(row_idx, col_idx));
     let is_selected = state.mode == GridMode::Select && state.is_in_selection(row_idx, col_idx);
-    let is_even_row = row_idx.is_multiple_of(2);
 
     let display_value = state
         .modified_cells
@@ -138,6 +133,7 @@ pub fn render_editable_cell(
         .cloned()
         .unwrap_or_else(|| cell.to_string());
 
+    // 只在特殊单元格状态时设置背景色，行级别高亮由表格的 set_selected 处理
     let bg_color = if is_row_deleted {
         Color32::from_rgba_unmultiplied(150, 50, 50, 100)
     } else if is_editing {
@@ -148,11 +144,6 @@ pub fn render_editable_cell(
         COLOR_CELL_MODIFIED
     } else if is_cursor {
         COLOR_CELL_SELECTED
-    } else if is_cursor_row {
-        COLOR_ROW_SELECTED
-    } else if is_even_row {
-        // 斑马线效果：偶数行使用不同背景色
-        COLOR_ROW_EVEN
     } else {
         Color32::TRANSPARENT
     };
