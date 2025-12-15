@@ -19,7 +19,7 @@ pub use sql_editor::{SqlEditor, SqlEditorActions};
 pub use search_bar::SearchBar;
 
 // 数据表格（Helix 风格）
-pub use grid::{quote_identifier, ColumnFilter, DataGrid, DataGridState};
+pub use grid::{count_search_matches, quote_identifier, ColumnFilter, DataGrid, DataGridState, FocusTransfer};
 
 // 欢迎页面
 pub use welcome::Welcome;

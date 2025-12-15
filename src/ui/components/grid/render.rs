@@ -272,3 +272,118 @@ fn format_cell_text(cell: &str, is_cursor: bool) -> RichText {
         text
     }
 }
+
+// 新增行的背景色 - 浅绿色表示待保存
+const COLOR_NEW_ROW: Color32 = Color32::from_rgba_premultiplied(48, 96, 48, 60);
+
+/// 渲染新增行的单元格
+pub fn render_new_row_cell(
+    ui: &mut egui::Ui,
+    cell: &str,
+    row_idx: usize,
+    col_idx: usize,
+    _is_cursor_row: bool,
+    state: &mut DataGridState,
+) {
+    let is_cursor = state.cursor == (row_idx, col_idx);
+    let is_editing = state.editing_cell == Some((row_idx, col_idx));
+
+    // 新增行使用特殊背景色
+    let bg_color = if is_editing {
+        COLOR_CELL_EDITING
+    } else if is_cursor {
+        COLOR_CELL_SELECTED
+    } else {
+        COLOR_NEW_ROW
+    };
+
+    egui::Frame::none()
+        .fill(bg_color)
+        .inner_margin(4.0)
+        .show(ui, |ui| {
+            if is_editing && state.mode == GridMode::Insert {
+                render_new_row_editing_cell(ui, state, row_idx, col_idx);
+            } else {
+                render_new_row_display_cell(ui, state, cell, row_idx, col_idx, is_cursor);
+            }
+        });
+}
+
+fn render_new_row_editing_cell(
+    ui: &mut egui::Ui,
+    state: &mut DataGridState,
+    row_idx: usize,
+    col_idx: usize,
+) {
+    let response = ui.add(
+        TextEdit::singleline(&mut state.edit_text)
+            .desired_width(ui.available_width() - 8.0)
+            .font(egui::TextStyle::Monospace),
+    );
+
+    let should_exit = ui.input(|i| i.key_pressed(Key::Escape) || i.key_pressed(Key::Enter));
+
+    if should_exit || response.lost_focus() {
+        // 计算新增行的索引（row_idx - 原始结果行数）
+        // 由于 new_rows 的修改需要通过特殊方式处理，这里直接保存到 edit_text
+        state.editing_cell = None;
+        state.mode = GridMode::Normal;
+        // 新增行的编辑会通过 pending_new_row_edit 处理
+        state.pending_new_row_edit = Some((row_idx, col_idx, state.edit_text.clone()));
+    }
+
+    response.request_focus();
+}
+
+fn render_new_row_display_cell(
+    ui: &mut egui::Ui,
+    state: &mut DataGridState,
+    cell: &str,
+    row_idx: usize,
+    col_idx: usize,
+    is_cursor: bool,
+) {
+    let display_value = if cell.is_empty() {
+        "(空)"
+    } else {
+        cell
+    };
+
+    let cell_text = if cell.is_empty() {
+        RichText::new(display_value).italics().color(GRAY)
+    } else if is_cursor {
+        RichText::new(display_value).underline()
+    } else {
+        RichText::new(display_value)
+    };
+
+    let response = ui.add(egui::Label::new(cell_text).sense(Sense::click()));
+
+    if response.clicked() {
+        state.cursor = (row_idx, col_idx);
+        state.focused = true;
+    }
+
+    if response.double_clicked() {
+        state.mode = GridMode::Insert;
+        state.editing_cell = Some((row_idx, col_idx));
+        state.edit_text = cell.to_string();
+        state.original_value = cell.to_string();
+    }
+
+    response.context_menu(|ui| {
+        if ui.button("编辑 [i]").clicked() {
+            state.mode = GridMode::Insert;
+            state.editing_cell = Some((row_idx, col_idx));
+            state.edit_text = cell.to_string();
+            state.original_value = cell.to_string();
+            ui.close_menu();
+        }
+        if ui.button("粘贴 [p]").clicked() {
+            if let Some(text) = &state.clipboard {
+                state.pending_new_row_edit = Some((row_idx, col_idx, text.clone()));
+            }
+            ui.close_menu();
+        }
+    });
+}

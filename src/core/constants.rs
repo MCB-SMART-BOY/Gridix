@@ -16,6 +16,8 @@ pub mod history {
 pub mod database {
     /// 连接超时时间（秒）
     pub const CONNECTION_TIMEOUT_SECS: u64 = 30;
+    /// SSH 隧道建立超时时间（秒）
+    pub const SSH_TUNNEL_TIMEOUT_SECS: u64 = 30;
     /// 查询超时时间（秒）
     pub const QUERY_TIMEOUT_SECS: u64 = 300;
     /// 默认查询限制行数
@@ -67,6 +69,24 @@ pub mod display {
     pub const SQL_ERROR_PREVIEW_MAX_LENGTH: usize = 200;
     /// 单元格内容截断长度
     pub const CELL_CONTENT_TRUNCATE_LENGTH: usize = 50;
+}
+
+/// 数据表格相关常量
+pub mod grid {
+    /// 文本高度
+    pub const TEXT_HEIGHT: f32 = 20.0;
+    /// 行高度
+    pub const ROW_HEIGHT: f32 = TEXT_HEIGHT + 8.0;
+    /// 表头高度
+    pub const HEADER_HEIGHT: f32 = 28.0;
+    /// 列最小宽度
+    pub const MIN_COL_WIDTH: f32 = 60.0;
+    /// 列最大宽度
+    pub const MAX_COL_WIDTH: f32 = 300.0;
+    /// 字符宽度估算
+    pub const CHAR_WIDTH: f32 = 8.0;
+    /// 单元格内容截断长度
+    pub const CELL_TRUNCATE_LEN: usize = 50;
 }
 
 /// 错误消息常量（统一中文错误提示）

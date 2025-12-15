@@ -64,6 +64,8 @@ pub struct DataGridState {
     /// 正则表达式错误信息（用于显示给用户）
     #[allow(dead_code)] // 预留字段供将来使用
     pub regex_error: Option<String>,
+    /// 待处理的新增行编辑 (虚拟行索引, 列索引, 新值)
+    pub pending_new_row_edit: Option<(usize, usize, String)>,
 }
 
 impl DataGridState {

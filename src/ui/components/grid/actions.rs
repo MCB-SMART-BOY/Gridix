@@ -3,6 +3,15 @@
 use super::state::DataGridState;
 use crate::database::QueryResult;
 
+/// 焦点转移方向
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusTransfer {
+    /// 转移到侧边栏
+    ToSidebar,
+    /// 转移到 SQL 编辑器
+    ToSqlEditor,
+}
+
 /// 表格操作返回值
 #[derive(Default)]
 pub struct DataGridActions {
@@ -10,11 +19,22 @@ pub struct DataGridActions {
     pub sql_to_execute: Vec<String>,
     /// 状态消息
     pub message: Option<String>,
+    /// 请求刷新表格数据
+    pub refresh_requested: bool,
+    /// 请求焦点转移
+    pub focus_transfer: Option<FocusTransfer>,
 }
+
+/// SQL 危险保留字（可能被用于注入攻击）
+const SQL_DANGEROUS_KEYWORDS: &[&str] = &[
+    "DROP", "DELETE", "TRUNCATE", "ALTER", "CREATE", "INSERT", "UPDATE",
+    "EXEC", "EXECUTE", "UNION", "SELECT", "FROM", "WHERE", "OR", "AND",
+    "--", "/*", "*/", "GRANT", "REVOKE", "SHUTDOWN", "KILL",
+];
 
 /// 验证 SQL 标识符（表名、列名）
 ///
-/// 防止 SQL 注入攻击，禁止危险字符
+/// 防止 SQL 注入攻击，禁止危险字符和保留字
 /// 返回经过验证的原始标识符（不加引号）
 pub fn escape_identifier(name: &str) -> Result<String, String> {
     if name.is_empty() {
@@ -27,10 +47,18 @@ pub fn escape_identifier(name: &str) -> Result<String, String> {
     }
 
     // 禁止包含危险字符：引号、分号、注释符等
-    let dangerous_chars = ['"', '\'', ';', '/', '*', '\\', '\n', '\r', '\0', '`'];
+    let dangerous_chars = ['"', '\'', ';', '/', '*', '\\', '\n', '\r', '\0', '`', '-'];
     for c in name.chars() {
         if dangerous_chars.contains(&c) {
             return Err(format!("标识符 '{}' 包含非法字符 '{}'", name, c));
+        }
+    }
+
+    // 检查是否为危险保留字（仅当整个标识符是保留字时拒绝）
+    let upper = name.to_uppercase();
+    for keyword in SQL_DANGEROUS_KEYWORDS {
+        if upper == *keyword {
+            return Err(format!("标识符 '{}' 是 SQL 保留字", name));
         }
     }
 
@@ -97,16 +125,33 @@ pub fn generate_save_sql(
     let mut sql_statements = Vec::new();
     let has_deletes = !state.rows_to_delete.is_empty();
 
-    // 获取主键列索引（如果未设置，尝试查找 id 列，否则使用第一列）
-    let pk_idx = state.primary_key_column.unwrap_or_else(|| {
-        // 尝试查找名为 "id" 的列
-        result.columns.iter()
-            .position(|c| c.eq_ignore_ascii_case("id"))
-            .unwrap_or(0)  // 默认使用第一列
-    });
+    // 获取主键列索引
+    // 优先使用已设置的主键，其次尝试查找 "id" 列
+    let pk_idx = match state.primary_key_column {
+        Some(idx) => idx,
+        None => {
+            // 尝试查找名为 "id" 的列
+            match result.columns.iter().position(|c| c.eq_ignore_ascii_case("id")) {
+                Some(idx) => idx,
+                None => {
+                    // 无法确定主键，拒绝执行修改操作以防止数据损坏
+                    actions.message = Some(
+                        "无法确定主键列：未找到 'id' 列。\n\
+                         请确保表有主键列，或使用自定义 SQL 进行修改。".to_string()
+                    );
+                    return;
+                }
+            }
+        }
+    };
     
-    let pk_col = safe_columns.get(pk_idx).cloned()
-        .unwrap_or_else(|| safe_columns.first().cloned().unwrap_or_else(|| "id".to_string()));
+    let pk_col = match safe_columns.get(pk_idx) {
+        Some(col) => col.clone(),
+        None => {
+            actions.message = Some(format!("主键列索引 {} 超出范围", pk_idx));
+            return;
+        }
+    };
 
     // 生成 UPDATE 语句
     for ((row_idx, col_idx), new_value) in &state.modified_cells {
@@ -231,9 +276,23 @@ mod tests {
         assert!(escape_identifier("table'name").is_err());
         assert!(escape_identifier("table\"name").is_err());
         assert!(escape_identifier("table`name").is_err());
+        assert!(escape_identifier("table-name").is_err()); // 连字符也禁止
         // 超长标识符
         let long_name = "a".repeat(64);
         assert!(escape_identifier(&long_name).is_err());
+    }
+
+    #[test]
+    fn test_escape_identifier_sql_keywords() {
+        // SQL 危险保留字被禁止
+        assert!(escape_identifier("DROP").is_err());
+        assert!(escape_identifier("drop").is_err());
+        assert!(escape_identifier("DELETE").is_err());
+        assert!(escape_identifier("UNION").is_err());
+        assert!(escape_identifier("SELECT").is_err());
+        // 包含保留字但不完全匹配的标识符应该通过
+        assert!(escape_identifier("user_select").is_ok());
+        assert!(escape_identifier("dropdown").is_ok());
     }
 
     #[test]

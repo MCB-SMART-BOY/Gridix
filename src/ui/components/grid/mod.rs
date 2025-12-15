@@ -19,25 +19,19 @@ mod mode;
 mod render;
 mod state;
 
-pub use actions::{quote_identifier, DataGridActions};
-pub use filter::ColumnFilter;
+pub use actions::{quote_identifier, DataGridActions, FocusTransfer};
+pub use filter::{count_search_matches, ColumnFilter};
 pub use mode::GridMode;
 pub use state::DataGridState;
 
+use crate::core::constants;
 use crate::database::QueryResult;
 use crate::ui::styles::GRAY;
 use egui::{self, RichText};
 use egui_extras::{Column, TableBuilder};
 
-// ============================================================================
-// 常量定义
-// ============================================================================
-
-pub(crate) const TEXT_HEIGHT: f32 = 20.0;
-pub(crate) const ROW_HEIGHT: f32 = TEXT_HEIGHT + 8.0;
-pub(crate) const HEADER_HEIGHT: f32 = 28.0;
-pub(crate) const MIN_COL_WIDTH: f32 = 60.0;
-pub(crate) const MAX_COL_WIDTH: f32 = 300.0;
+// 使用集中管理的常量
+use constants::grid::{HEADER_HEIGHT, MAX_COL_WIDTH, MIN_COL_WIDTH, ROW_HEIGHT};
 pub(crate) const ROW_NUM_WIDTH: f32 = 50.0;
 pub(crate) const CELL_TRUNCATE_LEN: usize = 50;
 /// 每个字符的估计宽度（像素）
@@ -111,11 +105,24 @@ impl DataGrid {
             &state.filters,
             &mut state.filter_cache,
         );
-        let filtered_count = filtered_rows.len();
-        let total_count = result.rows.len();
+        // 总显示行数 = 筛选后的行 + 新增行
+        let new_rows_count = state.new_rows.len();
+        let filtered_count = filtered_rows.len() + new_rows_count;
+        let total_count = result.rows.len() + new_rows_count;
 
         // 处理键盘输入
         keyboard::handle_keyboard(ui, state, result, &filtered_rows, &mut actions);
+
+        // 处理新增行的编辑
+        if let Some((virtual_idx, col_idx, new_value)) = state.pending_new_row_edit.take() {
+            // 计算新增行在 new_rows 中的索引
+            let new_row_idx = virtual_idx.saturating_sub(result.rows.len());
+            if let Some(row_data) = state.new_rows.get_mut(new_row_idx) {
+                if col_idx < row_data.len() {
+                    row_data[col_idx] = new_value;
+                }
+            }
+        }
 
         // 处理 Ctrl+S 保存请求
         if state.pending_save && state.has_changes() {
@@ -220,39 +227,81 @@ impl DataGrid {
                             }
                         })
                         .body(|body| {
+                            let filtered_rows_len = filtered_rows.len();
                             body.rows(ROW_HEIGHT, filtered_count, |mut row| {
                                 let display_idx = row.index();
-                                if let Some((original_idx, row_data)) =
-                                    filtered_rows.get(display_idx)
-                                {
-                                    let is_cursor_row = state.cursor.0 == *original_idx;
-                                    let is_row_deleted =
-                                        state.rows_to_delete.contains(original_idx);
+                                
+                                // 判断是显示已有数据还是新增行
+                                if display_idx < filtered_rows_len {
+                                    // 显示已有数据行
+                                    if let Some((original_idx, row_data)) =
+                                        filtered_rows.get(display_idx)
+                                    {
+                                        let is_cursor_row = state.cursor.0 == *original_idx;
+                                        let is_row_deleted =
+                                            state.rows_to_delete.contains(original_idx);
 
-                                    // 使用 set_selected 设置整行高亮（行级别）
-                                    row.set_selected(is_cursor_row || is_row_deleted);
+                                        row.set_selected(is_cursor_row || is_row_deleted);
 
-                                    // 行号列
-                                    row.col(|ui| {
-                                        render::render_row_number(
-                                            ui,
-                                            *original_idx,
-                                            is_cursor_row,
-                                            is_row_deleted,
-                                            state,
-                                        );
-                                    });
-
-                                    // 数据列
-                                    for (col_idx, cell) in row_data.iter().enumerate() {
+                                        // 行号列
                                         row.col(|ui| {
-                                            render::render_editable_cell(
+                                            render::render_row_number(
                                                 ui,
-                                                cell,
                                                 *original_idx,
-                                                col_idx,
                                                 is_cursor_row,
                                                 is_row_deleted,
+                                                state,
+                                            );
+                                        });
+
+                                        // 数据列
+                                        for (col_idx, cell) in row_data.iter().enumerate() {
+                                            row.col(|ui| {
+                                                render::render_editable_cell(
+                                                    ui,
+                                                    cell,
+                                                    *original_idx,
+                                                    col_idx,
+                                                    is_cursor_row,
+                                                    is_row_deleted,
+                                                    state,
+                                                );
+                                            });
+                                        }
+                                    }
+                                } else {
+                                    // 显示新增行（pending rows）
+                                    let new_row_idx = display_idx - filtered_rows_len;
+                                    // 新增行的虚拟原始索引 = 结果行数 + 新增行索引
+                                    let virtual_idx = result.rows.len() + new_row_idx;
+                                    let is_cursor_row = state.cursor.0 == virtual_idx;
+
+                                    // 新增行使用特殊高亮
+                                    row.set_selected(is_cursor_row);
+
+                                    // 行号列 - 显示 "+" 标记表示新增行
+                                    row.col(|ui| {
+                                        let text = RichText::new(format!("{}+", virtual_idx + 1))
+                                            .monospace()
+                                            .color(Color32::from_rgb(100, 200, 100));
+                                        ui.label(text);
+                                    });
+
+                                    // 数据列 - 显示新增行的内容
+                                    // 先克隆数据避免借用冲突
+                                    let new_row_data: Vec<String> = state
+                                        .new_rows
+                                        .get(new_row_idx)
+                                        .cloned()
+                                        .unwrap_or_default();
+                                    for (col_idx, cell) in new_row_data.iter().enumerate() {
+                                        row.col(|ui| {
+                                            render::render_new_row_cell(
+                                                ui,
+                                                cell,
+                                                virtual_idx,
+                                                col_idx,
+                                                is_cursor_row,
                                                 state,
                                             );
                                         });
@@ -348,13 +397,18 @@ impl DataGrid {
                 {
                     let new_row = vec!["".to_string(); result.columns.len()];
                     state.new_rows.push(new_row);
+                    // 移动光标到新增行
+                    let new_row_idx = result.rows.len() + state.new_rows.len() - 1;
+                    state.cursor = (new_row_idx, 0);
+                    state.scroll_to_row = Some(new_row_idx);
+                    state.focused = true;
                     actions.message = Some("已添加新行".to_string());
                 }
 
                 let has_changes = state.has_changes();
                 if ui
-                    .add_enabled(has_changes, egui::Button::new("保存 [Ctrl+S]"))
-                    .on_hover_text("保存所有修改到数据库\n快捷键: Ctrl+S")
+                    .add_enabled(has_changes, egui::Button::new("保存 [w]"))
+                    .on_hover_text("保存所有修改到数据库\n快捷键: w 或 Ctrl+S")
                     .clicked()
                 {
                     if let Some(table) = table_name {
@@ -363,8 +417,8 @@ impl DataGrid {
                 }
 
                 if ui
-                    .add_enabled(has_changes, egui::Button::new("放弃 [Ctrl+Shift+Z]"))
-                    .on_hover_text("放弃所有未保存的修改\n快捷键: Ctrl+Shift+Z")
+                    .add_enabled(has_changes, egui::Button::new("放弃 [q]"))
+                    .on_hover_text("放弃所有未保存的修改\n快捷键: q")
                     .clicked()
                 {
                     state.clear_edits();

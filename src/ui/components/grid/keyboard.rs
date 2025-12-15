@@ -2,21 +2,33 @@
 //!
 //! ## Normal 模式键位
 //! - `h/j/k/l`: 移动光标
-//! - `w/b`: 左右移动
+//! - `b`: 左移一列
 //! - `gh/gl`: 行首/行尾
 //! - `gg/G`: 文件首/尾
-//! - `Ctrl+u/d`: 翻半页
+//! - `Ctrl+u`: 向上翻半页
+//! - `PageUp/PageDown`: 翻页
 //! - `i/a/c`: 进入插入模式
 //! - `v`: 进入选择模式
 //! - `x`: 选择整行
 //! - `d`: 删除当前单元格
+//! - `dd`: 标记删除当前行
 //! - `y`: 复制当前单元格
+//! - `yy`: 复制整行
 //! - `p`: 粘贴
 //! - `u/U`: 撤销
 //! - `/`: 添加筛选
 //! - `f`: 为当前列添加筛选
 //! - `o/O`: 添加新行
-//! - `Space+d/w/q`: 标记删除/保存/放弃
+//! - `w`: 保存修改
+//! - `q`: 放弃修改
+//! - `Ctrl+R`: 刷新表格数据
+//! - `Space+d`: 标记删除行
+//! - `Ctrl+S`: 保存修改
+//!
+//! ## 数字计数
+//! - `1-9`: 输入计数前缀（如 10j 向下移动10行）
+//! - `0`: 追加到已有计数（如 10 中的 0）
+//! - `Backspace`: 回退计数数字
 
 #![allow(clippy::too_many_arguments)]
 
@@ -49,9 +61,11 @@ pub fn handle_keyboard(
     let half_page = (max_row / 2).max(1);
 
     ui.input(|i| {
-        // 数字前缀
-        for digit in 1..=9 {
-            if i.key_pressed(match digit {
+        // 数字前缀（支持 0-9，用于 10j 等命令）
+        // 注意：0 只有在已有计数时才追加，否则 0 可能用于其他功能
+        for digit in 0..=9 {
+            let key = match digit {
+                0 => Key::Num0,
                 1 => Key::Num1,
                 2 => Key::Num2,
                 3 => Key::Num3,
@@ -62,11 +76,27 @@ pub fn handle_keyboard(
                 8 => Key::Num8,
                 9 => Key::Num9,
                 _ => continue,
-            }) {
+            };
+            if i.key_pressed(key) && !i.modifiers.ctrl {
+                // 0 只有在已有计数时才追加（避免单独按 0 误触发）
+                if digit == 0 && state.count.is_none() {
+                    continue;
+                }
                 let current = state.count.unwrap_or(0);
                 state.count = Some(current * 10 + digit);
                 return;
             }
+        }
+        
+        // Backspace 回退数字计数
+        if i.key_pressed(Key::Backspace) && state.count.is_some() {
+            let current = state.count.unwrap_or(0);
+            if current < 10 {
+                state.count = None;
+            } else {
+                state.count = Some(current / 10);
+            }
+            return;
         }
 
         match state.mode {
@@ -102,11 +132,23 @@ fn handle_normal_mode(
 ) {
     // === 基本移动（仅在无命令前缀时生效） ===
     if state.command_buffer.is_empty() {
+        // h/左箭头：向左移动，如果已在最左边则转移焦点到侧边栏
         if i.key_pressed(Key::H) || i.key_pressed(Key::ArrowLeft) {
-            state.move_cursor(0, -1, max_row, max_col);
+            if state.cursor.1 == 0 {
+                // 已在最左边，转移焦点到侧边栏
+                actions.focus_transfer = Some(super::actions::FocusTransfer::ToSidebar);
+            } else {
+                state.move_cursor(0, -1, max_row, max_col);
+            }
         }
+        // j/下箭头：向下移动，如果已在最下面则转移焦点到编辑区
         if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown) {
-            state.move_cursor(1, 0, max_row, max_col);
+            if state.cursor.0 >= max_row.saturating_sub(1) {
+                // 已在最下面，转移焦点到 SQL 编辑器
+                actions.focus_transfer = Some(super::actions::FocusTransfer::ToSqlEditor);
+            } else {
+                state.move_cursor(1, 0, max_row, max_col);
+            }
         }
         if i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp) {
             state.move_cursor(-1, 0, max_row, max_col);
@@ -116,12 +158,13 @@ fn handle_normal_mode(
         }
     }
 
-    // w/b 移动
-    if i.key_pressed(Key::W) && !i.modifiers.ctrl {
-        state.move_cursor(0, 1, max_row, max_col);
-    }
+    // b 移动：向左，如果已在最左边则转移焦点到侧边栏
     if i.key_pressed(Key::B) && !i.modifiers.ctrl {
-        state.move_cursor(0, -1, max_row, max_col);
+        if state.cursor.1 == 0 {
+            actions.focus_transfer = Some(super::actions::FocusTransfer::ToSidebar);
+        } else {
+            state.move_cursor(0, -1, max_row, max_col);
+        }
     }
 
     // Home/End
@@ -193,15 +236,19 @@ fn handle_normal_mode(
         }
         state.command_buffer.clear();
     }
-    // Ctrl+S 保存
-    if i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(Key::S) {
+    // Ctrl+S 或 w 保存
+    if (i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(Key::S)) 
+        || (i.key_pressed(Key::W) && !i.modifiers.ctrl && state.command_buffer.is_empty()) {
         state.pending_save = true;
         state.command_buffer.clear();
+        actions.message = Some("保存修改 (w / Ctrl+S)".to_string());
     }
-    // Ctrl+Shift+Z 放弃修改
-    if i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(Key::Z) {
-        state.clear_edits();
-        actions.message = Some("已放弃所有修改 (Ctrl+Shift+Z)".to_string());
+    // q 放弃修改
+    if i.key_pressed(Key::Q) && !i.modifiers.ctrl && state.command_buffer.is_empty() {
+        if state.has_changes() {
+            state.clear_edits();
+            actions.message = Some("已放弃所有修改 (q)".to_string());
+        }
         state.command_buffer.clear();
     }
 
@@ -235,22 +282,33 @@ fn handle_normal_mode(
     }
 
     // === 操作 ===
+    // 'd' 命令前缀
     if i.key_pressed(Key::D) && !i.modifiers.ctrl && state.command_buffer.is_empty() {
-        state.modified_cells.insert(state.cursor, String::new());
-        actions.message = Some("已删除单元格内容 (d)".to_string());
+        state.command_buffer = "d".to_string();
     }
-    if i.key_pressed(Key::Y) && !i.modifiers.ctrl && state.command_buffer.is_empty() {
-        if let Some((_, row_data)) = filtered_rows.get(state.cursor.0) {
-            if let Some(cell) = row_data.get(state.cursor.1) {
-                let text = state
-                    .modified_cells
-                    .get(&state.cursor)
-                    .cloned()
-                    .unwrap_or_else(|| cell.to_string());
-                state.clipboard = Some(text);
-                actions.message = Some("已复制单元格 (y)".to_string());
-            }
+    // 'dd' 标记删除当前行
+    if i.key_pressed(Key::D) && state.command_buffer == "d" {
+        let row_idx = state.cursor.0;
+        if !state.rows_to_delete.contains(&row_idx) {
+            state.rows_to_delete.push(row_idx);
+            actions.message = Some(format!("已标记删除第 {} 行 (dd)", row_idx + 1));
         }
+        state.command_buffer.clear();
+    }
+    // 单独的 'd' 在超时后删除单元格内容（通过 Escape 或其他键取消）
+    
+    // 'y' 命令前缀
+    if i.key_pressed(Key::Y) && !i.modifiers.ctrl && state.command_buffer.is_empty() {
+        state.command_buffer = "y".to_string();
+    }
+    // 'yy' 复制整行
+    if i.key_pressed(Key::Y) && state.command_buffer == "y" {
+        if let Some((_, row_data)) = filtered_rows.get(state.cursor.0) {
+            let row_text = row_data.join("\t");
+            state.clipboard = Some(row_text);
+            actions.message = Some(format!("已复制第 {} 行 (yy)", state.cursor.0 + 1));
+        }
+        state.command_buffer.clear();
     }
     if i.key_pressed(Key::P) && state.command_buffer.is_empty() {
         if let Some(text) = &state.clipboard {
@@ -298,15 +356,32 @@ fn handle_normal_mode(
     }
 
     // === 新增行 ===
+    // o: 在末尾添加新行并移动光标到新行
     if i.key_pressed(Key::O) && !i.modifiers.shift && state.command_buffer.is_empty() {
         let new_row = vec!["".to_string(); result.columns.len()];
         state.new_rows.push(new_row);
+        // 移动光标到新增行（虚拟索引 = 原始行数 + 新增行索引）
+        let new_row_idx = result.rows.len() + state.new_rows.len() - 1;
+        state.cursor = (new_row_idx, 0);
+        state.scroll_to_row = Some(new_row_idx);
         actions.message = Some("已添加新行 (o)".to_string());
     }
+    // O: 在开头添加新行并移动光标到新行
     if i.key_pressed(Key::O) && i.modifiers.shift && state.command_buffer.is_empty() {
         let new_row = vec!["".to_string(); result.columns.len()];
         state.new_rows.insert(0, new_row);
-        actions.message = Some("已在上方添加新行 (O)".to_string());
+        // 移动光标到新增行（虚拟索引 = 原始行数，因为是第一个新增行）
+        let new_row_idx = result.rows.len();
+        state.cursor = (new_row_idx, 0);
+        state.scroll_to_row = Some(new_row_idx);
+        actions.message = Some("已在开头添加新行 (O)".to_string());
+    }
+
+    // === 刷新 ===
+    // Ctrl+R 刷新表格数据
+    if i.modifiers.ctrl && i.key_pressed(Key::R) {
+        actions.refresh_requested = true;
+        actions.message = Some("刷新表格数据 (Ctrl+R)".to_string());
     }
 
     // Escape

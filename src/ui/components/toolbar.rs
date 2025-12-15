@@ -4,14 +4,7 @@ use crate::core::{ThemeManager, ThemePreset};
 use crate::ui::styles::{MUTED, SPACING_MD, SPACING_SM};
 use egui::{self, Color32, Id, Key, RichText, Rounding, Vec2};
 
-/// Helix 风格下拉框状态
-#[derive(Default, Clone)]
-struct ComboState {
-    selected_index: usize,
-    is_open: bool,
-}
-
-/// 主题下拉框状态（带分组）
+/// 主题下拉框状态
 #[derive(Default, Clone)]
 struct ThemeComboState {
     selected_index: usize,
@@ -37,15 +30,14 @@ pub struct ToolbarActions {
     pub switch_table: Option<String>,
     // 快捷键触发的下拉框打开
     pub open_theme_selector: bool,
-    pub open_connection_selector: bool,
-    pub open_database_selector: bool,
-    pub open_table_selector: bool,
     // 缩放操作
     pub zoom_in: bool,
     pub zoom_out: bool,
     pub zoom_reset: bool,
     // DDL 操作
     pub create_table: bool,
+    // 关于对话框
+    pub show_about: bool,
 }
 
 // 暗色主题列表
@@ -109,29 +101,51 @@ impl Toolbar {
                     Self::separator(ui);
                     ui.add_space(4.0);
 
-                    // 连接、数据库和表选择器
-                    Self::show_selectors(
-                        ui,
-                        connections,
-                        active_connection,
-                        databases,
-                        selected_database,
-                        tables,
-                        selected_table,
-                        actions,
-                    );
-
-                    ui.add_space(4.0);
-                    Self::separator(ui);
-                    ui.add_space(4.0);
-
-                    // 操作按钮
+                    // 操作按钮（移除了连接/库/表选择器，这些在左侧栏中已有）
                     Self::show_action_buttons(ui, has_result, actions);
+                    
+                    // 保留快捷键功能但不显示选择器
+                    // 快捷键 Ctrl+1/2/3 仍可在 app 中触发侧边栏操作
+                    let _ = (connections, active_connection, databases, selected_database, tables, selected_table);
 
                     // 右侧区域
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // 版本号
-                        ui.label(RichText::new("v0.1.0").small().color(MUTED));
+                        // 圆形头像按钮
+                        let avatar_size = 24.0;
+                        let (rect, response) = ui.allocate_exact_size(
+                            Vec2::splat(avatar_size),
+                            egui::Sense::click(),
+                        );
+                        
+                        // 绘制圆形背景
+                        let center = rect.center();
+                        let radius = avatar_size / 2.0;
+                        let bg_color = if response.hovered() {
+                            Color32::from_rgb(100, 149, 237)  // 悬停时更亮
+                        } else {
+                            Color32::from_rgb(70, 130, 180)   // 钢蓝色
+                        };
+                        
+                        ui.painter().circle_filled(center, radius, bg_color);
+                        
+                        // 绘制笑脸图标
+                        let text = "😊";
+                        let font_id = egui::FontId::proportional(14.0);
+                        let text_color = Color32::WHITE;
+                        ui.painter().text(
+                            center,
+                            egui::Align2::CENTER_CENTER,
+                            text,
+                            font_id,
+                            text_color,
+                        );
+                        
+                        if response.clicked() {
+                            actions.show_about = true;
+                        }
+                        
+                        response.on_hover_text("关于我们");
+                        
                         ui.add_space(8.0);
                         Self::separator(ui);
                         ui.add_space(8.0);
@@ -206,71 +220,6 @@ impl Toolbar {
         if ui.add(Self::styled_button(&format!("{} 编辑器 [Ctrl+J]", editor_icon))).clicked() {
             actions.toggle_editor = true;
         }
-    }
-
-    /// 显示选择器
-    fn show_selectors(
-        ui: &mut egui::Ui,
-        connections: &[String],
-        active_connection: Option<&str>,
-        databases: &[String],
-        selected_database: Option<&str>,
-        tables: &[String],
-        selected_table: Option<&str>,
-        actions: &mut ToolbarActions,
-    ) {
-        // 连接选择器
-        if let Some(idx) = Self::helix_combo(
-            ui,
-            "connection_selector",
-            "[C]",
-            "连接 [Ctrl+1]",
-            connections,
-            active_connection.and_then(|ac| connections.iter().position(|c| c == ac)),
-            180.0,
-            actions.open_connection_selector,
-        ) {
-            if let Some(conn_name) = connections.get(idx) {
-                actions.switch_connection = Some(conn_name.clone());
-            }
-        }
-        actions.open_connection_selector = false;
-
-        // 数据库选择器（仅当有数据库列表时显示）
-        if !databases.is_empty() {
-            if let Some(idx) = Self::helix_combo(
-                ui,
-                "database_selector",
-                "[D]",
-                "库 [Ctrl+2]",
-                databases,
-                selected_database.and_then(|sd| databases.iter().position(|d| d == sd)),
-                180.0,
-                actions.open_database_selector,
-            ) {
-                if let Some(db_name) = databases.get(idx) {
-                    actions.switch_database = Some(db_name.clone());
-                }
-            }
-            actions.open_database_selector = false;
-        }
-
-        // 表选择器
-        if let Some(idx) = Self::helix_combo(
-            ui,
-            "table_selector",
-            "[T]",
-            "表 [Ctrl+3]",
-            tables,
-            selected_table.and_then(|st| tables.iter().position(|t| t == st)),
-            180.0,
-            actions.open_table_selector,
-        ) {
-            if let Some(table_name) = tables.get(idx) {
-                actions.switch_table = Some(table_name.clone());
-            }
-        }
-        actions.open_table_selector = false;
     }
 
     /// 显示缩放控制
@@ -368,187 +317,6 @@ impl Toolbar {
             egui::Stroke::new(1.0, Color32::from_white_alpha(30)),
         );
         ui.add_space(2.0);
-    }
-
-    /// Helix 风格下拉选择框
-    fn helix_combo(
-        ui: &mut egui::Ui,
-        id_source: &str,
-        icon: &str,
-        label: &str,
-        items: &[String],
-        selected_index: Option<usize>,
-        width: f32,
-        force_open: bool,
-    ) -> Option<usize> {
-        let id = Id::new(id_source);
-        let popup_id = id.with("popup");
-        let mut result = None;
-
-        // 获取状态
-        let mut state = ui
-            .ctx()
-            .data_mut(|d| d.get_temp::<ComboState>(id).unwrap_or_default());
-
-        // 快捷键触发打开
-        if force_open && !items.is_empty() {
-            state.is_open = true;
-        }
-
-        // 同步选中索引
-        if let Some(idx) = selected_index {
-            if !state.is_open {
-                state.selected_index = idx;
-            }
-        }
-
-        // 显示文本
-        let display_text = if items.is_empty() {
-            format!("{} {}: --", icon, label)
-        } else {
-            let item_text = selected_index
-                .and_then(|i| items.get(i))
-                .map(|s| truncate_text(s, 15))
-                .unwrap_or_else(|| "选择...".to_string());
-            format!("{} {}: {}", icon, label, item_text)
-        };
-
-        // 按钮
-        let response = ui
-            .add(Self::styled_button(&display_text))
-            .on_hover_text(format!("选择{} [j/k 导航]", label));
-
-        if response.clicked() && !items.is_empty() {
-            state.is_open = !state.is_open;
-        }
-
-        // 弹出菜单
-        if state.is_open && !items.is_empty() {
-            egui::Area::new(popup_id)
-                .order(egui::Order::Foreground)
-                .fixed_pos(response.rect.left_bottom() + Vec2::new(0.0, 4.0))
-                .show(ui.ctx(), |ui| {
-                    egui::Frame::popup(ui.style())
-                        .rounding(Rounding::same(8.0))
-                        .shadow(egui::epaint::Shadow {
-                            offset: Vec2::new(0.0, 4.0),
-                            blur: 12.0,
-                            spread: 0.0,
-                            color: Color32::from_black_alpha(60),
-                        })
-                        .show(ui, |ui| {
-                            ui.set_min_width(width.min(200.0));
-                            ui.set_max_width(width);
-
-                            // 键盘处理
-                            let input_result = ui.input(|i| {
-                                let mut close = false;
-                                let mut confirm = false;
-                                let mut new_idx: Option<usize> = None;
-
-                                if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown) {
-                                    let next = state.selected_index.saturating_add(1);
-                                    if next < items.len() {
-                                        new_idx = Some(next);
-                                    }
-                                }
-
-                                if (i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp))
-                                    && state.selected_index > 0
-                                {
-                                    new_idx = Some(state.selected_index - 1);
-                                }
-
-                                if i.key_pressed(Key::Enter) || i.key_pressed(Key::L) {
-                                    confirm = true;
-                                    close = true;
-                                }
-
-                                if i.key_pressed(Key::Escape) || i.key_pressed(Key::H) {
-                                    close = true;
-                                }
-
-                                if i.key_pressed(Key::G) && !i.modifiers.shift {
-                                    new_idx = Some(0);
-                                }
-
-                                if i.key_pressed(Key::G) && i.modifiers.shift {
-                                    new_idx = Some(items.len().saturating_sub(1));
-                                }
-
-                                (close, confirm, new_idx)
-                            });
-
-                            if let Some(new_idx) = input_result.2 {
-                                state.selected_index = new_idx;
-                            }
-
-                            if input_result.0 {
-                                if input_result.1 {
-                                    result = Some(state.selected_index);
-                                }
-                                state.is_open = false;
-                            }
-
-                            // 选项列表
-                            egui::ScrollArea::vertical()
-                                .max_height(280.0)
-                                .show(ui, |ui| {
-                                    ui.add_space(4.0);
-                                    for (idx, item) in items.iter().enumerate() {
-                                        let is_hover = idx == state.selected_index;
-                                        let item_response =
-                                            Self::render_combo_item(ui, item, is_hover, false);
-
-                                        // 键盘选中时自动滚动到该项
-                                        if is_hover {
-                                            item_response.scroll_to_me(Some(egui::Align::Center));
-                                        }
-
-                                        if item_response.clicked() {
-                                            result = Some(idx);
-                                            state.is_open = false;
-                                        }
-
-                                        if item_response.hovered() {
-                                            state.selected_index = idx;
-                                        }
-                                    }
-                                    ui.add_space(4.0);
-                                });
-
-                            // 提示
-                            ui.separator();
-                            ui.horizontal(|ui| {
-                                ui.add_space(8.0);
-                                ui.label(
-                                    RichText::new("j/k 选择  Enter 确认  Esc 取消")
-                                        .small()
-                                        .color(MUTED),
-                                );
-                            });
-                            ui.add_space(4.0);
-                        });
-                });
-
-            // 点击外部关闭
-            let click_outside = ui.input(|i| {
-                i.pointer.any_click()
-                    && !response
-                        .rect
-                        .contains(i.pointer.interact_pos().unwrap_or_default())
-            });
-            if click_outside {
-                state.is_open = false;
-            }
-        }
-
-        // 保存状态
-        ui.ctx().data_mut(|d| {
-            d.insert_temp(id, state);
-        });
-
-        result
     }
 
     /// 简化版主题选择下拉框（只显示指定的主题列表）
@@ -770,14 +538,5 @@ impl Toolbar {
             });
 
         frame_response.response.interact(egui::Sense::click())
-    }
-}
-
-/// 截断文本
-fn truncate_text(text: &str, max_len: usize) -> String {
-    if text.chars().count() > max_len {
-        format!("{}…", text.chars().take(max_len - 1).collect::<String>())
-    } else {
-        text.to_string()
     }
 }

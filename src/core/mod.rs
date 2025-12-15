@@ -15,7 +15,7 @@ pub use export::{
     // 导出功能（export_to_* 仅供测试使用）
     ExportFormat,
     // 导入功能
-    import_csv_to_sql, import_json_to_sql, import_sql_file,
+    import_csv_to_sql, import_json_to_sql,
     preview_csv, preview_json,
     CsvImportConfig, JsonImportConfig,
 };

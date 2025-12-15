@@ -16,5 +16,5 @@ pub use logic::FilterLogic;
 #[allow(unused_imports)]
 pub use operators::FilterOperator;
 pub use ui::show_filter_bar;
-pub use cache::{filter_rows_cached, FilterCache};
+pub use cache::{count_search_matches, filter_rows_cached, FilterCache};
 pub use quick_filter::show_quick_filter_dialog;

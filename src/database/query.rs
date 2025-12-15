@@ -5,9 +5,11 @@
 
 use super::ssh_tunnel::{SshTunnel, SSH_TUNNEL_MANAGER};
 use super::*;
+use crate::core::constants;
 use mysql_async::prelude::*;
 use rusqlite::{types::ValueRef, Connection as SqliteConn};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::task;
 
 // ============================================================================
@@ -151,11 +153,23 @@ async fn setup_ssh_tunnel_if_enabled(
         config.ssh_config.remote_port
     );
 
-    // 获取或创建隧道
-    let tunnel = SSH_TUNNEL_MANAGER
-        .get_or_create(&tunnel_name, &config.ssh_config)
-        .await
-        .map_err(|e| DbError::Connection(format!("SSH 隧道建立失败: {}", e)))?;
+    // 获取或创建隧道（带超时）
+    let timeout_duration = Duration::from_secs(constants::database::SSH_TUNNEL_TIMEOUT_SECS);
+    let tunnel = tokio::time::timeout(
+        timeout_duration,
+        SSH_TUNNEL_MANAGER.get_or_create(&tunnel_name, &config.ssh_config),
+    )
+    .await
+    .map_err(|_| {
+        DbError::Connection(format!(
+            "SSH 隧道建立超时 ({}秒)。请检查:\n\
+             • SSH 服务器地址和端口是否正确\n\
+             • 网络连接是否正常\n\
+             • 防火墙是否允许连接",
+            constants::database::SSH_TUNNEL_TIMEOUT_SECS
+        ))
+    })?
+    .map_err(|e| DbError::Connection(format!("SSH 隧道建立失败: {}", e)))?;
 
     // 修改连接配置，使用隧道的本地端口
     let mut effective_config = config.clone();

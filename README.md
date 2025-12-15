@@ -2,7 +2,7 @@
 
 简洁、快速、安全的跨平台数据库管理工具，专为键盘党打造。
 
-![Version](https://img.shields.io/badge/version-0.2.0-green.svg)
+![Version](https://img.shields.io/badge/version-0.3.0-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
@@ -276,8 +276,10 @@ src/
     ├── dialogs/         # 对话框
     │   ├── connection_dialog.rs
     │   ├── export_dialog.rs
+    │   ├── import_dialog.rs
     │   ├── ddl_dialog.rs
-    │   └── help_dialog.rs
+    │   ├── help_dialog.rs
+    │   └── about_dialog.rs
     └── panels/          # 面板
         ├── sidebar.rs
         └── history_panel.rs
@@ -339,6 +341,15 @@ cargo appimage
 ```
 
 ## 更新日志
+
+### v0.3.0 (2024-12-15)
+- 新增侧边栏键盘导航（Ctrl+1/2/3 快速切换连接/数据库/表）
+- 新增侧边栏 j/k/g/G/Enter 键位导航支持
+- 新增数据导入对话框（CSV、JSON、SQL 文件导入）
+- 新增关于对话框（版本信息、GitHub 链接）
+- 优化 SQL 编辑器面板布局（固定高度，防止自动增长）
+- 优化编辑器/历史区域比例（70%/30%）
+- UI 细节改进和 Bug 修复
 
 ### v0.2.0 (2024-12-10)
 - 新增 MySQL SSL/TLS 支持（5 种模式）

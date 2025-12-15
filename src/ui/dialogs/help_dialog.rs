@@ -147,7 +147,7 @@ impl HelpDialog {
             ui,
             &[
                 ("Ctrl+E", "导出查询结果"),
-                ("Ctrl+I", "导入 SQL 文件"),
+                ("Ctrl+I", "导入数据（SQL/CSV/JSON）"),
             ],
             key_color,
             desc_color,
@@ -291,7 +291,6 @@ impl HelpDialog {
                 ("a", "追加模式 (append)"),
                 ("c", "修改 (清空并编辑)"),
                 ("r", "替换模式"),
-                ("d", "删除当前单元格内容"),
             ],
             key_color,
             desc_color,
@@ -312,7 +311,8 @@ impl HelpDialog {
         Self::show_keys(
             ui,
             &[
-                ("y", "复制 (yank)"),
+                ("y", "复制当前单元格"),
+                ("yy", "复制整行"),
                 ("p", "粘贴 (paste)"),
             ],
             key_color,
@@ -336,6 +336,7 @@ impl HelpDialog {
             &[
                 ("o", "在下方添加新行"),
                 ("O", "在上方添加新行"),
+                ("dd", "标记删除当前行"),
             ],
             key_color,
             desc_color,
@@ -346,8 +347,16 @@ impl HelpDialog {
             ui,
             &[
                 ("Space d", "标记删除当前行"),
-                ("Space w", "保存修改"),
-                ("Space q", "放弃所有修改"),
+            ],
+            key_color,
+            desc_color,
+        );
+
+        Self::show_section(ui, "刷新", section_color);
+        Self::show_keys(
+            ui,
+            &[
+                ("Ctrl+R", "刷新表格数据"),
             ],
             key_color,
             desc_color,
@@ -498,7 +507,9 @@ impl HelpDialog {
                 ("CSV 导出", "逗号分隔值格式"),
                 ("JSON 导出", "JSON 数组格式"),
                 ("SQL 导出", "INSERT 语句格式"),
-                ("SQL 导入", "执行 .sql 文件内容"),
+                ("SQL 导入", "直接执行或复制到编辑器"),
+                ("CSV 导入", "转换为 INSERT 语句"),
+                ("JSON 导入", "转换为 INSERT 语句"),
             ],
             key_color,
             desc_color,

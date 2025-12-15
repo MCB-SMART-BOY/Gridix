@@ -3,6 +3,7 @@
 use crate::core::constants;
 use crate::database::ConnectionManager;
 use crate::ui::styles::{DANGER, GRAY, MUTED, SUCCESS, SPACING_MD, SPACING_SM, SPACING_LG};
+use crate::ui::SidebarSection;
 use egui::{self, Color32, RichText, Rounding, Vec2};
 
 pub struct Sidebar;
@@ -19,6 +20,13 @@ struct ConnectionItemData {
     error: Option<String>,
 }
 
+/// 焦点转移方向（从侧边栏转出）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarFocusTransfer {
+    /// 转移到数据表格
+    ToDataGrid,
+}
+
 /// 侧边栏操作
 #[derive(Default)]
 pub struct SidebarActions {
@@ -28,6 +36,8 @@ pub struct SidebarActions {
     pub select_database: Option<String>,
     pub show_table_schema: Option<String>,
     pub query_table: Option<String>,
+    /// 焦点转移请求
+    pub focus_transfer: Option<SidebarFocusTransfer>,
 }
 
 impl SidebarActions {
@@ -50,8 +60,81 @@ impl Sidebar {
         connection_manager: &mut ConnectionManager,
         selected_table: &mut Option<String>,
         show_connection_dialog: &mut bool,
+        is_focused: bool,
+        focused_section: SidebarSection,
+        selected_index: &mut usize,
     ) -> SidebarActions {
         let mut actions = SidebarActions::default();
+        
+        // 获取当前区域的项目数量
+        let item_count = match focused_section {
+            SidebarSection::Connections => connection_manager.connections.len(),
+            SidebarSection::Databases => connection_manager
+                .get_active()
+                .map(|c| c.databases.len())
+                .unwrap_or(0),
+            SidebarSection::Tables => connection_manager
+                .get_active()
+                .map(|c| c.tables.len())
+                .unwrap_or(0),
+        };
+        
+        // 处理侧边栏键盘导航（仅在聚焦时响应）
+        if is_focused && item_count > 0 {
+            ctx.input(|i| {
+                // j 或下箭头：向下导航
+                if i.key_pressed(egui::Key::J) || i.key_pressed(egui::Key::ArrowDown) {
+                    *selected_index = (*selected_index + 1).min(item_count.saturating_sub(1));
+                }
+                // k 或上箭头：向上导航
+                if i.key_pressed(egui::Key::K) || i.key_pressed(egui::Key::ArrowUp) {
+                    *selected_index = selected_index.saturating_sub(1);
+                }
+                // g：跳到第一个
+                if i.key_pressed(egui::Key::G) && !i.modifiers.shift {
+                    *selected_index = 0;
+                }
+                // G (Shift+g)：跳到最后一个
+                if i.key_pressed(egui::Key::G) && i.modifiers.shift {
+                    *selected_index = item_count.saturating_sub(1);
+                }
+                // Enter：选择/激活当前项
+                if i.key_pressed(egui::Key::Enter) {
+                    match focused_section {
+                        SidebarSection::Connections => {
+                            let names: Vec<_> = connection_manager.connections.keys().cloned().collect();
+                            if let Some(name) = names.get(*selected_index) {
+                                actions.connect = Some(name.clone());
+                            }
+                        }
+                        SidebarSection::Databases => {
+                            if let Some(conn) = connection_manager.get_active() {
+                                if let Some(db) = conn.databases.get(*selected_index) {
+                                    actions.select_database = Some(db.clone());
+                                }
+                            }
+                        }
+                        SidebarSection::Tables => {
+                            if let Some(conn) = connection_manager.get_active() {
+                                if let Some(table) = conn.tables.get(*selected_index) {
+                                    actions.query_table = Some(table.clone());
+                                    *selected_table = Some(table.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                // l 或右箭头：转移焦点到数据表格
+                if i.key_pressed(egui::Key::L) || i.key_pressed(egui::Key::ArrowRight) {
+                    actions.focus_transfer = Some(SidebarFocusTransfer::ToDataGrid);
+                }
+            });
+            
+            // 确保索引在有效范围内
+            if *selected_index >= item_count {
+                *selected_index = item_count.saturating_sub(1);
+            }
+        }
 
         // 根据屏幕宽度按比例设置侧边栏宽度
         let screen_width = ctx.screen_rect().width();
@@ -66,8 +149,8 @@ impl Sidebar {
             .resizable(true)
             .frame(egui::Frame::central_panel(&ctx.style()))
             .show(ctx, |ui| {
-                // 标题栏
-                Self::show_header(ui, show_connection_dialog);
+                // 标题栏（显示当前焦点区域）
+                Self::show_header(ui, show_connection_dialog, is_focused, focused_section);
 
                 ui.add_space(SPACING_SM);
 
@@ -83,13 +166,24 @@ impl Sidebar {
                         if connection_names.is_empty() {
                             Self::show_empty_state(ui, show_connection_dialog);
                         } else {
-                            for name in connection_names {
+                            // 快捷键提示（在第一个连接上方）
+                            Self::show_shortcuts_hint(ui);
+                            
+                            for (idx, name) in connection_names.iter().enumerate() {
+                                // 判断是否为键盘导航选中项
+                                let is_nav_selected = is_focused 
+                                    && focused_section == SidebarSection::Connections 
+                                    && idx == *selected_index;
                                 Self::show_connection_item(
                                     ui,
-                                    &name,
+                                    name,
                                     connection_manager,
                                     selected_table,
                                     &mut actions,
+                                    is_focused,
+                                    focused_section,
+                                    is_nav_selected,
+                                    selected_index,
                                 );
                             }
                         }
@@ -102,7 +196,7 @@ impl Sidebar {
     }
 
     /// 显示标题栏
-    fn show_header(ui: &mut egui::Ui, show_connection_dialog: &mut bool) {
+    fn show_header(ui: &mut egui::Ui, show_connection_dialog: &mut bool, is_focused: bool, focused_section: SidebarSection) {
         // 使用与工具栏完全相同的 Frame 包裹
         egui::Frame::none()
             .inner_margin(egui::Margin::symmetric(SPACING_MD, SPACING_SM))
@@ -112,6 +206,16 @@ impl Sidebar {
 
                     // 标题
                     ui.label(RichText::new("🔗 连接").strong());
+                    
+                    // 显示当前焦点区域提示
+                    if is_focused {
+                        let section_text = match focused_section {
+                            SidebarSection::Connections => "连接",
+                            SidebarSection::Databases => "数据库",
+                            SidebarSection::Tables => "表",
+                        };
+                        ui.label(RichText::new(format!("→ {}", section_text)).small().color(SUCCESS));
+                    }
 
                     // 把按钮推到右边
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -174,12 +278,17 @@ impl Sidebar {
     }
 
     /// 显示连接项
+    #[allow(clippy::too_many_arguments)]
     fn show_connection_item(
         ui: &mut egui::Ui,
         name: &str,
         connection_manager: &mut ConnectionManager,
         selected_table: &mut Option<String>,
         actions: &mut SidebarActions,
+        is_focused: bool,
+        focused_section: SidebarSection,
+        is_nav_selected: bool,
+        nav_index: &usize,
     ) {
         // 先提取需要的数据，避免借用冲突
         let conn_data = {
@@ -198,15 +307,22 @@ impl Sidebar {
             }
         };
 
-        // 连接项容器
+        // 连接项容器 - 键盘导航选中时高亮
+        let frame_bg = if is_nav_selected {
+            Color32::from_rgba_unmultiplied(100, 150, 255, 40)
+        } else {
+            Color32::TRANSPARENT
+        };
         egui::Frame::none()
-            .inner_margin(egui::Margin::symmetric(SPACING_SM, 0.0))
+            .fill(frame_bg)
+            .rounding(Rounding::same(4.0))
+            .inner_margin(egui::Margin::symmetric(SPACING_SM, 2.0))
             .show(ui, |ui| {
                 // 连接头部
                 let header_response = egui::collapsing_header::CollapsingHeader::new(
-                    Self::connection_header_text(name, conn_data.is_active, conn_data.is_connected),
+                    Self::connection_header_text(name, conn_data.is_active, conn_data.is_connected, is_nav_selected),
                 )
-                .default_open(conn_data.is_active)
+                .default_open(conn_data.is_active || is_nav_selected)
                 .show(ui, |ui| {
                     ui.add_space(SPACING_SM);
 
@@ -237,6 +353,9 @@ impl Sidebar {
                             connection_manager,
                             selected_table,
                             actions,
+                            is_focused,
+                            focused_section,
+                            *nav_index,
                         );
                     } else if conn_data.is_connected {
                         // SQLite 模式：直接显示表列表
@@ -247,6 +366,9 @@ impl Sidebar {
                             connection_manager,
                             selected_table,
                             actions,
+                            is_focused,
+                            focused_section,
+                            *nav_index,
                         );
                     }
 
@@ -283,9 +405,11 @@ impl Sidebar {
 
     /// 连接头部文本
     /// 使用图标+颜色双重指示，对色盲友好
-    fn connection_header_text(name: &str, is_active: bool, is_connected: bool) -> RichText {
+    fn connection_header_text(name: &str, is_active: bool, is_connected: bool, is_nav_selected: bool) -> RichText {
         // 使用不同形状的图标来区分状态，而不仅依赖颜色
-        let (icon, color) = if is_active && is_connected {
+        let (icon, color) = if is_nav_selected {
+            ("▶", Color32::from_rgb(100, 180, 255))  // 键盘导航选中
+        } else if is_active && is_connected {
             ("◆", SUCCESS)  // 实心菱形表示活跃连接
         } else if is_connected {
             ("◇", Color32::from_rgb(100, 180, 100))  // 空心菱形表示已连接但非活跃
@@ -374,29 +498,43 @@ impl Sidebar {
         connection_manager: &mut ConnectionManager,
         selected_table: &mut Option<String>,
         actions: &mut SidebarActions,
+        is_focused: bool,
+        focused_section: SidebarSection,
+        nav_index: usize,
     ) {
+        // 数据库区域是否高亮
+        let highlight_databases = is_focused && focused_section == SidebarSection::Databases;
+        // 表区域是否高亮
+        let highlight_tables = is_focused && focused_section == SidebarSection::Tables;
         // 数据库列表
-        for database in databases {
+        for (idx, database) in databases.iter().enumerate() {
             let is_selected = selected_database == Some(database.as_str());
+            let is_nav_selected = highlight_databases && idx == nav_index;
 
             // 数据库项 - 整行可点击
+            let db_bg = if is_nav_selected {
+                Color32::from_rgba_unmultiplied(100, 150, 255, 60)  // 键盘导航选中
+            } else if is_selected {
+                Color32::from_rgba_unmultiplied(80, 140, 80, 50)
+            } else {
+                Color32::TRANSPARENT
+            };
             let db_response = egui::Frame::none()
-                .fill(if is_selected {
-                    Color32::from_rgba_unmultiplied(80, 140, 80, 50)
-                } else {
-                    Color32::TRANSPARENT
-                })
+                .fill(db_bg)
                 .rounding(Rounding::same(4.0))
                 .inner_margin(egui::Margin::symmetric(8.0, 4.0))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         // 数据库名称
-                        let db_color = if is_selected {
+                        let db_color = if is_nav_selected {
+                            Color32::from_rgb(100, 180, 255)
+                        } else if is_selected {
                             Color32::from_rgb(140, 220, 140)
                         } else {
                             Color32::from_rgb(180, 180, 190)
                         };
-                        ui.label(RichText::new(database).color(db_color));
+                        let prefix = if is_nav_selected { "▶ " } else { "" };
+                        ui.label(RichText::new(format!("{}{}", prefix, database)).color(db_color));
                         
                         // 表数量提示（选中时显示）
                         if is_selected {
@@ -424,6 +562,8 @@ impl Sidebar {
                     connection_manager,
                     selected_table,
                     actions,
+                    highlight_tables,
+                    nav_index,
                 );
             }
         }
@@ -437,31 +577,40 @@ impl Sidebar {
         connection_manager: &mut ConnectionManager,
         selected_table: &mut Option<String>,
         actions: &mut SidebarActions,
+        highlight_tables: bool,
+        nav_index: usize,
     ) {
         // 表列表
-        for table in tables {
+        for (idx, table) in tables.iter().enumerate() {
+            let is_nav_selected = highlight_tables && idx == nav_index;
             let is_selected = selected_table.as_deref() == Some(table);
 
             // 表项 - 带缩进
             ui.horizontal(|ui| {
                 ui.add_space(SPACING_LG);
 
+                let table_bg = if is_nav_selected {
+                    Color32::from_rgba_unmultiplied(100, 150, 255, 60)  // 键盘导航选中
+                } else if is_selected {
+                    Color32::from_rgba_unmultiplied(80, 120, 180, 50)
+                } else {
+                    Color32::TRANSPARENT
+                };
                 let response = egui::Frame::none()
-                    .fill(if is_selected {
-                        Color32::from_rgba_unmultiplied(80, 120, 180, 50)
-                    } else {
-                        Color32::TRANSPARENT
-                    })
+                    .fill(table_bg)
                     .rounding(Rounding::same(4.0))
                     .inner_margin(egui::Margin::symmetric(8.0, 4.0))
                     .show(ui, |ui| {
                         ui.set_min_width(ui.available_width() - 8.0);
-                        let text_color = if is_selected {
+                        let text_color = if is_nav_selected {
+                            Color32::from_rgb(100, 180, 255)
+                        } else if is_selected {
                             Color32::from_rgb(150, 200, 255)
                         } else {
                             Color32::from_rgb(170, 170, 180)
                         };
-                        ui.label(RichText::new(table).color(text_color));
+                        let prefix = if is_nav_selected { "▶ " } else { "" };
+                        ui.label(RichText::new(format!("{}{}", prefix, table)).color(text_color));
                     })
                     .response
                     .interact(egui::Sense::click());
@@ -496,7 +645,11 @@ impl Sidebar {
         connection_manager: &mut ConnectionManager,
         selected_table: &mut Option<String>,
         actions: &mut SidebarActions,
+        is_focused: bool,
+        focused_section: SidebarSection,
+        nav_index: usize,
     ) {
+        let highlight_tables = is_focused && focused_section == SidebarSection::Tables;
         if tables.is_empty() {
             ui.horizontal(|ui| {
                 ui.add_space(SPACING_LG);
@@ -519,28 +672,33 @@ impl Sidebar {
         ui.add_space(SPACING_SM);
 
         // 表列表
-        for table in tables {
+        for (idx, table) in tables.iter().enumerate() {
             let is_selected = selected_table.as_deref() == Some(table);
+            let is_nav_selected = highlight_tables && idx == nav_index;
 
             ui.horizontal(|ui| {
                 ui.add_space(SPACING_LG + 4.0);
 
                 // 表项
+                let table_bg = if is_nav_selected {
+                    Color32::from_rgba_unmultiplied(100, 150, 255, 60)  // 键盘导航选中
+                } else if is_selected {
+                    Color32::from_rgba_unmultiplied(100, 150, 200, 40)
+                } else {
+                    Color32::TRANSPARENT
+                };
                 let response = egui::Frame::none()
-                    .fill(if is_selected {
-                        Color32::from_rgba_unmultiplied(100, 150, 200, 40)
-                    } else {
-                        Color32::TRANSPARENT
-                    })
+                    .fill(table_bg)
                     .rounding(Rounding::same(4.0))
                     .inner_margin(egui::Margin::symmetric(8.0, 4.0))
                     .show(ui, |ui| {
                         ui.set_min_width(ui.available_width() - 8.0);
-                        let icon = if is_selected { ">" } else { " " };
-                        let color = if is_selected {
-                            Color32::from_rgb(150, 200, 255)
+                        let (icon, color) = if is_nav_selected {
+                            ("▶", Color32::from_rgb(100, 180, 255))
+                        } else if is_selected {
+                            (">", Color32::from_rgb(150, 200, 255))
                         } else {
-                            Color32::from_rgb(180, 180, 190)
+                            (" ", Color32::from_rgb(180, 180, 190))
                         };
                         ui.label(RichText::new(format!("{} {}", icon, table)).color(color));
                     })
@@ -585,6 +743,25 @@ impl Sidebar {
                     );
                 });
         });
+    }
+
+    /// 显示快捷键提示（在连接列表上方）
+    fn show_shortcuts_hint(ui: &mut egui::Ui) {
+        egui::Frame::none()
+            .inner_margin(egui::Margin::symmetric(SPACING_SM, 2.0))
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::Vec2::new(4.0, 0.0);
+                    ui.label(RichText::new("j/k").small().color(GRAY));
+                    ui.label(RichText::new("导航").small().color(MUTED));
+                    ui.label(RichText::new("·").small().color(MUTED));
+                    ui.label(RichText::new("Enter").small().color(GRAY));
+                    ui.label(RichText::new("选择").small().color(MUTED));
+                    ui.label(RichText::new("·").small().color(MUTED));
+                    ui.label(RichText::new("g/G").small().color(GRAY));
+                    ui.label(RichText::new("首/尾").small().color(MUTED));
+                });
+            });
     }
 }
 

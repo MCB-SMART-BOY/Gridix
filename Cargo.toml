@@ -1,11 +1,11 @@
 [package]
 name = "rust-db-manager"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "跨平台数据库管理工具，支持 SQLite/PostgreSQL/MySQL"
-authors = ["Your Name"]
+authors = ["MCB-SMART-BOY"]
 license = "MIT"
-repository = "https://github.com/yourname/rust-db-manager"
+repository = "https://github.com/MCB-SMART-BOY/rust-db-manager"
 keywords = ["database", "gui", "sqlite", "postgresql", "mysql"]
 categories = ["database", "gui"]
 

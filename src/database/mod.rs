@@ -681,12 +681,24 @@ impl PoolManager {
     ) -> Result<mysql_async::Pool, DbError> {
         let key = config.pool_key();
 
-        // 先尝试读取缓存
+        // 先尝试读取缓存并验证连接池健康
         {
             let pools = self.mysql_pools.read().await;
             if let Some(pool) = pools.get(&key) {
-                return Ok(pool.clone());
+                // 尝试获取连接以验证连接池是否健康
+                match pool.get_conn().await {
+                    Ok(_) => return Ok(pool.clone()),
+                    Err(_) => {
+                        // 连接池不健康，稍后会重新创建
+                    }
+                }
             }
+        }
+
+        // 移除失效的连接池
+        {
+            let mut pools = self.mysql_pools.write().await;
+            pools.remove(&key);
         }
 
         // 创建新连接池，配置连接池参数（最小2，最大10连接）
@@ -794,7 +806,7 @@ impl PoolManager {
     ) -> Result<Arc<tokio_postgres::Client>, DbError> {
         let key = config.pool_key();
 
-        // 先尝试读取缓存
+        // 先尝试读取缓存并验证连接健康
         {
             let clients = self.pg_clients.read().await;
             if let Some(client) = clients.get(&key) {
@@ -803,6 +815,12 @@ impl PoolManager {
                     return Ok(client.clone());
                 }
             }
+        }
+
+        // 移除失效的连接
+        {
+            let mut clients = self.pg_clients.write().await;
+            clients.remove(&key);
         }
 
         // 创建新连接

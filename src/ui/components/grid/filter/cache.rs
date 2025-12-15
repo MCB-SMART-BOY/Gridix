@@ -37,6 +37,16 @@ impl FilterCache {
     pub fn invalidate(&mut self) {
         self.valid = false;
     }
+
+    /// 获取缓存的过滤后行数（如果缓存有效）
+    #[allow(dead_code)]
+    pub fn get_filtered_count(&self) -> Option<usize> {
+        if self.valid {
+            Some(self.filtered_indices.len())
+        } else {
+            None
+        }
+    }
 }
 
 /// 计算筛选条件的哈希值
@@ -94,6 +104,42 @@ pub fn filter_rows_cached<'a>(
     filtered
 }
 
+/// 快速搜索计数（仅用于状态栏显示，不使用筛选条件）
+/// 
+/// 返回 (匹配行数, 总行数)
+pub fn count_search_matches(
+    result: &QueryResult,
+    search_text: &str,
+    search_column: &Option<String>,
+) -> (usize, usize) {
+    let total = result.rows.len();
+    
+    if search_text.is_empty() {
+        return (total, total);
+    }
+    
+    let search_lower = search_text.to_lowercase();
+    
+    // 预先查找搜索列索引
+    let search_col_idx = search_column
+        .as_ref()
+        .and_then(|col_name| result.columns.iter().position(|c| c == col_name));
+    
+    let matched = result.rows.iter().filter(|row| {
+        match search_col_idx {
+            Some(idx) => row
+                .get(idx)
+                .map(|cell| cell.to_lowercase().contains(&search_lower))
+                .unwrap_or(false),
+            None => row
+                .iter()
+                .any(|cell| cell.to_lowercase().contains(&search_lower)),
+        }
+    }).count();
+    
+    (matched, total)
+}
+
 /// 过滤行数据（内部实现）
 fn filter_rows_internal<'a>(
     result: &'a QueryResult,
@@ -106,6 +152,11 @@ fn filter_rows_internal<'a>(
     // 只使用启用的筛选条件
     let active_filters: Vec<&ColumnFilter> = filters.iter().filter(|f| f.enabled).collect();
 
+    // 预先查找搜索列索引，避免在循环中重复查找
+    let search_col_idx = search_column
+        .as_ref()
+        .and_then(|col_name| result.columns.iter().position(|c| c == col_name));
+
     result
         .rows
         .iter()
@@ -115,12 +166,9 @@ fn filter_rows_internal<'a>(
             let search_match = if search_text.is_empty() {
                 true
             } else {
-                match search_column {
-                    Some(col_name) => result
-                        .columns
-                        .iter()
-                        .position(|c| c == col_name)
-                        .and_then(|col_idx| row.get(col_idx))
+                match search_col_idx {
+                    Some(idx) => row
+                        .get(idx)
                         .map(|cell| cell.to_lowercase().contains(&search_lower))
                         .unwrap_or(false),
                     None => row

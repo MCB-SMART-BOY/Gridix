@@ -730,6 +730,8 @@ fn escape_sql_identifier(name: &str) -> String {
     name.replace('`', "``").replace('"', "\"\"")
 }
 
+/// 简单读取 SQL 文件内容（保留用于测试或简单场景）
+#[allow(dead_code)]
 pub fn import_sql_file(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| e.to_string())
 }
