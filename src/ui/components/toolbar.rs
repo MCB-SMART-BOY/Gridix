@@ -281,7 +281,7 @@ impl Toolbar {
         }
 
         // 创建表
-        if ui.add(Self::styled_button("新建表")).clicked() {
+        if ui.add(Self::styled_button("新建表 [Ctrl+Shift+N]")).clicked() {
             actions.create_table = true;
         }
 

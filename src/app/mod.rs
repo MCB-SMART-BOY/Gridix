@@ -836,8 +836,18 @@ impl DbManagerApp {
     fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
         ctx.input(|i| {
             // Ctrl+N: 新建连接
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::N) {
+            if i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::N) {
                 self.show_connection_dialog = true;
+            }
+            
+            // Ctrl+Shift+N: 新建表
+            if i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::N) {
+                if let Some(conn) = self.manager.get_active() {
+                    if conn.selected_database.is_some() {
+                        let db_type = conn.config.db_type.clone();
+                        self.ddl_dialog_state.open_create_table(db_type);
+                    }
+                }
             }
 
             // Ctrl+E: 导出
