@@ -7,21 +7,21 @@ pub struct Welcome;
 
 impl Welcome {
     pub fn show(ui: &mut egui::Ui) {
-        // 获取可用区域
         let available_rect = ui.available_rect_before_wrap();
         
-        // 内容尺寸估算
-        let content_width = 600.0;
-        let content_height = 450.0;
+        // 内容尺寸
+        let content_width = 500.0;
+        let content_height = 500.0;
         
         // 计算居中位置
         let x = available_rect.min.x + (available_rect.width() - content_width) / 2.0;
         let y = available_rect.min.y + (available_rect.height() - content_height) / 2.0;
         
-        // 使用 Area 实现真正的居中
+        // 使用 Area 实现居中
         egui::Area::new(egui::Id::new("welcome_center"))
             .fixed_pos(egui::pos2(x.max(available_rect.min.x), y.max(available_rect.min.y)))
             .show(ui.ctx(), |ui| {
+                ui.set_min_width(content_width);
                 ui.set_max_width(content_width);
                 
                 ui.vertical_centered(|ui| {
@@ -48,39 +48,15 @@ impl Welcome {
 
     /// 显示头部标题
     fn show_header(ui: &mut egui::Ui) {
-        // 应用图标（使用简单的方块图案代替 emoji）
-        ui.horizontal(|ui| {
-            ui.add_space((ui.available_width() - 60.0) / 2.0);
-            // 绘制简单的数据库图标
-            let (rect, _) = ui.allocate_exact_size(Vec2::new(60.0, 50.0), egui::Sense::hover());
-            let painter = ui.painter();
-            
-            // 绘制两个堆叠的圆柱体表示数据库
-            let center_x = rect.center().x;
-            let top_y = rect.top() + 10.0;
-            
-            // 上层圆柱
-            painter.rect_filled(
-                egui::Rect::from_min_size(
-                    egui::pos2(center_x - 20.0, top_y),
-                    Vec2::new(40.0, 15.0)
-                ),
-                Rounding::same(3.0),
-                Color32::from_rgb(100, 160, 220),
-            );
-            
-            // 下层圆柱
-            painter.rect_filled(
-                egui::Rect::from_min_size(
-                    egui::pos2(center_x - 25.0, top_y + 20.0),
-                    Vec2::new(50.0, 18.0)
-                ),
-                Rounding::same(4.0),
-                Color32::from_rgb(80, 140, 200),
-            );
-        });
+        // 应用标题
+        ui.label(
+            RichText::new("Rust DB Manager")
+                .size(28.0)
+                .strong()
+                .color(Color32::from_rgb(100, 160, 220))
+        );
 
-        ui.add_space(SPACING_MD);
+        ui.add_space(SPACING_SM);
 
         // 主标题
         ui.label(
@@ -93,7 +69,7 @@ impl Welcome {
 
         // 版本号
         ui.label(
-            RichText::new("v0.1.0")
+            RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
                 .small()
                 .color(MUTED)
         );
@@ -103,14 +79,20 @@ impl Welcome {
     fn show_database_cards(ui: &mut egui::Ui) {
         let card_width = 130.0;
         let card_spacing = 16.0;
+        let total_width = card_width * 3.0 + card_spacing * 2.0;
 
+        // 手动居中
+        let available = ui.available_width();
+        let offset = ((available - total_width) / 2.0).max(0.0);
+        
         ui.horizontal(|ui| {
+            ui.add_space(offset);
             ui.spacing_mut().item_spacing.x = card_spacing;
 
             // SQLite 卡片
             Self::database_card(
                 ui,
-                &['\u{25A1}', '\u{25A1}'],  // 方块图案
+                "S",
                 "SQLite",
                 "本地文件数据库",
                 Color32::from_rgb(80, 160, 220),
@@ -120,7 +102,7 @@ impl Welcome {
             // PostgreSQL 卡片
             Self::database_card(
                 ui,
-                &['\u{229E}'],  // 方块加号
+                "P",
                 "PostgreSQL",
                 "企业级关系数据库",
                 Color32::from_rgb(80, 130, 180),
@@ -130,10 +112,10 @@ impl Welcome {
             // MySQL 卡片
             Self::database_card(
                 ui,
-                &['\u{2662}'],  // 菱形
+                "M",
                 "MySQL",
                 "流行的开源数据库",
-                Color32::from_rgb(240, 150, 80),
+                Color32::from_rgb(200, 120, 60),
                 card_width,
             );
         });
@@ -142,7 +124,7 @@ impl Welcome {
     /// 单个数据库卡片
     fn database_card(
         ui: &mut egui::Ui,
-        icon_chars: &[char],
+        icon: &str,
         name: &str,
         desc: &str,
         accent_color: Color32,
@@ -171,9 +153,30 @@ impl Welcome {
                 ui.set_max_width(width - 32.0);
 
                 ui.vertical_centered(|ui| {
-                    // 图标 - 使用简单的字符
-                    let icon_text: String = icon_chars.iter().collect();
-                    ui.label(RichText::new(icon_text).size(28.0).color(accent_color));
+                    // 图标 - 使用圆形背景的字母
+                    let (rect, _) = ui.allocate_exact_size(Vec2::new(48.0, 48.0), egui::Sense::hover());
+                    let painter = ui.painter();
+                    
+                    // 绘制圆形背景
+                    painter.circle_filled(
+                        rect.center(),
+                        24.0,
+                        Color32::from_rgba_unmultiplied(
+                            accent_color.r(),
+                            accent_color.g(),
+                            accent_color.b(),
+                            40,
+                        ),
+                    );
+                    
+                    // 绘制字母
+                    painter.text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        icon,
+                        egui::FontId::proportional(24.0),
+                        accent_color,
+                    );
 
                     ui.add_space(SPACING_SM);
 
