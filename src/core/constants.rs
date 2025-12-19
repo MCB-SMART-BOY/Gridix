@@ -93,10 +93,14 @@ pub mod grid {
     pub const HEADER_HEIGHT: f32 = 28.0;
     /// 列最小宽度
     pub const MIN_COL_WIDTH: f32 = 60.0;
-    /// 列最大宽度
-    pub const MAX_COL_WIDTH: f32 = 300.0;
-    /// 字符宽度估算
+    /// 列最大宽度（内容自适应的上限）
+    pub const MAX_COL_WIDTH: f32 = 400.0;
+    /// 列默认宽度（无内容时）
+    pub const DEFAULT_COL_WIDTH: f32 = 120.0;
+    /// 字符宽度估算（中文约为英文2倍）
     pub const CHAR_WIDTH: f32 = 8.0;
+    /// 中文字符宽度估算
+    pub const CJK_CHAR_WIDTH: f32 = 14.0;
     /// 单元格内容截断长度
     pub const CELL_TRUNCATE_LEN: usize = 50;
 }

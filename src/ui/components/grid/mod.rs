@@ -463,6 +463,20 @@ impl DataGrid {
         });
     }
 
+    /// 计算字符串的显示宽度（考虑中英文差异）
+    fn calculate_text_width(text: &str) -> f32 {
+        let mut width = 0.0;
+        for c in text.chars() {
+            // 中日韩字符使用更宽的宽度
+            if c > '\u{2E7F}' {
+                width += constants::grid::CJK_CHAR_WIDTH;
+            } else {
+                width += CHAR_WIDTH;
+            }
+        }
+        width
+    }
+
     /// 计算每列的最佳宽度（基于内容长度）
     fn calculate_column_widths(
         result: &QueryResult,
@@ -471,24 +485,23 @@ impl DataGrid {
         let mut col_widths = Vec::with_capacity(result.columns.len());
 
         for (col_idx, col_name) in result.columns.iter().enumerate() {
-            // 从列名开始计算最大长度
-            let mut max_len = col_name.chars().count();
+            // 从列名开始计算最大宽度
+            let mut max_width = Self::calculate_text_width(col_name);
 
-            // 采样前 100 行来计算内容最大长度（避免大数据集性能问题）
+            // 采样前 100 行来计算内容最大宽度（避免大数据集性能问题）
             let sample_count = filtered_rows.len().min(100);
             for (_, row_data) in filtered_rows.iter().take(sample_count) {
                 if let Some(cell) = row_data.get(col_idx) {
-                    let cell_len = cell.chars().count();
-                    if cell_len > max_len {
-                        max_len = cell_len;
+                    let cell_width = Self::calculate_text_width(cell);
+                    if cell_width > max_width {
+                        max_width = cell_width;
                     }
                 }
             }
 
-            // 计算宽度：字符数 * 字符宽度 + 内边距
-            let padding = 24.0; // 左右内边距 + 筛选按钮空间
-            let width = (max_len as f32 * CHAR_WIDTH + padding)
-                .clamp(MIN_COL_WIDTH, MAX_COL_WIDTH);
+            // 加上内边距（左右内边距 + 筛选按钮空间）
+            let padding = 24.0;
+            let width = (max_width + padding).clamp(MIN_COL_WIDTH, MAX_COL_WIDTH);
 
             col_widths.push(width);
         }
