@@ -1,11 +1,11 @@
 [package]
-name = "rust-db-manager"
+name = "gridix"
 version = "0.5.0"
 edition = "2021"
 description = "跨平台数据库管理工具，支持 SQLite/PostgreSQL/MySQL"
 authors = ["MCB-SMART-BOY"]
 license = "MIT"
-repository = "https://github.com/MCB-SMART-BOY/rust-db-manager"
+repository = "https://github.com/MCB-SMART-BOY/gridix"
 keywords = ["database", "gui", "sqlite", "postgresql", "mysql"]
 categories = ["database", "gui"]
 

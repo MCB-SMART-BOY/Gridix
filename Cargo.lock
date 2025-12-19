@@ -1991,6 +1991,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "gridix"
+version = "0.5.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "csv",
+ "dirs",
+ "eframe",
+ "egui",
+ "egui_extras",
+ "hostname",
+ "lazy_static",
+ "mysql_async",
+ "once_cell",
+ "parking_lot",
+ "pretty_assertions",
+ "regex",
+ "rfd",
+ "ring",
+ "rusqlite",
+ "russh",
+ "russh-keys",
+ "serde",
+ "serde_json",
+ "syntect",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-postgres",
+ "tokio-test",
+ "toml",
+ "uuid",
+]
+
+[[package]]
 name = "group"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4087,42 +4123,6 @@ dependencies = [
  "tokio-stream",
  "typenum",
  "zeroize",
-]
-
-[[package]]
-name = "rust-db-manager"
-version = "0.5.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "csv",
- "dirs",
- "eframe",
- "egui",
- "egui_extras",
- "hostname",
- "lazy_static",
- "mysql_async",
- "once_cell",
- "parking_lot",
- "pretty_assertions",
- "regex",
- "rfd",
- "ring",
- "rusqlite",
- "russh",
- "russh-keys",
- "serde",
- "serde_json",
- "syntect",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tokio-postgres",
- "tokio-test",
- "toml",
- "uuid",
 ]
 
 [[package]]

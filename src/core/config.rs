@@ -63,7 +63,7 @@ impl Default for AppConfig {
 
 impl AppConfig {
     pub fn config_dir() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("rust-db-manager"))
+        dirs::config_dir().map(|p| p.join("gridix"))
     }
 
     pub fn config_path() -> Option<PathBuf> {

@@ -1,7 +1,7 @@
 [Desktop Entry]
-Name=Rust DB Manager
+Name=Gridix
 Comment=A simple database manager written in Rust
-Exec=rust-db-manager
-Icon=rust-db-manager
+Exec=gridix
+Icon=gridix
 Type=Application
 Categories=Development;Utility;

@@ -84,7 +84,7 @@ impl AboutDialog {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("🔗").size(14.0));
                         ui.label(
-                            RichText::new("github.com/MCB-SMART-BOY/rust-db-manager")
+                            RichText::new("github.com/MCB-SMART-BOY/gridix")
                                 .size(13.0)
                                 .color(Color32::from_rgb(100, 149, 237))
                         );

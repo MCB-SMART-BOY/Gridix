@@ -1,4 +1,4 @@
-# Rust DB Manager
+# Gridix
 
 简洁、快速、安全的跨平台数据库管理工具，专为键盘党打造。
 
@@ -6,6 +6,8 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
+
+> **Gridix** = Grid + Helix，表格数据库管理 + Helix 风格键位操作
 
 ## 特性亮点
 
@@ -24,31 +26,31 @@
 
 ## 截图
 
-![Screenshot](rust-db-manager.png)
+![Screenshot](gridix.png)
 
 ## 安装
 
 ### 下载预编译版本
 
-从 [Releases](https://github.com/MCB-SMART-BOY/rust-db-manager/releases) 页面下载最新版本：
+从 [Releases](https://github.com/MCB-SMART-BOY/gridix/releases) 页面下载最新版本：
 
 | 平台 | 文件 | 大小 |
 |------|------|------|
-| Linux x86_64 | `rust-db-manager-linux-x86_64.tar.gz` | 29 MB |
-| Linux AppImage | `rust-db-manager.AppImage` | 16 MB |
-| Windows x86_64 | `rust-db-manager-windows-x86_64.zip` | 13 MB |
-| macOS Apple Silicon | `rust-db-manager-macos-arm64.tar.gz` | 13 MB |
-| macOS Intel | `rust-db-manager-macos-x86_64.tar.gz` | 13 MB |
+| Linux x86_64 | `gridix-linux-x86_64.tar.gz` | 29 MB |
+| Linux AppImage | `gridix.AppImage` | 16 MB |
+| Windows x86_64 | `gridix-windows-x86_64.zip` | 13 MB |
+| macOS Apple Silicon | `gridix-macos-arm64.tar.gz` | 13 MB |
+| macOS Intel | `gridix-macos-x86_64.tar.gz` | 13 MB |
 
 ### 从源码编译
 
 ```bash
-git clone https://github.com/MCB-SMART-BOY/rust-db-manager.git
-cd rust-db-manager
+git clone https://github.com/MCB-SMART-BOY/gridix.git
+cd gridix
 cargo build --release
 ```
 
-编译后的二进制文件位于 `target/release/rust-db-manager`。
+编译后的二进制文件位于 `target/release/gridix`。
 
 **Linux 依赖：**
 ```bash
@@ -305,9 +307,9 @@ src/
 
 | 系统 | 路径 |
 |------|------|
-| Linux | `~/.config/rust-db-manager/config.toml` |
-| macOS | `~/Library/Application Support/rust-db-manager/config.toml` |
-| Windows | `%APPDATA%\rust-db-manager\config.toml` |
+| Linux | `~/.config/gridix/config.toml` |
+| macOS | `~/Library/Application Support/gridix/config.toml` |
+| Windows | `%APPDATA%\gridix\config.toml` |
 
 配置内容包括：
 - 数据库连接信息（密码加密存储）
@@ -320,8 +322,8 @@ src/
 
 ```bash
 # 克隆项目
-git clone https://github.com/MCB-SMART-BOY/rust-db-manager.git
-cd rust-db-manager
+git clone https://github.com/MCB-SMART-BOY/gridix.git
+cd gridix
 
 # 开发模式运行
 cargo run
@@ -392,5 +394,5 @@ MIT License
 
 欢迎提交 Issue 和 Pull Request！
 
-- 报告 Bug：[Issues](https://github.com/MCB-SMART-BOY/rust-db-manager/issues)
-- 功能建议：[Discussions](https://github.com/MCB-SMART-BOY/rust-db-manager/discussions)
+- 报告 Bug：[Issues](https://github.com/MCB-SMART-BOY/gridix/issues)
+- 功能建议：[Discussions](https://github.com/MCB-SMART-BOY/gridix/discussions)
