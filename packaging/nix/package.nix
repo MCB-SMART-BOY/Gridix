@@ -1,46 +1,48 @@
-{ lib
-, rustPlatform
-, fetchFromGitHub
-, pkg-config
-, gtk3
-, xdotool
-, openssl
-, stdenv
-, darwin
+{
+  lib,
+  rustPlatform,
+  fetchFromGitHub,
+  pkg-config,
+  gtk3,
+  xdotool,
+  openssl,
+  stdenv,
+  darwin,
 }:
 
-rustPlatform.buildRustPackage rec {
+rustPlatform.buildRustPackage (finalAttrs: {
   pname = "gridix";
   version = "0.5.2";
 
   src = fetchFromGitHub {
     owner = "MCB-SMART-BOY";
     repo = "Gridix";
-    rev = "v${version}";
-    hash = "sha256-E44kvbXNj4+rqj6ahnR0eoV+VTys9t/f92hqQgdnZZc=";
+    tag = "v${finalAttrs.version}";
+    hash = "sha256-UCG9Sgna/Hj2FniKJXafYbgYyTigk5HdDaRaJh8qf+o=";
   };
 
-  # Run `nix build` to get the correct hash, then update this value
-  cargoHash = lib.fakeHash;
+  cargoHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
   nativeBuildInputs = [
     pkg-config
   ];
 
-  buildInputs = [
-    gtk3
-    xdotool
-    openssl
-  ] ++ lib.optionals stdenv.isDarwin [
-    darwin.apple_sdk.frameworks.AppKit
-    darwin.apple_sdk.frameworks.CoreGraphics
-    darwin.apple_sdk.frameworks.CoreText
-    darwin.apple_sdk.frameworks.Foundation
-    darwin.apple_sdk.frameworks.Metal
-    darwin.apple_sdk.frameworks.QuartzCore
-  ];
+  buildInputs =
+    [
+      gtk3
+      xdotool
+      openssl
+    ]
+    ++ lib.optionals stdenv.isDarwin [
+      darwin.apple_sdk.frameworks.AppKit
+      darwin.apple_sdk.frameworks.CoreGraphics
+      darwin.apple_sdk.frameworks.CoreText
+      darwin.apple_sdk.frameworks.Foundation
+      darwin.apple_sdk.frameworks.Metal
+      darwin.apple_sdk.frameworks.QuartzCore
+    ];
 
-  meta = with lib; {
+  meta = {
     description = "Fast, secure, cross-platform database management tool with Helix/Vim keybindings";
     longDescription = ''
       Gridix is a keyboard-driven database management tool supporting SQLite,
@@ -48,10 +50,10 @@ rustPlatform.buildRustPackage rec {
       19 built-in themes, and Helix/Vim-style keybindings.
     '';
     homepage = "https://github.com/MCB-SMART-BOY/Gridix";
-    changelog = "https://github.com/MCB-SMART-BOY/Gridix/releases/tag/v${version}";
-    license = licenses.mit;
-    maintainers = with maintainers; [ ];
+    changelog = "https://github.com/MCB-SMART-BOY/Gridix/releases/tag/v${finalAttrs.version}";
+    license = lib.licenses.mit;
+    maintainers = with lib.maintainers; [ mcbgaruda ];
     mainProgram = "gridix";
-    platforms = platforms.unix;
+    platforms = lib.platforms.unix;
   };
-}
+})
