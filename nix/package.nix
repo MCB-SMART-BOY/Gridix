@@ -11,7 +11,7 @@
 
 rustPlatform.buildRustPackage rec {
   pname = "gridix";
-  version = "0.5.1";
+  version = "0.5.2";
 
   src = fetchFromGitHub {
     owner = "MCB-SMART-BOY";

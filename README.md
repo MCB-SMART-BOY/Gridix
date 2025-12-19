@@ -2,7 +2,7 @@
 
 > 给不想碰鼠标的人做的数据库工具
 
-![Version](https://img.shields.io/badge/version-0.5.1-green.svg)
+![Version](https://img.shields.io/badge/version-0.5.2-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
@@ -331,6 +331,10 @@ src/
 ```
 
 ## 更新日志
+
+### v0.5.2 (2025-12-20)
+- 修复 LICENSE 文件未包含在发布标签中的问题
+- 更新打包配置
 
 ### v0.5.1 (2025-12-20)
 - 上架 AUR（gridix-bin / gridix / gridix-appimage）

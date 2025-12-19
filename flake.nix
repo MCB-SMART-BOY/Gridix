@@ -14,7 +14,7 @@
       {
         packages.default = pkgs.rustPlatform.buildRustPackage rec {
           pname = "gridix";
-          version = "0.5.1";
+          version = "0.5.2";
 
           src = ./.;
 
