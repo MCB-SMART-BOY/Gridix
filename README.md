@@ -34,36 +34,28 @@ paru -S gridix-appimage     # AppImage，自带依赖
 paru -S gridix              # 源码编译，硬核
 ```
 
+### NixOS / Nix
+
+```bash
+# nixpkgs (unstable)
+nix-shell -p gridix
+
+# 或使用 flake
+nix run github:MCB-SMART-BOY/Gridix
+```
+
+### Flatpak (Flathub)
+
+```bash
+flatpak install flathub io.github.mcb_smart_boy.Gridix
+flatpak run io.github.mcb_smart_boy.Gridix
+```
+
 ### macOS / Linux (Homebrew)
 
 ```bash
 brew tap MCB-SMART-BOY/gridix
 brew install gridix
-```
-
-### NixOS / Nix
-
-```bash
-# 使用 flake（推荐）
-nix run github:MCB-SMART-BOY/Gridix
-
-# 或者加到 flake.nix
-inputs.gridix.url = "github:MCB-SMART-BOY/Gridix";
-```
-
-### Fedora (COPR)
-
-```bash
-# 先启用 COPR 仓库（需要先在 copr.fedorainfracloud.org 创建）
-sudo dnf copr enable mcb-smart-boy/gridix
-sudo dnf install gridix
-```
-
-### Flatpak
-
-```bash
-# 从 Flathub 安装（提交审核中）
-flatpak install flathub io.github.mcb_smart_boy.Gridix
 ```
 
 ### 下载预编译
