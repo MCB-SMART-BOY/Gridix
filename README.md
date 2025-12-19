@@ -26,7 +26,7 @@
 
 ## 装一个
 
-### Arch Linux（最爽）
+### Arch Linux (AUR)
 
 ```bash
 paru -S gridix-bin          # 预编译，秒装
@@ -34,11 +34,41 @@ paru -S gridix-appimage     # AppImage，自带依赖
 paru -S gridix              # 源码编译，硬核
 ```
 
-用 `yay` 的话把 `paru` 换掉就行。
+### macOS / Linux (Homebrew)
+
+```bash
+brew tap MCB-SMART-BOY/gridix
+brew install gridix
+```
+
+### NixOS / Nix
+
+```bash
+# 使用 flake（推荐）
+nix run github:MCB-SMART-BOY/Gridix
+
+# 或者加到 flake.nix
+inputs.gridix.url = "github:MCB-SMART-BOY/Gridix";
+```
+
+### Fedora (COPR)
+
+```bash
+# 先启用 COPR 仓库（需要先在 copr.fedorainfracloud.org 创建）
+sudo dnf copr enable mcb-smart-boy/gridix
+sudo dnf install gridix
+```
+
+### Flatpak
+
+```bash
+# 从 Flathub 安装（提交审核中）
+flatpak install flathub io.github.mcb_smart_boy.Gridix
+```
 
 ### 下载预编译
 
-去 [Releases](https://github.com/MCB-SMART-BOY/gridix/releases) 下载对应平台的包：
+去 [Releases](https://github.com/MCB-SMART-BOY/gridix/releases) 下载：
 
 | 平台 | 文件 | 大小 |
 |------|------|------|
@@ -54,10 +84,10 @@ paru -S gridix              # 源码编译，硬核
 git clone https://github.com/MCB-SMART-BOY/gridix.git
 cd gridix
 cargo build --release
-# 产物在 target/release/gridix
 ```
 
-**Linux 依赖：**
+<details>
+<summary>Linux 依赖</summary>
 
 ```bash
 # Debian/Ubuntu
@@ -72,6 +102,7 @@ sudo pacman -S gtk3 xdotool
 # openSUSE
 sudo zypper install gtk3-devel libxdo-devel
 ```
+</details>
 
 ## 快速上手
 
