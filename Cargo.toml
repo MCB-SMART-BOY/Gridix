@@ -1,6 +1,6 @@
 [package]
 name = "rust-db-manager"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "跨平台数据库管理工具，支持 SQLite/PostgreSQL/MySQL"
 authors = ["MCB-SMART-BOY"]
