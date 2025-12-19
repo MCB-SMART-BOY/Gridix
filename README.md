@@ -8,6 +8,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
+[![AUR](https://img.shields.io/aur/version/gridix-bin?label=AUR)](https://aur.archlinux.org/packages/gridix-bin)
 
 ```
 Gridix = Grid + Helix
@@ -60,6 +61,23 @@ Gridix = Grid + Helix
 
 ## 安装
 
+### Arch Linux (AUR)
+
+Arch 用户？一行命令搞定：
+
+```bash
+# 预编译版（推荐，秒装）
+yay -S gridix-bin
+
+# AppImage 版
+yay -S gridix-appimage
+
+# 源码编译版（需要等几分钟）
+yay -S gridix
+```
+
+用 `paru`？把 `yay` 换成 `paru` 就行。
+
 ### 下载预编译版本
 
 从 [Releases](https://github.com/MCB-SMART-BOY/gridix/releases) 下载，解压即用：
@@ -67,9 +85,9 @@ Gridix = Grid + Helix
 | 平台 | 文件 | 说明 |
 |------|------|------|
 | Linux | `gridix-linux-x86_64.tar.gz` | 通用版本 |
-| Linux | `gridix.AppImage` | 开箱即用 |
+| Linux | `gridix.AppImage` | 开箱即用，双击运行 |
 | Windows | `gridix-windows-x86_64.zip` | 解压运行 |
-| macOS (ARM) | `gridix-macos-arm64.tar.gz` | M1/M2/M3 |
+| macOS (ARM) | `gridix-macos-arm64.tar.gz` | M1/M2/M3/M4 |
 | macOS (Intel) | `gridix-macos-x86_64.tar.gz` | 老款 Mac |
 
 ### 从源码编译
@@ -206,7 +224,9 @@ Tokyo Night Light, Catppuccin Latte, One Light, Gruvbox Light, GitHub Light...
 ## 更新日志
 
 ### v0.5.1 (2025-12-20)
-- 文档更新和改进
+- 新增 AUR 包支持（gridix-bin / gridix / gridix-appimage）
+- 新增 AppImage 打包
+- 文档更新
 
 ### v0.5.0 (2025-12-20)
 - 新增完整的 Helix 键盘操作文档
