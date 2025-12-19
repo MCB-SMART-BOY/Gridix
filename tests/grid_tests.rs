@@ -2,7 +2,7 @@
 //!
 //! 测试 SQL 标识符转义、值转义等安全相关功能
 
-use rust_db_manager::ui::{escape_identifier, escape_value, quote_identifier};
+use gridix::ui::{escape_identifier, escape_value, quote_identifier};
 
 // ============================================================================
 // 标识符转义测试

@@ -2,8 +2,8 @@
 //!
 //! 测试表定义、列类型转换等
 
-use rust_db_manager::database::DatabaseType;
-use rust_db_manager::ui::{ColumnDefinition, ColumnType, TableDefinition};
+use gridix::database::DatabaseType;
+use gridix::ui::{ColumnDefinition, ColumnType, TableDefinition};
 
 #[test]
 fn test_column_type_sql() {

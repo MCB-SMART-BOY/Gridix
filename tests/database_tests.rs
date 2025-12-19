@@ -2,7 +2,7 @@
 //!
 //! 测试 SQLite、PostgreSQL、MySQL 的连接和查询功能。
 
-use rust_db_manager::database::{ConnectionConfig, DatabaseType, QueryResult};
+use gridix::database::{ConnectionConfig, DatabaseType, QueryResult};
 
 /// 创建 SQLite 测试配置
 fn sqlite_test_config() -> ConnectionConfig {

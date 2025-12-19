@@ -2,7 +2,7 @@
 //!
 //! 测试 SQL 格式化、自动补全、历史记录等功能。
 
-use rust_db_manager::core::{format_sql, AutoComplete, CompletionKind};
+use gridix::core::{format_sql, AutoComplete, CompletionKind};
 
 #[cfg(test)]
 mod sql_formatter_tests {
@@ -107,7 +107,7 @@ mod autocomplete_tests {
 
 #[cfg(test)]
 mod query_history_tests {
-    use rust_db_manager::core::QueryHistory;
+    use gridix::core::QueryHistory;
 
     #[test]
     fn test_empty_history() {
@@ -152,7 +152,7 @@ mod query_history_tests {
 
 #[cfg(test)]
 mod theme_tests {
-    use rust_db_manager::core::{ThemeManager, ThemePreset};
+    use gridix::core::{ThemeManager, ThemePreset};
 
     #[test]
     fn test_theme_presets() {

@@ -1,6 +1,6 @@
 //! SQL 语法高亮测试
 
-use rust_db_manager::core::{HighlightColors, SqlHighlighter};
+use gridix::core::{HighlightColors, SqlHighlighter};
 
 #[test]
 fn test_highlight_basic_sql() {

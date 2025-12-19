@@ -1,9 +1,9 @@
 //! 导入导出模块测试
 
-use rust_db_manager::core::{
+use gridix::core::{
     CsvImportConfig, ExportFormat, ImportFormat, JsonImportConfig,
 };
-use rust_db_manager::database::QueryResult;
+use gridix::database::QueryResult;
 use std::io::Write;
 use tempfile::NamedTempFile;
 
@@ -52,7 +52,7 @@ mod import_format_tests {
 #[cfg(test)]
 mod csv_import_tests {
     use super::*;
-    use rust_db_manager::core::preview_csv;
+    use gridix::core::preview_csv;
 
     #[test]
     fn test_csv_import_config_default() {
@@ -121,7 +121,7 @@ mod csv_import_tests {
 #[cfg(test)]
 mod json_import_tests {
     use super::*;
-    use rust_db_manager::core::preview_json;
+    use gridix::core::preview_json;
 
     #[test]
     fn test_json_import_config_default() {
@@ -178,7 +178,7 @@ mod json_import_tests {
 #[cfg(test)]
 mod export_tests {
     use super::*;
-    use rust_db_manager::core::{export_to_csv, export_to_json, export_to_sql};
+    use gridix::core::{export_to_csv, export_to_json, export_to_sql};
     use std::fs;
 
     fn sample_result() -> QueryResult {

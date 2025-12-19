@@ -1,6 +1,6 @@
 //! SQL 格式化测试
 
-use rust_db_manager::core::format_sql;
+use gridix::core::format_sql;
 
 #[test]
 fn test_simple_select() {

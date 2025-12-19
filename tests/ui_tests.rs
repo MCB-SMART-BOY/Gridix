@@ -2,8 +2,8 @@
 //!
 //! 测试数据表格、筛选、Tab 管理等 UI 组件
 
-use rust_db_manager::database::QueryResult;
-use rust_db_manager::ui::{
+use gridix::database::QueryResult;
+use gridix::ui::{
     ColumnFilter, FilterCache, FilterLogic, FilterOperator, QueryTab, QueryTabManager,
 };
 
@@ -13,7 +13,7 @@ use rust_db_manager::ui::{
 
 mod filter_operators {
     use super::*;
-    use rust_db_manager::ui::components::check_filter_match;
+    use gridix::ui::components::check_filter_match;
 
     #[test]
     fn test_contains_operator() {
@@ -201,7 +201,7 @@ mod filter_condition {
 
 mod filter_cache {
     use super::*;
-    use rust_db_manager::ui::components::filter_rows_cached;
+    use gridix::ui::components::filter_rows_cached;
 
     fn sample_result() -> QueryResult {
         QueryResult {

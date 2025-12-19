@@ -1,6 +1,6 @@
 //! 自动补全测试
 
-use rust_db_manager::core::AutoComplete;
+use gridix::core::AutoComplete;
 
 #[test]
 fn test_keyword_completion() {

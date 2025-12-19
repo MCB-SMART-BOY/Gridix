@@ -2,7 +2,7 @@
 //!
 //! 测试 SSH 配置验证、认证方式等
 
-use rust_db_manager::database::{SshAuthMethod, SshTunnelConfig};
+use gridix::database::{SshAuthMethod, SshTunnelConfig};
 
 #[test]
 fn test_config_validation_disabled() {
