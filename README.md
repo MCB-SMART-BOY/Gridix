@@ -1,147 +1,123 @@
 # Gridix
 
-> 当 Vim 用户遇到数据库，会发生什么？
-
-简洁、快速、安全的跨平台数据库管理工具。**不用鼠标，照样起飞。**
+> 给不想碰鼠标的人做的数据库工具
 
 ![Version](https://img.shields.io/badge/version-0.5.1-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 [![AUR](https://img.shields.io/aur/version/gridix-bin?label=AUR)](https://aur.archlinux.org/packages/gridix-bin)
 
-```
-Gridix = Grid + Helix = 表格数据 + 键盘流操作
-```
-
-## 截图
+**Gridix** = Grid + Helix。用 `hjkl` 操作数据库，用 Vim 的方式编辑表格。
 
 ![Screenshot](gridix.png)
 
-## 特性
+## 凭什么用它？
 
-- **多数据库** - SQLite / PostgreSQL / MySQL
-- **安全连接** - SSH 隧道、SSL/TLS、AES-256 加密存储密码
-- **键盘流** - Helix/Vim 风格，`hjkl` 导航，三种编辑模式
-- **智能编辑** - 语法高亮、200+ 自动补全、SQL 格式化
-- **19 种主题** - Tokyo Night / Catppuccin / Gruvbox / Dracula...
-- **高级筛选** - 16 种操作符，支持正则和组合条件
-- **轻量高效** - 纯 Rust，单文件 ~22MB，秒启动
+**够快** - 纯 Rust 写的，启动不到 1 秒，不是 Electron 套壳货
 
-## 安装
+**够安全** - SSH 隧道连跳板机，SSL/TLS 加密传输，AES-256 存密码
 
-### Arch Linux (AUR)
+**够顺手** - Helix 键位，`hjkl` 移动，`c` 改内容，`gg` `G` 跳转，你懂的
 
+**够好看** - 19 套主题随便换，Catppuccin、Tokyo Night、Dracula 都有
+
+## 装一个
+
+**Arch 用户（爽）：**
 ```bash
-paru -S gridix-bin        # 预编译版（推荐）
-paru -S gridix-appimage   # AppImage 版
-paru -S gridix            # 源码编译
+paru -S gridix-bin
 ```
 
-### 下载预编译版本
+**其他人：** 去 [Releases](https://github.com/MCB-SMART-BOY/gridix/releases) 下载
 
-[Releases 页面](https://github.com/MCB-SMART-BOY/gridix/releases) 提供：
-
-- `gridix-linux-x86_64.tar.gz` / `gridix.AppImage`
-- `gridix-windows-x86_64.zip`
-- `gridix-macos-arm64.tar.gz` / `gridix-macos-x86_64.tar.gz`
-
-### 从源码编译
-
+**硬核玩家：**
 ```bash
 git clone https://github.com/MCB-SMART-BOY/gridix.git
 cd gridix && cargo build --release
 ```
 
-<details>
-<summary>Linux 依赖</summary>
+## 怎么用
 
-```bash
-# Debian/Ubuntu
-sudo apt-get install libgtk-3-dev libxdo-dev
-
-# Fedora
-sudo dnf install gtk3-devel libxdo-devel
-
-# Arch
-sudo pacman -S gtk3 xdotool
-```
-</details>
-
-## 快捷键
-
-### 全局
-
-| 键 | 功能 | 键 | 功能 |
-|----|------|----|------|
-| `Ctrl+N` | 新建连接 | `Ctrl+E` | 导出数据 |
-| `Ctrl+Enter` | 执行 SQL | `Ctrl+I` | 导入数据 |
-| `Ctrl+B` | 侧边栏 | `Ctrl+D` | 日/夜模式 |
-| `Ctrl+J` | SQL 编辑器 | `Ctrl+T` | 主题选择 |
-| `Ctrl+H` | 查询历史 | `F5` | 刷新 |
-
-### 表格导航 (Normal 模式)
+启动后 `Ctrl+N` 建连接，选个表，然后：
 
 ```
-     k              gg → 首行    G → 末行
-   h   l            gh → 行首    gl → 行尾
-     j              Ctrl+u/d → 翻页    5j → 下移5行
+移动      h j k l          （左下上右，和 Vim 一样）
+快速跳    gg / G           （首行 / 末行）
+翻页      Ctrl+u / Ctrl+d  （上 / 下半页）
+改内容    c                 （进入编辑）
+删除      d                 （删掉）
+复制粘贴  y / p             （你懂的）
+撤销      u                 （后悔药）
+新增行    o / O             （下方 / 上方）
+删整行    Space d           （空格再按d）
+执行SQL   Ctrl+Enter        （跑起来）
 ```
 
-### 表格编辑
+不会？按 `F1` 看帮助。
 
-| 键 | 功能 | 键 | 功能 |
-|----|------|----|------|
-| `i/c` | 编辑 | `y/p` | 复制/粘贴 |
-| `d` | 删除 | `u` | 撤销 |
-| `o/O` | 插入行 | `v/x` | 选择 |
-| `Space+d` | 删行 | `Esc` | 退出编辑 |
+## 能干啥
 
-### 筛选
+| 功能 | 支持程度 |
+|------|----------|
+| SQLite / PostgreSQL / MySQL | ✅ 都行 |
+| SSH 隧道 | ✅ 密码和密钥都支持 |
+| SSL/TLS | ✅ 5 种模式 |
+| 导入导出 | ✅ CSV / JSON / SQL |
+| 筛选过滤 | ✅ 16 种操作符 |
+| 语法高亮 | ✅ 自动补全也有 |
+| 多标签页 | ✅ 同时开多个查询 |
+| 暗色主题 | ✅ 11 套 |
+| 亮色主题 | ✅ 8 套 |
 
-| 键 | 功能 |
-|----|------|
-| `/` | 快速筛选 |
-| `Ctrl+F` | 添加条件 |
-| `Ctrl+Shift+F` | 清空 |
+## 一些快捷键
 
-## 配置文件
-
-| 系统 | 路径 |
+| 干啥 | 按啥 |
 |------|------|
-| Linux | `~/.config/gridix/config.toml` |
-| macOS | `~/Library/Application Support/gridix/config.toml` |
-| Windows | `%APPDATA%\gridix\config.toml` |
+| 新建连接 | `Ctrl+N` |
+| 执行 SQL | `Ctrl+Enter` |
+| 切侧边栏 | `Ctrl+B` |
+| 切编辑器 | `Ctrl+J` |
+| 查历史 | `Ctrl+H` |
+| 导出 | `Ctrl+E` |
+| 导入 | `Ctrl+I` |
+| 换主题 | `Ctrl+T` |
+| 日/夜切换 | `Ctrl+D` |
+| 筛选 | `/` |
+| 刷新 | `F5` |
 
-## FAQ
+## 主题预览
 
-<details>
-<summary>Q: 支持 Oracle/SQL Server 吗？</summary>
-暂不支持，专注 SQLite/PostgreSQL/MySQL。
-</details>
+暗的：Tokyo Night / Catppuccin Mocha / One Dark / Gruvbox Dark / Dracula / Nord...
 
-<details>
-<summary>Q: 密码安全吗？</summary>
-使用 AES-256-GCM 加密存储。
-</details>
+亮的：Tokyo Night Light / Catppuccin Latte / One Light / Gruvbox Light...
 
-## 更新日志
+`Ctrl+T` 打开选择器，挑一个顺眼的。
 
-- **v0.5.1** - AUR 包、AppImage
-- **v0.5.0** - Helix 键盘完整支持、列宽自适应
-- **v0.4.0** - 对话框键盘导航、CI/CD
-- **v0.3.0** - 侧边栏导航、数据导入
-- **v0.2.0** - SSH 隧道、MySQL SSL
-- **v0.1.0** - 初始版本
+## 配置在哪
 
-## 贡献
+- Linux: `~/.config/gridix/config.toml`
+- macOS: `~/Library/Application Support/gridix/config.toml`  
+- Windows: `%APPDATA%\gridix\config.toml`
 
-[Issues](https://github.com/MCB-SMART-BOY/gridix/issues) · [Pull Requests](https://github.com/MCB-SMART-BOY/gridix/pulls)
+密码加密存的，放心。
 
-## 许可证
+## 更新记录
 
-MIT
+| 版本 | 干了啥 |
+|------|--------|
+| 0.5.1 | 上了 AUR，打了 AppImage |
+| 0.5.0 | Helix 键位全面支持，列宽自适应 |
+| 0.4.0 | 对话框也能用键盘了，GitHub Actions 自动构建 |
+| 0.3.0 | 侧边栏键盘导航，加了导入功能 |
+| 0.2.0 | SSH 隧道，MySQL SSL |
+| 0.1.0 | 能用了 |
+
+## 有问题？
+
+- Bug 和建议：[Issues](https://github.com/MCB-SMART-BOY/gridix/issues)
+- 想贡献代码：[Pull Requests](https://github.com/MCB-SMART-BOY/gridix/pulls)
+
+MIT 协议，随便用。
 
 ---
 
-*献给所有被鼠标折磨过的键盘侠们。* ⌨️
+*少点鼠标，多写代码。*
