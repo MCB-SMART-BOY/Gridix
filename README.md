@@ -8,7 +8,7 @@
 
 > A database tool for those who hate touching the mouse
 
-![Version](https://img.shields.io/badge/version-1.0.0-green.svg)
+![Version](https://img.shields.io/badge/version-1.1.0-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
@@ -339,6 +339,13 @@ src/
 
 ## Changelog
 
+### v1.1.0 (2025-12-20)
+- Added keybindings settings dialog for customizing keyboard shortcuts
+- Support for recording shortcuts, conflict detection, and category filtering
+- Upgraded to Rust 2024 Edition
+- Code refactoring: split database module into smaller files
+- Reduced unnecessary clone() calls with Copy trait
+
 ### v1.0.0 (2025-12-20)
 - Major stable release
 - Enhanced ER diagram with detailed column information (NULL/NOT NULL, default values, foreign keys)
@@ -432,7 +439,7 @@ MIT License - Use freely, modify as you wish, commercial use allowed.
 
 > 给不想碰鼠标的人做的数据库工具
 
-![Version](https://img.shields.io/badge/version-1.0.0-green.svg)
+![Version](https://img.shields.io/badge/version-1.1.0-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
@@ -762,6 +769,13 @@ src/
 ```
 
 ## 更新日志
+
+### v1.1.0 (2025-12-20)
+- 新增快捷键设置对话框，支持用户自定义快捷键
+- 支持快捷键录制、冲突检测、分类筛选
+- 升级到 Rust 2024 Edition
+- 代码重构：拆分 database 模块为更小的文件
+- 使用 Copy trait 减少不必要的 clone() 调用
 
 ### v1.0.0 (2025-12-20)
 - 首个稳定大版本发布
