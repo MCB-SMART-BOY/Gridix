@@ -275,37 +275,3 @@ where
         .unwrap_or_else(|| cell > value)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_contains_operator() {
-        assert!(check_filter_match("hello world", &FilterOperator::Contains, "world", "", false));
-        assert!(!check_filter_match("hello world", &FilterOperator::Contains, "foo", "", false));
-    }
-
-    #[test]
-    fn test_case_sensitivity() {
-        assert!(check_filter_match("Hello", &FilterOperator::Equals, "hello", "", false));
-        assert!(!check_filter_match("Hello", &FilterOperator::Equals, "hello", "", true));
-    }
-
-    #[test]
-    fn test_comparison_operators() {
-        assert!(check_filter_match("10", &FilterOperator::GreaterThan, "5", "", false));
-        assert!(!check_filter_match("5", &FilterOperator::GreaterThan, "10", "", false));
-    }
-
-    #[test]
-    fn test_between() {
-        assert!(check_filter_match("5", &FilterOperator::Between, "1", "10", false));
-        assert!(!check_filter_match("15", &FilterOperator::Between, "1", "10", false));
-    }
-
-    #[test]
-    fn test_in_operator() {
-        assert!(check_filter_match("apple", &FilterOperator::In, "apple, banana, orange", "", false));
-        assert!(!check_filter_match("grape", &FilterOperator::In, "apple, banana, orange", "", false));
-    }
-}

@@ -56,13 +56,13 @@ pub mod ui {
     /// 侧边栏默认宽度比例
     pub const SIDEBAR_DEFAULT_WIDTH_RATIO: f32 = 0.18;
     /// 侧边栏最小宽度比例
-    pub const SIDEBAR_MIN_WIDTH_RATIO: f32 = 0.12;
+    pub const SIDEBAR_MIN_WIDTH_RATIO: f32 = 0.10;
     /// 侧边栏最大宽度比例
-    pub const SIDEBAR_MAX_WIDTH_RATIO: f32 = 0.25;
+    pub const SIDEBAR_MAX_WIDTH_RATIO: f32 = 0.40;
     /// 侧边栏最小宽度（像素）
-    pub const SIDEBAR_MIN_WIDTH_PX: f32 = 180.0;
+    pub const SIDEBAR_MIN_WIDTH_PX: f32 = 150.0;
     /// 侧边栏最大宽度（像素）
-    pub const SIDEBAR_MAX_WIDTH_PX: f32 = 380.0;
+    pub const SIDEBAR_MAX_WIDTH_PX: f32 = 500.0;
 }
 
 /// 自动补全相关常量

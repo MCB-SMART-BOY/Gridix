@@ -1,5 +1,5 @@
 Name:           gridix
-Version:        0.5.2
+Version:        1.0.0
 Release:        1%{?dist}
 Summary:        Fast, secure database management tool with Helix/Vim keybindings
 
@@ -44,6 +44,12 @@ DESKTOP
 %{_datadir}/applications/gridix.desktop
 
 %changelog
+* Fri Dec 20 2024 MCB-SMART-BOY <mcb2720838051@gmail.com> - 1.0.0-1
+- Major release v1.0.0
+- Enhanced ER diagram with column details (NULL/NOT NULL, default values)
+- Improved SQL editor autocomplete
+- Many UI/UX improvements
+
 * Fri Dec 20 2024 MCB-SMART-BOY <mcb2720838051@gmail.com> - 0.5.2-1
 - Fix LICENSE file missing in release tag
 - Update version to 0.5.2

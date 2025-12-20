@@ -28,28 +28,3 @@ impl FilterLogic {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_default_is_and() {
-        let logic = FilterLogic::default();
-        assert_eq!(logic, FilterLogic::And);
-    }
-
-    #[test]
-    fn test_toggle() {
-        let mut logic = FilterLogic::And;
-        logic.toggle();
-        assert_eq!(logic, FilterLogic::Or);
-        logic.toggle();
-        assert_eq!(logic, FilterLogic::And);
-    }
-
-    #[test]
-    fn test_display_name() {
-        assert_eq!(FilterLogic::And.display_name(), "AND");
-        assert_eq!(FilterLogic::Or.display_name(), "OR");
-    }
-}

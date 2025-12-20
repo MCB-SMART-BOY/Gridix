@@ -66,13 +66,13 @@ fn setup_fonts(ctx: &egui::Context) {
     // 使用 Noto Sans SC 字体（支持完整 Unicode）
     fonts.font_data.insert(
         "noto_sans_sc".to_owned(),
-        egui::FontData::from_static(EMBEDDED_NOTO_SANS_SC),
+        egui::FontData::from_static(EMBEDDED_NOTO_SANS_SC).into(),
     );
 
     // 使用 Noto Emoji 字体（支持 Emoji）
     fonts.font_data.insert(
         "noto_emoji".to_owned(),
-        egui::FontData::from_static(EMBEDDED_NOTO_EMOJI),
+        egui::FontData::from_static(EMBEDDED_NOTO_EMOJI).into(),
     );
 
     // 配置字体优先级：Noto Sans SC 优先，Noto Emoji 作为后备，最后是默认字体

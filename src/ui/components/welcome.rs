@@ -1,7 +1,7 @@
 //! 欢迎页面组件 - 应用启动时的欢迎界面
 
 use crate::ui::styles::{GRAY, MUTED, SUCCESS, SPACING_SM, SPACING_MD, SPACING_LG};
-use egui::{self, Color32, RichText, Rounding, Vec2};
+use egui::{self, Color32, RichText, CornerRadius, Vec2};
 
 pub struct Welcome;
 
@@ -130,7 +130,7 @@ impl Welcome {
         accent_color: Color32,
         width: f32,
     ) {
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(
                 accent_color.r(),
                 accent_color.g(),
@@ -146,8 +146,8 @@ impl Welcome {
                     40,
                 ),
             ))
-            .rounding(Rounding::same(12.0))
-            .inner_margin(egui::Margin::symmetric(16.0, 20.0))
+            .corner_radius(CornerRadius::same(12))
+            .inner_margin(egui::Margin::symmetric(16, 20))
             .show(ui, |ui| {
                 ui.set_min_width(width - 32.0);
                 ui.set_max_width(width - 32.0);
@@ -202,14 +202,14 @@ impl Welcome {
 
     /// 显示快速开始提示
     fn show_quick_start(ui: &mut egui::Ui) {
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(100, 180, 100, 20))
             .stroke(egui::Stroke::new(
                 1.0,
                 Color32::from_rgba_unmultiplied(100, 180, 100, 40),
             ))
-            .rounding(Rounding::same(8.0))
-            .inner_margin(egui::Margin::symmetric(24.0, 12.0))
+            .corner_radius(CornerRadius::same(8))
+            .inner_margin(egui::Margin::symmetric(24, 12))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("\u{2139}").size(16.0).color(SUCCESS));  // info 符号
@@ -249,10 +249,10 @@ impl Welcome {
         ui.add_space(SPACING_MD);
 
         // 快捷键网格
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(120, 120, 130, 10))
-            .rounding(Rounding::same(8.0))
-            .inner_margin(egui::Margin::symmetric(24.0, 16.0))
+            .corner_radius(CornerRadius::same(8))
+            .inner_margin(egui::Margin::symmetric(24, 16))
             .show(ui, |ui| {
                 egui::Grid::new("shortcuts_grid")
                     .num_columns(4)
@@ -284,10 +284,10 @@ impl Welcome {
     /// 单个快捷键项
     fn shortcut_item(ui: &mut egui::Ui, key: &str, desc: &str) {
         // 按键
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(150, 150, 160, 30))
-            .rounding(Rounding::same(4.0))
-            .inner_margin(egui::Margin::symmetric(8.0, 3.0))
+            .corner_radius(CornerRadius::same(4))
+            .inner_margin(egui::Margin::symmetric(8, 3))
             .show(ui, |ui| {
                 ui.label(
                     RichText::new(key)

@@ -506,6 +506,10 @@ pub struct QueryResult {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<String>>,
     pub affected_rows: u64,
+    /// 是否被截断（原始结果超过限制）
+    pub truncated: bool,
+    /// 原始总行数（如果被截断）
+    pub original_row_count: Option<usize>,
 }
 
 // ============================================================================
@@ -924,10 +928,22 @@ lazy_static::lazy_static! {
 // 查询模块
 // ============================================================================
 
+mod driver;
 mod query;
 pub mod ssh_tunnel;
 
 #[allow(unused_imports)] // get_primary_key_column 预留供将来使用
-pub use query::{connect_database, execute_query, get_tables_for_database, get_primary_key_column, ConnectResult};
+pub use query::{
+    connect_database, execute_query, get_tables_for_database, get_primary_key_column, ConnectResult,
+    // 触发器查询
+    get_triggers, TriggerInfo,
+    // 外键和列信息查询（用于 ER 图）
+    get_foreign_keys, get_table_columns, ForeignKeyInfo, ColumnInfo,
+};
 #[allow(unused_imports)] // SshTunnelConfig 公开 API
 pub use ssh_tunnel::{SshAuthMethod, SshTunnelConfig};
+#[allow(unused_imports)] // 驱动抽象 API，供未来扩展使用
+pub use driver::{
+    ColumnMeta, ConnectResultType, DatabaseDriver, DriverCapabilities, DriverInfo,
+    DriverRegistry, TableMeta,
+};

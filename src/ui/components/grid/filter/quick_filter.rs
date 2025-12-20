@@ -192,7 +192,8 @@ fn show_column_hints(ui: &mut egui::Ui, columns: &[String], input: &mut String) 
 }
 
 /// 解析快速筛选输入
-fn parse_quick_filter(input: &str, columns: &[String]) -> Result<ColumnFilter, &'static str> {
+/// 解析快速筛选输入
+pub fn parse_quick_filter(input: &str, columns: &[String]) -> Result<ColumnFilter, &'static str> {
     let input = input.trim();
     
     if input.is_empty() {
@@ -307,84 +308,3 @@ fn parse_operator(op_str: &str) -> Result<(FilterOperator, usize), &'static str>
     Ok((op, 2))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_simple_filter() {
-        let columns = vec!["name".to_string(), "age".to_string()];
-        
-        let result = parse_quick_filter("name ~ john", &columns);
-        assert!(result.is_ok());
-        
-        let filter = result.unwrap();
-        assert_eq!(filter.column, "name");
-        assert_eq!(filter.operator, FilterOperator::Contains);
-        assert_eq!(filter.value, "john");
-    }
-
-    #[test]
-    fn test_parse_comparison_filter() {
-        let columns = vec!["age".to_string()];
-        
-        let result = parse_quick_filter("age > 18", &columns);
-        assert!(result.is_ok());
-        
-        let filter = result.unwrap();
-        assert_eq!(filter.operator, FilterOperator::GreaterThan);
-        assert_eq!(filter.value, "18");
-    }
-
-    #[test]
-    fn test_parse_null_filter() {
-        let columns = vec!["deleted".to_string()];
-        
-        let result = parse_quick_filter("deleted NULL", &columns);
-        assert!(result.is_ok());
-        
-        let filter = result.unwrap();
-        assert_eq!(filter.operator, FilterOperator::IsNull);
-        assert!(filter.value.is_empty());
-    }
-
-    #[test]
-    fn test_parse_between_filter() {
-        let columns = vec!["age".to_string()];
-        
-        let result = parse_quick_filter("age [] 18 30", &columns);
-        assert!(result.is_ok());
-        
-        let filter = result.unwrap();
-        assert_eq!(filter.operator, FilterOperator::Between);
-        assert_eq!(filter.value, "18");
-        assert_eq!(filter.value2, "30");
-    }
-
-    #[test]
-    fn test_partial_column_match() {
-        let columns = vec!["username".to_string()];
-        
-        let result = parse_quick_filter("user ~ test", &columns);
-        assert!(result.is_ok());
-        
-        let filter = result.unwrap();
-        assert_eq!(filter.column, "username");
-    }
-
-    #[test]
-    fn test_invalid_column() {
-        let columns = vec!["name".to_string()];
-        
-        let result = parse_quick_filter("invalid ~ test", &columns);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_missing_value() {
-        let columns = vec!["name".to_string()];
-        
-        let result = parse_quick_filter("name ~", &columns);
-        assert!(result.is_err());
-    }
-}

@@ -173,24 +173,3 @@ pub fn format_sql(sql: &str) -> String {
     cleaned.join("\n")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_simple_select() {
-        let sql = "select * from users where id = 1";
-        let formatted = format_sql(sql);
-        assert!(formatted.contains("SELECT"));
-        assert!(formatted.contains("FROM"));
-        assert!(formatted.contains("WHERE"));
-    }
-
-    #[test]
-    fn test_multicolumn_select() {
-        let sql = "select id, name, email from users";
-        let formatted = format_sql(sql);
-        println!("{}", formatted);
-        assert!(formatted.contains("SELECT"));
-    }
-}

@@ -26,6 +26,19 @@ fn apply_completion(text: &mut String, insert_text: &str) {
     text.push(' ');
 }
 
+/// 获取当前正在输入的单词（从光标位置向左扫描）
+fn get_current_word(text: &str) -> &str {
+    let mut word_start = text.len();
+    for (i, c) in text.char_indices().rev() {
+        if c.is_alphanumeric() || c == '_' {
+            word_start = i;
+        } else {
+            break;
+        }
+    }
+    &text[word_start..]
+}
+
 /// SQL 编辑器操作
 #[derive(Default)]
 pub struct SqlEditorActions {
@@ -70,7 +83,7 @@ impl SqlEditor {
         let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(allocated_rect));
         let ui = &mut child_ui;
 
-        let frame = egui::Frame::none().inner_margin(egui::Margin::symmetric(8.0, 6.0));
+        let frame = egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 6));
 
         frame.show(ui, |ui| {
             // 状态栏高度
@@ -109,7 +122,7 @@ impl SqlEditor {
                                             egui::Button::new(if is_executing {
                                                 "..."
                                             } else {
-                                                "▶ 执行 [Enter]"
+                                                "> 执行 [Enter]"
                                             }),
                                         );
                                         if execute_btn.clicked() {
@@ -136,10 +149,10 @@ impl SqlEditor {
                         let editor_height = ui.available_height();
                         
                         // SQL 输入框的 layouter
-                        let mut layouter = |ui: &egui::Ui, text: &str, wrap_width: f32| {
-                            let mut job = highlight_sql(text, highlight_colors);
+                        let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+                            let mut job = highlight_sql(text.as_str(), highlight_colors);
                             job.wrap.max_width = wrap_width;
-                            ui.fonts(|f| f.layout_job(job))
+                            ui.ctx().fonts_mut(|f| f.layout_job(job))
                         };
 
                         // 编辑器滚动区域
@@ -182,6 +195,20 @@ impl SqlEditor {
                                             selected_completion,
                                             highlight_colors,
                                         );
+                                        
+                                        // 输入时自动触发补全（输入2个以上字符）
+                                        if response.changed() {
+                                            let current_word = get_current_word(sql_input);
+                                            if current_word.len() >= 2 {
+                                                let completions = autocomplete.get_completions(sql_input, sql_input.len());
+                                                if !completions.is_empty() {
+                                                    *show_autocomplete = true;
+                                                    *selected_completion = 0;
+                                                }
+                                            } else {
+                                                *show_autocomplete = false;
+                                            }
+                                        }
                                     } else if !is_focused {
                                         // 全局焦点不在编辑器时，关闭自动补全
                                         *show_autocomplete = false;
@@ -246,10 +273,10 @@ impl SqlEditor {
                                             Color32::TRANSPARENT
                                         };
 
-                                        egui::Frame::none()
+                                        egui::Frame::NONE
                                             .fill(bg_color)
                                             .inner_margin(4.0)
-                                            .rounding(2.0)
+                                            .corner_radius(2.0)
                                             .show(ui, |ui| {
                                                 // 截断显示
                                                 let display_sql = if sql.len() > 60 {
@@ -319,9 +346,9 @@ impl SqlEditor {
         query_time_ms: Option<u64>,
         highlight_colors: &HighlightColors,
     ) {
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(ui.style().visuals.extreme_bg_color)
-            .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+            .inner_margin(egui::Margin::symmetric(8, 4))
             .show(ui, |ui| {
                 ui.set_height(18.0);
                 ui.horizontal(|ui| {
@@ -334,9 +361,9 @@ impl SqlEditor {
                             || msg.contains("失败")
                             || msg.contains("failed");
                         let (icon, color) = if is_error {
-                            ("✗", highlight_colors.operator)
+                            ("[X]", highlight_colors.operator)
                         } else {
-                            ("✓", highlight_colors.string)
+                            ("[OK]", highlight_colors.string)
                         };
                         ui.label(RichText::new(icon).color(color).size(14.0));
                         ui.label(RichText::new(msg).color(color).small());
@@ -399,6 +426,13 @@ impl SqlEditor {
                 }
                 if i.key_pressed(Key::ArrowUp) {
                     *selected_completion = selected_completion.saturating_sub(1);
+                }
+                // Tab 键应用选中的补全
+                if i.key_pressed(Key::Tab) {
+                    if *selected_completion < completions.len() {
+                        apply_completion(sql_input, &completions[*selected_completion].insert_text);
+                        *show_autocomplete = false;
+                    }
                 }
                 if i.key_pressed(Key::Escape) {
                     *show_autocomplete = false;
@@ -464,57 +498,58 @@ impl SqlEditor {
         let completions = autocomplete.get_completions(sql_input, sql_input.len());
 
         if *show_autocomplete && !completions.is_empty() {
-            let popup_id = ui.make_persistent_id("autocomplete_popup");
-            egui::popup::popup_below_widget(ui, popup_id, response, PopupCloseBehavior::CloseOnClickOutside, |ui| {
-                ui.set_min_width(200.0);
-                ui.set_max_height(150.0);
+            egui::Popup::open_id(ui.ctx(), response.id);
+            egui::Popup::from_response(response)
+                .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
+                    ui.set_min_width(200.0);
+                    ui.set_max_height(150.0);
 
-                ScrollArea::vertical().show(ui, |ui| {
-                    for (idx, item) in completions.iter().enumerate() {
-                        let is_selected = idx == *selected_completion;
-                        let bg = if is_selected {
-                            Color32::from_rgba_unmultiplied(
-                                highlight_colors.keyword.r(),
-                                highlight_colors.keyword.g(),
-                                highlight_colors.keyword.b(),
-                                60,
-                            )
-                        } else {
-                            Color32::TRANSPARENT
-                        };
+                    ScrollArea::vertical().show(ui, |ui| {
+                        for (idx, item) in completions.iter().enumerate() {
+                            let is_selected = idx == *selected_completion;
+                            let bg = if is_selected {
+                                Color32::from_rgba_unmultiplied(
+                                    highlight_colors.keyword.r(),
+                                    highlight_colors.keyword.g(),
+                                    highlight_colors.keyword.b(),
+                                    60,
+                                )
+                            } else {
+                                Color32::TRANSPARENT
+                            };
 
-                        egui::Frame::none()
-                            .fill(bg)
-                            .inner_margin(2.0)
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    let icon_color = match item.kind {
-                                        CompletionKind::Keyword => highlight_colors.keyword,
-                                        CompletionKind::Function => highlight_colors.function,
-                                        CompletionKind::Table => highlight_colors.string,
-                                        CompletionKind::Column => highlight_colors.identifier,
-                                    };
-                                    ui.label(
-                                        RichText::new(item.kind.icon())
-                                            .color(icon_color)
-                                            .monospace()
-                                            .small(),
-                                    );
+                            egui::Frame::NONE
+                                .fill(bg)
+                                .inner_margin(2.0)
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        let icon_color = match item.kind {
+                                            CompletionKind::Keyword => highlight_colors.keyword,
+                                            CompletionKind::Function => highlight_colors.function,
+                                            CompletionKind::Table => highlight_colors.string,
+                                            CompletionKind::Column => highlight_colors.identifier,
+                                        };
+                                        ui.label(
+                                            RichText::new(item.kind.icon())
+                                                .color(icon_color)
+                                                .monospace()
+                                                .small(),
+                                        );
 
-                                    let resp = ui.selectable_label(
-                                        is_selected,
-                                        RichText::new(&item.label).small(),
-                                    );
-                                    if resp.clicked() {
-                                        apply_completion(sql_input, &item.insert_text);
-                                        *show_autocomplete = false;
-                                    }
+                                        let resp = ui.selectable_label(
+                                            is_selected,
+                                            RichText::new(&item.label).small(),
+                                        );
+                                        if resp.clicked() {
+                                            apply_completion(sql_input, &item.insert_text);
+                                            *show_autocomplete = false;
+                                        }
+                                    });
                                 });
-                            });
-                    }
+                        }
+                    });
                 });
-            });
-            ui.memory_mut(|m| m.open_popup(popup_id));
         }
     }
 }

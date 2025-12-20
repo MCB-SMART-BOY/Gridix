@@ -1,14 +1,23 @@
 #![allow(clippy::too_many_arguments)]
 
-use crate::core::{ThemeManager, ThemePreset};
-use crate::ui::styles::{MUTED, SPACING_MD, SPACING_SM};
-use egui::{self, Color32, Id, Key, RichText, Rounding, Vec2};
+use crate::core::{ProgressManager, ThemeManager, ThemePreset};
+use crate::ui::styles::{MUTED, MARGIN_MD, MARGIN_SM};
+use egui::{self, Color32, Id, Key, RichText, CornerRadius, Vec2};
+
+use super::ProgressIndicator;
 
 /// 主题下拉框状态
 #[derive(Default, Clone)]
 struct ThemeComboState {
     selected_index: usize,
     is_open: bool,
+}
+
+/// 下拉菜单状态
+#[derive(Default, Clone)]
+struct DropdownState {
+    is_open: bool,
+    selected_index: usize,
 }
 
 pub struct Toolbar;
@@ -36,6 +45,10 @@ pub struct ToolbarActions {
     pub zoom_reset: bool,
     // DDL 操作
     pub create_table: bool,
+    pub create_database: bool,
+    pub create_user: bool,
+    // ER 图
+    pub toggle_er_diagram: bool,
     // 关于对话框
     pub show_about: bool,
 }
@@ -84,22 +97,24 @@ impl Toolbar {
         tables: &[String],
         selected_table: Option<&str>,
         ui_scale: f32,
-    ) {
+        progress: &ProgressManager,
+    ) -> Option<u64> {
+        let mut cancel_task_id = None;
         actions.show_editor = show_editor;
 
         // 工具栏容器
-        egui::Frame::none()
-            .inner_margin(egui::Margin::symmetric(SPACING_MD, SPACING_SM))
+        egui::Frame::NONE
+            .inner_margin(egui::Margin::symmetric(MARGIN_MD, MARGIN_SM))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
+                    ui.spacing_mut().item_spacing = Vec2::new(8.0, 0.0);
 
                     // 左侧按钮组
                     Self::show_left_buttons(ui, show_sidebar, show_editor, actions);
 
-                    ui.add_space(4.0);
+                    ui.add_space(8.0);
                     Self::separator(ui);
-                    ui.add_space(4.0);
+                    ui.add_space(8.0);
 
                     // 操作按钮（移除了连接/库/表选择器，这些在左侧栏中已有）
                     Self::show_action_buttons(ui, has_result, actions);
@@ -197,9 +212,22 @@ impl Toolbar {
                         if ui.add(btn).on_hover_text(mode_tooltip).clicked() {
                             actions.toggle_dark_mode = true;
                         }
+
+                        // 进度指示器（如果有活跃任务）
+                        if progress.has_active_tasks() {
+                            ui.add_space(8.0);
+                            Self::separator(ui);
+                            ui.add_space(4.0);
+                            
+                            if let Some(id) = ProgressIndicator::show_in_toolbar(ui, progress) {
+                                cancel_task_id = Some(id);
+                            }
+                        }
                     });
                 });
             });
+        
+        cancel_task_id
     }
 
     /// 显示左侧按钮
@@ -210,13 +238,13 @@ impl Toolbar {
         actions: &mut ToolbarActions,
     ) {
         // 侧边栏切换
-        let sidebar_icon = if show_sidebar { "◀" } else { "▶" };
+        let sidebar_icon = if show_sidebar { "<" } else { ">" };
         if ui.add(Self::styled_button(&format!("{} 侧栏 [Ctrl+B]", sidebar_icon))).clicked() {
             actions.toggle_sidebar = true;
         }
 
         // 编辑器切换
-        let editor_icon = if show_editor { "▼" } else { "▲" };
+        let editor_icon = if show_editor { "v" } else { "^" };
         if ui.add(Self::styled_button(&format!("{} 编辑器 [Ctrl+J]", editor_icon))).clicked() {
             actions.toggle_editor = true;
         }
@@ -256,7 +284,7 @@ impl Toolbar {
     /// 小按钮样式
     fn small_button(text: &str) -> egui::Button<'_> {
         egui::Button::new(RichText::new(text).size(13.0))
-            .rounding(Rounding::same(6.0))
+            .corner_radius(CornerRadius::same(6))
             .min_size(Vec2::new(28.0, 28.0))
     }
 
@@ -267,41 +295,331 @@ impl Toolbar {
             actions.refresh_tables = true;
         }
 
-        // 导出
-        if ui
-            .add_enabled(has_result, Self::styled_button("导出 [Ctrl+E]"))
-            .clicked()
-        {
-            actions.export = true;
-        }
-
-        // 导入
-        if ui.add(Self::styled_button("导入 [Ctrl+I]")).clicked() {
-            actions.import = true;
-        }
-
-        // 创建表
-        if ui.add(Self::styled_button("新建表 [Ctrl+Shift+N]")).clicked() {
-            actions.create_table = true;
-        }
-
+        ui.add_space(4.0);
         Self::separator(ui);
+        ui.add_space(4.0);
 
-        // 历史
-        if ui.add(Self::styled_button("历史 [Ctrl+H]")).clicked() {
-            actions.show_history = true;
-        }
+        // 操作下拉菜单
+        Self::show_actions_dropdown(ui, has_result, actions);
+
+        ui.add_space(4.0);
+
+        // 新建下拉菜单
+        Self::show_create_dropdown(ui, actions);
+
+        ui.add_space(4.0);
+        Self::separator(ui);
+        ui.add_space(4.0);
 
         // 帮助
-        if ui.add(Self::styled_button("帮助 [F1]")).clicked() {
+        if ui.add(Self::styled_button("? [F1]")).on_hover_text("帮助 [F1]").clicked() {
             actions.show_help = true;
         }
+    }
+
+    /// 操作下拉菜单
+    fn show_actions_dropdown(ui: &mut egui::Ui, has_result: bool, actions: &mut ToolbarActions) {
+        let id = Id::new("actions_dropdown");
+        let popup_id = id.with("popup");
+        
+        let mut state = ui.ctx().data_mut(|d| d.get_temp::<DropdownState>(id).unwrap_or_default());
+        
+        let response = ui.add(Self::styled_button("操作 v"));
+        
+        if response.clicked() {
+            state.is_open = !state.is_open;
+            state.selected_index = 0;
+        }
+        
+        if state.is_open {
+            let menu_items = [
+                ("导出", "Ctrl+E", has_result),
+                ("导入", "Ctrl+I", true),
+                ("ER图", "Ctrl+R", true),
+                ("历史", "Ctrl+H", true),
+            ];
+            
+            egui::Area::new(popup_id)
+                .order(egui::Order::Foreground)
+                .fixed_pos(response.rect.left_bottom() + Vec2::new(0.0, 4.0))
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style())
+                        .corner_radius(CornerRadius::same(8))
+                        .shadow(egui::epaint::Shadow {
+                            offset: [0, 4],
+                            blur: 12,
+                            spread: 0,
+                            color: Color32::from_black_alpha(60),
+                        })
+                        .show(ui, |ui| {
+                            ui.set_min_width(140.0);
+                            
+                            // 键盘导航
+                            let input_result = ui.input(|i| {
+                                let mut close = false;
+                                let mut confirm = false;
+                                let mut new_idx: Option<usize> = None;
+                                
+                                if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown) {
+                                    let next = state.selected_index.saturating_add(1);
+                                    if next < menu_items.len() {
+                                        new_idx = Some(next);
+                                    }
+                                }
+                                
+                                if (i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp)) && state.selected_index > 0 {
+                                    new_idx = Some(state.selected_index - 1);
+                                }
+                                
+                                if i.key_pressed(Key::Enter) {
+                                    confirm = true;
+                                    close = true;
+                                }
+                                
+                                if i.key_pressed(Key::Escape) {
+                                    close = true;
+                                }
+                                
+                                (close, confirm, new_idx)
+                            });
+                            
+                            if let Some(new_idx) = input_result.2 {
+                                state.selected_index = new_idx;
+                            }
+                            
+                            if input_result.0 {
+                                state.is_open = false;
+                            }
+                            
+                            ui.add_space(4.0);
+                            
+                            for (idx, (label, shortcut, enabled)) in menu_items.iter().enumerate() {
+                                let is_selected = idx == state.selected_index;
+                                let item_response = Self::render_menu_item(ui, label, shortcut, is_selected, *enabled);
+                                
+                                if is_selected {
+                                    item_response.scroll_to_me(Some(egui::Align::Center));
+                                }
+                                
+                                if item_response.clicked() && *enabled {
+                                    match idx {
+                                        0 => actions.export = true,
+                                        1 => actions.import = true,
+                                        2 => actions.toggle_er_diagram = true,
+                                        3 => actions.show_history = true,
+                                        _ => {}
+                                    }
+                                    state.is_open = false;
+                                }
+                                
+                                if item_response.hovered() {
+                                    state.selected_index = idx;
+                                }
+                                
+                                // 键盘确认
+                                if input_result.1 && is_selected && *enabled {
+                                    match idx {
+                                        0 => actions.export = true,
+                                        1 => actions.import = true,
+                                        2 => actions.toggle_er_diagram = true,
+                                        3 => actions.show_history = true,
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            
+                            ui.add_space(4.0);
+                        });
+                });
+            
+            // 点击外部关闭
+            let click_outside = ui.input(|i| {
+                i.pointer.any_click()
+                    && !response.rect.contains(i.pointer.interact_pos().unwrap_or_default())
+            });
+            if click_outside {
+                state.is_open = false;
+            }
+        }
+        
+        ui.ctx().data_mut(|d| d.insert_temp(id, state));
+    }
+
+    /// 新建下拉菜单
+    fn show_create_dropdown(ui: &mut egui::Ui, actions: &mut ToolbarActions) {
+        let id = Id::new("create_dropdown");
+        let popup_id = id.with("popup");
+        
+        let mut state = ui.ctx().data_mut(|d| d.get_temp::<DropdownState>(id).unwrap_or_default());
+        
+        let response = ui.add(Self::styled_button("+ 新建 v"));
+        
+        if response.clicked() {
+            state.is_open = !state.is_open;
+            state.selected_index = 0;
+        }
+        
+        if state.is_open {
+            let menu_items = [
+                ("新建表", "Ctrl+Shift+N"),
+                ("新建库", "Ctrl+Shift+D"),
+                ("新建用户", "Ctrl+Shift+U"),
+            ];
+            
+            egui::Area::new(popup_id)
+                .order(egui::Order::Foreground)
+                .fixed_pos(response.rect.left_bottom() + Vec2::new(0.0, 4.0))
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style())
+                        .corner_radius(CornerRadius::same(8))
+                        .shadow(egui::epaint::Shadow {
+                            offset: [0, 4],
+                            blur: 12,
+                            spread: 0,
+                            color: Color32::from_black_alpha(60),
+                        })
+                        .show(ui, |ui| {
+                            ui.set_min_width(160.0);
+                            
+                            // 键盘导航
+                            let input_result = ui.input(|i| {
+                                let mut close = false;
+                                let mut confirm = false;
+                                let mut new_idx: Option<usize> = None;
+                                
+                                if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown) {
+                                    let next = state.selected_index.saturating_add(1);
+                                    if next < menu_items.len() {
+                                        new_idx = Some(next);
+                                    }
+                                }
+                                
+                                if (i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp)) && state.selected_index > 0 {
+                                    new_idx = Some(state.selected_index - 1);
+                                }
+                                
+                                if i.key_pressed(Key::Enter) {
+                                    confirm = true;
+                                    close = true;
+                                }
+                                
+                                if i.key_pressed(Key::Escape) {
+                                    close = true;
+                                }
+                                
+                                (close, confirm, new_idx)
+                            });
+                            
+                            if let Some(new_idx) = input_result.2 {
+                                state.selected_index = new_idx;
+                            }
+                            
+                            if input_result.0 {
+                                state.is_open = false;
+                            }
+                            
+                            ui.add_space(4.0);
+                            
+                            for (idx, (label, shortcut)) in menu_items.iter().enumerate() {
+                                let is_selected = idx == state.selected_index;
+                                let item_response = Self::render_menu_item(ui, label, shortcut, is_selected, true);
+                                
+                                if is_selected {
+                                    item_response.scroll_to_me(Some(egui::Align::Center));
+                                }
+                                
+                                if item_response.clicked() {
+                                    match idx {
+                                        0 => actions.create_table = true,
+                                        1 => actions.create_database = true,
+                                        2 => actions.create_user = true,
+                                        _ => {}
+                                    }
+                                    state.is_open = false;
+                                }
+                                
+                                if item_response.hovered() {
+                                    state.selected_index = idx;
+                                }
+                                
+                                // 键盘确认
+                                if input_result.1 && is_selected {
+                                    match idx {
+                                        0 => actions.create_table = true,
+                                        1 => actions.create_database = true,
+                                        2 => actions.create_user = true,
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            
+                            ui.add_space(4.0);
+                        });
+                });
+            
+            // 点击外部关闭
+            let click_outside = ui.input(|i| {
+                i.pointer.any_click()
+                    && !response.rect.contains(i.pointer.interact_pos().unwrap_or_default())
+            });
+            if click_outside {
+                state.is_open = false;
+            }
+        }
+        
+        ui.ctx().data_mut(|d| d.insert_temp(id, state));
+    }
+
+    /// 渲染菜单项
+    fn render_menu_item(
+        ui: &mut egui::Ui,
+        label: &str,
+        shortcut: &str,
+        is_selected: bool,
+        enabled: bool,
+    ) -> egui::Response {
+        let bg_color = if is_selected {
+            Color32::from_rgba_unmultiplied(100, 140, 200, 40)
+        } else {
+            Color32::TRANSPARENT
+        };
+        
+        let text_color = if !enabled {
+            Color32::from_gray(100)
+        } else if is_selected {
+            Color32::from_rgb(200, 220, 255)
+        } else {
+            Color32::from_rgb(180, 180, 190)
+        };
+        
+        let frame_response = egui::Frame::NONE
+            .fill(bg_color)
+            .inner_margin(egui::Margin::symmetric(12, 6))
+            .corner_radius(4.0)
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    // 选中指示器
+                    let indicator = if is_selected { ">" } else { " " };
+                    ui.label(RichText::new(indicator).color(Color32::from_rgb(130, 180, 255)).monospace());
+                    
+                    // 标签
+                    ui.label(RichText::new(label).color(text_color));
+                    
+                    // 快捷键（右对齐）
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(RichText::new(shortcut).small().color(MUTED));
+                    });
+                });
+            });
+        
+        frame_response.response.interact(egui::Sense::click())
     }
 
     /// 样式化按钮
     fn styled_button(text: &str) -> egui::Button<'_> {
         egui::Button::new(RichText::new(text).size(13.0))
-            .rounding(Rounding::same(6.0))
+            .corner_radius(CornerRadius::same(6))
             .min_size(Vec2::new(0.0, 28.0))
     }
 
@@ -349,10 +667,10 @@ impl Toolbar {
         }
 
         // 按钮
-        let display_text = format!("{} [Ctrl+T]", current_theme.display_name());
+        let display_text = format!("{} [Ctrl+Shift+T]", current_theme.display_name());
         let response = ui
             .add(Self::styled_button(&display_text))
-            .on_hover_text("选择主题 [Ctrl+T]");
+            .on_hover_text("选择主题 [Ctrl+Shift+T]");
 
         if response.clicked() {
             state.is_open = !state.is_open;
@@ -368,11 +686,11 @@ impl Toolbar {
                 )
                 .show(ui.ctx(), |ui| {
                     egui::Frame::popup(ui.style())
-                        .rounding(Rounding::same(8.0))
+                        .corner_radius(CornerRadius::same(8))
                         .shadow(egui::epaint::Shadow {
-                            offset: Vec2::new(0.0, 4.0),
-                            blur: 12.0,
-                            spread: 0.0,
+                            offset: [0, 4],
+                            blur: 12,
+                            spread: 0,
                             color: Color32::from_black_alpha(60),
                         })
                         .show(ui, |ui| {
@@ -505,10 +823,10 @@ impl Toolbar {
             Color32::TRANSPARENT
         };
 
-        let frame_response = egui::Frame::none()
+        let frame_response = egui::Frame::NONE
             .fill(bg_color)
-            .inner_margin(egui::Margin::symmetric(12.0, 6.0))
-            .rounding(4.0)
+            .inner_margin(egui::Margin::symmetric(12, 6))
+            .corner_radius(4.0)
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 ui.horizontal(|ui| {

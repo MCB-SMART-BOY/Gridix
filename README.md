@@ -8,7 +8,7 @@
 
 > A database tool for those who hate touching the mouse
 
-![Version](https://img.shields.io/badge/version-0.5.2-green.svg)
+![Version](https://img.shields.io/badge/version-1.0.0-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
@@ -339,6 +339,13 @@ src/
 
 ## Changelog
 
+### v1.0.0 (2025-12-20)
+- Major stable release
+- Enhanced ER diagram with detailed column information (NULL/NOT NULL, default values, foreign keys)
+- Improved SQL editor autocomplete with Tab completion and auto-trigger
+- Added relationship inference from column naming conventions
+- Many UI/UX improvements
+
 ### v0.5.2 (2025-12-20)
 - Fixed LICENSE file not included in release tags
 - Updated packaging configuration
@@ -425,7 +432,7 @@ MIT License - Use freely, modify as you wish, commercial use allowed.
 
 > 给不想碰鼠标的人做的数据库工具
 
-![Version](https://img.shields.io/badge/version-0.5.2-green.svg)
+![Version](https://img.shields.io/badge/version-1.0.0-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
@@ -755,6 +762,13 @@ src/
 ```
 
 ## 更新日志
+
+### v1.0.0 (2025-12-20)
+- 首个稳定大版本发布
+- 增强 ER 图功能，显示详细列信息（NULL/NOT NULL、默认值、外键）
+- 改进 SQL 编辑器自动补全，支持 Tab 键补全和自动触发
+- 新增基于列命名规则的关系推断
+- 大量 UI/UX 改进
 
 ### v0.5.2 (2025-12-20)
 - 修复 LICENSE 文件未包含在发布标签中的问题

@@ -139,7 +139,7 @@ impl DbManagerApp {
                 match import_csv_to_sql(path, &config, is_mysql) {
                     Ok(result) => result.sql_statements,
                     Err(e) => {
-                        self.last_message = Some(format!("CSV 转换失败: {}", e));
+                        self.notifications.error(format!("CSV 转换失败: {}", e));
                         return;
                     }
                 }
@@ -158,7 +158,7 @@ impl DbManagerApp {
                 match import_json_to_sql(path, &config, is_mysql) {
                     Ok(result) => result.sql_statements,
                     Err(e) => {
-                        self.last_message = Some(format!("JSON 转换失败: {}", e));
+                        self.notifications.error(format!("JSON 转换失败: {}", e));
                         return;
                     }
                 }
@@ -166,7 +166,7 @@ impl DbManagerApp {
         };
         
         if statements.is_empty() {
-            self.last_message = Some("没有可执行的 SQL 语句".to_string());
+            self.notifications.warning("没有可执行的 SQL 语句");
             return;
         }
         
@@ -184,7 +184,7 @@ impl DbManagerApp {
         let valid_count = valid_statements.len();
         
         if valid_count == 0 {
-            self.last_message = Some("没有有效的 SQL 语句".to_string());
+            self.notifications.warning("没有有效的 SQL 语句");
             return;
         }
         
@@ -203,7 +203,7 @@ impl DbManagerApp {
             self.execute("COMMIT".to_string());
         }
         
-        self.last_message = Some(format!(
+        self.notifications.info(format!(
             "导入中: {} 条语句已提交执行（使用事务: {}）",
             valid_count,
             if use_transaction { "是" } else { "否" }

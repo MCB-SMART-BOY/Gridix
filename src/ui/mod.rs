@@ -10,23 +10,33 @@ pub mod styles;
 pub use components::{
     // 数据表格相关
     check_filter_match, count_search_matches, escape_identifier, escape_value,
-    filter_rows_cached, quote_identifier, ColumnFilter, DataGrid, DataGridState, FilterCache,
-    FilterLogic, FilterOperator, FocusTransfer,
+    filter_rows_cached, parse_quick_filter, quote_identifier, ColumnFilter, DataGrid,
+    DataGridState, FilterCache, FilterLogic, FilterOperator, FocusTransfer,
     // 其他组件
     SearchBar, SqlEditor, SqlEditorActions, Toolbar, ToolbarActions, Welcome,
     // 多 Tab 查询
     QueryTab, QueryTabBar, QueryTabManager,
+    // ER 关系图
+    er_diagram::{ERColumn, ERDiagramState, ERTable, Relationship, RelationType, ERDiagramResponse,
+                 force_directed_layout, grid_layout},
+    // 通知组件
+    NotificationToast,
+    // 进度指示器
+    ProgressIndicator,
 };
 #[allow(unused_imports)] // 公开 API，供外部使用
 pub use dialogs::{
     // DDL 对话框
     ColumnDefinition, ColumnType, DdlDialog, DdlDialogState, TableDefinition,
+    // 新建数据库/用户对话框
+    CreateDbDialog, CreateDbDialogResult, CreateDbDialogState,
+    CreateUserDialog, CreateUserDialogResult, CreateUserDialogState,
     // 其他对话框
     AboutDialog, ConfirmDialog, ConnectionDialog, ExportConfig, ExportDialog, HelpDialog,
     // 导入对话框
     parse_sql_file, ImportAction, ImportDialog, ImportFormat, ImportPreview, ImportState,
 };
-pub use panels::{HistoryPanel, HistoryPanelState, Sidebar, SidebarActions, SidebarFocusTransfer};
+pub use panels::{HistoryPanel, HistoryPanelState, Sidebar, SidebarActions, SidebarFocusTransfer, SidebarPanelState};
 
 /// 全局焦点区域
 /// 
@@ -47,7 +57,7 @@ pub enum FocusArea {
 
 /// 侧边栏焦点子区域
 /// 
-/// 用于 Ctrl+1/2/3 快捷键切换侧边栏不同区域的焦点
+/// 用于 Ctrl+1/2/3/4 快捷键切换侧边栏不同区域的焦点
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SidebarSection {
     /// 连接列表
@@ -57,4 +67,6 @@ pub enum SidebarSection {
     Databases,
     /// 表列表
     Tables,
+    /// 触发器列表
+    Triggers,
 }

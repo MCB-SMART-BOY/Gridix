@@ -212,6 +212,8 @@ mod filter_cache {
                 vec!["3".to_string(), "Charlie".to_string(), "35".to_string()],
             ],
             affected_rows: 0,
+            truncated: false,
+            original_row_count: None,
         }
     }
 

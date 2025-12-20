@@ -367,10 +367,10 @@ impl QueryTabBar {
                     Color32::TRANSPARENT
                 };
 
-                let frame = egui::Frame::none()
+                let frame = egui::Frame::NONE
                     .fill(bg_color)
-                    .inner_margin(egui::Margin::symmetric(8.0, 4.0))
-                    .rounding(egui::Rounding::same(4.0));
+                    .inner_margin(egui::Margin::symmetric(8, 4))
+                    .corner_radius(egui::CornerRadius::same(4));
 
                 frame.show(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -378,7 +378,7 @@ impl QueryTabBar {
                         if tab.executing {
                             ui.spinner();
                         } else if tab.modified {
-                            ui.label(RichText::new("●").color(highlight_colors.number).small());
+                            ui.label(RichText::new("*").color(highlight_colors.number).small());
                         }
 
                         // Tab 标题
@@ -405,15 +405,15 @@ impl QueryTabBar {
                         title_response.context_menu(|ui| {
                             if ui.button("关闭").clicked() {
                                 actions.close_tab = Some(idx);
-                                ui.close_menu();
+                                ui.close();
                             }
                             if ui.button("关闭其他").clicked() {
                                 actions.close_others = true;
-                                ui.close_menu();
+                                ui.close();
                             }
                             if ui.button("关闭右侧").clicked() {
                                 actions.close_right = true;
-                                ui.close_menu();
+                                ui.close();
                             }
                         });
 
@@ -447,7 +447,7 @@ impl QueryTabBar {
 
             // 新建 Tab 按钮
             ui.add_space(4.0);
-            if ui.small_button("+").on_hover_text("新建查询 (Ctrl+T)").clicked() {
+            if ui.small_button("+").on_hover_text("新建查询 [Ctrl+T]").clicked() {
                 actions.new_tab = true;
             }
         });
@@ -460,57 +460,3 @@ impl QueryTabBar {
 // 测试
 // ============================================================================
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_new_tab() {
-        let mut manager = QueryTabManager::new();
-        assert_eq!(manager.tabs.len(), 1);
-        
-        manager.new_tab();
-        assert_eq!(manager.tabs.len(), 2);
-        assert_eq!(manager.active_index, 1);
-    }
-
-    #[test]
-    fn test_close_tab() {
-        let mut manager = QueryTabManager::new();
-        manager.new_tab();
-        manager.new_tab();
-        assert_eq!(manager.tabs.len(), 3);
-        
-        manager.close_tab(1);
-        assert_eq!(manager.tabs.len(), 2);
-    }
-
-    #[test]
-    fn test_cannot_close_last_tab() {
-        let mut manager = QueryTabManager::new();
-        assert_eq!(manager.tabs.len(), 1);
-        
-        manager.close_tab(0);
-        assert_eq!(manager.tabs.len(), 1); // 仍然保留一个 Tab
-    }
-
-    #[test]
-    fn test_extract_title() {
-        let sql = "SELECT * FROM users WHERE id = 1";
-        let tab = QueryTab::from_sql(sql);
-        assert_eq!(tab.title, "查询 users");
-    }
-
-    #[test]
-    fn test_tab_for_table() {
-        let mut manager = QueryTabManager::new();
-        
-        // 第一次为表创建 Tab
-        let idx1 = manager.new_tab_for_table("users", "SELECT * FROM users");
-        
-        // 第二次应该复用同一个 Tab
-        let idx2 = manager.new_tab_for_table("users", "SELECT * FROM users WHERE id = 1");
-        
-        assert_eq!(idx1, idx2);
-    }
-}

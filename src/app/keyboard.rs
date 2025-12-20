@@ -41,6 +41,29 @@ impl DbManagerApp {
                 }
             }
 
+            // Ctrl+Shift+D: 新建数据库
+            if i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::D) {
+                let db_type = self.manager.get_active()
+                    .map(|c| c.config.db_type.clone())
+                    .unwrap_or_default();
+                self.create_db_dialog_state.open(db_type);
+            }
+
+            // Ctrl+Shift+U: 新建用户
+            if i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::U) {
+                if let Some(conn) = self.manager.get_active() {
+                    let db_type = conn.config.db_type.clone();
+                    if matches!(db_type, crate::database::DatabaseType::SQLite) {
+                        self.notifications.warning("SQLite 不支持用户管理");
+                    } else {
+                        let databases = conn.databases.clone();
+                        self.create_user_dialog_state.open(db_type, databases);
+                    }
+                } else {
+                    self.notifications.warning("请先连接数据库");
+                }
+            }
+
             // Ctrl+E: 导出
             if i.modifiers.ctrl && i.key_pressed(egui::Key::E) && self.result.is_some() {
                 self.show_export_dialog = true;
@@ -57,6 +80,17 @@ impl DbManagerApp {
                 self.show_history_panel = !self.show_history_panel;
             }
 
+            // Ctrl+R: 切换 ER 关系图
+            if i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::R) {
+                self.show_er_diagram = !self.show_er_diagram;
+                if self.show_er_diagram {
+                    self.load_er_diagram_data();
+                    self.notifications.info("ER 关系图已打开");
+                } else {
+                    self.notifications.info("ER 关系图已关闭");
+                }
+            }
+
             // F5: 刷新表列表
             if i.key_pressed(egui::Key::F5) {
                 if let Some(name) = self.manager.active.clone() {
@@ -67,7 +101,7 @@ impl DbManagerApp {
             // Ctrl+L: 清空命令行
             if i.modifiers.ctrl && i.key_pressed(egui::Key::L) {
                 self.sql.clear();
-                self.last_message = None;
+                self.notifications.dismiss_all();
             }
 
             // Ctrl+J: 切换 SQL 编辑器显示

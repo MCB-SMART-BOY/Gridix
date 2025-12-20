@@ -21,8 +21,8 @@ mod state;
 
 pub use actions::{escape_identifier, escape_value, quote_identifier, DataGridActions, FocusTransfer};
 pub use filter::{
-    check_filter_match, count_search_matches, filter_rows_cached, ColumnFilter, FilterCache,
-    FilterLogic, FilterOperator,
+    check_filter_match, count_search_matches, filter_rows_cached, parse_quick_filter,
+    ColumnFilter, FilterCache, FilterLogic, FilterOperator,
 };
 pub use mode::GridMode;
 pub use state::DataGridState;
@@ -183,7 +183,7 @@ impl DataGrid {
         }
 
         // 创建表格
-        let table_response = egui::Frame::none().show(ui, |ui| {
+        let table_response = egui::Frame::NONE.show(ui, |ui| {
             let scroll_output = egui::ScrollArea::horizontal()
                 .auto_shrink([false, false])
                 .scroll_offset(egui::vec2(target_h_offset, 0.0))
@@ -377,6 +377,21 @@ impl DataGrid {
                         .monospace()
                         .color(Color32::YELLOW),
                 );
+            }
+
+            // 截断警告
+            if result.truncated {
+                ui.separator();
+                let truncated_msg = if let Some(original) = result.original_row_count {
+                    format!("! 已截断 (原{}行)", original)
+                } else {
+                    "! 已截断".to_string()
+                };
+                ui.label(
+                    RichText::new(truncated_msg)
+                        .small()
+                        .color(Color32::from_rgb(255, 165, 0)), // 橙色警告
+                ).on_hover_text("结果集过大已被截断。建议在 SQL 中添加 LIMIT 子句限制返回行数。");
             }
 
             ui.separator();

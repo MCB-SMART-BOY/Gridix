@@ -1,6 +1,6 @@
 //! 帮助对话框 - 显示快捷键说明
 //!
-//! 支持 Helix 风格的键盘导航
+//! 支持 Helix 风格的键盘导航和鼠标滚轮
 
 use egui::{self, Color32, Key, RichText, ScrollArea, Vec2};
 
@@ -9,40 +9,14 @@ pub struct HelpDialog;
 impl HelpDialog {
     /// 显示帮助对话框（带 Helix 键位支持）
     /// scroll_offset: 用于持久化滚动位置的可变引用
-    pub fn show_with_scroll(ctx: &egui::Context, open: &mut bool, scroll_offset: &mut f32) {
+    pub fn show_with_scroll(ctx: &egui::Context, open: &mut bool, _scroll_offset: &mut f32) {
         if !*open {
             return;
         }
 
-        // 在窗口外处理键盘，这样即使窗口没有焦点也能响应
-        let (should_close, scroll_delta) = ctx.input(|i| {
-            let close = i.key_pressed(Key::Q) || i.key_pressed(Key::Escape);
-
-            let mut delta = 0.0f32;
-            // j/k 滚动
-            if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown) {
-                delta += 50.0;
-            }
-            if i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp) {
-                delta -= 50.0;
-            }
-            // Ctrl+d/u 翻页
-            if i.modifiers.ctrl && i.key_pressed(Key::D) {
-                delta += 300.0;
-            }
-            if i.modifiers.ctrl && i.key_pressed(Key::U) {
-                delta -= 300.0;
-            }
-            // G 跳到底部, gg 跳到顶部 (这里简化为 g 跳顶部)
-            if i.key_pressed(Key::G) {
-                if i.modifiers.shift {
-                    delta = 10000.0; // 跳到底部
-                } else {
-                    *scroll_offset = 0.0; // 跳到顶部
-                }
-            }
-
-            (close, delta)
+        // 处理键盘关闭
+        let should_close = ctx.input(|i| {
+            i.key_pressed(Key::Q) || i.key_pressed(Key::Escape)
         });
 
         if should_close {
@@ -50,10 +24,7 @@ impl HelpDialog {
             return;
         }
 
-        // 更新滚动位置
-        *scroll_offset = (*scroll_offset + scroll_delta).max(0.0);
-
-        egui::Window::new("⌨ 快捷键帮助")
+        egui::Window::new("快捷键帮助")
             .open(open)
             .resizable(true)
             .default_width(720.0)
@@ -66,21 +37,41 @@ impl HelpDialog {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(8.0, 0.0);
                     Self::show_hint_key(ui, "j/k", "滚动");
-                    ui.label(RichText::new("•").small().color(Color32::DARK_GRAY));
-                    Self::show_hint_key(ui, "Ctrl+d/u", "翻页");
-                    ui.label(RichText::new("•").small().color(Color32::DARK_GRAY));
-                    Self::show_hint_key(ui, "g/G", "顶部/底部");
-                    ui.label(RichText::new("•").small().color(Color32::DARK_GRAY));
+                    ui.label(RichText::new("|").small().color(Color32::DARK_GRAY));
+                    Self::show_hint_key(ui, "鼠标滚轮", "滚动");
+                    ui.label(RichText::new("|").small().color(Color32::DARK_GRAY));
                     Self::show_hint_key(ui, "q/Esc", "关闭");
                 });
                 ui.add_space(6.0);
                 ui.separator();
 
+                // 使用标准 ScrollArea，支持鼠标滚轮
                 ScrollArea::vertical()
                     .id_salt("help_scroll")
                     .auto_shrink([false, false])
-                    .vertical_scroll_offset(*scroll_offset)
                     .show(ui, |ui| {
+                        // 处理键盘滚动 (j/k)
+                        let scroll_delta = ui.input(|i| {
+                            let mut delta = 0.0f32;
+                            if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown) {
+                                delta += 50.0;
+                            }
+                            if i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp) {
+                                delta -= 50.0;
+                            }
+                            if i.modifiers.ctrl && i.key_pressed(Key::D) {
+                                delta += 300.0;
+                            }
+                            if i.modifiers.ctrl && i.key_pressed(Key::U) {
+                                delta -= 300.0;
+                            }
+                            delta
+                        });
+                        
+                        if scroll_delta != 0.0 {
+                            ui.scroll_with_delta(Vec2::new(0.0, -scroll_delta));
+                        }
+                        
                         ui.add_space(8.0);
                         Self::show_content(ui);
                         ui.add_space(16.0);
@@ -113,7 +104,7 @@ impl HelpDialog {
         // =====================================================================
         // 全局快捷键
         // =====================================================================
-        Self::show_title(ui, "🌐 全局快捷键", title_color);
+        Self::show_title(ui, "[全局快捷键]", title_color);
 
         Self::show_section(ui, "窗口与面板", section_color);
         Self::show_keys(
@@ -121,9 +112,23 @@ impl HelpDialog {
             &[
                 ("Ctrl+B", "切换侧边栏"),
                 ("Ctrl+J", "切换 SQL 编辑器"),
+                ("Ctrl+R", "切换 ER 关系图"),
                 ("Ctrl+H", "打开查询历史"),
                 ("F1", "打开/关闭帮助"),
                 ("Esc", "关闭对话框"),
+            ],
+            key_color,
+            desc_color,
+        );
+
+        Self::show_section(ui, "查询标签页", section_color);
+        Self::show_keys(
+            ui,
+            &[
+                ("Ctrl+T", "新建查询标签页"),
+                ("Ctrl+W", "关闭当前标签页"),
+                ("Ctrl+Tab", "下一个标签页"),
+                ("Ctrl+Shift+Tab", "上一个标签页"),
             ],
             key_color,
             desc_color,
@@ -134,8 +139,7 @@ impl HelpDialog {
             ui,
             &[
                 ("Ctrl+N", "新建数据库连接"),
-                ("Ctrl+1", "快速切换连接"),
-                ("Ctrl+2", "快速切换表"),
+                ("Ctrl+1/2/3/4", "切换侧边栏焦点区域"),
                 ("F5", "刷新表列表"),
             ],
             key_color,
@@ -147,7 +151,7 @@ impl HelpDialog {
             ui,
             &[
                 ("Ctrl+E", "导出查询结果"),
-                ("Ctrl+I", "导入数据（SQL/CSV/JSON）"),
+                ("Ctrl+I", "导入数据 (SQL/CSV/JSON)"),
             ],
             key_color,
             desc_color,
@@ -158,19 +162,8 @@ impl HelpDialog {
             ui,
             &[
                 ("Ctrl+D", "切换日间/夜间模式"),
-                ("Ctrl+T", "打开主题选择器"),
-            ],
-            key_color,
-            desc_color,
-        );
-
-        Self::show_section(ui, "其他", section_color);
-        Self::show_keys(
-            ui,
-            &[
-                ("Ctrl+G", "跳转到行"),
-                ("Ctrl+K", "清空搜索"),
-                ("Ctrl+L", "清空 SQL 编辑器"),
+                ("Ctrl+Shift+T", "打开主题选择器"),
+                ("Ctrl++/-/0", "放大/缩小/重置缩放"),
             ],
             key_color,
             desc_color,
@@ -183,14 +176,29 @@ impl HelpDialog {
         // =====================================================================
         // 侧边栏操作
         // =====================================================================
-        Self::show_title(ui, "📂 侧边栏操作", title_color);
+        Self::show_title(ui, "[侧边栏操作]", title_color);
+
+        Self::show_section(ui, "键盘导航", section_color);
+        Self::show_keys(
+            ui,
+            &[
+                ("j/k", "上下移动选择"),
+                ("Enter/l", "展开/连接/选择"),
+                ("h", "折叠/返回上级"),
+                ("Ctrl+1", "焦点到连接列表"),
+                ("Ctrl+2", "焦点到数据库列表"),
+                ("Ctrl+3", "焦点到表列表"),
+                ("Ctrl+4", "焦点到触发器列表"),
+            ],
+            key_color,
+            desc_color,
+        );
 
         Self::show_section(ui, "连接管理", section_color);
         Self::show_keys(
             ui,
             &[
                 ("点击连接", "展开/折叠连接详情"),
-                ("右键连接", "显示上下文菜单"),
                 ("连接按钮", "连接到数据库"),
                 ("断开按钮", "断开当前连接"),
                 ("删除按钮", "删除连接配置"),
@@ -204,8 +212,6 @@ impl HelpDialog {
             ui,
             &[
                 ("点击表名", "查询表的前 100 行数据"),
-                ("右键表名", "显示上下文菜单"),
-                ("查询前100行", "执行 SELECT * LIMIT 100"),
                 ("查看表结构", "显示表的列定义"),
             ],
             key_color,
@@ -219,7 +225,7 @@ impl HelpDialog {
         // =====================================================================
         // SQL 编辑器
         // =====================================================================
-        Self::show_title(ui, "📝 SQL 编辑器", title_color);
+        Self::show_title(ui, "[SQL 编辑器]", title_color);
 
         Self::show_keys(
             ui,
@@ -241,7 +247,7 @@ impl HelpDialog {
         // =====================================================================
         // 数据表格 - Normal 模式
         // =====================================================================
-        Self::show_title(ui, "📊 数据表格 - Normal 模式", title_color);
+        Self::show_title(ui, "[数据表格 - Normal 模式]", title_color);
         ui.label(
             RichText::new("采用 Helix/Vim 风格的模态编辑")
                 .small()
@@ -410,7 +416,7 @@ impl HelpDialog {
         // =====================================================================
         // 数据表格 - Select 模式
         // =====================================================================
-        Self::show_title(ui, "📊 数据表格 - Select 模式", title_color);
+        Self::show_title(ui, "[数据表格 - Select 模式]", title_color);
 
         Self::show_keys(
             ui,
@@ -434,7 +440,7 @@ impl HelpDialog {
         // =====================================================================
         // 数据表格 - Insert 模式
         // =====================================================================
-        Self::show_title(ui, "📊 数据表格 - Insert 模式", title_color);
+        Self::show_title(ui, "[数据表格 - Insert 模式]", title_color);
 
         Self::show_keys(
             ui,
@@ -454,7 +460,7 @@ impl HelpDialog {
         // =====================================================================
         // 筛选操作符
         // =====================================================================
-        Self::show_title(ui, "🔍 筛选操作符说明", title_color);
+        Self::show_title(ui, "[筛选操作符说明]", title_color);
 
         Self::show_keys(
             ui,
@@ -478,7 +484,7 @@ impl HelpDialog {
         // =====================================================================
         // 搜索与筛选栏
         // =====================================================================
-        Self::show_title(ui, "🔎 搜索与筛选栏", title_color);
+        Self::show_title(ui, "[搜索与筛选栏]", title_color);
 
         Self::show_keys(
             ui,
@@ -499,7 +505,7 @@ impl HelpDialog {
         // =====================================================================
         // 导入导出
         // =====================================================================
-        Self::show_title(ui, "📦 导入导出", title_color);
+        Self::show_title(ui, "[导入导出]", title_color);
 
         Self::show_keys(
             ui,
@@ -552,7 +558,7 @@ impl HelpDialog {
         // =====================================================================
         // 支持的数据库
         // =====================================================================
-        Self::show_title(ui, "🗄 支持的数据库", title_color);
+        Self::show_title(ui, "[支持的数据库]", title_color);
 
         Self::show_keys(
             ui,
@@ -572,15 +578,21 @@ impl HelpDialog {
         // =====================================================================
         // 关于
         // =====================================================================
-        Self::show_title(ui, "ℹ 关于", title_color);
+        Self::show_title(ui, "[关于]", title_color);
 
         ui.label(
-            RichText::new("Rust DB Manager v0.1.0")
+            RichText::new("Gridix v1.0.0")
                 .color(desc_color),
         );
         ui.add_space(4.0);
         ui.label(
-            RichText::new("一个采用 Helix 风格键位的数据库管理工具")
+            RichText::new("采用 Helix 风格键位的跨平台数据库管理工具")
+                .small()
+                .color(muted_color),
+        );
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new("支持 SQLite / PostgreSQL / MySQL")
                 .small()
                 .color(muted_color),
         );

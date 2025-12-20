@@ -118,10 +118,10 @@ fn show_filter_list(
                 Color32::from_rgb(35, 38, 45)
             };
 
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(frame_color)
-                .rounding(4.0)
-                .inner_margin(egui::Margin::symmetric(6.0, 4.0))
+                .corner_radius(4.0)
+                .inner_margin(egui::Margin::symmetric(6, 4))
                 .show(ui, |ui| {
                     if !filter.enabled {
                         ui.disable();

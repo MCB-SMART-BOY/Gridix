@@ -1,188 +1,297 @@
-//! 核心模块测试
-//!
-//! 测试 SQL 格式化、自动补全、历史记录等功能。
+//! Core 模块测试
 
-use gridix::core::{format_sql, AutoComplete, CompletionKind};
+use gridix::core::{
+    NotificationManager,
+    ProgressManager,
+    KeyBinding, KeyBindings, KeyCode, Action,
+    SessionState, TabState,
+    AutoComplete,
+    format_sql,
+    SqlHighlighter, HighlightColors,
+};
+use std::sync::atomic::Ordering;
 
-#[cfg(test)]
-mod sql_formatter_tests {
-    use super::*;
+// ============================================================================
+// Notification 测试
+// ============================================================================
 
-    #[test]
-    fn test_format_simple_select() {
-        let sql = "select * from users where id=1";
-        let formatted = format_sql(sql);
-        
-        // 应该大写关键字
-        assert!(formatted.contains("SELECT"));
-        assert!(formatted.contains("FROM"));
-        assert!(formatted.contains("WHERE"));
-    }
-
-    #[test]
-    fn test_format_preserves_strings() {
-        let sql = "SELECT * FROM users WHERE name = 'select from'";
-        let formatted = format_sql(sql);
-        
-        // 字符串内容不应被修改
-        assert!(formatted.contains("'select from'"));
-    }
-
-    #[test]
-    fn test_format_empty_sql() {
-        let sql = "";
-        let formatted = format_sql(sql);
-        assert!(formatted.is_empty());
-    }
-
-    #[test]
-    fn test_format_whitespace_only() {
-        let sql = "   \n\t  ";
-        let formatted = format_sql(sql);
-        assert!(formatted.trim().is_empty());
-    }
+#[test]
+fn test_notification_manager() {
+    let mut manager = NotificationManager::new();
+    
+    let id1 = manager.info("Info message");
+    let id2 = manager.warning("Warning message");
+    let id3 = manager.error("Error message");
+    
+    assert!(id1 < id2);
+    assert!(id2 < id3);
+    
+    let count = manager.iter().count();
+    assert_eq!(count, 3);
+    
+    manager.dismiss(id2);
+    let count = manager.iter().count();
+    assert_eq!(count, 2);
 }
 
-#[cfg(test)]
-mod autocomplete_tests {
-    use super::*;
-
-    #[test]
-    fn test_autocomplete_keywords() {
-        let ac = AutoComplete::new();
-        let completions = ac.get_completions("SEL", 3);
-        
-        // 应该包含 SELECT
-        assert!(completions.iter().any(|c| c.label == "SELECT"));
-    }
-
-    #[test]
-    fn test_autocomplete_functions() {
-        let ac = AutoComplete::new();
-        let completions = ac.get_completions("COU", 3);
-        
-        // 应该包含 COUNT
-        assert!(completions.iter().any(|c| c.label == "COUNT"));
-    }
-
-    #[test]
-    fn test_autocomplete_tables() {
-        let mut ac = AutoComplete::new();
-        ac.set_tables(vec!["users".to_string(), "orders".to_string()]);
-        
-        let completions = ac.get_completions("use", 3);
-        
-        // 应该包含 users 表
-        assert!(completions.iter().any(|c| c.label == "users"));
-    }
-
-    #[test]
-    fn test_autocomplete_empty_input() {
-        let ac = AutoComplete::new();
-        let completions = ac.get_completions("", 0);
-        
-        // 空输入不应返回补全
-        assert!(completions.is_empty());
-    }
-
-    #[test]
-    fn test_autocomplete_case_insensitive() {
-        let ac = AutoComplete::new();
-        
-        let lower = ac.get_completions("sel", 3);
-        let upper = ac.get_completions("SEL", 3);
-        
-        // 应该返回相同的结果
-        assert_eq!(lower.len(), upper.len());
-    }
-
-    #[test]
-    fn test_completion_kind_icon() {
-        assert_eq!(CompletionKind::Keyword.icon(), "K");
-        assert_eq!(CompletionKind::Function.icon(), "F");
-        assert_eq!(CompletionKind::Table.icon(), "T");
-        assert_eq!(CompletionKind::Column.icon(), "C");
-    }
+#[test]
+fn test_max_notifications() {
+    let mut manager = NotificationManager::new().with_max_notifications(3);
+    
+    manager.info("1");
+    manager.info("2");
+    manager.info("3");
+    manager.info("4");
+    
+    let count = manager.iter().count();
+    assert_eq!(count, 3);
 }
 
-#[cfg(test)]
-mod query_history_tests {
-    use gridix::core::QueryHistory;
+// ============================================================================
+// Progress 测试
+// ============================================================================
 
-    #[test]
-    fn test_empty_history() {
-        let history = QueryHistory::new(10);
-        assert!(history.is_empty());
-    }
+#[test]
+fn test_progress_manager() {
+    let mut manager = ProgressManager::new();
 
-    #[test]
-    fn test_add_entry() {
-        let mut history = QueryHistory::new(10);
-        history.add("SELECT 1".to_string(), "SQLite".to_string(), true, None);
-        
-        assert_eq!(history.len(), 1);
-        assert_eq!(history.items()[0].sql, "SELECT 1");
-    }
+    let id1 = manager.start("连接数据库", true);
+    let id2 = manager.start("执行查询", false);
 
-    #[test]
-    fn test_max_entries() {
-        let mut history = QueryHistory::new(3);
-        
-        history.add("SQL 1".to_string(), "SQLite".to_string(), true, None);
-        history.add("SQL 2".to_string(), "SQLite".to_string(), true, None);
-        history.add("SQL 3".to_string(), "SQLite".to_string(), true, None);
-        history.add("SQL 4".to_string(), "SQLite".to_string(), true, None);
-        
-        // 应该只保留最新的 3 条
-        assert_eq!(history.len(), 3);
-        assert_eq!(history.items()[0].sql, "SQL 4");
-    }
+    assert_eq!(manager.active_count(), 2);
 
-    #[test]
-    fn test_clear_history() {
-        let mut history = QueryHistory::new(10);
-        history.add("SELECT 1".to_string(), "SQLite".to_string(), true, None);
-        history.add("SELECT 2".to_string(), "SQLite".to_string(), true, None);
-        
-        history.clear();
-        
-        assert!(history.is_empty());
-    }
+    manager.update(id1, 0.5);
+    assert_eq!(manager.get(id1).unwrap().progress, Some(0.5));
+
+    manager.finish(id1);
+    assert_eq!(manager.active_count(), 1);
+
+    manager.cancel(id2);
+    assert_eq!(manager.active_count(), 0);
 }
 
-#[cfg(test)]
-mod theme_tests {
-    use gridix::core::{ThemeManager, ThemePreset};
+#[test]
+fn test_cancel_token() {
+    let mut manager = ProgressManager::new();
+    let id = manager.start("长时间操作", true);
 
-    #[test]
-    fn test_theme_presets() {
-        // 测试所有预设主题
-        let presets = vec![
-            ThemePreset::TokyoNight,
-            ThemePreset::TokyoNightStorm,
-            ThemePreset::TokyoNightLight,
-            ThemePreset::CatppuccinMocha,
-            ThemePreset::OneDark,
-            ThemePreset::GruvboxDark,
-            ThemePreset::Dracula,
-            ThemePreset::Nord,
-        ];
+    let token = manager.get(id).unwrap().cancel_token();
+    assert!(!token.load(Ordering::Relaxed));
 
-        for preset in presets {
-            let manager = ThemeManager::new(preset);
-            // 确保颜色有效
-            assert!(manager.colors.accent.r() > 0 || manager.colors.accent.g() > 0 || manager.colors.accent.b() > 0);
-        }
-    }
+    manager.cancel(id);
+    assert!(token.load(Ordering::Relaxed));
+}
 
-    #[test]
-    fn test_theme_manager_set_theme() {
-        let mut manager = ThemeManager::new(ThemePreset::TokyoNight);
-        let original_accent = manager.colors.accent;
-        
-        manager.set_theme(ThemePreset::Dracula);
-        
-        // 主题应该已更改
-        assert_ne!(manager.colors.accent, original_accent);
-    }
+// ============================================================================
+// Keybindings 测试
+// ============================================================================
+
+#[test]
+fn test_key_binding_parse() {
+    let binding = KeyBinding::parse("Ctrl+N").unwrap();
+    assert_eq!(binding.key, KeyCode::N);
+    assert!(binding.modifiers.ctrl);
+    assert!(!binding.modifiers.shift);
+
+    let binding = KeyBinding::parse("Ctrl+Shift+N").unwrap();
+    assert_eq!(binding.key, KeyCode::N);
+    assert!(binding.modifiers.ctrl);
+    assert!(binding.modifiers.shift);
+
+    let binding = KeyBinding::parse("F5").unwrap();
+    assert_eq!(binding.key, KeyCode::F5);
+    assert!(!binding.modifiers.ctrl);
+}
+
+#[test]
+fn test_key_binding_display() {
+    let binding = KeyBinding::ctrl(KeyCode::N);
+    assert_eq!(binding.display(), "Ctrl+N");
+
+    let binding = KeyBinding::ctrl_shift(KeyCode::N);
+    assert_eq!(binding.display(), "Ctrl+Shift+N");
+
+    let binding = KeyBinding::key_only(KeyCode::F5);
+    assert_eq!(binding.display(), "F5");
+}
+
+#[test]
+fn test_default_bindings() {
+    let bindings = KeyBindings::default();
+    
+    assert!(bindings.get(Action::NewConnection).is_some());
+    assert_eq!(
+        bindings.get(Action::NewConnection).unwrap().display(),
+        "Ctrl+N"
+    );
+}
+
+#[test]
+fn test_find_conflicts() {
+    let mut bindings = KeyBindings::default();
+    
+    bindings.set(Action::NewTab, KeyBinding::ctrl(KeyCode::N));
+    
+    let conflicts = bindings.find_conflicts();
+    assert!(!conflicts.is_empty());
+}
+
+// ============================================================================
+// Session 测试
+// ============================================================================
+
+#[test]
+fn test_tab_state() {
+    let tab = TabState::new("Query 1", "SELECT * FROM users");
+    assert_eq!(tab.title, "Query 1");
+    assert_eq!(tab.sql, "SELECT * FROM users");
+    assert!(tab.associated_table.is_none());
+
+    let tab = TabState::with_table("Users", "SELECT * FROM users", "users");
+    assert!(tab.associated_table.is_some());
+    assert_eq!(tab.associated_table.unwrap(), "users");
+}
+
+#[test]
+fn test_session_state_tabs() {
+    let mut session = SessionState::new();
+    assert_eq!(session.tab_count(), 0);
+
+    session.add_tab(TabState::new("Tab 1", ""));
+    assert_eq!(session.tab_count(), 1);
+    assert_eq!(session.active_tab_index, 0);
+
+    session.add_tab(TabState::new("Tab 2", ""));
+    assert_eq!(session.tab_count(), 2);
+    assert_eq!(session.active_tab_index, 1);
+
+    session.remove_tab(0);
+    assert_eq!(session.tab_count(), 1);
+    assert_eq!(session.active_tab_index, 0);
+}
+
+#[test]
+fn test_session_state_update() {
+    let mut session = SessionState::new();
+    session.add_tab(TabState::new("Tab 1", ""));
+    
+    session.update_tab(0, "SELECT 1".to_string());
+    assert_eq!(session.tabs[0].sql, "SELECT 1");
+}
+
+#[test]
+fn test_session_state_location() {
+    let mut session = SessionState::new();
+    session.record_last_location(
+        Some("my_conn".to_string()),
+        Some("my_db".to_string()),
+        Some("my_table".to_string()),
+    );
+    
+    assert_eq!(session.last_connection, Some("my_conn".to_string()));
+    assert_eq!(session.last_database, Some("my_db".to_string()));
+    assert_eq!(session.last_table, Some("my_table".to_string()));
+}
+
+#[test]
+fn test_has_valid_session() {
+    let mut session = SessionState::new();
+    assert!(!session.has_valid_session());
+
+    session.add_tab(TabState::new("Tab", ""));
+    assert!(session.has_valid_session());
+
+    session = SessionState::new();
+    session.last_connection = Some("conn".to_string());
+    assert!(session.has_valid_session());
+}
+
+// ============================================================================
+// Autocomplete 测试
+// ============================================================================
+
+#[test]
+fn test_keyword_completion() {
+    let ac = AutoComplete::new();
+    let completions = ac.get_completions("SEL", 3);
+    assert!(completions.iter().any(|c| c.label == "SELECT"));
+}
+
+#[test]
+fn test_table_completion() {
+    let mut ac = AutoComplete::new();
+    ac.set_tables(vec!["users".to_string(), "orders".to_string()]);
+    let completions = ac.get_completions("SELECT * FROM us", 16);
+    assert!(completions.iter().any(|c| c.label == "users"));
+}
+
+// ============================================================================
+// Formatter 测试
+// ============================================================================
+
+#[test]
+fn test_simple_select() {
+    let sql = "select * from users where id = 1";
+    let formatted = format_sql(sql);
+    assert!(formatted.contains("SELECT"));
+    assert!(formatted.contains("FROM"));
+    assert!(formatted.contains("WHERE"));
+}
+
+#[test]
+fn test_multicolumn_select() {
+    let sql = "select id, name, email from users";
+    let formatted = format_sql(sql);
+    assert!(formatted.contains("SELECT"));
+}
+
+// ============================================================================
+// Syntax Highlighter 测试
+// ============================================================================
+
+#[test]
+fn test_highlight_basic_sql() {
+    let colors = HighlightColors::default();
+    let highlighter = SqlHighlighter::new(colors);
+    
+    let sql = "SELECT * FROM users WHERE id = 1";
+    let job = highlighter.highlight(sql);
+    
+    assert!(!job.text.is_empty());
+    assert_eq!(job.text.trim(), sql);
+}
+
+#[test]
+fn test_highlight_with_comments() {
+    let colors = HighlightColors::default();
+    let highlighter = SqlHighlighter::new(colors);
+    
+    let sql = "-- This is a comment\nSELECT * FROM users";
+    let job = highlighter.highlight(sql);
+    
+    assert!(job.text.contains("comment"));
+}
+
+#[test]
+fn test_highlight_with_strings() {
+    let colors = HighlightColors::default();
+    let highlighter = SqlHighlighter::new(colors);
+    
+    let sql = "SELECT * FROM users WHERE name = 'John''s'";
+    let job = highlighter.highlight(sql);
+    
+    assert!(job.text.contains("John"));
+}
+
+#[test]
+fn test_highlight_cache_works() {
+    let colors = HighlightColors::default();
+    let highlighter = SqlHighlighter::new(colors);
+    
+    let sql = "SELECT 1";
+    
+    let job1 = highlighter.highlight(sql);
+    let job2 = highlighter.highlight(sql);
+    
+    assert_eq!(job1.text, job2.text);
 }

@@ -13,7 +13,7 @@ use super::keyboard;
 use crate::core::ExportFormat;
 use crate::database::QueryResult;
 use crate::ui::styles::{DANGER, GRAY, MUTED, SUCCESS, SPACING_SM, SPACING_MD};
-use egui::{self, Color32, Key, RichText, Rounding, ScrollArea, TextEdit};
+use egui::{self, Color32, Key, RichText, CornerRadius, ScrollArea, TextEdit};
 
 /// 导出配置
 #[derive(Clone)]
@@ -382,10 +382,10 @@ impl ExportDialog {
                 ui.add_space(4.0);
                 
                 // 列复选框（垂直列表，支持键盘导航高亮）
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(Color32::from_rgba_unmultiplied(60, 60, 70, 30))
-                    .rounding(Rounding::same(4.0))
-                    .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                    .corner_radius(CornerRadius::same(4))
+                    .inner_margin(egui::Margin::symmetric(8, 6))
                     .show(ui, |ui| {
                         ScrollArea::vertical()
                             .max_height(120.0)
@@ -406,14 +406,14 @@ impl ExportDialog {
                                             Color32::TRANSPARENT
                                         };
                                         
-                                        egui::Frame::none()
+                                        egui::Frame::NONE
                                             .fill(bg_color)
-                                            .rounding(Rounding::same(2.0))
-                                            .inner_margin(egui::Margin::symmetric(4.0, 1.0))
+                                            .corner_radius(CornerRadius::same(2))
+                                            .inner_margin(egui::Margin::symmetric(4, 1))
                                             .show(ui, |ui| {
                                                 ui.horizontal(|ui| {
                                                     if is_nav_selected {
-                                                        ui.label(RichText::new("▶").small().color(Color32::from_rgb(100, 180, 255)));
+                                                        ui.label(RichText::new(">").small().color(Color32::from_rgb(100, 180, 255)));
                                                     }
                                                     if ui.checkbox(&mut config.selected_columns[i], &display_name).clicked() {
                                                         config.nav_column_index = i;
@@ -497,10 +497,10 @@ impl ExportDialog {
             .show(ui, |ui| {
                 let preview_text = Self::generate_preview(config, data);
                 
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(Color32::from_rgba_unmultiplied(40, 40, 50, 60))
-                    .rounding(Rounding::same(4.0))
-                    .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                    .corner_radius(CornerRadius::same(4))
+                    .inner_margin(egui::Margin::symmetric(8, 6))
                     .show(ui, |ui| {
                         ScrollArea::horizontal()
                             .max_height(100.0)
@@ -592,14 +592,14 @@ impl ExportDialog {
     /// 状态消息
     fn show_status_message(ui: &mut egui::Ui, result: &Result<String, String>) {
         let (icon, message, color, bg_color) = match result {
-            Ok(msg) => ("✓", msg.as_str(), SUCCESS, Color32::from_rgba_unmultiplied(82, 196, 106, 25)),
-            Err(msg) => ("✗", msg.as_str(), DANGER, Color32::from_rgba_unmultiplied(235, 87, 87, 25)),
+            Ok(msg) => ("[OK]", msg.as_str(), SUCCESS, Color32::from_rgba_unmultiplied(82, 196, 106, 25)),
+            Err(msg) => ("[X]", msg.as_str(), DANGER, Color32::from_rgba_unmultiplied(235, 87, 87, 25)),
         };
 
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(bg_color)
-            .rounding(Rounding::same(4.0))
-            .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+            .corner_radius(CornerRadius::same(4))
+            .inner_margin(egui::Margin::symmetric(8, 4))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(icon).color(color));

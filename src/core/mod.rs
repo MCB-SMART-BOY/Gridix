@@ -6,6 +6,10 @@ pub mod constants;
 mod export;
 mod formatter;
 mod history;
+mod keybindings;
+mod notification;
+mod progress;
+mod session;
 mod syntax;
 mod theme;
 
@@ -25,9 +29,18 @@ pub use export::{
     CsvImportConfig, JsonImportConfig,
     // 导出功能
     export_to_csv, export_to_json, export_to_sql,
+    // 辅助函数（测试用）
+    parse_csv_line, sql_value_from_string, json_value_to_sql,
 };
 pub use formatter::format_sql;
 pub use history::QueryHistory;
-#[allow(unused_imports)] // SqlHighlighter 公开 API
+pub use notification::{Notification, NotificationLevel, NotificationManager};
+#[allow(unused_imports)] // 公开 API，供外部使用
+pub use progress::{ProgressManager, ProgressTask};
+#[allow(unused_imports)] // 公开 API
 pub use syntax::{clear_highlight_cache, highlight_sql, HighlightColors, SqlHighlighter};
 pub use theme::{ThemeManager, ThemePreset};
+#[allow(unused_imports)] // 公开 API，供未来使用
+pub use keybindings::{Action, KeyBinding, KeyBindings, KeyCode, KeyModifiers};
+#[allow(unused_imports)] // 公开 API，供未来使用
+pub use session::{SessionManager, SessionState, TabState, WindowState};

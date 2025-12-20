@@ -25,7 +25,7 @@ jobs:
             target: aarch64-apple-darwin
             artifact: gridix-macos-arm64.tar.gz
             binary: gridix
-          - os: macos-15
+          - os: macos-13
             target: x86_64-apple-darwin
             artifact: gridix-macos-x86_64.tar.gz
             binary: gridix
@@ -67,8 +67,36 @@ jobs:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
 
+  build-appimage:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libxdo-dev fuse libfuse2
+
+      - name: Install cargo-appimage
+        run: cargo install cargo-appimage
+
+      - name: Build AppImage
+        run: |
+          cargo appimage --release
+          mv target/appimage/gridix*.AppImage gridix.AppImage
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gridix.AppImage
+          path: gridix.AppImage
+
   release:
-    needs: build
+    needs: [build, build-appimage]
     runs-on: ubuntu-latest
     permissions:
       contents: write

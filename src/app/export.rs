@@ -39,6 +39,8 @@ pub fn filter_result_for_export(result: &QueryResult, config: &ExportConfig) -> 
         columns,
         rows,
         affected_rows: result.affected_rows,
+        truncated: result.truncated,
+        original_row_count: result.original_row_count,
     }
 }
 

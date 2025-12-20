@@ -3,7 +3,7 @@
 use super::keyboard::{self, DialogAction};
 use crate::database::{ConnectionConfig, DatabaseType, MySqlSslMode, SshAuthMethod};
 use crate::ui::styles::{DANGER, GRAY, MUTED, SUCCESS, SPACING_SM, SPACING_MD, SPACING_LG};
-use egui::{self, Color32, Key, Modifiers, RichText, Rounding, TextEdit};
+use egui::{self, Color32, Key, Modifiers, RichText, CornerRadius, TextEdit};
 use std::path::Path;
 
 /// 输入验证结果
@@ -253,11 +253,11 @@ impl ConnectionDialog {
                     egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(150, 150, 160, 50))
                 };
 
-                let response = egui::Frame::none()
+                let response = egui::Frame::NONE
                     .fill(fill)
                     .stroke(stroke)
-                    .rounding(Rounding::same(8.0))
-                    .inner_margin(egui::Margin::symmetric(16.0, 10.0))
+                    .corner_radius(CornerRadius::same(8))
+                    .inner_margin(egui::Margin::symmetric(16, 10))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(icon).size(18.0));
@@ -284,10 +284,10 @@ impl ConnectionDialog {
 
     /// 连接表单
     fn show_connection_form(ui: &mut egui::Ui, config: &mut ConnectionConfig) {
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(100, 100, 110, 10))
-            .rounding(Rounding::same(8.0))
-            .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+            .corner_radius(CornerRadius::same(8))
+            .inner_margin(egui::Margin::symmetric(16, 12))
             .show(ui, |ui| {
                 egui::Grid::new("connection_form")
                     .num_columns(2)
@@ -361,7 +361,7 @@ impl ConnectionDialog {
 
                                 if ui.add(
                                     egui::Button::new("浏览 [Ctrl+O]")
-                                        .rounding(Rounding::same(4.0))
+                                        .corner_radius(CornerRadius::same(4))
                                 ).clicked() {
                                     if let Some(path) = rfd::FileDialog::new()
                                         .add_filter("SQLite 数据库", &["db", "sqlite", "sqlite3"])
@@ -396,10 +396,10 @@ impl ConnectionDialog {
         ui.collapsing("🔐 SSL/TLS 加密", |ui| {
             ui.add_space(SPACING_SM);
 
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(Color32::from_rgba_unmultiplied(100, 100, 110, 10))
-                .rounding(Rounding::same(8.0))
-                .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+                .corner_radius(CornerRadius::same(8))
+                .inner_margin(egui::Margin::symmetric(16, 12))
                 .show(ui, |ui| {
                     egui::Grid::new("mysql_ssl_form")
                         .num_columns(2)
@@ -471,10 +471,10 @@ impl ConnectionDialog {
         ui.collapsing("🔒 SSH 隧道（可选）", |ui| {
             ui.add_space(SPACING_SM);
 
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(Color32::from_rgba_unmultiplied(100, 100, 110, 10))
-                .rounding(Rounding::same(8.0))
-                .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+                .corner_radius(CornerRadius::same(8))
+                .inner_margin(egui::Margin::symmetric(16, 12))
                 .show(ui, |ui| {
                     // 启用 SSH 隧道
                     ui.horizontal(|ui| {
@@ -617,10 +617,10 @@ impl ConnectionDialog {
         ui.collapsing("🔍 连接字符串预览", |ui| {
             ui.add_space(SPACING_SM);
             
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(Color32::from_rgba_unmultiplied(60, 60, 70, 40))
-                .rounding(Rounding::same(4.0))
-                .inner_margin(egui::Margin::symmetric(12.0, 8.0))
+                .corner_radius(CornerRadius::same(4))
+                .inner_margin(egui::Margin::symmetric(12, 8))
                 .show(ui, |ui| {
                     let conn_str = config.connection_string();
                     let display_str = if !config.password.is_empty() {
@@ -654,7 +654,7 @@ impl ConnectionDialog {
             // 取消按钮
             if ui.add(
                 egui::Button::new("取消 [Esc]")
-                    .rounding(Rounding::same(6.0))
+                    .corner_radius(CornerRadius::same(6))
             ).clicked() {
                 *should_close = true;
             }
@@ -662,11 +662,11 @@ impl ConnectionDialog {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // 保存按钮
                 let save_btn = egui::Button::new(
-                    RichText::new("✓ 保存并连接 [Enter]")
+                    RichText::new("保存并连接 [Enter]")
                         .color(if validation.is_valid { Color32::WHITE } else { GRAY })
                 )
                 .fill(if validation.is_valid { SUCCESS } else { Color32::from_rgb(80, 80, 90) })
-                .rounding(Rounding::same(6.0));
+                .corner_radius(CornerRadius::same(6));
 
                 if ui.add_enabled(validation.is_valid, save_btn).clicked() {
                     *on_save = true;

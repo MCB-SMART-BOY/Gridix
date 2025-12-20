@@ -453,7 +453,8 @@ pub fn import_csv_to_sql(
 }
 
 /// 解析 CSV 行
-fn parse_csv_line(line: &str, delimiter: char, quote_char: char) -> Vec<String> {
+/// 解析 CSV 行，处理引号转义
+pub fn parse_csv_line(line: &str, delimiter: char, quote_char: char) -> Vec<String> {
     let mut fields = Vec::new();
     let mut current_field = String::new();
     let mut in_quotes = false;
@@ -680,7 +681,8 @@ fn json_value_to_string(value: &serde_json::Value) -> String {
 }
 
 /// 将 JSON 值转换为 SQL 值
-fn json_value_to_sql(value: &serde_json::Value) -> String {
+/// 将 JSON 值转换为 SQL 值
+pub fn json_value_to_sql(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::Null => "NULL".to_string(),
         serde_json::Value::Bool(b) => if *b { "1" } else { "0" }.to_string(),
@@ -698,7 +700,7 @@ fn json_value_to_sql(value: &serde_json::Value) -> String {
 }
 
 /// 将字符串转换为 SQL 值
-fn sql_value_from_string(s: &str) -> String {
+pub fn sql_value_from_string(s: &str) -> String {
     let trimmed = s.trim();
     
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("null") {
@@ -743,38 +745,3 @@ pub fn import_sql_file(path: &Path) -> Result<String, String> {
 // 测试
 // ============================================================================
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_parse_csv_line_simple() {
-        let line = "a,b,c";
-        let fields = parse_csv_line(line, ',', '"');
-        assert_eq!(fields, vec!["a", "b", "c"]);
-    }
-    
-    #[test]
-    fn test_parse_csv_line_quoted() {
-        let line = r#""hello, world","test""value","normal""#;
-        let fields = parse_csv_line(line, ',', '"');
-        assert_eq!(fields, vec!["hello, world", "test\"value", "normal"]);
-    }
-    
-    #[test]
-    fn test_sql_value_from_string() {
-        assert_eq!(sql_value_from_string("123"), "123");
-        assert_eq!(sql_value_from_string("3.14"), "3.14");
-        assert_eq!(sql_value_from_string("null"), "NULL");
-        assert_eq!(sql_value_from_string("hello"), "'hello'");
-        assert_eq!(sql_value_from_string("it's"), "'it''s'");
-    }
-    
-    #[test]
-    fn test_json_value_to_sql() {
-        assert_eq!(json_value_to_sql(&serde_json::Value::Null), "NULL");
-        assert_eq!(json_value_to_sql(&serde_json::json!(42)), "42");
-        assert_eq!(json_value_to_sql(&serde_json::json!("test")), "'test'");
-        assert_eq!(json_value_to_sql(&serde_json::json!(true)), "1");
-    }
-}

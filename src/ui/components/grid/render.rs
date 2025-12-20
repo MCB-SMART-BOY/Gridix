@@ -40,7 +40,7 @@ pub fn render_column_header(
         };
         ui.label(text);
 
-        let filter_btn = if has_filter { "▼" } else { "▽" };
+        let filter_btn = if has_filter { "v" } else { "." };
         let btn_color = if has_filter {
             Color32::from_rgb(150, 200, 100)
         } else {
@@ -71,7 +71,7 @@ pub fn render_row_number(
         Color32::TRANSPARENT
     };
 
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(bg)
         .inner_margin(4.0)
         .show(ui, |ui| {
@@ -100,13 +100,13 @@ pub fn render_row_number(
                 if is_deleted {
                     if ui.button("取消删除 [u]").clicked() {
                         state.rows_to_delete.retain(|&x| x != row_idx);
-                        ui.close_menu();
+                        ui.close();
                     }
                 } else if ui.button("标记删除 [Space+d]").clicked() {
                     if !state.rows_to_delete.contains(&row_idx) {
                         state.rows_to_delete.push(row_idx);
                     }
-                    ui.close_menu();
+                    ui.close();
                 }
             });
         });
@@ -148,7 +148,7 @@ pub fn render_editable_cell(
         Color32::TRANSPARENT
     };
 
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(bg_color)
         .inner_margin(4.0)
         .show(ui, |ui| {
@@ -229,12 +229,12 @@ fn render_display_cell(
             state.editing_cell = Some((row_idx, col_idx));
             state.edit_text = display_value.to_string();
             state.original_value = cell.to_string();
-            ui.close_menu();
+            ui.close();
         }
         if ui.button("复制 [y]").clicked() {
             state.clipboard = Some(display_value.to_string());
             ui.ctx().copy_text(display_value.to_string());
-            ui.close_menu();
+            ui.close();
         }
         if ui.button("粘贴 [p]").clicked() {
             if let Some(text) = &state.clipboard {
@@ -242,12 +242,12 @@ fn render_display_cell(
                     .modified_cells
                     .insert((row_idx, col_idx), text.clone());
             }
-            ui.close_menu();
+            ui.close();
         }
         if state.modified_cells.contains_key(&(row_idx, col_idx)) && ui.button("还原 [u]").clicked()
         {
             state.modified_cells.remove(&(row_idx, col_idx));
-            ui.close_menu();
+            ui.close();
         }
     });
 
@@ -297,7 +297,7 @@ pub fn render_new_row_cell(
         COLOR_NEW_ROW
     };
 
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(bg_color)
         .inner_margin(4.0)
         .show(ui, |ui| {
@@ -377,13 +377,13 @@ fn render_new_row_display_cell(
             state.editing_cell = Some((row_idx, col_idx));
             state.edit_text = cell.to_string();
             state.original_value = cell.to_string();
-            ui.close_menu();
+            ui.close();
         }
         if ui.button("粘贴 [p]").clicked() {
             if let Some(text) = &state.clipboard {
                 state.pending_new_row_edit = Some((row_idx, col_idx, text.clone()));
             }
-            ui.close_menu();
+            ui.close();
         }
     });
 }

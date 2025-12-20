@@ -1,4 +1,4 @@
-use egui::{Color32, Rounding, Stroke, Visuals};
+use egui::{Color32, CornerRadius, Stroke, Visuals};
 use serde::{Deserialize, Serialize};
 
 /// 主题颜色定义
@@ -514,18 +514,17 @@ impl ThemeManager {
         // 窗口样式 - 更现代的外观
         visuals.window_stroke = Stroke::new(1.0, colors.border);
         visuals.window_shadow = egui::epaint::Shadow {
-            offset: egui::vec2(0.0, 4.0),
-            blur: 12.0,
-            spread: 0.0,
+            offset: [0, 4],
+            blur: 12,
+            spread: 0,
             color: Color32::from_black_alpha(60),
         };
-        visuals.window_rounding = Rounding::same(10.0);
 
         // 弹出菜单阴影
         visuals.popup_shadow = egui::epaint::Shadow {
-            offset: egui::vec2(0.0, 2.0),
-            blur: 8.0,
-            spread: 0.0,
+            offset: [0, 2],
+            blur: 8,
+            spread: 0,
             color: Color32::from_black_alpha(40),
         };
 
@@ -548,34 +547,34 @@ impl ThemeManager {
         visuals.widgets.noninteractive.bg_fill = colors.bg_secondary;
         visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, colors.fg_secondary);
         visuals.widgets.noninteractive.bg_stroke = Stroke::new(0.5, colors.border);
-        visuals.widgets.noninteractive.rounding = Rounding::same(6.0);
+        visuals.widgets.noninteractive.corner_radius = CornerRadius::same(6);
 
         // 非激活
         visuals.widgets.inactive.bg_fill = colors.bg_secondary;
         visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, colors.fg_primary);
         visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, colors.border);
-        visuals.widgets.inactive.rounding = Rounding::same(6.0);
+        visuals.widgets.inactive.corner_radius = CornerRadius::same(6);
         visuals.widgets.inactive.expansion = 0.0;
 
         // 悬停 - 轻微放大效果
         visuals.widgets.hovered.bg_fill = colors.bg_tertiary;
         visuals.widgets.hovered.fg_stroke = Stroke::new(1.5, colors.fg_primary);
         visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, colors.accent);
-        visuals.widgets.hovered.rounding = Rounding::same(6.0);
+        visuals.widgets.hovered.corner_radius = CornerRadius::same(6);
         visuals.widgets.hovered.expansion = 1.0;
 
         // 激活
         visuals.widgets.active.bg_fill = colors.accent;
         visuals.widgets.active.fg_stroke = Stroke::new(2.0, colors.bg_primary);
         visuals.widgets.active.bg_stroke = Stroke::new(1.0, colors.accent_hover);
-        visuals.widgets.active.rounding = Rounding::same(6.0);
+        visuals.widgets.active.corner_radius = CornerRadius::same(6);
         visuals.widgets.active.expansion = 0.0;
 
         // 打开(下拉菜单等)
         visuals.widgets.open.bg_fill = colors.bg_tertiary;
         visuals.widgets.open.fg_stroke = Stroke::new(1.0, colors.fg_primary);
         visuals.widgets.open.bg_stroke = Stroke::new(1.0, colors.accent);
-        visuals.widgets.open.rounding = Rounding::same(6.0);
+        visuals.widgets.open.corner_radius = CornerRadius::same(6);
 
         // 条纹表格背景
         visuals.striped = true;
@@ -591,8 +590,8 @@ impl ThemeManager {
         // 间距设置
         style.spacing.item_spacing = egui::vec2(8.0, 6.0);
         style.spacing.button_padding = egui::vec2(14.0, 7.0);
-        style.spacing.window_margin = egui::Margin::same(12.0);
-        style.spacing.menu_margin = egui::Margin::same(8.0);
+        style.spacing.window_margin = egui::Margin::same(12);
+        style.spacing.menu_margin = egui::Margin::same(8);
         style.spacing.indent = 18.0;
 
         // 滚动条设置

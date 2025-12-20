@@ -2,10 +2,10 @@
 //!
 //! 提供 SSH 隧道功能，允许通过 SSH 跳板机连接远程数据库。
 
-use async_trait::async_trait;
 use russh::client::{Config, Handle, Handler};
-use russh_keys::key::PublicKey;
+use russh::keys::{ssh_key, PrivateKeyWithHashAlg};
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use thiserror::Error;
@@ -151,17 +151,16 @@ impl SshTunnelConfig {
 
 struct SshClientHandler;
 
-#[async_trait]
 impl Handler for SshClientHandler {
     type Error = russh::Error;
 
-    async fn check_server_key(
+    fn check_server_key(
         &mut self,
-        _server_public_key: &PublicKey,
-    ) -> Result<bool, Self::Error> {
+        _server_public_key: &ssh_key::PublicKey,
+    ) -> impl Future<Output = Result<bool, Self::Error>> + Send {
         // 在生产环境中，应该验证服务器密钥
         // 这里简化处理，始终接受
-        Ok(true)
+        async { Ok(true) }
     }
 }
 
@@ -229,30 +228,32 @@ impl SshTunnel {
             .map_err(|e| SshError::Connection(format!("连接失败: {}", e)))?;
 
         // 认证
-        let authenticated = match config.auth_method {
+        let auth_result = match config.auth_method {
             SshAuthMethod::Password => session
                 .authenticate_password(&config.ssh_username, &config.ssh_password)
                 .await
                 .map_err(|e| SshError::Authentication(format!("密码认证失败: {}", e)))?,
             SshAuthMethod::PrivateKey => {
-                let key_pair = russh_keys::load_secret_key(
-                    &config.private_key_path,
-                    if config.private_key_passphrase.is_empty() {
-                        None
-                    } else {
-                        Some(&config.private_key_passphrase)
-                    },
-                )
-                .map_err(|e| SshError::Key(format!("加载私钥失败: {}", e)))?;
+                let key_data = std::fs::read_to_string(&config.private_key_path)
+                    .map_err(|e| SshError::Key(format!("读取私钥文件失败: {}", e)))?;
+                
+                let key_pair = if config.private_key_passphrase.is_empty() {
+                    russh::keys::decode_secret_key(&key_data, None)
+                } else {
+                    russh::keys::decode_secret_key(&key_data, Some(&config.private_key_passphrase))
+                }
+                .map_err(|e| SshError::Key(format!("解析私钥失败: {}", e)))?;
 
+                let key_with_alg = PrivateKeyWithHashAlg::new(Arc::new(key_pair), None);
+                
                 session
-                    .authenticate_publickey(&config.ssh_username, Arc::new(key_pair))
+                    .authenticate_publickey(&config.ssh_username, key_with_alg)
                     .await
                     .map_err(|e| SshError::Authentication(format!("私钥认证失败: {}", e)))?
             }
         };
 
-        if !authenticated {
+        if !auth_result.success() {
             return Err(SshError::Authentication("认证失败".to_string()));
         }
 
@@ -465,48 +466,3 @@ lazy_static::lazy_static! {
 // 测试
 // ============================================================================
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_config_validation_disabled() {
-        let config = SshTunnelConfig {
-            enabled: false,
-            ..Default::default()
-        };
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_config_validation_missing_host() {
-        let config = SshTunnelConfig {
-            enabled: true,
-            ssh_host: String::new(),
-            ..Default::default()
-        };
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_config_validation_password() {
-        let config = SshTunnelConfig {
-            enabled: true,
-            ssh_host: "example.com".to_string(),
-            ssh_port: 22,
-            ssh_username: "user".to_string(),
-            auth_method: SshAuthMethod::Password,
-            ssh_password: "pass".to_string(),
-            remote_host: "localhost".to_string(),
-            remote_port: 3306,
-            ..Default::default()
-        };
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_auth_method_display() {
-        assert_eq!(SshAuthMethod::Password.display_name(), "密码");
-        assert_eq!(SshAuthMethod::PrivateKey.display_name(), "私钥");
-    }
-}

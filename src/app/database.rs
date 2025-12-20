@@ -27,8 +27,9 @@ impl DbManagerApp {
             self.runtime.spawn(async move {
                 use tokio::time::{timeout, Duration};
                 // 连接超时
+                let timeout_secs = constants::database::CONNECTION_TIMEOUT_SECS;
                 let result = timeout(
-                    Duration::from_secs(constants::database::CONNECTION_TIMEOUT_SECS),
+                    Duration::from_secs(timeout_secs),
                     connect_database(&config),
                 )
                 .await;
@@ -40,7 +41,20 @@ impl DbManagerApp {
                         Message::ConnectedWithDatabases(name, Ok(databases))
                     }
                     Ok(Err(e)) => Message::ConnectedWithTables(name, Err(e.to_string())),
-                    Err(_) => Message::ConnectedWithTables(name, Err("连接超时".to_string())),
+                    Err(_) => {
+                        // 提供更详细的超时错误信息
+                        let host_info = match &config.db_type {
+                            crate::database::DatabaseType::SQLite => {
+                                format!("文件: {}", if config.database.is_empty() { "未指定" } else { &config.database })
+                            }
+                            _ => format!("{}:{}", config.host, config.port),
+                        };
+                        let err_msg = format!(
+                            "连接超时 ({}秒)。目标: {}。请检查: 1) 网络连接 2) 防火墙设置 3) 数据库服务是否运行",
+                            timeout_secs, host_info
+                        );
+                        Message::ConnectedWithTables(name, Err(err_msg))
+                    }
                 };
                 if tx.send(message).is_err() {
                     eprintln!("[warn] 无法发送连接结果：接收端已关闭");
@@ -64,15 +78,20 @@ impl DbManagerApp {
 
         self.runtime.spawn(async move {
             use tokio::time::{timeout, Duration};
+            let timeout_secs = constants::database::CONNECTION_TIMEOUT_SECS;
+            let db_name = database.clone();
             let result = timeout(
-                Duration::from_secs(constants::database::CONNECTION_TIMEOUT_SECS),
+                Duration::from_secs(timeout_secs),
                 get_tables_for_database(&config, &database),
             )
             .await;
             let tables_result = match result {
                 Ok(Ok(tables)) => Ok(tables),
                 Ok(Err(e)) => Err(e.to_string()),
-                Err(_) => Err("获取表列表超时".to_string()),
+                Err(_) => Err(format!(
+                    "获取表列表超时 ({}秒)。数据库: {}。可能原因: 表数量过多或网络延迟",
+                    timeout_secs, db_name
+                )),
             };
             if tx
                 .send(Message::DatabaseSelected(
@@ -145,11 +164,11 @@ impl DbManagerApp {
 
         // 提前检查连接状态
         let Some(active_name) = &self.manager.active else {
-            self.last_message = Some("请先连接数据库".to_string());
+            self.notifications.warning("请先连接数据库");
             return;
         };
         let Some(conn) = self.manager.connections.get(active_name) else {
-            self.last_message = Some("请先连接数据库".to_string());
+            self.notifications.warning("请先连接数据库");
             return;
         };
 
@@ -183,9 +202,10 @@ impl DbManagerApp {
         self.runtime.spawn(async move {
             use tokio::time::{timeout, Duration};
             let start = Instant::now();
+            let timeout_secs = constants::database::QUERY_TIMEOUT_SECS;
             // 查询超时
             let result = timeout(
-                Duration::from_secs(constants::database::QUERY_TIMEOUT_SECS),
+                Duration::from_secs(timeout_secs),
                 execute_query(&config, &sql),
             )
             .await;
@@ -193,7 +213,10 @@ impl DbManagerApp {
             let query_result = match result {
                 Ok(Ok(res)) => Ok(res),
                 Ok(Err(e)) => Err(e.to_string()),
-                Err(_) => Err("查询超时".to_string()),
+                Err(_) => Err(format!(
+                    "查询超时 ({}秒)。建议: 1) 添加 LIMIT 限制结果集 2) 优化查询条件 3) 检查索引",
+                    timeout_secs
+                )),
             };
             if tx
                 .send(Message::QueryDone(sql, query_result, elapsed_ms))
@@ -228,7 +251,7 @@ impl DbManagerApp {
 
     /// 处理连接错误的通用逻辑
     pub(super) fn handle_connection_error(&mut self, name: &str, error: String) {
-        self.last_message = Some(format!("连接失败: {}", error));
+        self.notifications.error(format!("连接失败: {}", error));
         self.autocomplete.clear();
         if let Some(conn) = self.manager.connections.get_mut(name) {
             conn.set_error(error);

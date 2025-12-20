@@ -6,7 +6,7 @@
 
 use super::keyboard;
 use crate::ui::styles::{DANGER, GRAY, SPACING_MD, SPACING_LG};
-use egui::{self, Color32, RichText, Rounding};
+use egui::{self, Color32, RichText, CornerRadius};
 
 pub struct ConfirmDialog;
 
@@ -50,10 +50,10 @@ impl ConfirmDialog {
                     ui.add_space(SPACING_MD);
                     
                     // 警告图标
-                    egui::Frame::none()
+                    egui::Frame::NONE
                         .fill(Color32::from_rgba_unmultiplied(235, 87, 87, 25))
-                        .rounding(Rounding::same(20.0))
-                        .inner_margin(egui::Margin::same(8.0))
+                        .corner_radius(CornerRadius::same(20))
+                        .inner_margin(egui::Margin::same(8))
                         .show(ui, |ui| {
                             ui.label(RichText::new("⚠").size(20.0).color(DANGER));
                         });
@@ -86,7 +86,7 @@ impl ConfirmDialog {
                                 .color(Color32::WHITE)
                         )
                         .fill(DANGER)
-                        .rounding(Rounding::same(6.0));
+                        .corner_radius(CornerRadius::same(6));
 
                         if ui.add(confirm_btn).clicked() {
                             *on_confirm = true;
@@ -97,7 +97,7 @@ impl ConfirmDialog {
 
                         // 取消按钮
                         let cancel_btn = egui::Button::new("取消 [n]")
-                            .rounding(Rounding::same(6.0));
+                            .corner_radius(CornerRadius::same(6));
 
                         if ui.add(cancel_btn).clicked() {
                             *show = false;

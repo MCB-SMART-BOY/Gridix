@@ -9,7 +9,7 @@
 
 use super::keyboard;
 use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_SM};
-use egui::{self, Color32, Key, RichText, Rounding, ScrollArea, TextEdit, Vec2};
+use egui::{self, Color32, Key, RichText, CornerRadius, ScrollArea, TextEdit, Vec2};
 use std::path::PathBuf;
 
 /// 导入格式
@@ -607,10 +607,10 @@ impl ImportDialog {
                 }
                 
                 // 预览内容
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(Color32::from_rgba_unmultiplied(40, 40, 50, 200))
-                    .rounding(Rounding::same(4.0))
-                    .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                    .corner_radius(CornerRadius::same(4))
+                    .inner_margin(egui::Margin::symmetric(8, 6))
                     .show(ui, |ui| {
                         ScrollArea::both()
                             .max_height(180.0)
