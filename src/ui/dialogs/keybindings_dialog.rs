@@ -59,6 +59,7 @@ impl KeyBindingsDialogState {
     }
 
     /// 获取编辑后的快捷键绑定
+    #[allow(dead_code)] // 公开 API，供未来使用
     pub fn get_bindings(&self) -> &KeyBindings {
         &self.bindings
     }

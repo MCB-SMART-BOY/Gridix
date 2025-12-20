@@ -25,10 +25,8 @@ jobs:
             target: aarch64-apple-darwin
             artifact: gridix-macos-arm64.tar.gz
             binary: gridix
-          - os: macos-15-large
-            target: x86_64-apple-darwin
-            artifact: gridix-macos-x86_64.tar.gz
-            binary: gridix
+          # macOS Intel builds disabled - macos-13 deprecated, macos-15-large requires paid plan
+          # Users on Intel Mac can build from source or use Rosetta with ARM build
 
     runs-on: ${{ matrix.os }}
 
@@ -80,6 +78,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libxdo-dev fuse libfuse2
+          # Install appimagetool
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+          sudo mv appimagetool /usr/local/bin/
 
       - name: Install cargo-appimage
         run: cargo install cargo-appimage
@@ -96,7 +98,7 @@ jobs:
           path: gridix.AppImage
 
   release:
-    needs: [build, build-appimage]
+    needs: [build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
