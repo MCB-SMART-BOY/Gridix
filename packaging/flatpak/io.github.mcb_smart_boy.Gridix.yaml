@@ -37,7 +37,7 @@ modules:
     sources:
       - type: archive
         url: https://github.com/MCB-SMART-BOY/Gridix/releases/download/v1.0.0/gridix-linux-x86_64.tar.gz
-        sha256: "" # TODO: 更新 sha256
+        sha256: cf97bba99a6d7e388204fb8d23086433e3df459e16673105791f7502b6d23995
       - type: file
         path: io.github.mcb_smart_boy.Gridix.desktop
       - type: file
