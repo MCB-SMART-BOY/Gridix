@@ -20,6 +20,7 @@ mod dialog_trait;
 mod export_dialog;
 mod help_dialog;
 mod import_dialog;
+mod keybindings_dialog;
 pub mod keyboard;
 
 pub use about_dialog::AboutDialog;
@@ -30,6 +31,7 @@ pub use create_user_dialog::{CreateUserDialog, CreateUserDialogResult, CreateUse
 pub use ddl_dialog::{ColumnDefinition, ColumnType, DdlDialog, DdlDialogState, TableDefinition};
 pub use export_dialog::{ExportConfig, ExportDialog};
 pub use help_dialog::HelpDialog;
+pub use keybindings_dialog::{KeyBindingsDialog, KeyBindingsDialogState};
 pub use import_dialog::{
     parse_sql_file, ImportAction, ImportDialog, ImportFormat, ImportPreview, ImportState,
 };

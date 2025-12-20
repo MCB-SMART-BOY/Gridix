@@ -390,6 +390,37 @@ pub enum Action {
 }
 
 impl Action {
+    /// 获取所有操作
+    pub fn all() -> &'static [Action] {
+        &[
+            Action::NewConnection,
+            Action::ToggleSidebar,
+            Action::ToggleEditor,
+            Action::ToggleErDiagram,
+            Action::ShowHelp,
+            Action::ShowHistory,
+            Action::Export,
+            Action::Import,
+            Action::Refresh,
+            Action::ClearCommandLine,
+            Action::ClearSearch,
+            Action::NewTable,
+            Action::NewDatabase,
+            Action::NewUser,
+            Action::NewTab,
+            Action::CloseTab,
+            Action::NextTab,
+            Action::PrevTab,
+            Action::Save,
+            Action::AddFilter,
+            Action::ClearFilters,
+            Action::GotoLine,
+            Action::ZoomIn,
+            Action::ZoomOut,
+            Action::ZoomReset,
+        ]
+    }
+
     /// 获取操作的描述
     pub fn description(&self) -> &'static str {
         match self {

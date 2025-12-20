@@ -2,7 +2,8 @@
 //!
 //! 将对话框的渲染和事件处理从主 update 循环中分离出来。
 
-use crate::ui::{self, ExportConfig};
+use crate::core::KeyBindings;
+use crate::ui::{self, ExportConfig, KeyBindingsDialog};
 use super::DbManagerApp;
 
 /// 对话框处理结果
@@ -24,6 +25,8 @@ pub struct DialogResults {
     pub history_selected_sql: Option<String>,
     /// 是否清空历史
     pub clear_history: bool,
+    /// 更新后的快捷键绑定
+    pub updated_keybindings: Option<KeyBindings>,
 }
 
 impl DbManagerApp {
@@ -131,6 +134,9 @@ impl DbManagerApp {
         // 关于对话框
         ui::AboutDialog::show(ctx, &mut self.show_about);
 
+        // 快捷键设置对话框
+        results.updated_keybindings = KeyBindingsDialog::show(ctx, &mut self.keybindings_dialog_state);
+
         results
     }
 
@@ -204,6 +210,12 @@ impl DbManagerApp {
 
         if results.clear_history {
             self.query_history.clear();
+        }
+
+        // 处理快捷键更新
+        if let Some(keybindings) = results.updated_keybindings {
+            self.keybindings = keybindings;
+            self.notifications.success("快捷键设置已保存");
         }
     }
 }

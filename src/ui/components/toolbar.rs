@@ -51,6 +51,8 @@ pub struct ToolbarActions {
     pub toggle_er_diagram: bool,
     // 关于对话框
     pub show_about: bool,
+    // 快捷键设置
+    pub show_keybindings: bool,
 }
 
 // 暗色主题列表
@@ -308,6 +310,13 @@ impl Toolbar {
 
         ui.add_space(4.0);
         Self::separator(ui);
+        ui.add_space(4.0);
+
+        // 快捷键设置
+        if ui.add(Self::styled_button("⌨")).on_hover_text("快捷键设置").clicked() {
+            actions.show_keybindings = true;
+        }
+
         ui.add_space(4.0);
 
         // 帮助

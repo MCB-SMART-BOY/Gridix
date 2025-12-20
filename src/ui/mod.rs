@@ -35,6 +35,8 @@ pub use dialogs::{
     AboutDialog, ConfirmDialog, ConnectionDialog, ExportConfig, ExportDialog, HelpDialog,
     // 导入对话框
     parse_sql_file, ImportAction, ImportDialog, ImportFormat, ImportPreview, ImportState,
+    // 快捷键设置对话框
+    KeyBindingsDialog, KeyBindingsDialogState,
 };
 pub use panels::{HistoryPanel, HistoryPanelState, Sidebar, SidebarActions, SidebarFocusTransfer, SidebarPanelState};
 

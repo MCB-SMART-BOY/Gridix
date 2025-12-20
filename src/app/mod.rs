@@ -24,12 +24,12 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::core::{
     clear_highlight_cache, constants, format_sql, AppConfig, AutoComplete, HighlightColors,
-    NotificationManager, ProgressManager, QueryHistory, ThemeManager, ThemePreset,
+    KeyBindings, NotificationManager, ProgressManager, QueryHistory, ThemeManager, ThemePreset,
 };
 use crate::database::{ConnectionConfig, ConnectionManager, QueryResult};
 use crate::ui::{
-    self, DdlDialogState, ExportConfig, QueryTabBar, QueryTabManager, SqlEditorActions,
-    ToolbarActions,
+    self, DdlDialogState, ExportConfig, KeyBindingsDialogState, QueryTabBar, QueryTabManager,
+    SqlEditorActions, ToolbarActions,
 };
 
 use message::Message;
@@ -180,6 +180,10 @@ pub struct DbManagerApp {
     create_db_dialog_state: ui::CreateDbDialogState,
     /// 新建用户对话框状态
     create_user_dialog_state: ui::CreateUserDialogState,
+    /// 快捷键绑定
+    keybindings: KeyBindings,
+    /// 快捷键设置对话框状态
+    keybindings_dialog_state: KeyBindingsDialogState,
     /// 中央面板左右分割比例 (0.0-1.0, 左侧占比)
     central_panel_ratio: f32,
     /// 是否显示 ER 图面板
@@ -202,6 +206,7 @@ impl DbManagerApp {
             || self.ddl_dialog_state.show
             || self.create_db_dialog_state.show
             || self.create_user_dialog_state.show
+            || self.keybindings_dialog_state.show
     }
 
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
@@ -294,6 +299,8 @@ impl DbManagerApp {
             ddl_dialog_state: DdlDialogState::default(),
             create_db_dialog_state: ui::CreateDbDialogState::new(),
             create_user_dialog_state: ui::CreateUserDialogState::new(),
+            keybindings: KeyBindings::default(),
+            keybindings_dialog_state: KeyBindingsDialogState::default(),
             central_panel_ratio: 0.65,
             show_er_diagram: false,
             er_diagram_state: ui::ERDiagramState::new(),
@@ -1531,6 +1538,10 @@ impl eframe::App for DbManagerApp {
         
         if toolbar_actions.show_about {
             self.show_about = true;
+        }
+
+        if toolbar_actions.show_keybindings {
+            self.keybindings_dialog_state.open(&self.keybindings);
         }
 
         // 处理侧边栏操作
