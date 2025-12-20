@@ -24,3 +24,5 @@ packaging/aur/
 packaging/homebrew/
 .nixpkgs-temp
 nixpkgs-fork/
+gridix-linux-x86_64.tar.gz
+release-artifacts/
