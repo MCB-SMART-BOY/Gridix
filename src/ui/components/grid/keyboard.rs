@@ -1,8 +1,10 @@
 //! 键盘输入处理（Helix 风格）
 //!
 //! ## Normal 模式键位
-//! - `h/j/k/l`: 移动光标
+//! - `h/j/k/l`: 移动光标（支持数字前缀，如 5j）
+//! - `w`: 右移一列
 //! - `b`: 左移一列
+//! - `e`: 跳转到行尾
 //! - `gh/gl`: 行首/行尾
 //! - `gg/G`: 文件首/尾
 //! - `Ctrl+u`: 向上翻半页
@@ -10,6 +12,8 @@
 //! - `i/a/c`: 进入插入模式
 //! - `v`: 进入选择模式
 //! - `x`: 选择整行
+//! - `%`: 选择全部
+//! - `;`: 折叠选择到单个光标
 //! - `d`: 删除当前单元格
 //! - `dd`: 标记删除当前行
 //! - `y`: 复制当前单元格
@@ -19,11 +23,17 @@
 //! - `/`: 添加筛选
 //! - `f`: 为当前列添加筛选
 //! - `o/O`: 添加新行
-//! - `w`: 保存修改
+//! - `:w`: 保存修改
 //! - `q`: 放弃修改
 //! - `Ctrl+R`: 刷新表格数据
 //! - `Space+d`: 标记删除行
 //! - `Ctrl+S`: 保存修改
+//!
+//! ## 视图模式 (z 前缀)
+//! - `zz`: 将当前行滚动到屏幕中央
+//! - `zt`: 将当前行滚动到屏幕顶部
+//! - `zb`: 将当前行滚动到屏幕底部
+//! - `zc`: 居中当前行（同 zz）
 //!
 //! ## 数字计数
 //! - `1-9`: 输入计数前缀（如 10j 向下移动10行）
@@ -46,8 +56,8 @@ pub fn handle_keyboard(
     filtered_rows: &[(usize, &Vec<String>)],
     actions: &mut DataGridActions,
 ) {
-    // 如果表格未聚焦或处于编辑模式或快速筛选对话框打开，不处理表格快捷键
-    if !state.focused || state.mode == GridMode::Insert || state.show_quick_filter {
+    // 如果表格未聚焦或处于编辑模式，不处理表格快捷键
+    if !state.focused || state.mode == GridMode::Insert {
         return;
     }
 
@@ -86,6 +96,18 @@ pub fn handle_keyboard(
                 state.count = Some(current * 10 + digit);
                 return;
             }
+        }
+        
+        // 数字 + Enter: 切换到指定的查询Tab
+        if i.key_pressed(Key::Enter) && state.count.is_some() && state.command_buffer.is_empty() {
+            let tab_number = state.count.unwrap();
+            if tab_number > 0 {
+                // 转换为 0-indexed
+                actions.switch_to_tab = Some(tab_number - 1);
+                actions.message = Some(format!("切换到查询 {}", tab_number));
+            }
+            state.count = None;
+            return;
         }
         
         // Backspace 回退数字计数
@@ -150,21 +172,42 @@ fn handle_normal_mode(
                 state.move_cursor(1, 0, max_row, max_col);
             }
         }
+        // k/上箭头：向上移动，如果已在第一行则转移焦点到查询Tab栏
         if i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp) {
-            state.move_cursor(-1, 0, max_row, max_col);
+            if state.cursor.0 == 0 {
+                // 已在第一行，转移焦点到查询Tab栏
+                actions.focus_transfer = Some(super::actions::FocusTransfer::ToQueryTabs);
+            } else {
+                state.move_cursor(-1, 0, max_row, max_col);
+            }
         }
         if i.key_pressed(Key::L) || i.key_pressed(Key::ArrowRight) {
             state.move_cursor(0, 1, max_row, max_col);
         }
     }
 
+    // w 移动：向右移动一列（Helix 风格，类似于下一个单词）
+    if i.key_pressed(Key::W) && !i.modifiers.ctrl && state.command_buffer.is_empty() {
+        if state.cursor.1 >= max_col.saturating_sub(1) {
+            // 已在最右边，转移焦点到数据表格外
+            actions.focus_transfer = Some(super::actions::FocusTransfer::ToSqlEditor);
+        } else {
+            state.move_cursor(0, 1, max_row, max_col);
+        }
+    }
+
     // b 移动：向左，如果已在最左边则转移焦点到侧边栏
-    if i.key_pressed(Key::B) && !i.modifiers.ctrl {
+    if i.key_pressed(Key::B) && !i.modifiers.ctrl && state.command_buffer.is_empty() {
         if state.cursor.1 == 0 {
             actions.focus_transfer = Some(super::actions::FocusTransfer::ToSidebar);
         } else {
             state.move_cursor(0, -1, max_row, max_col);
         }
+    }
+
+    // e 移动：跳转到行尾（Helix 风格，类似于单词末尾）
+    if i.key_pressed(Key::E) && !i.modifiers.ctrl && state.command_buffer.is_empty() {
+        state.goto_line_end(max_col);
     }
 
     // Home/End
@@ -173,6 +216,21 @@ fn handle_normal_mode(
     }
     if i.key_pressed(Key::End) {
         state.goto_line_end(max_col);
+    }
+
+    // 0: 跳转到行首（当没有数字计数时）
+    if i.key_pressed(Key::Num0) && state.count.is_none() && state.command_buffer.is_empty() {
+        state.goto_line_start();
+    }
+
+    // $: 跳转到行尾（Shift+4）
+    if i.key_pressed(Key::Num4) && i.modifiers.shift && state.command_buffer.is_empty() {
+        state.goto_line_end(max_col);
+    }
+
+    // ^: 跳转到行首（Shift+6）
+    if i.key_pressed(Key::Num6) && i.modifiers.shift && state.command_buffer.is_empty() {
+        state.goto_line_start();
     }
 
     // Ctrl+U 向上翻半页（Ctrl+D 已用于切换日夜主题，使用 PageUp/PageDown 代替）
@@ -202,25 +260,56 @@ fn handle_normal_mode(
     // === goto 模式 (g 前缀) ===
     if i.key_pressed(Key::G) && !i.modifiers.shift {
         if state.command_buffer == "g" {
+            // gg: 跳转到文件首
             state.goto_file_start();
         } else if state.command_buffer.is_empty() {
             state.command_buffer = "g".to_string();
         }
     }
     if i.key_pressed(Key::G) && i.modifiers.shift {
+        // G: 跳转到文件尾
         state.goto_file_end(max_row);
         state.command_buffer.clear();
     }
     if i.key_pressed(Key::E) && state.command_buffer == "g" {
+        // ge: 跳转到文件尾
         state.goto_file_end(max_row);
         state.command_buffer.clear();
     }
     if i.key_pressed(Key::H) && state.command_buffer == "g" {
+        // gh: 跳转到行首
         state.goto_line_start();
         state.command_buffer.clear();
     }
     if i.key_pressed(Key::L) && state.command_buffer == "g" {
+        // gl: 跳转到行尾
         state.goto_line_end(max_col);
+        state.command_buffer.clear();
+    }
+
+    // === 视图模式 (z 前缀) ===
+    if i.key_pressed(Key::Z) && !i.modifiers.shift && state.command_buffer.is_empty() {
+        state.command_buffer = "z".to_string();
+    }
+    // zz/zc: 将当前行滚动到屏幕中央
+    if (i.key_pressed(Key::Z) || i.key_pressed(Key::C)) && state.command_buffer == "z" {
+        state.scroll_to_row = Some(state.cursor.0);
+        actions.scroll_to_center = true;
+        actions.message = Some("滚动到中央 (zz)".to_string());
+        state.command_buffer.clear();
+    }
+    // zt: 将当前行滚动到屏幕顶部
+    if i.key_pressed(Key::T) && state.command_buffer == "z" {
+        state.scroll_to_row = Some(state.cursor.0);
+        actions.scroll_to_top = true;
+        actions.message = Some("滚动到顶部 (zt)".to_string());
+        state.command_buffer.clear();
+    }
+    // zb: 将当前行滚动到屏幕底部
+    if i.key_pressed(Key::B) && state.command_buffer == "z" {
+        state.scroll_to_row = Some(state.cursor.0);
+        actions.scroll_to_bottom = true;
+        actions.message = Some("滚动到底部 (zb)".to_string());
         state.command_buffer.clear();
     }
 
@@ -236,20 +325,40 @@ fn handle_normal_mode(
         }
         state.command_buffer.clear();
     }
-    // Ctrl+S 或 w 保存
-    if (i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(Key::S)) 
-        || (i.key_pressed(Key::W) && !i.modifiers.ctrl && state.command_buffer.is_empty()) {
+    // === 命令模式 (: 前缀) ===
+    // 注意：egui 的 Key::Semicolon 加 Shift 是冒号
+    if i.key_pressed(Key::Semicolon) && i.modifiers.shift && state.command_buffer.is_empty() {
+        state.command_buffer = ":".to_string();
+    }
+    // :w 保存修改
+    if i.key_pressed(Key::W) && state.command_buffer == ":" {
         state.pending_save = true;
         state.command_buffer.clear();
-        actions.message = Some("保存修改 (w / Ctrl+S)".to_string());
+        actions.message = Some("保存修改 (:w)".to_string());
     }
-    // q 放弃修改
+    // :q 放弃修改
+    if i.key_pressed(Key::Q) && state.command_buffer == ":" {
+        if state.has_changes() {
+            state.clear_edits();
+            actions.message = Some("已放弃所有修改 (:q)".to_string());
+        }
+        state.command_buffer.clear();
+    }
+    // :wq 保存并退出编辑
+    // (在表格中，退出编辑意味着返回 Normal 模式)
+    
+    // Ctrl+S 保存（兼容快捷键）
+    if i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(Key::S) {
+        state.pending_save = true;
+        actions.message = Some("保存修改 (Ctrl+S)".to_string());
+    }
+
+    // q 放弃修改（兼容旧快捷键，不需要冒号前缀）
     if i.key_pressed(Key::Q) && !i.modifiers.ctrl && state.command_buffer.is_empty() {
         if state.has_changes() {
             state.clear_edits();
             actions.message = Some("已放弃所有修改 (q)".to_string());
         }
-        state.command_buffer.clear();
     }
 
     // === 模式切换 ===
@@ -278,6 +387,21 @@ fn handle_normal_mode(
         state.select_anchor = Some((state.cursor.0, 0));
         state.cursor.1 = max_col.saturating_sub(1);
         actions.message = Some("选择整行 (x)".to_string());
+    }
+    // %: 选择全部
+    if i.key_pressed(Key::Num5) && i.modifiers.shift && state.command_buffer.is_empty() {
+        state.mode = GridMode::Select;
+        state.select_anchor = Some((0, 0));
+        state.cursor = (max_row.saturating_sub(1), max_col.saturating_sub(1));
+        actions.message = Some("选择全部 (%)".to_string());
+    }
+    // ;: 折叠选择到单个光标
+    if i.key_pressed(Key::Semicolon) && !i.modifiers.shift && state.command_buffer.is_empty() {
+        if state.mode == GridMode::Select {
+            state.mode = GridMode::Normal;
+            state.select_anchor = None;
+            actions.message = Some("折叠选择 (;)".to_string());
+        }
     }
 
     // === 操作 ===
@@ -338,10 +462,9 @@ fn handle_normal_mode(
     }
 
     // === 筛选 ===
-    // / 打开快速筛选对话框（键盘用户友好）
+    // / 打开左侧栏筛选面板
     if i.key_pressed(Key::Slash) && state.command_buffer.is_empty() {
-        state.show_quick_filter = true;
-        state.quick_filter_input.clear();
+        actions.open_filter_panel = true;
     }
     // f 为当前列快速添加筛选（鼠标用户也可用）
     if i.key_pressed(Key::F) && !i.modifiers.ctrl && state.command_buffer.is_empty()

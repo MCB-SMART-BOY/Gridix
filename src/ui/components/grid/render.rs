@@ -9,7 +9,7 @@ use super::{
     COLOR_VISUAL_SELECT,
 };
 use crate::ui::styles::GRAY;
-use egui::{self, Color32, Key, RichText, Sense, TextEdit};
+use egui::{self, Color32, Key, RichText, Sense, TextEdit, Vec2};
 
 
 // NULL 值颜色
@@ -40,17 +40,18 @@ pub fn render_column_header(
         };
         ui.label(text);
 
-        let filter_btn = if has_filter { "v" } else { "." };
+        // 筛选按钮 - 无边框图标
+        let filter_icon = if has_filter { "▼" } else { "·" };
         let btn_color = if has_filter {
             Color32::from_rgb(150, 200, 100)
         } else {
             GRAY
         };
-        if ui
-            .add(egui::Button::new(RichText::new(filter_btn).small().color(btn_color)).small())
-            .on_hover_text(format!("为 {} 列添加/编辑筛选条件", col_name))
-            .clicked()
-        {
+        if ui.add(
+            egui::Button::new(RichText::new(filter_icon).size(10.0).color(btn_color))
+                .frame(false)
+                .min_size(Vec2::new(16.0, 16.0)),
+        ).on_hover_text(format!("筛选 {} 列", col_name)).clicked() {
             columns_to_filter.push(col_name.to_string());
         }
     });
@@ -96,13 +97,22 @@ pub fn render_row_number(
                 state.focused = true;
             }
 
+            // 右键菜单 - 无边框按钮
             response.context_menu(|ui| {
+                let menu_btn = |ui: &mut egui::Ui, icon: &str, text: &str, tooltip: &str, color: Color32| -> bool {
+                    ui.add(
+                        egui::Button::new(RichText::new(format!("{} {}", icon, text)).size(13.0).color(color))
+                            .frame(false)
+                            .min_size(Vec2::new(0.0, 24.0)),
+                    ).on_hover_text(tooltip).clicked()
+                };
+                
                 if is_deleted {
-                    if ui.button("取消删除 [u]").clicked() {
+                    if menu_btn(ui, "↩", "取消删除", "取消删除 (u)", Color32::LIGHT_GRAY) {
                         state.rows_to_delete.retain(|&x| x != row_idx);
                         ui.close();
                     }
-                } else if ui.button("标记删除 [Space+d]").clicked() {
+                } else if menu_btn(ui, "🗑", "标记删除", "标记删除 (Space+d)", Color32::from_rgb(255, 100, 100)) {
                     if !state.rows_to_delete.contains(&row_idx) {
                         state.rows_to_delete.push(row_idx);
                     }
@@ -223,20 +233,29 @@ fn render_display_cell(
 
     let show_hover = display_value.len() > CELL_TRUNCATE_LEN;
 
+    // 右键菜单 - 无边框按钮
     response.context_menu(|ui| {
-        if ui.button("编辑 [i]").clicked() {
+        let menu_btn = |ui: &mut egui::Ui, icon: &str, text: &str, tooltip: &str| -> bool {
+            ui.add(
+                egui::Button::new(RichText::new(format!("{} {}", icon, text)).size(13.0).color(Color32::LIGHT_GRAY))
+                    .frame(false)
+                    .min_size(Vec2::new(0.0, 24.0)),
+            ).on_hover_text(tooltip).clicked()
+        };
+        
+        if menu_btn(ui, "✏", "编辑", "编辑单元格 (i)") {
             state.mode = GridMode::Insert;
             state.editing_cell = Some((row_idx, col_idx));
             state.edit_text = display_value.to_string();
             state.original_value = cell.to_string();
             ui.close();
         }
-        if ui.button("复制 [y]").clicked() {
+        if menu_btn(ui, "📋", "复制", "复制内容 (y)") {
             state.clipboard = Some(display_value.to_string());
             ui.ctx().copy_text(display_value.to_string());
             ui.close();
         }
-        if ui.button("粘贴 [p]").clicked() {
+        if menu_btn(ui, "📥", "粘贴", "粘贴内容 (p)") {
             if let Some(text) = &state.clipboard {
                 state
                     .modified_cells
@@ -244,7 +263,7 @@ fn render_display_cell(
             }
             ui.close();
         }
-        if state.modified_cells.contains_key(&(row_idx, col_idx)) && ui.button("还原 [u]").clicked()
+        if state.modified_cells.contains_key(&(row_idx, col_idx)) && menu_btn(ui, "↩", "还原", "还原修改 (u)")
         {
             state.modified_cells.remove(&(row_idx, col_idx));
             ui.close();
@@ -371,15 +390,24 @@ fn render_new_row_display_cell(
         state.original_value = cell.to_string();
     }
 
+    // 右键菜单 - 无边框按钮
     response.context_menu(|ui| {
-        if ui.button("编辑 [i]").clicked() {
+        let menu_btn = |ui: &mut egui::Ui, icon: &str, text: &str, tooltip: &str| -> bool {
+            ui.add(
+                egui::Button::new(RichText::new(format!("{} {}", icon, text)).size(13.0).color(Color32::LIGHT_GRAY))
+                    .frame(false)
+                    .min_size(Vec2::new(0.0, 24.0)),
+            ).on_hover_text(tooltip).clicked()
+        };
+        
+        if menu_btn(ui, "✏", "编辑", "编辑单元格 (i)") {
             state.mode = GridMode::Insert;
             state.editing_cell = Some((row_idx, col_idx));
             state.edit_text = cell.to_string();
             state.original_value = cell.to_string();
             ui.close();
         }
-        if ui.button("粘贴 [p]").clicked() {
+        if menu_btn(ui, "📥", "粘贴", "粘贴内容 (p)") {
             if let Some(text) = &state.clipboard {
                 state.pending_new_row_edit = Some((row_idx, col_idx, text.clone()));
             }

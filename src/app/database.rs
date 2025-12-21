@@ -57,7 +57,7 @@ impl DbManagerApp {
                     }
                 };
                 if tx.send(message).is_err() {
-                    eprintln!("[warn] 无法发送连接结果：接收端已关闭");
+                    tracing::warn!("无法发送连接结果：接收端已关闭");
                 }
             });
         }
@@ -101,7 +101,7 @@ impl DbManagerApp {
                 ))
                 .is_err()
             {
-                eprintln!("[warn] 无法发送数据库选择结果：接收端已关闭");
+                tracing::warn!("无法发送数据库选择结果：接收端已关闭");
             }
         });
     }
@@ -222,7 +222,7 @@ impl DbManagerApp {
                 .send(Message::QueryDone(sql, query_result, elapsed_ms))
                 .is_err()
             {
-                eprintln!("[warn] 无法发送查询结果：接收端已关闭");
+                tracing::warn!("无法发送查询结果：接收端已关闭");
             }
         });
     }
@@ -244,7 +244,7 @@ impl DbManagerApp {
                 .send(Message::PrimaryKeyFetched(table, pk_column))
                 .is_err()
             {
-                eprintln!("[warn] 无法发送主键信息：接收端已关闭");
+                tracing::warn!("无法发送主键信息：接收端已关闭");
             }
         });
     }

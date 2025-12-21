@@ -9,16 +9,16 @@ pub mod styles;
 #[allow(unused_imports)] // 公开 API，供外部使用
 pub use components::{
     // 数据表格相关
-    check_filter_match, count_search_matches, escape_identifier, escape_value,
-    filter_rows_cached, parse_quick_filter, quote_identifier, ColumnFilter, DataGrid,
+    check_filter_match, escape_identifier, escape_value,
+    filter_rows_cached, quote_identifier, ColumnFilter, DataGrid,
     DataGridState, FilterCache, FilterLogic, FilterOperator, FocusTransfer,
     // 其他组件
-    SearchBar, SqlEditor, SqlEditorActions, Toolbar, ToolbarActions, Welcome,
+    EditorMode, SqlEditor, SqlEditorActions, Toolbar, ToolbarActions, ToolbarFocusTransfer, Welcome,
     // 多 Tab 查询
-    QueryTab, QueryTabBar, QueryTabManager,
+    QueryTab, QueryTabBar, QueryTabManager, TabBarActions, TabBarFocusTransfer,
     // ER 关系图
     er_diagram::{ERColumn, ERDiagramState, ERTable, Relationship, RelationType, ERDiagramResponse,
-                 force_directed_layout, grid_layout},
+                 calculate_table_size, force_directed_layout, grid_layout},
     // 通知组件
     NotificationToast,
     // 进度指示器
@@ -45,6 +45,10 @@ pub use panels::{HistoryPanel, HistoryPanelState, Sidebar, SidebarActions, Sideb
 /// 控制键盘输入应该被哪个区域接收，确保同时只有一个区域响应键盘操作
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FocusArea {
+    /// 顶部工具栏
+    Toolbar,
+    /// 查询Tab栏
+    QueryTabs,
     /// 侧边栏（连接/数据库/表列表）
     Sidebar,
     /// 数据表格
@@ -59,16 +63,21 @@ pub enum FocusArea {
 
 /// 侧边栏焦点子区域
 /// 
-/// 用于 Ctrl+1/2/3/4 快捷键切换侧边栏不同区域的焦点
+/// 用于 Ctrl+1/2/3/4/5/6 快捷键切换侧边栏不同区域的焦点
+/// 顺序：连接 -> 数据库 -> 表 -> 筛选 -> 触发器 -> 存储过程
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SidebarSection {
-    /// 连接列表
+    /// 1. 连接列表
     #[default]
     Connections,
-    /// 数据库列表
+    /// 2. 数据库列表
     Databases,
-    /// 表列表
+    /// 3. 表列表
     Tables,
-    /// 触发器列表
+    /// 4. 筛选条件
+    Filters,
+    /// 5. 触发器列表
     Triggers,
+    /// 6. 存储过程/函数列表
+    Routines,
 }

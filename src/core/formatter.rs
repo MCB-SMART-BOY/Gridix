@@ -62,7 +62,7 @@ pub fn format_sql(sql: &str) -> String {
     while i < chars.len() {
         iterations += 1;
         if iterations > max_iterations {
-            eprintln!("[warn] SQL 格式化器达到最大迭代次数，返回原始SQL");
+            tracing::warn!("SQL 格式化器达到最大迭代次数，返回原始 SQL");
             return sql.to_string();
         }
         let c = chars[i];

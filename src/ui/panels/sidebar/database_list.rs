@@ -76,6 +76,11 @@ impl DatabaseList {
                 connection_manager.active = Some(conn_name.to_string());
                 actions.select_database = Some(database.clone());
             }
+            
+            // 如果是选中项且有焦点，滚动到可见
+            if is_nav_selected {
+                db_response.scroll_to_me(Some(egui::Align::Center));
+            }
 
             // 如果此数据库被选中，显示其下的表列表
             if is_selected && !tables.is_empty() {

@@ -1,11 +1,14 @@
 //! 筛选缓存
 //!
 //! 提供筛选结果的缓存机制，避免重复计算。
+//! 对于大数据集（超过 PARALLEL_FILTER_THRESHOLD 行），使用并行处理。
 
 use super::condition::ColumnFilter;
 use super::logic::FilterLogic;
 use super::operators::check_filter_match;
+use crate::core::constants;
 use crate::database::QueryResult;
+use rayon::prelude::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -108,43 +111,78 @@ pub fn filter_rows_cached<'a>(
     filtered
 }
 
-/// 快速搜索计数（仅用于状态栏显示，不使用筛选条件）
-/// 
-/// 返回 (匹配行数, 总行数)
-pub fn count_search_matches(
-    result: &QueryResult,
+
+
+/// 检查单行是否匹配筛选条件
+fn row_matches_filter(
+    row: &[String],
     search_text: &str,
-    search_column: &Option<String>,
-) -> (usize, usize) {
-    let total = result.rows.len();
-    
-    if search_text.is_empty() {
-        return (total, total);
-    }
-    
-    let search_lower = search_text.to_lowercase();
-    
-    // 预先查找搜索列索引
-    let search_col_idx = search_column
-        .as_ref()
-        .and_then(|col_name| result.columns.iter().position(|c| c == col_name));
-    
-    let matched = result.rows.iter().filter(|row| {
+    search_lower: &str,
+    search_col_idx: Option<usize>,
+    active_filters: &[&ColumnFilter],
+    filter_col_indices: &[Option<usize>],
+) -> bool {
+    // 搜索条件
+    let search_match = if search_text.is_empty() {
+        true
+    } else {
         match search_col_idx {
             Some(idx) => row
                 .get(idx)
-                .map(|cell| cell.to_lowercase().contains(&search_lower))
+                .map(|cell| cell.to_lowercase().contains(search_lower))
                 .unwrap_or(false),
             None => row
                 .iter()
-                .any(|cell| cell.to_lowercase().contains(&search_lower)),
+                .any(|cell| cell.to_lowercase().contains(search_lower)),
         }
-    }).count();
-    
-    (matched, total)
+    };
+
+    if !search_match {
+        return false;
+    }
+
+    // 筛选条件（支持 AND/OR 逻辑）
+    if active_filters.is_empty() {
+        return true;
+    }
+
+    let mut current_result = true;
+    let mut pending_logic = FilterLogic::And;
+
+    for (i, filter) in active_filters.iter().enumerate() {
+        let filter_match = if let Some(Some(idx)) = filter_col_indices.get(i) {
+            if let Some(cell) = row.get(*idx) {
+                check_filter_match(
+                    cell,
+                    &filter.operator,
+                    &filter.value,
+                    &filter.value2,
+                    filter.case_sensitive,
+                )
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if i == 0 {
+            current_result = filter_match;
+        } else {
+            match pending_logic {
+                FilterLogic::And => current_result = current_result && filter_match,
+                FilterLogic::Or => current_result = current_result || filter_match,
+            }
+        }
+
+        pending_logic = filter.logic;
+    }
+
+    current_result
 }
 
 /// 过滤行数据（内部实现）
+/// 对于大数据集使用并行处理
 fn filter_rows_internal<'a>(
     result: &'a QueryResult,
     search_text: &str,
@@ -161,70 +199,48 @@ fn filter_rows_internal<'a>(
         .as_ref()
         .and_then(|col_name| result.columns.iter().position(|c| c == col_name));
 
-    result
-        .rows
+    // 预先查找筛选列索引
+    let filter_col_indices: Vec<Option<usize>> = active_filters
         .iter()
-        .enumerate()
-        .filter(|(_, row)| {
-            // 搜索条件
-            let search_match = if search_text.is_empty() {
-                true
-            } else {
-                match search_col_idx {
-                    Some(idx) => row
-                        .get(idx)
-                        .map(|cell| cell.to_lowercase().contains(&search_lower))
-                        .unwrap_or(false),
-                    None => row
-                        .iter()
-                        .any(|cell| cell.to_lowercase().contains(&search_lower)),
-                }
-            };
+        .map(|f| result.columns.iter().position(|c| c == &f.column))
+        .collect();
 
-            if !search_match {
-                return false;
-            }
-
-            // 筛选条件（支持 AND/OR 逻辑）
-            if active_filters.is_empty() {
-                return true;
-            }
-
-            let mut current_result = true;
-            let mut pending_logic = FilterLogic::And;
-
-            for (i, filter) in active_filters.iter().enumerate() {
-                let col_idx = result.columns.iter().position(|c| c == &filter.column);
-                let filter_match = if let Some(idx) = col_idx {
-                    if let Some(cell) = row.get(idx) {
-                        check_filter_match(
-                            cell,
-                            &filter.operator,
-                            &filter.value,
-                            &filter.value2,
-                            filter.case_sensitive,
-                        )
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
-
-                if i == 0 {
-                    current_result = filter_match;
-                } else {
-                    match pending_logic {
-                        FilterLogic::And => current_result = current_result && filter_match,
-                        FilterLogic::Or => current_result = current_result || filter_match,
-                    }
-                }
-
-                pending_logic = filter.logic;
-            }
-
-            current_result
-        })
-        .collect()
+    // 对于大数据集使用并行处理
+    if result.rows.len() >= constants::database::PARALLEL_FILTER_THRESHOLD {
+        result
+            .rows
+            .par_iter()
+            .enumerate()
+            .filter(|(_, row)| {
+                row_matches_filter(
+                    row,
+                    search_text,
+                    &search_lower,
+                    search_col_idx,
+                    &active_filters,
+                    &filter_col_indices,
+                )
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|(idx, row)| (idx, row))
+            .collect()
+    } else {
+        result
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| {
+                row_matches_filter(
+                    row,
+                    search_text,
+                    &search_lower,
+                    search_col_idx,
+                    &active_filters,
+                    &filter_col_indices,
+                )
+            })
+            .collect()
+    }
 }
 

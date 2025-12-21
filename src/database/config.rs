@@ -1,7 +1,7 @@
 //! 数据库连接配置
 
 use super::ssh_tunnel::SshTunnelConfig;
-use super::types::{DatabaseType, MySqlSslMode};
+use super::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -252,6 +252,9 @@ pub struct ConnectionConfig {
     /// MySQL SSL 模式
     #[serde(default)]
     pub mysql_ssl_mode: MySqlSslMode,
+    /// PostgreSQL SSL 模式
+    #[serde(default)]
+    pub postgres_ssl_mode: PostgresSslMode,
     /// CA 证书路径（可选，用于 VerifyCa/VerifyIdentity 模式）
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub ssl_ca_cert: String,

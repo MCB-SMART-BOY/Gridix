@@ -67,13 +67,11 @@ impl KeyBindingsDialogState {
     /// 检查快捷键冲突
     fn check_conflict(&self, action: Action, binding: &KeyBinding) -> Option<Action> {
         for a in Action::all() {
-            if *a != action {
-                if let Some(existing) = self.bindings.get(*a) {
-                    if existing == binding {
+            if *a != action
+                && let Some(existing) = self.bindings.get(*a)
+                    && existing == binding {
                         return Some(*a);
                     }
-                }
-            }
         }
         None
     }
@@ -176,11 +174,10 @@ impl KeyBindingsDialog {
                                         continue;
                                     }
 
-                                    if let Some(cat) = state.current_category {
-                                        if category != cat {
+                                    if let Some(cat) = state.current_category
+                                        && category != cat {
                                             continue;
                                         }
-                                    }
 
                                     // 操作名称
                                     let is_selected = state.selected_action == Some(*action);
@@ -287,12 +284,11 @@ impl KeyBindingsDialog {
                 ui.separator();
                 ui.horizontal(|ui| {
                     // 清除选中操作的快捷键
-                    if let Some(action) = state.selected_action {
-                        if ui.button("清除快捷键").clicked() {
+                    if let Some(action) = state.selected_action
+                        && ui.button("清除快捷键").clicked() {
                             state.bindings.remove(action);
                             state.has_changes = true;
                         }
-                    }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("取消").clicked() {

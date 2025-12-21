@@ -173,7 +173,167 @@ impl DbManagerApp {
             if i.modifiers.ctrl && i.key_pressed(egui::Key::W) {
                 self.tab_manager.close_active_tab();
             }
+
+            // Ctrl+D: 切换日/夜模式
+            if i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::D) {
+                self.pending_toggle_dark_mode = true;
+            }
+
+            // Tab: 焦点循环导航（侧边栏 -> 数据表格 -> SQL编辑器 -> 侧边栏）
+            if !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::Tab) {
+                self.cycle_focus(i.modifiers.shift);
+            }
+
+            // Ctrl+1-6: 快速切换到侧边栏不同区域（再按一次关闭）
+            if i.modifiers.ctrl && !i.modifiers.shift {
+                let section = if i.key_pressed(egui::Key::Num1) {
+                    Some(ui::SidebarSection::Connections) // 1: 连接
+                } else if i.key_pressed(egui::Key::Num2) {
+                    Some(ui::SidebarSection::Databases)   // 2: 数据库
+                } else if i.key_pressed(egui::Key::Num3) {
+                    Some(ui::SidebarSection::Tables)      // 3: 表
+                } else if i.key_pressed(egui::Key::Num4) {
+                    Some(ui::SidebarSection::Filters)     // 4: 筛选
+                } else if i.key_pressed(egui::Key::Num5) {
+                    Some(ui::SidebarSection::Triggers)    // 5: 触发器
+                } else if i.key_pressed(egui::Key::Num6) {
+                    Some(ui::SidebarSection::Routines)    // 6: 存储过程
+                } else {
+                    None
+                };
+                
+                if let Some(s) = section {
+                    // Ctrl+2/3 (数据库/表) 只做导航，不切换面板显示
+                    // Ctrl+1/4/5/6 切换对应面板的显示状态
+                    let is_toggle_panel = matches!(s, 
+                        ui::SidebarSection::Connections | 
+                        ui::SidebarSection::Filters | 
+                        ui::SidebarSection::Triggers | 
+                        ui::SidebarSection::Routines
+                    );
+                    
+                    let panel_visible = match s {
+                        ui::SidebarSection::Connections => self.sidebar_panel_state.show_connections,
+                        ui::SidebarSection::Databases | ui::SidebarSection::Tables => self.sidebar_panel_state.show_connections,
+                        ui::SidebarSection::Filters => self.sidebar_panel_state.show_filters,
+                        ui::SidebarSection::Triggers => self.sidebar_panel_state.show_triggers,
+                        ui::SidebarSection::Routines => self.sidebar_panel_state.show_routines,
+                    };
+                    
+                    if is_toggle_panel && self.show_sidebar && self.sidebar_section == s && panel_visible {
+                        // 当前已在该面板，切换关闭（仅对 Ctrl+1/4/5/6）
+                        match s {
+                            ui::SidebarSection::Connections => {
+                                self.sidebar_panel_state.show_connections = false;
+                            }
+                            ui::SidebarSection::Filters => {
+                                self.sidebar_panel_state.show_filters = false;
+                            }
+                            ui::SidebarSection::Triggers => {
+                                self.sidebar_panel_state.show_triggers = false;
+                            }
+                            ui::SidebarSection::Routines => {
+                                self.sidebar_panel_state.show_routines = false;
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        // 打开侧边栏并显示对应面板
+                        self.show_sidebar = true;
+                        self.focus_area = ui::FocusArea::Sidebar;
+                        self.sidebar_section = s;
+                        self.grid_state.focused = false;
+                        // 确保对应面板可见
+                        match s {
+                            ui::SidebarSection::Connections | ui::SidebarSection::Databases | ui::SidebarSection::Tables => {
+                                self.sidebar_panel_state.show_connections = true;
+                            }
+                            ui::SidebarSection::Filters => {
+                                self.sidebar_panel_state.show_filters = true;
+                            }
+                            ui::SidebarSection::Triggers => {
+                                self.sidebar_panel_state.show_triggers = true;
+                            }
+                            ui::SidebarSection::Routines => {
+                                self.sidebar_panel_state.show_routines = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Alt+K: 打开快捷键设置对话框
+            if i.modifiers.alt && !i.modifiers.ctrl && i.key_pressed(egui::Key::K) {
+                self.keybindings_dialog_state.open(&self.keybindings);
+            }
+
+            // Escape: 取消当前操作/关闭面板
+            if i.key_pressed(egui::Key::Escape) {
+                // 优先关闭帮助面板
+                if self.show_help {
+                    self.show_help = false;
+                } else if self.show_history_panel {
+                    self.show_history_panel = false;
+                } else if self.show_er_diagram {
+                    self.show_er_diagram = false;
+                }
+            }
         });
+    }
+
+    /// 焦点循环导航
+    fn cycle_focus(&mut self, reverse: bool) {
+        // 焦点循环顺序: Sidebar -> DataGrid -> SqlEditor -> Sidebar
+        let areas = if self.show_sidebar && self.show_sql_editor {
+            vec![ui::FocusArea::Sidebar, ui::FocusArea::DataGrid, ui::FocusArea::SqlEditor]
+        } else if self.show_sidebar {
+            vec![ui::FocusArea::Sidebar, ui::FocusArea::DataGrid]
+        } else if self.show_sql_editor {
+            vec![ui::FocusArea::DataGrid, ui::FocusArea::SqlEditor]
+        } else {
+            vec![ui::FocusArea::DataGrid]
+        };
+
+        if areas.len() <= 1 {
+            return;
+        }
+
+        let current_idx = areas.iter().position(|&a| a == self.focus_area).unwrap_or(0);
+        let next_idx = if reverse {
+            if current_idx == 0 { areas.len() - 1 } else { current_idx - 1 }
+        } else {
+            (current_idx + 1) % areas.len()
+        };
+
+        let new_focus = areas[next_idx];
+        self.focus_area = new_focus;
+        
+        // 更新焦点状态
+        match new_focus {
+            ui::FocusArea::Toolbar => {
+                self.grid_state.focused = false;
+                self.focus_sql_editor = false;
+            }
+            ui::FocusArea::QueryTabs => {
+                self.grid_state.focused = false;
+                self.focus_sql_editor = false;
+            }
+            ui::FocusArea::Sidebar => {
+                self.grid_state.focused = false;
+                self.focus_sql_editor = false;
+            }
+            ui::FocusArea::DataGrid => {
+                self.grid_state.focused = true;
+                self.focus_sql_editor = false;
+            }
+            ui::FocusArea::SqlEditor => {
+                self.grid_state.focused = false;
+                self.focus_sql_editor = true;
+            }
+            ui::FocusArea::Dialog => {
+                // 对话框焦点由对话框系统管理，不在这里处理
+            }
+        }
     }
 
     /// 处理缩放快捷键

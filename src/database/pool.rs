@@ -2,7 +2,7 @@
 
 use super::config::ConnectionConfig;
 use super::error::DbError;
-use super::types::{DatabaseType, MySqlSslMode};
+use super::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
 use crate::core::constants;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -55,13 +55,22 @@ impl PoolManager {
         }
 
         // 创建新连接池，使用常量配置连接池参数
-        let pool_opts = mysql_async::PoolOpts::default().with_constraints(
-            mysql_async::PoolConstraints::new(
-                constants::database::pool::MYSQL_POOL_MIN_CONNECTIONS,
-                constants::database::pool::MYSQL_POOL_MAX_CONNECTIONS,
+        let pool_opts = mysql_async::PoolOpts::default()
+            .with_constraints(
+                mysql_async::PoolConstraints::new(
+                    constants::database::pool::MYSQL_POOL_MIN_CONNECTIONS,
+                    constants::database::pool::MYSQL_POOL_MAX_CONNECTIONS,
+                )
+                .expect("连接池约束无效"),
             )
-            .expect("连接池约束无效"),
-        );
+            // 空闲连接超时：超过此时间未使用的连接将被关闭
+            .with_inactive_connection_ttl(std::time::Duration::from_secs(
+                constants::database::pool::MYSQL_IDLE_TIMEOUT_SECS,
+            ))
+            // 连接最大生存时间：无论是否活跃，超过此时间的连接将被回收
+            .with_abs_conn_ttl(Some(std::time::Duration::from_secs(
+                constants::database::pool::MYSQL_MAX_LIFETIME_SECS,
+            )));
 
         let mut opts = mysql_async::OptsBuilder::from_opts(
             mysql_async::Opts::from_url(config.connection_string().as_str())
@@ -190,21 +199,8 @@ impl PoolManager {
             clients.remove(&key);
         }
 
-        // 创建新连接
-        let (client, conn) =
-            tokio_postgres::connect(&config.connection_string(), tokio_postgres::NoTls)
-                .await
-                .map_err(|e| DbError::Connection(format!("PostgreSQL 连接失败: {}", e)))?;
-
-        // 在后台处理连接（tokio_postgres 要求）
-        // 连接任务会在客户端关闭或出错时自动终止
-        let conn_key = key.clone();
-        tokio::spawn(async move {
-            if let Err(e) = conn.await {
-                eprintln!("[warn] PostgreSQL 连接 '{}' 错误: {}", conn_key, e);
-            }
-        });
-
+        // 创建新连接（根据 SSL 模式选择连接方式）
+        let client = Self::connect_pg_with_ssl(config).await?;
         let client = Arc::new(client);
 
         // 存入缓存（限制缓存数量，防止内存溢出）
@@ -221,6 +217,122 @@ impl PoolManager {
         }
 
         Ok(client)
+    }
+
+    /// 根据 SSL 模式连接 PostgreSQL
+    async fn connect_pg_with_ssl(
+        config: &ConnectionConfig,
+    ) -> Result<tokio_postgres::Client, DbError> {
+        let conn_string = config.connection_string();
+
+        match config.postgres_ssl_mode {
+            PostgresSslMode::Disable => {
+                // 不使用 TLS
+                let (client, conn) = tokio_postgres::connect(&conn_string, tokio_postgres::NoTls)
+                    .await
+                    .map_err(|e| DbError::Connection(format!("PostgreSQL 连接失败: {}", e)))?;
+
+                Self::spawn_pg_connection(conn, &config.pool_key());
+                Ok(client)
+            }
+            PostgresSslMode::Prefer => {
+                // 优先使用 TLS，失败则回退到非 TLS
+                match Self::connect_pg_tls(config, true).await {
+                    Ok(client) => Ok(client),
+                    Err(_) => {
+                        // TLS 失败，尝试非 TLS
+                        let (client, conn) =
+                            tokio_postgres::connect(&conn_string, tokio_postgres::NoTls)
+                                .await
+                                .map_err(|e| {
+                                    DbError::Connection(format!("PostgreSQL 连接失败: {}", e))
+                                })?;
+
+                        Self::spawn_pg_connection(conn, &config.pool_key());
+                        Ok(client)
+                    }
+                }
+            }
+            PostgresSslMode::Require => {
+                // 必须使用 TLS，但不验证证书
+                Self::connect_pg_tls(config, true).await
+            }
+            PostgresSslMode::VerifyCa | PostgresSslMode::VerifyFull => {
+                // 验证证书
+                Self::connect_pg_tls(config, false).await
+            }
+        }
+    }
+
+    /// 使用 TLS 连接 PostgreSQL
+    async fn connect_pg_tls(
+        config: &ConnectionConfig,
+        accept_invalid_certs: bool,
+    ) -> Result<tokio_postgres::Client, DbError> {
+        use native_tls::TlsConnector as NativeTlsConnector;
+        use postgres_native_tls::MakeTlsConnector;
+        use std::path::Path;
+
+        let mut builder = NativeTlsConnector::builder();
+
+        // 配置证书验证
+        if accept_invalid_certs {
+            builder.danger_accept_invalid_certs(true);
+            builder.danger_accept_invalid_hostnames(true);
+        }
+
+        // 如果指定了 CA 证书
+        if !config.ssl_ca_cert.is_empty() {
+            let ca_path = Path::new(&config.ssl_ca_cert);
+            if !ca_path.exists() {
+                return Err(DbError::Connection(format!(
+                    "CA 证书文件不存在: {}",
+                    config.ssl_ca_cert
+                )));
+            }
+
+            let ca_data = std::fs::read(&config.ssl_ca_cert).map_err(|e| {
+                DbError::Connection(format!("读取 CA 证书失败: {}", e))
+            })?;
+
+            let cert = native_tls::Certificate::from_pem(&ca_data).map_err(|e| {
+                DbError::Connection(format!("解析 CA 证书失败: {}", e))
+            })?;
+
+            builder.add_root_certificate(cert);
+        }
+
+        // 验证主机名（仅 VerifyFull 模式）
+        if config.postgres_ssl_mode != PostgresSslMode::VerifyFull {
+            builder.danger_accept_invalid_hostnames(true);
+        }
+
+        let connector = builder.build().map_err(|e| {
+            DbError::Connection(format!("TLS 连接器构建失败: {}", e))
+        })?;
+
+        let tls = MakeTlsConnector::new(connector);
+
+        let (client, conn) = tokio_postgres::connect(&config.connection_string(), tls)
+            .await
+            .map_err(|e| DbError::Connection(format!("PostgreSQL TLS 连接失败: {}", e)))?;
+
+        Self::spawn_pg_connection(conn, &config.pool_key());
+        Ok(client)
+    }
+
+    /// 在后台处理 PostgreSQL 连接
+    fn spawn_pg_connection<S, T>(conn: tokio_postgres::Connection<S, T>, key: &str)
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+        T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    {
+        let conn_key = key.to_string();
+        tokio::spawn(async move {
+            if let Err(e) = conn.await {
+                tracing::warn!(connection = %conn_key, error = %e, "PostgreSQL 连接错误");
+            }
+        });
     }
 
     /// 清除指定配置的连接池

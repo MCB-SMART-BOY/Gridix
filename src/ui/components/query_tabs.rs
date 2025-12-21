@@ -4,7 +4,7 @@
 
 use crate::core::HighlightColors;
 use crate::database::QueryResult;
-use egui::{self, Color32, RichText, Ui};
+use egui::{self, Color32, RichText, Ui, Vec2};
 use uuid::Uuid;
 
 // ============================================================================
@@ -138,8 +138,6 @@ pub struct QueryTabManager {
     pub active_index: usize,
     /// 最大 Tab 数量
     pub max_tabs: usize,
-    /// 下一个 Tab 的编号
-    next_number: usize,
 }
 
 impl Default for QueryTabManager {
@@ -155,11 +153,37 @@ impl QueryTabManager {
             tabs: Vec::new(),
             active_index: 0,
             max_tabs: 20,
-            next_number: 1,
         };
         // 创建初始 Tab
         manager.new_tab();
         manager
+    }
+    
+    /// 找到下一个可用的Tab编号
+    fn find_next_number(&self) -> usize {
+        // 收集所有已使用的编号
+        let mut used_numbers: Vec<usize> = self.tabs.iter()
+            .filter_map(|tab| {
+                // 解析 "查询 N" 格式的标题
+                if tab.title.starts_with("查询 ") {
+                    tab.title[7..].parse::<usize>().ok()
+                } else {
+                    None
+                }
+            })
+            .collect();
+        used_numbers.sort();
+        
+        // 找到第一个未使用的编号
+        let mut next = 1;
+        for num in used_numbers {
+            if num == next {
+                next += 1;
+            } else if num > next {
+                break;
+            }
+        }
+        next
     }
 
     /// 创建新 Tab
@@ -169,8 +193,7 @@ impl QueryTabManager {
         }
 
         let mut tab = QueryTab::new();
-        tab.title = format!("查询 {}", self.next_number);
-        self.next_number += 1;
+        tab.title = format!("查询 {}", self.find_next_number());
         
         self.tabs.push(tab);
         self.active_index = self.tabs.len() - 1;
@@ -322,6 +345,15 @@ impl QueryTabManager {
 // Tab 栏 UI 组件
 // ============================================================================
 
+/// Tab栏焦点转移方向
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TabBarFocusTransfer {
+    /// 转移到工具栏
+    ToToolbar,
+    /// 转移到数据表格
+    ToDataGrid,
+}
+
 /// Tab 栏操作
 #[derive(Default)]
 pub struct TabBarActions {
@@ -335,6 +367,8 @@ pub struct TabBarActions {
     pub close_others: bool,
     /// 关闭右侧
     pub close_right: bool,
+    /// 焦点转移
+    pub focus_transfer: Option<TabBarFocusTransfer>,
 }
 
 /// Tab 栏 UI
@@ -403,37 +437,39 @@ impl QueryTabBar {
 
                         // 右键菜单
                         title_response.context_menu(|ui| {
-                            if ui.button("关闭").clicked() {
+                            // 无边框菜单按钮
+                            let menu_btn = |ui: &mut Ui, text: &str, tooltip: &str| -> bool {
+                                ui.add(
+                                    egui::Button::new(RichText::new(text).size(13.0).color(Color32::LIGHT_GRAY))
+                                        .frame(false)
+                                        .min_size(Vec2::new(0.0, 24.0)),
+                                ).on_hover_text(tooltip).clicked()
+                            };
+                            
+                            if menu_btn(ui, "✕ 关闭", "关闭此标签") {
                                 actions.close_tab = Some(idx);
                                 ui.close();
                             }
-                            if ui.button("关闭其他").clicked() {
+                            if menu_btn(ui, "◎ 关闭其他", "关闭其他标签") {
                                 actions.close_others = true;
                                 ui.close();
                             }
-                            if ui.button("关闭右侧").clicked() {
+                            if menu_btn(ui, "▷ 关闭右侧", "关闭右侧标签") {
                                 actions.close_right = true;
                                 ui.close();
                             }
                         });
 
-                        // 关闭按钮
+                        // 关闭按钮 - 无边框图标
                         if tabs.len() > 1 {
                             let close_response = ui.add(
-                                egui::Label::new(
-                                    RichText::new("×")
-                                        .color(highlight_colors.comment)
-                                        .small()
-                                )
-                                .sense(egui::Sense::click()),
-                            );
+                                egui::Button::new(RichText::new("×").size(12.0).color(highlight_colors.comment))
+                                    .frame(false)
+                                    .min_size(Vec2::new(18.0, 18.0)),
+                            ).on_hover_text("关闭标签");
                             
                             if close_response.clicked() {
                                 actions.close_tab = Some(idx);
-                            }
-                            
-                            if close_response.hovered() {
-                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
                         }
                     });
@@ -445,14 +481,77 @@ impl QueryTabBar {
                 }
             }
 
-            // 新建 Tab 按钮
+            // 新建 Tab 按钮 - 无边框图标
             ui.add_space(4.0);
-            if ui.small_button("+").on_hover_text("新建查询 [Ctrl+T]").clicked() {
+            if ui.add(
+                egui::Button::new(RichText::new("+").size(14.0).color(Color32::LIGHT_GRAY))
+                    .frame(false)
+                    .min_size(Vec2::new(22.0, 22.0)),
+            ).on_hover_text("新建查询 (Ctrl+T)").clicked() {
                 actions.new_tab = true;
             }
         });
 
         actions
+    }
+    
+    /// 处理Tab栏键盘输入 (Helix风格)
+    /// 
+    /// - h/l: 左右切换Tab
+    /// - j: 向下进入数据表格
+    /// - k: 向上进入工具栏
+    /// - d: 删除当前Tab
+    /// - Enter: 确认选择当前Tab（进入数据表格）
+    pub fn handle_keyboard(
+        ui: &mut Ui,
+        tab_count: usize,
+        active_index: usize,
+        actions: &mut TabBarActions,
+    ) {
+        if tab_count == 0 {
+            return;
+        }
+        
+        ui.input(|i| {
+            // h/左箭头: 切换到左边的Tab
+            if i.key_pressed(egui::Key::H) || i.key_pressed(egui::Key::ArrowLeft) {
+                if active_index > 0 {
+                    actions.switch_to = Some(active_index - 1);
+                }
+            }
+            
+            // l/右箭头: 切换到右边的Tab
+            if i.key_pressed(egui::Key::L) || i.key_pressed(egui::Key::ArrowRight) {
+                if active_index < tab_count - 1 {
+                    actions.switch_to = Some(active_index + 1);
+                }
+            }
+            
+            // j/下箭头: 向下进入数据表格
+            if i.key_pressed(egui::Key::J) || i.key_pressed(egui::Key::ArrowDown) {
+                actions.focus_transfer = Some(TabBarFocusTransfer::ToDataGrid);
+            }
+            
+            // k/上箭头: 向上进入工具栏
+            if i.key_pressed(egui::Key::K) || i.key_pressed(egui::Key::ArrowUp) {
+                actions.focus_transfer = Some(TabBarFocusTransfer::ToToolbar);
+            }
+            
+            // Enter: 确认选择，进入数据表格
+            if i.key_pressed(egui::Key::Enter) {
+                actions.focus_transfer = Some(TabBarFocusTransfer::ToDataGrid);
+            }
+            
+            // d: 删除当前Tab
+            if i.key_pressed(egui::Key::D) && tab_count > 1 {
+                actions.close_tab = Some(active_index);
+            }
+            
+            // Escape: 返回数据表格
+            if i.key_pressed(egui::Key::Escape) {
+                actions.focus_transfer = Some(TabBarFocusTransfer::ToDataGrid);
+            }
+        });
     }
 }
 

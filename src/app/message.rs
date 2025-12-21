@@ -2,7 +2,7 @@
 //!
 //! 定义应用程序中异步任务完成后发送的消息类型。
 
-use crate::database::{QueryResult, TriggerInfo, ForeignKeyInfo, ColumnInfo};
+use crate::database::{QueryResult, TriggerInfo, ForeignKeyInfo, ColumnInfo, RoutineInfo};
 
 /// 异步任务完成后发送的消息
 pub enum Message {
@@ -18,6 +18,8 @@ pub enum Message {
     PrimaryKeyFetched(String, Option<String>),
     /// 触发器列表获取完成 (触发器列表结果)
     TriggersFetched(Result<Vec<TriggerInfo>, String>),
+    /// 存储过程/函数列表获取完成 (存储过程列表结果)
+    RoutinesFetched(Result<Vec<RoutineInfo>, String>),
     /// 外键关系获取完成 (外键列表结果)
     ForeignKeysFetched(Result<Vec<ForeignKeyInfo>, String>),
     /// ER图表结构获取完成 (表名, 列信息列表)

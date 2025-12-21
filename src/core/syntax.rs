@@ -26,55 +26,106 @@ static THEME_SET: Lazy<ThemeSet> = Lazy::new(|| {
 
 /// 高亮缓存（避免重复计算）
 static HIGHLIGHT_CACHE: Lazy<RwLock<HighlightCache>> = Lazy::new(|| {
-    RwLock::new(HighlightCache::new(1000))
+    RwLock::new(HighlightCache::new(500))
 });
 
 // ============================================================================
 // 高亮缓存
 // ============================================================================
 
+/// 缓存键类型（使用哈希值而非完整字符串，减少内存占用）
+type CacheKey = (u64, u64); // (text_hash, theme_hash)
+
 struct HighlightCache {
-    cache: HashMap<(String, String), LayoutJob>,
+    cache: HashMap<CacheKey, LayoutJob>,
     max_size: usize,
-    access_order: Vec<(String, String)>,
+    /// 使用 VecDeque 实现 O(1) 的头部删除
+    access_order: std::collections::VecDeque<CacheKey>,
+    /// 记录每个键在 access_order 中的位置（用于快速查找）
+    key_positions: HashMap<CacheKey, usize>,
+    /// 当前逻辑位置计数器
+    position_counter: usize,
 }
 
 impl HighlightCache {
     fn new(max_size: usize) -> Self {
         Self {
-            cache: HashMap::new(),
+            cache: HashMap::with_capacity(max_size),
             max_size,
-            access_order: Vec::new(),
+            access_order: std::collections::VecDeque::with_capacity(max_size),
+            key_positions: HashMap::with_capacity(max_size),
+            position_counter: 0,
         }
     }
 
-    fn get(&mut self, key: &(String, String)) -> Option<LayoutJob> {
-        if let Some(job) = self.cache.get(key) {
-            // 更新访问顺序
-            if let Some(pos) = self.access_order.iter().position(|k| k == key) {
-                self.access_order.remove(pos);
-            }
-            self.access_order.push(key.clone());
+    /// 计算字符串的哈希值
+    fn hash_string(s: &str) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        s.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// 创建缓存键
+    fn make_key(text: &str, theme_name: &str) -> CacheKey {
+        (Self::hash_string(text), Self::hash_string(theme_name))
+    }
+
+    fn get(&mut self, text: &str, theme_name: &str) -> Option<LayoutJob> {
+        let key = Self::make_key(text, theme_name);
+        
+        if let Some(job) = self.cache.get(&key) {
+            // 更新访问顺序（惰性更新，只在获取时更新位置）
+            self.position_counter += 1;
+            self.key_positions.insert(key, self.position_counter);
             Some(job.clone())
         } else {
             None
         }
     }
 
-    fn insert(&mut self, key: (String, String), job: LayoutJob) {
+    fn insert(&mut self, text: &str, theme_name: &str, job: LayoutJob) {
+        let key = Self::make_key(text, theme_name);
+        
+        // 如果键已存在，直接更新
+        if self.cache.contains_key(&key) {
+            self.cache.insert(key, job);
+            self.position_counter += 1;
+            self.key_positions.insert(key, self.position_counter);
+            return;
+        }
+
         // 如果缓存已满，删除最久未访问的条目
-        while self.cache.len() >= self.max_size && !self.access_order.is_empty() {
-            let oldest = self.access_order.remove(0);
-            self.cache.remove(&oldest);
+        while self.cache.len() >= self.max_size {
+            self.evict_oldest();
         }
         
-        self.cache.insert(key.clone(), job);
-        self.access_order.push(key);
+        self.cache.insert(key, job);
+        self.access_order.push_back(key);
+        self.position_counter += 1;
+        self.key_positions.insert(key, self.position_counter);
+    }
+
+    /// 驱逐最久未访问的条目
+    fn evict_oldest(&mut self) {
+        // 从队列头部开始查找真正最旧的条目
+        while let Some(key) = self.access_order.pop_front() {
+            // 检查这个键是否仍在缓存中且是最旧的
+            if self.cache.contains_key(&key) {
+                self.cache.remove(&key);
+                self.key_positions.remove(&key);
+                break;
+            }
+            // 如果键已不在缓存中，继续查找下一个
+        }
     }
 
     fn clear(&mut self) {
         self.cache.clear();
         self.access_order.clear();
+        self.key_positions.clear();
+        self.position_counter = 0;
     }
 }
 
@@ -238,11 +289,9 @@ impl SqlHighlighter {
     /// 创建带语法高亮的 LayoutJob
     pub fn highlight(&self, text: &str) -> LayoutJob {
         // 尝试使用缓存
-        let cache_key = (text.to_string(), self.colors.theme_name.clone());
-        
         {
             let mut cache = HIGHLIGHT_CACHE.write();
-            if let Some(job) = cache.get(&cache_key) {
+            if let Some(job) = cache.get(text, &self.colors.theme_name) {
                 return job;
             }
         }
@@ -257,7 +306,7 @@ impl SqlHighlighter {
         // 存入缓存
         {
             let mut cache = HIGHLIGHT_CACHE.write();
-            cache.insert(cache_key, job.clone());
+            cache.insert(text, &self.colors.theme_name, job.clone());
         }
 
         job

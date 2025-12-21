@@ -25,9 +25,24 @@ mod ui;
 
 use app::DbManagerApp;
 use eframe::egui;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+/// 初始化日志系统
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("gridix=info,warn"));
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(tracing_subscriber::fmt::layer().with_target(true))
+        .init();
+}
 
 /// 程序入口点
 fn main() -> eframe::Result<()> {
+    // 初始化日志系统
+    init_tracing();
+    tracing::info!("Gridix 启动中...");
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])

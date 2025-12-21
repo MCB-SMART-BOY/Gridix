@@ -1,7 +1,7 @@
 //! 数据库连接对话框
 
 use super::keyboard::{self, DialogAction};
-use crate::database::{ConnectionConfig, DatabaseType, MySqlSslMode, SshAuthMethod};
+use crate::database::{ConnectionConfig, DatabaseType, MySqlSslMode, PostgresSslMode, SshAuthMethod};
 use crate::ui::styles::{DANGER, GRAY, MUTED, SUCCESS, SPACING_SM, SPACING_MD, SPACING_LG};
 use egui::{self, Color32, Key, Modifiers, RichText, CornerRadius, TextEdit};
 use std::path::Path;
@@ -184,10 +184,17 @@ impl ConnectionDialog {
 
                 ui.add_space(SPACING_LG);
 
-                // MySQL SSL 配置
-                if matches!(config.db_type, DatabaseType::MySQL) {
-                    Self::show_mysql_ssl_config(ui, config);
-                    ui.add_space(SPACING_LG);
+                // SSL/TLS 配置
+                match config.db_type {
+                    DatabaseType::MySQL => {
+                        Self::show_mysql_ssl_config(ui, config);
+                        ui.add_space(SPACING_LG);
+                    }
+                    DatabaseType::PostgreSQL => {
+                        Self::show_postgres_ssl_config(ui, config);
+                        ui.add_space(SPACING_LG);
+                    }
+                    DatabaseType::SQLite => {}
                 }
 
                 // SSH 隧道配置（仅对非 SQLite 显示）
@@ -453,6 +460,80 @@ impl ConnectionDialog {
                         MySqlSslMode::Required => "必须使用 SSL 加密，不验证服务器证书",
                         MySqlSslMode::VerifyCa => "验证服务器 CA 证书，不检查主机名",
                         MySqlSslMode::VerifyIdentity => "完整验证：检查 CA 证书和服务器主机名",
+                    };
+                    ui.label(RichText::new(tip).small().color(MUTED));
+                });
+        });
+    }
+
+    /// PostgreSQL SSL 配置
+    fn show_postgres_ssl_config(ui: &mut egui::Ui, config: &mut ConnectionConfig) {
+        ui.collapsing("🔐 SSL/TLS 加密", |ui| {
+            ui.add_space(SPACING_SM);
+
+            egui::Frame::NONE
+                .fill(Color32::from_rgba_unmultiplied(100, 100, 110, 10))
+                .corner_radius(CornerRadius::same(8))
+                .inner_margin(egui::Margin::symmetric(16, 12))
+                .show(ui, |ui| {
+                    egui::Grid::new("postgres_ssl_form")
+                        .num_columns(2)
+                        .spacing([16.0, 8.0])
+                        .show(ui, |ui| {
+                            // SSL 模式选择
+                            ui.label(RichText::new("SSL 模式").color(GRAY));
+                            egui::ComboBox::new("pg_ssl_mode_combo", "")
+                                .selected_text(config.postgres_ssl_mode.display_name())
+                                .show_ui(ui, |ui| {
+                                    for mode in PostgresSslMode::all() {
+                                        let label = format!(
+                                            "{} - {}",
+                                            mode.display_name(),
+                                            mode.description()
+                                        );
+                                        ui.selectable_value(
+                                            &mut config.postgres_ssl_mode,
+                                            *mode,
+                                            label,
+                                        );
+                                    }
+                                });
+                            ui.end_row();
+
+                            // CA 证书路径（仅在 VerifyCa 或 VerifyFull 模式下显示）
+                            if matches!(
+                                config.postgres_ssl_mode,
+                                PostgresSslMode::VerifyCa | PostgresSslMode::VerifyFull
+                            ) {
+                                ui.label(RichText::new("CA 证书").color(GRAY));
+                                ui.horizontal(|ui| {
+                                    ui.add(
+                                        TextEdit::singleline(&mut config.ssl_ca_cert)
+                                            .hint_text("/path/to/ca-cert.pem")
+                                            .desired_width(160.0),
+                                    );
+                                    if ui.button("浏览").clicked()
+                                        && let Some(path) = rfd::FileDialog::new()
+                                            .add_filter("证书文件", &["pem", "crt", "cer"])
+                                            .add_filter("所有文件", &["*"])
+                                            .pick_file()
+                                        {
+                                            config.ssl_ca_cert = path.display().to_string();
+                                        }
+                                });
+                                ui.end_row();
+                            }
+                        });
+
+                    ui.add_space(SPACING_SM);
+
+                    // SSL 模式说明
+                    let tip = match config.postgres_ssl_mode {
+                        PostgresSslMode::Disable => "不使用加密，数据以明文传输",
+                        PostgresSslMode::Prefer => "优先使用 SSL，如果服务器不支持则回退到明文",
+                        PostgresSslMode::Require => "必须使用 SSL 加密，不验证服务器证书",
+                        PostgresSslMode::VerifyCa => "验证服务器 CA 证书，不检查主机名",
+                        PostgresSslMode::VerifyFull => "完整验证：检查 CA 证书和服务器主机名",
                     };
                     ui.label(RichText::new(tip).small().color(MUTED));
                 });

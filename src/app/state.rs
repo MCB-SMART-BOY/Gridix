@@ -7,7 +7,7 @@
 use crate::database::{ConnectionConfig, ConnectionManager, QueryResult};
 use crate::ui::{
     DataGridState, ExportConfig, FocusArea, HistoryPanelState, ImportState,
-    QueryTabManager, SidebarPanelState, SidebarSection,
+    KeyBindingsDialogState, QueryTabManager, SidebarPanelState, SidebarSection,
 };
 use crate::ui::{
     CreateDbDialogState, CreateUserDialogState, DdlDialogState, ERDiagramState,
@@ -53,6 +53,8 @@ pub struct QueryState {
     pub show_autocomplete: bool,
     /// 当前选中的补全项索引
     pub selected_completion: usize,
+    /// SQL 编辑器模式 (Normal/Insert)
+    pub editor_mode: crate::ui::components::EditorMode,
 }
 
 /// 搜索和选择状态
@@ -129,9 +131,13 @@ impl Default for UiState {
     }
 }
 
-/// 对话框状态（使用枚举减少布尔字段）
+/// 对话框状态
+/// 
+/// 集中管理所有对话框的显示状态，减少 DbManagerApp 中的布尔字段
 #[derive(Default)]
 pub struct DialogState {
+    /// 是否显示连接对话框
+    pub show_connection: bool,
     /// 是否显示导出对话框
     pub show_export: bool,
     /// 导出配置
@@ -162,11 +168,14 @@ pub struct DialogState {
     pub create_db_state: CreateDbDialogState,
     /// 新建用户对话框状态
     pub create_user_state: CreateUserDialogState,
+    /// 快捷键设置对话框状态
+    pub keybindings_state: KeyBindingsDialogState,
 }
 
 impl DialogState {
     pub fn new() -> Self {
         Self {
+            show_connection: false,
             show_export: false,
             export_config: ExportConfig::default(),
             export_status: None,
@@ -182,12 +191,14 @@ impl DialogState {
             ddl_state: DdlDialogState::default(),
             create_db_state: CreateDbDialogState::new(),
             create_user_state: CreateUserDialogState::new(),
+            keybindings_state: KeyBindingsDialogState::default(),
         }
     }
     
     /// 检查是否有任何模态对话框打开
     pub fn has_modal_open(&self) -> bool {
-        self.show_export
+        self.show_connection
+            || self.show_export
             || self.show_import
             || self.show_delete_confirm
             || self.show_help
@@ -196,6 +207,7 @@ impl DialogState {
             || self.ddl_state.show
             || self.create_db_state.show
             || self.create_user_state.show
+            || self.keybindings_state.show
     }
 }
 

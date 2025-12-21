@@ -37,18 +37,8 @@ impl ConnectionList {
     ) {
         // 上部标题栏
         ui.horizontal(|ui| {
-            // 折叠按钮
-            let collapse_icon = if panel_state.upper_collapsed { ">" } else { "v" };
-            if ui.small_button(collapse_icon).clicked() {
-                panel_state.upper_collapsed = !panel_state.upper_collapsed;
-            }
-            
             Self::show_header(ui, show_connection_dialog, is_focused, focused_section);
         });
-        
-        if panel_state.upper_collapsed {
-            return;
-        }
 
         // 连接列表区域 - 使用固定宽度防止内容扩展面板
         let scroll_width = ui.available_width();
@@ -105,27 +95,26 @@ impl ConnectionList {
                     ui.label(RichText::new("🔗 连接").strong());
                     
                     // 显示当前焦点区域提示
-                    if is_focused && focused_section != SidebarSection::Triggers {
+                    if is_focused && !matches!(focused_section, SidebarSection::Triggers | SidebarSection::Routines | SidebarSection::Filters) {
                         let section_text = match focused_section {
                             SidebarSection::Connections => "连接",
                             SidebarSection::Databases => "数据库",
                             SidebarSection::Tables => "表",
                             SidebarSection::Triggers => "触发器",
+                            SidebarSection::Routines => "存储过程",
+                            SidebarSection::Filters => "筛选",
                         };
                         ui.label(RichText::new(format!("→ {}", section_text)).small().color(SUCCESS));
                     }
 
                     // 把按钮推到右边
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // 新建按钮 - 使用与工具栏一致的按钮样式
-                        if ui
-                            .add(
-                                egui::Button::new(RichText::new("＋ 新建 [Ctrl+N]").size(13.0))
-                                    .corner_radius(CornerRadius::same(6))
-                                    .min_size(Vec2::new(0.0, 28.0)),
-                            )
-                            .clicked()
-                        {
+                        // 新建按钮 - 无边框图标样式
+                        if ui.add(
+                            egui::Button::new(RichText::new("+").size(15.0).color(Color32::LIGHT_GRAY))
+                                .frame(false)
+                                .min_size(Vec2::new(24.0, 24.0)),
+                        ).on_hover_text("新建连接 (Ctrl+N)").clicked() {
                             *show_connection_dialog = true;
                         }
                     });
@@ -162,14 +151,11 @@ impl ConnectionList {
 
             ui.add_space(SPACING_LG);
 
-            if ui
-                .add(
-                    egui::Button::new(RichText::new("＋ 新建连接 [Ctrl+N]").size(14.0))
-                        .corner_radius(CornerRadius::same(8))
-                        .min_size(Vec2::new(120.0, 36.0)),
-                )
-                .clicked()
-            {
+            if ui.add(
+                egui::Button::new(RichText::new("+ 新建连接").size(14.0).color(Color32::LIGHT_GRAY))
+                    .frame(false)
+                    .min_size(Vec2::new(0.0, 24.0)),
+            ).on_hover_text("新建连接 (Ctrl+N)").clicked() {
                 *show_connection_dialog = true;
             }
         });
@@ -365,34 +351,25 @@ impl ConnectionList {
         ui.horizontal(|ui| {
             ui.add_space(SPACING_LG);
 
+            // 无边框图标按钮
+            let icon_btn = |ui: &mut egui::Ui, icon: &str, tooltip: &str, color: Color32| -> bool {
+                ui.add(
+                    egui::Button::new(RichText::new(icon).size(14.0).color(color))
+                        .frame(false)
+                        .min_size(Vec2::new(22.0, 22.0)),
+                ).on_hover_text(tooltip).clicked()
+            };
+
             if is_active {
-                if ui
-                    .add(
-                        egui::Button::new(RichText::new("断开").small())
-                            .corner_radius(CornerRadius::same(4)),
-                    )
-                    .clicked()
-                {
+                if icon_btn(ui, "⏏", "断开连接", Color32::LIGHT_GRAY) {
                     actions.disconnect = Some(name.to_string());
                     *selected_table = None;
                 }
-            } else if ui
-                .add(
-                    egui::Button::new(RichText::new("连接").small())
-                        .corner_radius(CornerRadius::same(4)),
-                )
-                .clicked()
-            {
+            } else if icon_btn(ui, "🔗", "连接", Color32::LIGHT_GRAY) {
                 actions.connect = Some(name.to_string());
             }
 
-            if ui
-                .add(
-                    egui::Button::new(RichText::new("删除").small().color(DANGER))
-                        .corner_radius(CornerRadius::same(4)),
-                )
-                .clicked()
-            {
+            if icon_btn(ui, "🗑", "删除连接", DANGER) {
                 actions.delete = Some(name.to_string());
             }
         });

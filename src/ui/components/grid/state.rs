@@ -4,6 +4,44 @@ use super::filter::{ColumnFilter, FilterCache};
 use super::mode::GridMode;
 use std::collections::HashMap;
 
+/// 列宽缓存
+#[derive(Default, Clone)]
+pub struct ColumnWidthCache {
+    /// 缓存的列宽
+    pub widths: Vec<f32>,
+    /// 数据哈希值（用于判断是否需要重新计算）
+    pub data_hash: u64,
+    /// 列数（用于快速判断）
+    pub column_count: usize,
+    /// 采样行数（用于快速判断）
+    pub sample_row_count: usize,
+}
+
+impl ColumnWidthCache {
+    /// 检查缓存是否有效
+    pub fn is_valid(&self, column_count: usize, sample_row_count: usize, data_hash: u64) -> bool {
+        self.column_count == column_count
+            && self.sample_row_count == sample_row_count
+            && self.data_hash == data_hash
+    }
+
+    /// 更新缓存
+    pub fn update(&mut self, widths: Vec<f32>, column_count: usize, sample_row_count: usize, data_hash: u64) {
+        self.widths = widths;
+        self.column_count = column_count;
+        self.sample_row_count = sample_row_count;
+        self.data_hash = data_hash;
+    }
+
+    /// 清除缓存
+    pub fn clear(&mut self) {
+        self.widths.clear();
+        self.data_hash = 0;
+        self.column_count = 0;
+        self.sample_row_count = 0;
+    }
+}
+
 /// 表格编辑状态
 #[derive(Default)]
 pub struct DataGridState {
@@ -53,10 +91,6 @@ pub struct DataGridState {
     pub show_save_confirm: bool,
     /// 待确认的 SQL 语句
     pub pending_sql: Vec<String>,
-    /// 显示快速筛选输入框
-    pub show_quick_filter: bool,
-    /// 快速筛选输入内容
-    pub quick_filter_input: String,
     /// 筛选结果缓存
     pub filter_cache: FilterCache,
     /// 主键列索引（None 表示未知，编辑功能将被禁用）
@@ -66,6 +100,8 @@ pub struct DataGridState {
     pub regex_error: Option<String>,
     /// 待处理的新增行编辑 (虚拟行索引, 列索引, 新值)
     pub pending_new_row_edit: Option<(usize, usize, String)>,
+    /// 列宽缓存
+    pub column_width_cache: ColumnWidthCache,
 }
 
 impl DataGridState {
@@ -83,6 +119,8 @@ impl DataGridState {
         self.modified_cells.clear();
         self.rows_to_delete.clear();
         self.new_rows.clear();
+        // 数据变化后清除列宽缓存
+        self.column_width_cache.clear();
     }
 
     pub fn has_changes(&self) -> bool {

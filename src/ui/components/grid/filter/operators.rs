@@ -100,16 +100,6 @@ impl FilterOperator {
         matches!(self, Self::Between | Self::NotBetween)
     }
 
-    /// 获取值输入提示
-    pub fn value_hint(&self) -> &'static str {
-        match self {
-            Self::In | Self::NotIn => "值1, 值2, ...",
-            Self::Between | Self::NotBetween => "最小值",
-            Self::Regex => "正则表达式",
-            _ => "值...",
-        }
-    }
-
     /// 文本类操作符
     pub fn text_operators() -> &'static [FilterOperator] {
         &[
@@ -172,22 +162,7 @@ impl FilterOperator {
     }
 }
 
-/// 验证正则表达式，返回错误信息（如果有）
-pub fn validate_regex(pattern: &str) -> Option<String> {
-    if pattern.is_empty() {
-        return None;
-    }
-    if pattern.len() > 100 {
-        return Some("正则表达式过长 (最大100字符)".to_string());
-    }
-    match regex::RegexBuilder::new(pattern)
-        .size_limit(1024 * 10)
-        .build()
-    {
-        Ok(_) => None,
-        Err(e) => Some(format!("正则错误: {}", e)),
-    }
-}
+
 
 /// 检查筛选条件是否匹配
 pub fn check_filter_match(
