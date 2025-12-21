@@ -10,6 +10,8 @@ pub enum FocusTransfer {
     ToSidebar,
     /// 转移到 SQL 编辑器
     ToSqlEditor,
+    /// 转移到查询Tab栏
+    ToQueryTabs,
 }
 
 /// 表格操作返回值
@@ -25,6 +27,16 @@ pub struct DataGridActions {
     pub focus_transfer: Option<FocusTransfer>,
     /// 表格被点击，请求获取焦点
     pub request_focus: bool,
+    /// 请求打开左侧栏筛选面板
+    pub open_filter_panel: bool,
+    /// 请求将当前行滚动到屏幕中央 (zz/zc)
+    pub scroll_to_center: bool,
+    /// 请求将当前行滚动到屏幕顶部 (zt)
+    pub scroll_to_top: bool,
+    /// 请求将当前行滚动到屏幕底部 (zb)
+    pub scroll_to_bottom: bool,
+    /// 请求切换到指定的查询Tab (1-indexed)
+    pub switch_to_tab: Option<usize>,
 }
 
 /// SQL 危险保留字（可能被用于注入攻击）

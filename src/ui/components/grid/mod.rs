@@ -21,7 +21,7 @@ mod state;
 
 pub use actions::{escape_identifier, escape_value, quote_identifier, DataGridActions, FocusTransfer};
 pub use filter::{
-    check_filter_match, count_search_matches, filter_rows_cached, parse_quick_filter,
+    check_filter_match, filter_rows_cached,
     ColumnFilter, FilterCache, FilterLogic, FilterOperator,
 };
 pub use mode::GridMode;
@@ -30,7 +30,7 @@ pub use state::DataGridState;
 use crate::core::constants;
 use crate::database::QueryResult;
 use crate::ui::styles::GRAY;
-use egui::{self, RichText};
+use egui::{self, RichText, Vec2};
 use egui_extras::{Column, TableBuilder};
 
 // 使用集中管理的常量
@@ -82,17 +82,7 @@ impl DataGrid {
         // 显示保存确认对话框
         Self::show_save_confirm_dialog(ui.ctx(), state, &mut actions);
 
-        // 显示快速筛选对话框
-        if let Some(new_filter) = filter::show_quick_filter_dialog(
-            ui.ctx(),
-            &mut state.show_quick_filter,
-            &mut state.quick_filter_input,
-            &result.columns,
-        ) {
-            state.filters.push(new_filter);
-        }
-
-        // 显示筛选栏（修改筛选条件时会使缓存失效）
+        // 显示筛选状态栏（简洁版）
         let filter_changed = filter::show_filter_bar(ui, result, &mut state.filters);
         if filter_changed {
             state.filter_cache.invalidate();
@@ -140,8 +130,8 @@ impl DataGrid {
         *selected_row = Some(state.cursor.0);
         *selected_cell = Some(state.cursor);
 
-        // 计算每列的最佳宽度（基于内容长度）
-        let col_widths = Self::calculate_column_widths(result, &filtered_rows);
+        // 获取每列的最佳宽度（使用缓存优化）
+        let col_widths = Self::get_column_widths(result, &filtered_rows, &mut state.column_width_cache);
 
         // 收集需要添加筛选的列
         let mut columns_to_filter: Vec<String> = Vec::new();
@@ -395,22 +385,31 @@ impl DataGrid {
 
             ui.separator();
 
-            // 筛选按钮
+            // 筛选 - 可点击文字，打开左侧栏筛选面板
+            let filter_text = if state.filters.is_empty() {
+                "+ 筛选".to_string()
+            } else {
+                format!("筛选({})", state.filters.iter().filter(|f| f.enabled).count())
+            };
             if ui
-                .button("+ 筛选 [/]")
-                .on_hover_text("添加数据筛选条件\n快捷键: / (在 Normal 模式)")
+                .add(egui::Label::new(RichText::new(filter_text).size(12.0).color(Color32::from_rgb(130, 160, 200))).sense(egui::Sense::click()))
+                .on_hover_text("打开筛选面板 [/]")
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .clicked()
             {
-                state.filters.push(ColumnFilter::new(
-                    result.columns.first().cloned().unwrap_or_default(),
-                ));
+                // 设置标记，让 app 层处理打开侧边栏筛选面板
+                actions.open_filter_panel = true;
             }
 
             // 操作按钮
             if table_name.is_some() {
+                ui.add_space(16.0);
+                
+                // 新增行 - 可点击文字
                 if ui
-                    .button("+ 行 [o]")
-                    .on_hover_text("在表格末尾添加新行\n快捷键: o (在 Normal 模式)")
+                    .add(egui::Label::new(RichText::new("+ 行").size(12.0).color(Color32::from_rgb(130, 160, 200))).sense(egui::Sense::click()))
+                    .on_hover_text("添加新行 [o]")
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .clicked()
                 {
                     let new_row = vec!["".to_string(); result.columns.len()];
@@ -424,17 +423,29 @@ impl DataGrid {
                 }
 
                 let has_changes = state.has_changes();
+                let save_color = if has_changes { Color32::LIGHT_GRAY } else { Color32::from_gray(60) };
                 if ui
-                    .add_enabled(has_changes, egui::Button::new("保存 [w]"))
-                    .on_hover_text("保存所有修改到数据库\n快捷键: w 或 Ctrl+S")
+                    .add_enabled(
+                        has_changes,
+                        egui::Button::new(RichText::new("💾").size(13.0).color(save_color))
+                            .frame(false)
+                            .min_size(Vec2::new(24.0, 24.0)),
+                    )
+                    .on_hover_text("保存所有修改到数据库 [w / Ctrl+S]")
                     .clicked()
                     && let Some(table) = table_name {
                         actions::generate_save_sql(result, state, table, actions);
                     }
 
+                let discard_color = if has_changes { Color32::LIGHT_GRAY } else { Color32::from_gray(60) };
                 if ui
-                    .add_enabled(has_changes, egui::Button::new("放弃 [q]"))
-                    .on_hover_text("放弃所有未保存的修改\n快捷键: q")
+                    .add_enabled(
+                        has_changes,
+                        egui::Button::new(RichText::new("↩").size(13.0).color(discard_color))
+                            .frame(false)
+                            .min_size(Vec2::new(24.0, 24.0)),
+                    )
+                    .on_hover_text("放弃所有未保存的修改 [q]")
                     .clicked()
                 {
                     state.clear_edits();
@@ -489,10 +500,64 @@ impl DataGrid {
         width
     }
 
-    /// 计算每列的最佳宽度（基于内容长度）
-    fn calculate_column_widths(
+    /// 计算数据的哈希值（用于缓存验证）
+    fn calculate_data_hash(
         result: &QueryResult,
         filtered_rows: &[(usize, &Vec<String>)],
+        sample_count: usize,
+    ) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+
+        // 哈希列名
+        for col in &result.columns {
+            col.hash(&mut hasher);
+        }
+
+        // 哈希采样数据的前几个字符（避免大字符串影响性能）
+        for (idx, row_data) in filtered_rows.iter().take(sample_count) {
+            idx.hash(&mut hasher);
+            for cell in row_data.iter() {
+                // 只哈希前 50 个字符
+                let sample: String = cell.chars().take(50).collect();
+                sample.hash(&mut hasher);
+            }
+        }
+
+        hasher.finish()
+    }
+
+    /// 获取列宽（优先使用缓存）
+    fn get_column_widths(
+        result: &QueryResult,
+        filtered_rows: &[(usize, &Vec<String>)],
+        cache: &mut state::ColumnWidthCache,
+    ) -> Vec<f32> {
+        let column_count = result.columns.len();
+        let sample_count = filtered_rows.len().min(100);
+        let data_hash = Self::calculate_data_hash(result, filtered_rows, sample_count);
+
+        // 检查缓存是否有效
+        if cache.is_valid(column_count, sample_count, data_hash) {
+            return cache.widths.clone();
+        }
+
+        // 计算新的列宽
+        let widths = Self::calculate_column_widths_internal(result, filtered_rows, sample_count);
+
+        // 更新缓存
+        cache.update(widths.clone(), column_count, sample_count, data_hash);
+
+        widths
+    }
+
+    /// 计算每列的最佳宽度（内部实现）
+    fn calculate_column_widths_internal(
+        result: &QueryResult,
+        filtered_rows: &[(usize, &Vec<String>)],
+        sample_count: usize,
     ) -> Vec<f32> {
         let mut col_widths = Vec::with_capacity(result.columns.len());
 
@@ -500,8 +565,7 @@ impl DataGrid {
             // 从列名开始计算最大宽度
             let mut max_width = Self::calculate_text_width(col_name);
 
-            // 采样前 100 行来计算内容最大宽度（避免大数据集性能问题）
-            let sample_count = filtered_rows.len().min(100);
+            // 采样前 N 行来计算内容最大宽度（避免大数据集性能问题）
             for (_, row_data) in filtered_rows.iter().take(sample_count) {
                 if let Some(cell) = row_data.get(col_idx) {
                     let cell_width = Self::calculate_text_width(cell);
@@ -566,7 +630,11 @@ impl DataGrid {
                 });
 
                 ui.horizontal(|ui| {
-                    if ui.button("跳转 [Enter]").clicked() {
+                    if ui.add(
+                        egui::Button::new(RichText::new("↵ 跳转").size(13.0).color(Color32::LIGHT_GRAY))
+                            .frame(false)
+                            .min_size(Vec2::new(0.0, 24.0)),
+                    ).on_hover_text("跳转到指定行 [Enter]").clicked() {
                         if let Ok(line) = state.goto_input.trim().parse::<usize>()
                             && line >= 1 && line <= max_row {
                                 state.cursor.0 = line - 1;
@@ -575,7 +643,11 @@ impl DataGrid {
                         state.show_goto_dialog = false;
                         state.goto_input.clear();
                     }
-                    if ui.button("取消 [Esc]").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape))
+                    if ui.add(
+                        egui::Button::new(RichText::new("✕ 取消").size(13.0).color(Color32::LIGHT_GRAY))
+                            .frame(false)
+                            .min_size(Vec2::new(0.0, 24.0)),
+                    ).on_hover_text("取消 [Esc]").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape))
                     {
                         state.show_goto_dialog = false;
                         state.goto_input.clear();
@@ -640,12 +712,14 @@ impl DataGrid {
                     ui.add_space(12.0);
 
                     ui.horizontal(|ui| {
-                        // 确认按钮（红色警告）
+                        // 确认按钮（红色警告文字）
                         if ui
                             .add(
-                                egui::Button::new(RichText::new("确认执行 [Enter]").color(Color32::WHITE))
-                                    .fill(Color32::from_rgb(180, 60, 60)),
+                                egui::Button::new(RichText::new("⚠ 确认执行").size(13.0).color(Color32::from_rgb(255, 100, 100)))
+                                    .frame(false)
+                                    .min_size(Vec2::new(0.0, 24.0)),
                             )
+                            .on_hover_text("确认执行 SQL 操作 [Enter]")
                             .clicked()
                         {
                             actions::confirm_pending_sql(state, actions);
@@ -653,7 +727,11 @@ impl DataGrid {
 
                         ui.add_space(16.0);
 
-                        if ui.button("取消 [Esc]").clicked()
+                        if ui.add(
+                            egui::Button::new(RichText::new("✕ 取消").size(13.0).color(Color32::LIGHT_GRAY))
+                                .frame(false)
+                                .min_size(Vec2::new(0.0, 24.0)),
+                        ).on_hover_text("取消 [Esc]").clicked()
                             || ui.input(|i| i.key_pressed(egui::Key::Escape))
                         {
                             actions::cancel_pending_sql(state);

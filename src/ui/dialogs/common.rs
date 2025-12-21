@@ -106,7 +106,11 @@ impl DialogHeader {
             ui.label(RichText::new(title).size(style.title_size).strong());
             
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("✕").clicked() {
+                if ui.add(
+                    egui::Button::new(RichText::new("✕").size(14.0).color(Color32::LIGHT_GRAY))
+                        .frame(false)
+                        .min_size(Vec2::new(24.0, 24.0)),
+                ).on_hover_text("关闭").clicked() {
                     close_clicked = true;
                 }
             });
@@ -148,13 +152,13 @@ impl FooterResult {
 }
 
 impl DialogFooter {
-    /// 渲染标准的确认/取消按钮
+    /// 渲染标准的确认/取消按钮（无边框样式）
     pub fn show(
         ui: &mut egui::Ui,
         confirm_text: &str,
         cancel_text: &str,
         confirm_enabled: bool,
-        style: &DialogStyle,
+        _style: &DialogStyle,
     ) -> FooterResult {
         let mut result = FooterResult::NONE;
         
@@ -163,26 +167,24 @@ impl DialogFooter {
         ui.add_space(SPACING_SM);
         
         ui.horizontal(|ui| {
-            // 取消按钮
+            // 取消按钮 - 无边框
             if ui.add(
-                egui::Button::new(cancel_text)
-                    .corner_radius(CornerRadius::same(style.button_radius))
-                    .min_size(Vec2::new(80.0, style.button_height))
-            ).clicked() {
+                egui::Button::new(RichText::new(cancel_text).size(13.0).color(Color32::LIGHT_GRAY))
+                    .frame(false)
+                    .min_size(Vec2::new(0.0, 24.0))
+            ).on_hover_text("取消 (Esc)").clicked() {
                 result.cancelled = true;
             }
             
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // 确认按钮
-                let btn = egui::Button::new(
-                    RichText::new(confirm_text)
-                        .color(if confirm_enabled { Color32::WHITE } else { GRAY })
-                )
-                .fill(if confirm_enabled { SUCCESS } else { Color32::from_rgb(80, 80, 90) })
-                .corner_radius(CornerRadius::same(style.button_radius))
-                .min_size(Vec2::new(100.0, style.button_height));
-                
-                if ui.add_enabled(confirm_enabled, btn).clicked() {
+                // 确认按钮 - 无边框
+                let color = if confirm_enabled { SUCCESS } else { Color32::from_gray(80) };
+                if ui.add_enabled(
+                    confirm_enabled,
+                    egui::Button::new(RichText::new(confirm_text).size(13.0).color(color))
+                        .frame(false)
+                        .min_size(Vec2::new(0.0, 24.0))
+                ).on_hover_text("确认 (Enter)").clicked() {
                     result.confirmed = true;
                 }
             });
@@ -196,7 +198,7 @@ impl DialogFooter {
         ui: &mut egui::Ui,
         confirm_text: &str,
         cancel_text: &str,
-        style: &DialogStyle,
+        _style: &DialogStyle,
     ) -> FooterResult {
         let mut result = FooterResult::NONE;
         
@@ -205,25 +207,22 @@ impl DialogFooter {
         ui.add_space(SPACING_SM);
         
         ui.horizontal(|ui| {
-            // 取消按钮
+            // 取消按钮 - 无边框
             if ui.add(
-                egui::Button::new(cancel_text)
-                    .corner_radius(CornerRadius::same(style.button_radius))
-                    .min_size(Vec2::new(80.0, style.button_height))
-            ).clicked() {
+                egui::Button::new(RichText::new(cancel_text).size(13.0).color(Color32::LIGHT_GRAY))
+                    .frame(false)
+                    .min_size(Vec2::new(0.0, 24.0))
+            ).on_hover_text("取消 (Esc)").clicked() {
                 result.cancelled = true;
             }
             
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // 危险确认按钮
-                let btn = egui::Button::new(
-                    RichText::new(confirm_text).color(Color32::WHITE)
-                )
-                .fill(DANGER)
-                .corner_radius(CornerRadius::same(style.button_radius))
-                .min_size(Vec2::new(100.0, style.button_height));
-                
-                if ui.add(btn).clicked() {
+                // 危险确认按钮 - 无边框红色
+                if ui.add(
+                    egui::Button::new(RichText::new(confirm_text).size(13.0).color(DANGER))
+                        .frame(false)
+                        .min_size(Vec2::new(0.0, 24.0))
+                ).on_hover_text("确认操作").clicked() {
                     result.confirmed = true;
                 }
             });
@@ -236,7 +235,7 @@ impl DialogFooter {
     pub fn show_close_only(
         ui: &mut egui::Ui,
         close_text: &str,
-        style: &DialogStyle,
+        _style: &DialogStyle,
     ) -> bool {
         ui.add_space(SPACING_MD);
         ui.separator();
@@ -246,10 +245,10 @@ impl DialogFooter {
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.add(
-                    egui::Button::new(close_text)
-                        .corner_radius(CornerRadius::same(style.button_radius))
-                        .min_size(Vec2::new(100.0, style.button_height))
-                ).clicked() {
+                    egui::Button::new(RichText::new(close_text).size(13.0).color(Color32::LIGHT_GRAY))
+                        .frame(false)
+                        .min_size(Vec2::new(0.0, 24.0))
+                ).on_hover_text("关闭 (Esc)").clicked() {
                     clicked = true;
                 }
             });

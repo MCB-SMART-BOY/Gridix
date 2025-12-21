@@ -11,14 +11,6 @@ pub enum FilterLogic {
 }
 
 impl FilterLogic {
-    /// 获取显示名称
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            Self::And => "AND",
-            Self::Or => "OR",
-        }
-    }
-
     /// 切换逻辑关系
     pub fn toggle(&mut self) {
         *self = match self {

@@ -72,7 +72,7 @@ impl AppConfig {
 
     pub fn load() -> Self {
         let Some(path) = Self::config_path() else {
-            eprintln!("[config] 无法获取配置文件路径");
+            tracing::warn!("无法获取配置文件路径");
             return Self::default();
         };
         
@@ -84,7 +84,7 @@ impl AppConfig {
         let content = match fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("[config] 读取配置文件失败: {}", e);
+                tracing::warn!(error = %e, "读取配置文件失败");
                 return Self::default();
             }
         };
@@ -92,8 +92,7 @@ impl AppConfig {
         match toml::from_str(&content) {
             Ok(config) => config,
             Err(e) => {
-                eprintln!("[config] 解析配置文件失败: {}", e);
-                eprintln!("[config] 配置文件路径: {:?}", path);
+                tracing::warn!(error = %e, path = ?path, "解析配置文件失败");
                 Self::default()
             }
         }
@@ -129,7 +128,7 @@ impl AppConfig {
             use std::sync::Once;
             static WARN_ONCE: Once = Once::new();
             WARN_ONCE.call_once(|| {
-                eprintln!("[warn] Windows 上配置文件权限无法限制为私有，请确保配置目录安全");
+                tracing::warn!("Windows 上配置文件权限无法限制为私有，请确保配置目录安全");
             });
         }
 

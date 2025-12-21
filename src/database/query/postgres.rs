@@ -1,7 +1,7 @@
 //! PostgreSQL 查询实现
 
 use crate::database::{ConnectionConfig, DbError, QueryResult, DatabaseType, POOL_MANAGER};
-use super::{query_result, exec_result, empty_result, is_query_statement, TriggerInfo, ForeignKeyInfo, ColumnInfo};
+use super::{query_result, exec_result, empty_result, is_query_statement, TriggerInfo, ForeignKeyInfo, ColumnInfo, RoutineInfo, RoutineType};
 
 /// 获取 PostgreSQL 数据库列表
 pub async fn get_databases(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
@@ -252,4 +252,64 @@ pub async fn get_columns(config: &ConnectionConfig, table: &str) -> Result<Vec<C
         .collect();
 
     Ok(columns)
+}
+
+/// 获取 PostgreSQL 存储过程和函数
+pub async fn get_routines(config: &ConnectionConfig) -> Result<Vec<RoutineInfo>, DbError> {
+    let client = POOL_MANAGER.get_pg_client(config).await?;
+
+    // 查询用户定义的函数和存储过程
+    // prokind: 'f' = function, 'p' = procedure, 'a' = aggregate, 'w' = window
+    let sql = r#"
+        SELECT 
+            p.proname AS name,
+            CASE p.prokind 
+                WHEN 'p' THEN 'PROCEDURE'
+                ELSE 'FUNCTION'
+            END AS routine_type,
+            pg_get_function_arguments(p.oid) AS parameters,
+            CASE WHEN p.prokind != 'p' THEN
+                pg_catalog.format_type(p.prorettype, NULL)
+            ELSE NULL END AS return_type,
+            pg_get_functiondef(p.oid) AS definition
+        FROM pg_proc p
+        JOIN pg_namespace n ON p.pronamespace = n.oid
+        WHERE n.nspname = 'public'
+          AND p.prokind IN ('f', 'p')
+        ORDER BY 
+            CASE p.prokind WHEN 'p' THEN 0 ELSE 1 END,
+            p.proname
+    "#;
+
+    let rows = client
+        .query(sql, &[])
+        .await
+        .map_err(|e| DbError::Query(format!("查询存储过程失败: {}", e)))?;
+
+    let routines: Vec<RoutineInfo> = rows
+        .iter()
+        .map(|row| {
+            let name: String = row.get(0);
+            let type_str: String = row.get(1);
+            let parameters: String = row.get(2);
+            let return_type: Option<String> = row.get(3);
+            let definition: String = row.get(4);
+
+            let routine_type = if type_str == "PROCEDURE" {
+                RoutineType::Procedure
+            } else {
+                RoutineType::Function
+            };
+
+            RoutineInfo {
+                name,
+                routine_type,
+                parameters,
+                return_type,
+                definition,
+            }
+        })
+        .collect();
+
+    Ok(routines)
 }

@@ -284,12 +284,12 @@ impl SshTunnel {
                                     &remote_host,
                                     remote_port,
                                 ).await {
-                                    eprintln!("[SSH Tunnel] 转发错误: {}", e);
+                                    tracing::warn!(error = %e, "SSH 隧道转发错误");
                                 }
                             });
                         }
                         Err(e) => {
-                            eprintln!("[SSH Tunnel] 接受连接错误: {}", e);
+                            tracing::warn!(error = %e, "SSH 隧道接受连接错误");
                         }
                     }
                 }

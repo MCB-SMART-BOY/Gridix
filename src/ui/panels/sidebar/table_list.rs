@@ -50,7 +50,7 @@ impl TableList {
             let is_selected = selected_table.as_deref() == Some(table);
             let is_nav_selected = highlight_tables && idx == selection.tables;
 
-            ui.horizontal(|ui| {
+            let row_response = ui.horizontal(|ui| {
                 ui.add_space(SPACING_LG + 4.0);
 
                 // 表项
@@ -96,7 +96,12 @@ impl TableList {
                         ui.close();
                     }
                 });
-            });
+            }).response;
+            
+            // 如果是选中项且有焦点，滚动到可见
+            if is_nav_selected {
+                row_response.scroll_to_me(Some(egui::Align::Center));
+            }
         }
     }
 
@@ -118,7 +123,7 @@ impl TableList {
             let is_selected = selected_table.as_deref() == Some(table);
 
             // 表项 - 带缩进
-            ui.horizontal(|ui| {
+            let row_response = ui.horizontal(|ui| {
                 ui.add_space(SPACING_LG);
 
                 let table_bg = if is_nav_selected {
@@ -164,7 +169,12 @@ impl TableList {
                         ui.close();
                     }
                 });
-            });
+            }).response;
+            
+            // 如果是选中项且有焦点，滚动到可见
+            if is_nav_selected {
+                row_response.scroll_to_me(Some(egui::Align::Center));
+            }
         }
     }
 }

@@ -20,7 +20,7 @@ mod types;
 // ============================================================================
 
 // 类型
-pub use types::{DatabaseType, MySqlSslMode, QueryResult};
+pub use types::{DatabaseType, MySqlSslMode, PostgresSslMode, QueryResult};
 
 // 错误
 pub use error::DbError;
@@ -39,8 +39,9 @@ pub use pool::{PoolManager, POOL_MANAGER};
 // 查询
 #[allow(unused_imports)] // get_primary_key_column 预留供将来使用
 pub use query::{
-    connect_database, execute_query, get_foreign_keys, get_primary_key_column, get_table_columns,
-    get_tables_for_database, get_triggers, ColumnInfo, ConnectResult, ForeignKeyInfo, TriggerInfo,
+    connect_database, execute_query, get_foreign_keys, get_primary_key_column, get_routines,
+    get_table_columns, get_tables_for_database, get_triggers, ColumnInfo, ConnectResult,
+    ForeignKeyInfo, RoutineInfo, RoutineType, TriggerInfo,
 };
 
 // SSH 隧道

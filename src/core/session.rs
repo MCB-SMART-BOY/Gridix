@@ -143,7 +143,7 @@ impl SessionState {
         let content = match fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("[session] 读取会话文件失败: {}", e);
+                tracing::warn!(error = %e, "读取会话文件失败");
                 return None;
             }
         };
@@ -151,7 +151,7 @@ impl SessionState {
         match toml::from_str(&content) {
             Ok(session) => Some(session),
             Err(e) => {
-                eprintln!("[session] 解析会话文件失败: {}", e);
+                tracing::warn!(error = %e, "解析会话文件失败");
                 None
             }
         }
@@ -298,7 +298,7 @@ impl SessionManager {
     /// 保存会话
     pub fn save(&mut self) {
         if let Err(e) = self.state.save() {
-            eprintln!("[session] 保存会话失败: {}", e);
+            tracing::warn!(error = %e, "保存会话失败");
         } else {
             self.dirty = false;
             self.last_save = std::time::Instant::now();
@@ -316,7 +316,7 @@ impl SessionManager {
         self.state = SessionState::default();
         self.dirty = true;
         if let Err(e) = SessionState::clear() {
-            eprintln!("[session] 清除会话失败: {}", e);
+            tracing::warn!(error = %e, "清除会话失败");
         }
     }
 }

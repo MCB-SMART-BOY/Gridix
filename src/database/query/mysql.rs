@@ -2,7 +2,7 @@
 
 use mysql_async::prelude::*;
 use crate::database::{ConnectionConfig, DbError, QueryResult, DatabaseType, POOL_MANAGER};
-use super::{query_result, exec_result, empty_result, is_query_statement, TriggerInfo, ForeignKeyInfo, ColumnInfo};
+use super::{query_result, exec_result, empty_result, is_query_statement, TriggerInfo, ForeignKeyInfo, ColumnInfo, RoutineInfo, RoutineType};
 
 /// 获取 MySQL 数据库列表
 pub async fn get_databases(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
@@ -308,4 +308,97 @@ pub async fn get_columns(config: &ConnectionConfig, table: &str) -> Result<Vec<C
         .collect();
 
     Ok(columns)
+}
+
+/// 获取 MySQL 存储过程和函数
+pub async fn get_routines(config: &ConnectionConfig) -> Result<Vec<RoutineInfo>, DbError> {
+    let pool = POOL_MANAGER.get_mysql_pool(config).await?;
+
+    let mut conn = pool
+        .get_conn()
+        .await
+        .map_err(|e| DbError::Connection(format!("MySQL 获取连接失败: {}", e)))?;
+
+    let sql = r#"
+        SELECT 
+            ROUTINE_NAME,
+            ROUTINE_TYPE,
+            ROUTINE_DEFINITION,
+            DTD_IDENTIFIER
+        FROM INFORMATION_SCHEMA.ROUTINES
+        WHERE ROUTINE_SCHEMA = DATABASE()
+        ORDER BY ROUTINE_TYPE, ROUTINE_NAME
+    "#;
+
+    let result: Vec<mysql_async::Row> = conn
+        .query(sql)
+        .await
+        .map_err(|e| DbError::Query(format!("查询存储过程失败: {}", e)))?;
+
+    // 获取参数信息
+    let params_sql = r#"
+        SELECT 
+            SPECIFIC_NAME,
+            PARAMETER_MODE,
+            PARAMETER_NAME,
+            DATA_TYPE
+        FROM INFORMATION_SCHEMA.PARAMETERS
+        WHERE SPECIFIC_SCHEMA = DATABASE()
+        ORDER BY SPECIFIC_NAME, ORDINAL_POSITION
+    "#;
+
+    let params_result: Vec<mysql_async::Row> = conn
+        .query(params_sql)
+        .await
+        .unwrap_or_default();
+
+    // 构建参数映射
+    let mut params_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for row in &params_result {
+        let routine_name: String = row.get(0).unwrap_or_default();
+        let mode: Option<String> = row.get(1).unwrap_or(None);
+        let param_name: Option<String> = row.get(2).unwrap_or(None);
+        let data_type: String = row.get(3).unwrap_or_default();
+        
+        // 跳过返回值参数（PARAMETER_NAME 为 NULL 且 PARAMETER_MODE 为 NULL）
+        if let Some(name) = param_name {
+            let param_str = if let Some(m) = mode {
+                format!("{} {} {}", m, name, data_type)
+            } else {
+                format!("{} {}", name, data_type)
+            };
+            params_map.entry(routine_name).or_default().push(param_str);
+        }
+    }
+
+    let routines: Vec<RoutineInfo> = result
+        .iter()
+        .map(|row| {
+            let name: String = row.get(0).unwrap_or_default();
+            let type_str: String = row.get(1).unwrap_or_default();
+            let definition: Option<String> = row.get(2).unwrap_or(None);
+            let return_type: Option<String> = row.get(3).unwrap_or(None);
+
+            let routine_type = if type_str == "FUNCTION" {
+                RoutineType::Function
+            } else {
+                RoutineType::Procedure
+            };
+
+            let parameters = params_map
+                .get(&name)
+                .map(|p| p.join(", "))
+                .unwrap_or_default();
+
+            RoutineInfo {
+                name,
+                routine_type,
+                parameters,
+                return_type,
+                definition: definition.unwrap_or_else(|| "(定义不可见)".to_string()),
+            }
+        })
+        .collect();
+
+    Ok(routines)
 }

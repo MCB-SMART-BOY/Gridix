@@ -12,7 +12,7 @@
 
 **A keyboard-first database management tool for developers who live in the terminal**
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024_edition-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
@@ -45,6 +45,13 @@ Navigate databases with `hjkl`. Edit tables the Vim way. No mouse required.
 | **Smart SQL** | Syntax highlighting, auto-completion (149 keywords + 50 functions), formatting |
 | **Import/Export** | CSV, JSON, SQL with preview and column selection |
 | **Advanced Filtering** | 16 operators including regex, between, null checks |
+
+## What's New in v2.0.0
+
+- **Seamless hjkl Navigation** - Move between all UI areas (Toolbar ↔ Tabs ↔ Grid ↔ Editor ↔ Sidebar) with just `hjkl`
+- **Toolbar Focus Feedback** - Visual highlight shows which toolbar button is selected
+- **Redesigned Help (F1)** - Friendly quick-start guide with navigation diagram
+- **SQL Editor Navigation** - Press `k` at first line to jump back to data grid
 
 ## Installation
 
@@ -367,7 +374,7 @@ cargo appimage         # Build AppImage (Linux)
 
 **给住在终端里的开发者做的键盘优先数据库工具**
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024_edition-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
@@ -400,6 +407,13 @@ cargo appimage         # Build AppImage (Linux)
 | **智能 SQL** | 语法高亮、自动补全（149 关键字 + 50 函数）、格式化 |
 | **导入导出** | CSV、JSON、SQL，支持预览和列选择 |
 | **高级筛选** | 16 种操作符，包括正则、范围、空值检查 |
+
+## v2.0.0 新功能
+
+- **无缝 hjkl 导航** - 用 `hjkl` 在所有界面区域间自由切换（工具栏 ↔ 标签栏 ↔ 表格 ↔ 编辑器 ↔ 侧边栏）
+- **工具栏焦点反馈** - 选中的工具栏按钮显示高亮边框
+- **重新设计的帮助界面 (F1)** - 友好的快速上手指南，含导航示意图
+- **SQL 编辑器导航改进** - 在第一行按 `k` 可返回数据表格
 
 ## 安装
 

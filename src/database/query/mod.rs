@@ -250,6 +250,32 @@ pub struct TriggerInfo {
     pub definition: String, // SQL 定义
 }
 
+/// 存储过程/函数类型
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RoutineType {
+    Procedure,
+    Function,
+}
+
+impl std::fmt::Display for RoutineType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RoutineType::Procedure => write!(f, "存储过程"),
+            RoutineType::Function => write!(f, "函数"),
+        }
+    }
+}
+
+/// 存储过程/函数信息
+#[derive(Debug, Clone)]
+pub struct RoutineInfo {
+    pub name: String,
+    pub routine_type: RoutineType,
+    pub parameters: String,      // 参数列表
+    pub return_type: Option<String>, // 返回类型（仅函数）
+    pub definition: String,      // SQL 定义
+}
+
 /// 获取数据库的触发器列表
 pub async fn get_triggers(config: &ConnectionConfig) -> Result<Vec<TriggerInfo>, DbError> {
     let (effective_config, _tunnel) = setup_ssh_tunnel_if_enabled(config).await?;
@@ -262,6 +288,18 @@ pub async fn get_triggers(config: &ConnectionConfig) -> Result<Vec<TriggerInfo>,
         }
         DatabaseType::PostgreSQL => postgres::get_triggers(&effective_config).await,
         DatabaseType::MySQL => mysql::get_triggers(&effective_config).await,
+    }
+}
+
+/// 获取数据库的存储过程和函数列表
+pub async fn get_routines(config: &ConnectionConfig) -> Result<Vec<RoutineInfo>, DbError> {
+    let (effective_config, _tunnel) = setup_ssh_tunnel_if_enabled(config).await?;
+
+    match effective_config.db_type {
+        // SQLite 不支持存储过程
+        DatabaseType::SQLite => Ok(Vec::new()),
+        DatabaseType::PostgreSQL => postgres::get_routines(&effective_config).await,
+        DatabaseType::MySQL => mysql::get_routines(&effective_config).await,
     }
 }
 

@@ -47,6 +47,67 @@ impl DatabaseType {
 }
 
 // ============================================================================
+// PostgreSQL SSL 模式
+// ============================================================================
+
+/// PostgreSQL SSL 模式
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
+pub enum PostgresSslMode {
+    /// 禁用 SSL（默认）
+    #[default]
+    Disable,
+    /// 优先使用 SSL，但允许不安全连接
+    Prefer,
+    /// 必须使用 SSL
+    Require,
+    /// 验证 CA 证书
+    VerifyCa,
+    /// 验证 CA 证书和主机名
+    VerifyFull,
+}
+
+impl PostgresSslMode {
+    /// 获取显示名称
+    pub const fn display_name(&self) -> &'static str {
+        match self {
+            Self::Disable => "禁用",
+            Self::Prefer => "优先",
+            Self::Require => "必需",
+            Self::VerifyCa => "验证 CA",
+            Self::VerifyFull => "完全验证",
+        }
+    }
+
+    /// 获取描述
+    pub const fn description(&self) -> &'static str {
+        match self {
+            Self::Disable => "不使用 SSL 加密",
+            Self::Prefer => "优先 SSL，允许不安全连接",
+            Self::Require => "必须使用 SSL 加密",
+            Self::VerifyCa => "验证服务器 CA 证书",
+            Self::VerifyFull => "验证证书和主机名",
+        }
+    }
+
+    /// 获取所有选项
+    pub const fn all() -> &'static [PostgresSslMode] {
+        &[
+            Self::Disable,
+            Self::Prefer,
+            Self::Require,
+            Self::VerifyCa,
+            Self::VerifyFull,
+        ]
+    }
+
+    /// 是否需要 TLS
+    #[allow(dead_code)] // 公开 API，供外部使用
+    pub const fn requires_tls(&self) -> bool {
+        !matches!(self, Self::Disable)
+    }
+}
+
+// ============================================================================
 // MySQL SSL 模式
 // ============================================================================
 

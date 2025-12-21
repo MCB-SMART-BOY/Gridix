@@ -25,7 +25,9 @@ pub mod database {
     /// 大结果集警告阈值
     pub const LARGE_RESULT_SET_WARNING_THRESHOLD: usize = 10000;
     /// 最大结果集行数限制（防止内存溢出）
-    pub const MAX_RESULT_SET_ROWS: usize = 100000;
+    pub const MAX_RESULT_SET_ROWS: usize = 500000;
+    /// 启用并行筛选的行数阈值
+    pub const PARALLEL_FILTER_THRESHOLD: usize = 10000;
     
     /// 连接池相关常量
     pub mod pool {
@@ -37,6 +39,10 @@ pub mod database {
         pub const MYSQL_POOL_MIN_CONNECTIONS: usize = 2;
         /// MySQL 连接池最大连接数
         pub const MYSQL_POOL_MAX_CONNECTIONS: usize = 10;
+        /// MySQL 空闲连接超时时间（秒）
+        pub const MYSQL_IDLE_TIMEOUT_SECS: u64 = 300;
+        /// MySQL 连接最大生存时间（秒）
+        pub const MYSQL_MAX_LIFETIME_SECS: u64 = 1800;
     }
 }
 

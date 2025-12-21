@@ -295,3 +295,43 @@ fn test_highlight_cache_works() {
     
     assert_eq!(job1.text, job2.text);
 }
+
+#[test]
+fn test_highlight_cache_different_text() {
+    let colors = HighlightColors::default();
+    let highlighter = SqlHighlighter::new(colors);
+    
+    let sql1 = "SELECT * FROM users";
+    let sql2 = "SELECT * FROM orders";
+    
+    let job1 = highlighter.highlight(sql1);
+    let job2 = highlighter.highlight(sql2);
+    
+    // Different text should produce different results
+    assert_ne!(job1.text, job2.text);
+}
+
+#[test]
+fn test_highlight_multiline_sql() {
+    let colors = HighlightColors::default();
+    let highlighter = SqlHighlighter::new(colors);
+    
+    let sql = "SELECT id, name\nFROM users\nWHERE active = true";
+    let job = highlighter.highlight(sql);
+    
+    assert!(job.text.contains("SELECT"));
+    assert!(job.text.contains("FROM"));
+    assert!(job.text.contains("WHERE"));
+}
+
+#[test]
+fn test_highlight_with_numbers() {
+    let colors = HighlightColors::default();
+    let highlighter = SqlHighlighter::new(colors);
+    
+    let sql = "SELECT * FROM users WHERE id = 123 AND price = 45.67";
+    let job = highlighter.highlight(sql);
+    
+    assert!(job.text.contains("123"));
+    assert!(job.text.contains("45.67"));
+}
