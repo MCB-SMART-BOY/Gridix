@@ -20,9 +20,9 @@ releases/
 libs/
 
 # External packaging repositories (independent git repos)
-packaging/aur/
-packaging/homebrew/
+packaging
 .nixpkgs-temp
 nixpkgs-fork/
+result
 gridix-linux-x86_64.tar.gz
 release-artifacts/
