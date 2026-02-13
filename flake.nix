@@ -22,6 +22,8 @@
           openssl
           wayland
           libxkbcommon
+          libglvnd
+          mesa
         ];
         runtimeLibraryPath = pkgs.lib.makeLibraryPath runtimeLibs;
       in
@@ -54,7 +56,9 @@
 
           postFixup = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
             wrapProgram "$out/bin/gridix" \
-              --prefix LD_LIBRARY_PATH : "${runtimeLibraryPath}"
+              --prefix LD_LIBRARY_PATH : "${runtimeLibraryPath}" \
+              --set-default __EGL_VENDOR_LIBRARY_DIRS "${pkgs.mesa}/share/glvnd/egl_vendor.d" \
+              --set-default LIBGL_DRIVERS_PATH "${pkgs.mesa}/lib/dri"
           '';
 
           meta = with pkgs.lib; {
@@ -77,6 +81,8 @@
 
           shellHook = ''
             export LD_LIBRARY_PATH="${runtimeLibraryPath}:''${LD_LIBRARY_PATH:-}"
+            export __EGL_VENDOR_LIBRARY_DIRS="${pkgs.mesa}/share/glvnd/egl_vendor.d"
+            export LIBGL_DRIVERS_PATH="${pkgs.mesa}/lib/dri"
           '';
         };
       }
