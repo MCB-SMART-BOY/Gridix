@@ -6,10 +6,24 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        runtimeLibs = with pkgs; [
+          gtk3
+          xdotool
+          openssl
+          wayland
+          libxkbcommon
+        ];
+        runtimeLibraryPath = pkgs.lib.makeLibraryPath runtimeLibs;
       in
       {
         packages.default = pkgs.rustPlatform.buildRustPackage rec {
@@ -24,38 +38,46 @@
 
           nativeBuildInputs = with pkgs; [
             pkg-config
+            makeWrapper
           ];
 
-          buildInputs = with pkgs; [
-            gtk3
-            xdotool
-            openssl
-          ] ++ lib.optionals stdenv.isDarwin [
-            darwin.apple_sdk.frameworks.AppKit
-            darwin.apple_sdk.frameworks.CoreGraphics
-            darwin.apple_sdk.frameworks.CoreText
-            darwin.apple_sdk.frameworks.Foundation
-            darwin.apple_sdk.frameworks.Metal
-            darwin.apple_sdk.frameworks.QuartzCore
-          ];
+          buildInputs =
+            runtimeLibs
+            ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+              pkgs.darwin.apple_sdk.frameworks.AppKit
+              pkgs.darwin.apple_sdk.frameworks.CoreGraphics
+              pkgs.darwin.apple_sdk.frameworks.CoreText
+              pkgs.darwin.apple_sdk.frameworks.Foundation
+              pkgs.darwin.apple_sdk.frameworks.Metal
+              pkgs.darwin.apple_sdk.frameworks.QuartzCore
+            ];
+
+          postFixup = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+            wrapProgram "$out/bin/gridix" \
+              --prefix LD_LIBRARY_PATH : "${runtimeLibraryPath}"
+          '';
 
           meta = with pkgs.lib; {
             description = "Fast, secure, cross-platform database management tool with Helix/Vim keybindings";
             homepage = "https://github.com/MCB-SMART-BOY/Gridix";
             license = licenses.mit;
-            maintainers = [];
+            maintainers = [ ];
             platforms = platforms.unix;
           };
         };
 
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            rustup
-            pkg-config
-            gtk3
-            xdotool
-            openssl
-          ];
+          buildInputs =
+            with pkgs;
+            [
+              rustup
+              pkg-config
+            ]
+            ++ runtimeLibs;
+
+          shellHook = ''
+            export LD_LIBRARY_PATH="${runtimeLibraryPath}:''${LD_LIBRARY_PATH:-}"
+          '';
         };
       }
     );
