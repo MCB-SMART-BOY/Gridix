@@ -14,7 +14,7 @@
       {
         packages.default = pkgs.rustPlatform.buildRustPackage rec {
           pname = "gridix";
-          version = "0.5.2";
+          version = "2.0.1";
 
           src = ./.;
 
@@ -50,9 +50,7 @@
 
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
-            cargo
-            rustc
-            rust-analyzer
+            rustup
             pkg-config
             gtk3
             xdotool
