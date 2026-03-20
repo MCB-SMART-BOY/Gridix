@@ -26,7 +26,13 @@ impl ColumnWidthCache {
     }
 
     /// 更新缓存
-    pub fn update(&mut self, widths: Vec<f32>, column_count: usize, sample_row_count: usize, data_hash: u64) {
+    pub fn update(
+        &mut self,
+        widths: Vec<f32>,
+        column_count: usize,
+        sample_row_count: usize,
+        data_hash: u64,
+    ) {
         self.widths = widths;
         self.column_count = column_count;
         self.sample_row_count = sample_row_count;

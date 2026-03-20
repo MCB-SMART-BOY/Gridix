@@ -34,14 +34,16 @@ pub use connection::{Connection, ConnectionManager};
 
 // 连接池
 #[allow(unused_imports)] // PoolManager 公开 API
-pub use pool::{PoolManager, POOL_MANAGER};
+pub use pool::{POOL_MANAGER, PoolManager};
 
 // 查询
+pub(crate) use query::analyze_sql_for_ui;
 #[allow(unused_imports)] // get_primary_key_column 预留供将来使用
 pub use query::{
-    connect_database, execute_query, get_foreign_keys, get_primary_key_column, get_routines,
-    get_table_columns, get_tables_for_database, get_triggers, ColumnInfo, ConnectResult,
-    ForeignKeyInfo, RoutineInfo, RoutineType, TriggerInfo,
+    ColumnInfo, ConnectResult, ForeignKeyInfo, ImportExecutionReport, RoutineInfo, RoutineType,
+    TriggerInfo, connect_database, execute_import_batch, execute_query, execute_query_cancellable,
+    get_foreign_keys,
+    get_primary_key_column, get_routines, get_table_columns, get_tables_for_database, get_triggers,
 };
 
 // SSH 隧道

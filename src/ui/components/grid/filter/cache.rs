@@ -80,14 +80,14 @@ pub fn filter_rows_cached<'a>(
     cache: &mut FilterCache,
 ) -> Vec<(usize, &'a Vec<String>)> {
     let filter_hash = compute_filter_hash(filters);
-    
+
     // 检查缓存是否有效
     let cache_valid = cache.valid
         && cache.last_search_text == search_text
         && cache.last_search_column == *search_column
         && cache.last_filter_hash == filter_hash
         && cache.last_row_count == result.rows.len();
-    
+
     if cache_valid {
         // 使用缓存的索引构建结果
         return cache
@@ -96,10 +96,10 @@ pub fn filter_rows_cached<'a>(
             .filter_map(|&idx| result.rows.get(idx).map(|row| (idx, row)))
             .collect();
     }
-    
+
     // 重新计算筛选结果
     let filtered = filter_rows_internal(result, search_text, search_column, filters);
-    
+
     // 更新缓存
     cache.filtered_indices = filtered.iter().map(|(idx, _)| *idx).collect();
     cache.last_search_text = search_text.to_string();
@@ -107,11 +107,9 @@ pub fn filter_rows_cached<'a>(
     cache.last_filter_hash = filter_hash;
     cache.last_row_count = result.rows.len();
     cache.valid = true;
-    
+
     filtered
 }
-
-
 
 /// 检查单行是否匹配筛选条件
 fn row_matches_filter(
@@ -243,4 +241,3 @@ fn filter_rows_internal<'a>(
             .collect()
     }
 }
-

@@ -65,9 +65,7 @@ pub fn has_text_focus(ctx: &Context) -> bool {
 ///
 /// 用于关闭对话框、面板等
 pub fn handle_close_keys(ctx: &Context) -> bool {
-    ctx.input(|i| {
-        i.key_pressed(Key::Escape) || (i.key_pressed(Key::Q) && i.modifiers.is_none())
-    })
+    ctx.input(|i| i.key_pressed(Key::Escape) || (i.key_pressed(Key::Q) && i.modifiers.is_none()))
 }
 
 /// 处理对话框基本快捷键
@@ -80,27 +78,27 @@ pub fn handle_dialog_keys(ctx: &Context) -> DialogAction {
         if i.key_pressed(Key::Enter) && i.modifiers.is_none() {
             return DialogAction::Confirm;
         }
-        
+
         // Esc: 取消
         if i.key_pressed(Key::Escape) {
             return DialogAction::Cancel;
         }
-        
+
         // q: 取消 (无修饰键，非文本输入状态)
         if i.key_pressed(Key::Q) && i.modifiers.is_none() {
             return DialogAction::Cancel;
         }
-        
+
         // y: 确认 (用于确认对话框)
         if i.key_pressed(Key::Y) && i.modifiers.is_none() {
             return DialogAction::Confirm;
         }
-        
+
         // n: 取消 (用于确认对话框)
         if i.key_pressed(Key::N) && i.modifiers.is_none() {
             return DialogAction::Cancel;
         }
-        
+
         DialogAction::None
     })
 }
@@ -126,63 +124,63 @@ pub fn handle_list_navigation(ctx: &Context) -> ListNavigation {
         if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown) {
             return ListNavigation::Down;
         }
-        
+
         // k / 上箭头: 向上
         if i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp) {
             return ListNavigation::Up;
         }
-        
+
         // G (Shift+g): 跳到结尾
         if i.key_pressed(Key::G) && i.modifiers.shift {
             return ListNavigation::End;
         }
-        
+
         // gg: 跳到开头 (简化处理，只检测单个 g)
         // 注意：完整的 gg 需要命令缓冲区，这里简化为 g
         if i.key_pressed(Key::G) && !i.modifiers.shift {
             return ListNavigation::Start;
         }
-        
+
         // PageUp
         if i.key_pressed(Key::PageUp) {
             return ListNavigation::PageUp;
         }
-        
+
         // PageDown
         if i.key_pressed(Key::PageDown) {
             return ListNavigation::PageDown;
         }
-        
+
         // Space: 切换
         if i.key_pressed(Key::Space) {
             return ListNavigation::Toggle;
         }
-        
+
         // d: 删除
         if i.key_pressed(Key::D) && i.modifiers.is_none() {
             return ListNavigation::Delete;
         }
-        
+
         // o: 在下方添加
         if i.key_pressed(Key::O) && !i.modifiers.shift {
             return ListNavigation::AddBelow;
         }
-        
+
         // O: 在上方添加
         if i.key_pressed(Key::O) && i.modifiers.shift {
             return ListNavigation::AddAbove;
         }
-        
+
         // Home: 开头
         if i.key_pressed(Key::Home) {
             return ListNavigation::Start;
         }
-        
+
         // End: 结尾
         if i.key_pressed(Key::End) {
             return ListNavigation::End;
         }
-        
+
         ListNavigation::None
     })
 }
@@ -197,12 +195,12 @@ pub fn handle_horizontal_navigation(ctx: &Context) -> HorizontalNavigation {
         if i.key_pressed(Key::H) || i.key_pressed(Key::ArrowLeft) {
             return HorizontalNavigation::Left;
         }
-        
+
         // l / 右箭头: 向右
         if i.key_pressed(Key::L) || i.key_pressed(Key::ArrowRight) {
             return HorizontalNavigation::Right;
         }
-        
+
         HorizontalNavigation::None
     })
 }

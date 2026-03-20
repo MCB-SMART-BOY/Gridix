@@ -30,6 +30,25 @@ pub(crate) fn url_encode(s: &str) -> String {
     result
 }
 
+/// 转义 PostgreSQL key=value 连接参数
+///
+/// 参考 libpq 规则：在单引号包裹时需要转义 `'` 和 `\`
+fn escape_pg_param(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
+/// 计算字符串的 SHA-256 十六进制摘要
+fn sha256_hex(input: &str) -> String {
+    use ring::digest::{SHA256, digest};
+
+    let hash = digest(&SHA256, input.as_bytes());
+    let mut out = String::with_capacity(hash.as_ref().len() * 2);
+    for byte in hash.as_ref() {
+        out.push_str(&format!("{:02x}", byte));
+    }
+    out
+}
+
 // ============================================================================
 // 密码加密
 // ============================================================================
@@ -38,7 +57,7 @@ pub(crate) fn url_encode(s: &str) -> String {
 /// 使用 hostname 作为密钥派生的基础，确保配置文件在不同机器上不可直接读取
 /// 同时保证用户迁移目录后仍能解密
 fn get_machine_key() -> [u8; 32] {
-    use ring::digest::{digest, SHA256};
+    use ring::digest::{SHA256, digest};
 
     // 使用机器标识信息来派生密钥（更稳定，不受用户目录变化影响）
     let mut key_material = String::new();
@@ -50,9 +69,10 @@ fn get_machine_key() -> [u8; 32] {
 
     // 备用：使用用户名（如果 hostname 获取失败）
     if key_material.is_empty()
-        && let Ok(user) = std::env::var("USER").or_else(|_| std::env::var("USERNAME")) {
-            key_material.push_str(&user);
-        }
+        && let Ok(user) = std::env::var("USER").or_else(|_| std::env::var("USERNAME"))
+    {
+        key_material.push_str(&user);
+    }
 
     // 添加固定盐值（带版本号，便于未来升级）
     key_material.push_str("rust-db-manager-v2");
@@ -65,7 +85,7 @@ fn get_machine_key() -> [u8; 32] {
 
 /// 获取旧版机器密钥（使用用户目录路径，用于向后兼容）
 fn get_legacy_machine_key() -> [u8; 32] {
-    use ring::digest::{digest, SHA256};
+    use ring::digest::{SHA256, digest};
 
     let mut key_material = String::new();
 
@@ -76,9 +96,10 @@ fn get_legacy_machine_key() -> [u8; 32] {
 
     // 备用：使用用户名
     if key_material.is_empty()
-        && let Ok(user) = std::env::var("USER").or_else(|_| std::env::var("USERNAME")) {
-            key_material.push_str(&user);
-        }
+        && let Ok(user) = std::env::var("USER").or_else(|_| std::env::var("USERNAME"))
+    {
+        key_material.push_str(&user);
+    }
 
     // 旧版盐值
     key_material.push_str("rust-db-manager-v2");
@@ -91,8 +112,8 @@ fn get_legacy_machine_key() -> [u8; 32] {
 
 /// 使用 AES-GCM 加密密码
 fn encrypt_password(password: &str) -> Result<String, String> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
-    use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use ring::aead::{AES_256_GCM, Aad, LessSafeKey, Nonce, UnboundKey};
     use ring::rand::{SecureRandom, SystemRandom};
 
     if password.is_empty() {
@@ -126,7 +147,7 @@ fn encrypt_password(password: &str) -> Result<String, String> {
 
 /// 使用指定密钥尝试解密
 fn try_decrypt_with_key(combined: &[u8], key_bytes: [u8; 32]) -> Result<String, String> {
-    use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
+    use ring::aead::{AES_256_GCM, Aad, LessSafeKey, Nonce, UnboundKey};
 
     if combined.len() < 12 + 16 {
         return Err("Invalid encrypted data".to_string());
@@ -137,8 +158,8 @@ fn try_decrypt_with_key(combined: &[u8], key_bytes: [u8; 32]) -> Result<String, 
     nonce_arr.copy_from_slice(nonce_bytes);
     let nonce = Nonce::assume_unique_for_key(nonce_arr);
 
-    let unbound_key = UnboundKey::new(&AES_256_GCM, &key_bytes)
-        .map_err(|_| "Failed to create decryption key")?;
+    let unbound_key =
+        UnboundKey::new(&AES_256_GCM, &key_bytes).map_err(|_| "Failed to create decryption key")?;
     let key = LessSafeKey::new(unbound_key);
 
     let mut in_out = ciphertext.to_vec();
@@ -152,7 +173,7 @@ fn try_decrypt_with_key(combined: &[u8], key_bytes: [u8; 32]) -> Result<String, 
 
 /// 解密密码
 fn decrypt_password(encrypted: &str) -> Result<String, String> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
+    use base64::{Engine, engine::general_purpose::STANDARD};
 
     if encrypted.is_empty() {
         return Ok(String::new());
@@ -176,9 +197,7 @@ fn decrypt_password(encrypted: &str) -> Result<String, String> {
             return Ok(password);
         }
 
-        Err(
-            "Decryption failed - password may have been encrypted on different machine".to_string(),
-        )
+        Err("Decryption failed - password may have been encrypted on different machine".to_string())
     } else {
         // 尝试旧版 base64 格式（向后兼容）
         match STANDARD.decode(encrypted) {
@@ -290,8 +309,12 @@ impl ConnectionConfig {
             DatabaseType::PostgreSQL => {
                 let db = database.filter(|s| !s.is_empty()).unwrap_or("postgres");
                 format!(
-                    "host={} port={} user={} password={} dbname={}",
-                    self.host, self.port, self.username, self.password, db
+                    "host='{}' port={} user='{}' password='{}' dbname='{}'",
+                    escape_pg_param(&self.host),
+                    self.port,
+                    escape_pg_param(&self.username),
+                    escape_pg_param(&self.password),
+                    escape_pg_param(db)
                 )
             }
             DatabaseType::MySQL => {
@@ -316,20 +339,37 @@ impl ConnectionConfig {
     /// 生成唯一的连接标识符（用于连接池缓存，按用户+主机+数据库区分）
     pub fn pool_key(&self) -> String {
         match self.db_type {
-            DatabaseType::SQLite => format!("sqlite:{}", self.database),
+            DatabaseType::SQLite => {
+                let material = format!("sqlite:{}:{}", self.database, self.username);
+                format!("sqlite:{}", sha256_hex(&material))
+            }
             DatabaseType::PostgreSQL => {
-                // 包含数据库名，确保不同数据库使用不同连接
-                format!(
-                    "pg:{}:{}:{}:{}",
-                    self.host, self.port, self.username, self.database
-                )
+                // 包含认证和 SSL 参数，避免配置变更后误复用旧连接
+                let material = format!(
+                    "pg:{}:{}:{}:{}:{}:{:?}:{}",
+                    self.host,
+                    self.port,
+                    self.username,
+                    self.database,
+                    self.password,
+                    self.postgres_ssl_mode,
+                    self.ssl_ca_cert
+                );
+                format!("pg:{}", sha256_hex(&material))
             }
             DatabaseType::MySQL => {
-                // 包含数据库名，确保不同数据库使用不同连接
-                format!(
-                    "mysql:{}:{}:{}:{}",
-                    self.host, self.port, self.username, self.database
-                )
+                // 包含认证和 SSL 参数，避免配置变更后误复用旧连接
+                let material = format!(
+                    "mysql:{}:{}:{}:{}:{}:{:?}:{}",
+                    self.host,
+                    self.port,
+                    self.username,
+                    self.database,
+                    self.password,
+                    self.mysql_ssl_mode,
+                    self.ssl_ca_cert
+                );
+                format!("mysql:{}", sha256_hex(&material))
             }
         }
     }

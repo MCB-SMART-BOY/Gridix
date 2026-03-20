@@ -15,11 +15,30 @@ pub use import_types::*;
 
 use super::keyboard;
 use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_SM};
-use egui::{self, Color32, Key, RichText, CornerRadius, ScrollArea, TextEdit, Vec2};
+use egui::{self, Color32, CornerRadius, Key, RichText, ScrollArea, TextEdit, Vec2};
 
 pub struct ImportDialog;
 
 impl ImportDialog {
+    #[inline]
+    fn effective_mode_for_format(state: &ImportState) -> ImportMode {
+        if state.format == ImportFormat::Sql {
+            state.mode
+        } else {
+            ImportMode::Execute
+        }
+    }
+
+    #[inline]
+    fn set_format(state: &mut ImportState, format: ImportFormat) {
+        state.format = format;
+        state.preview = None;
+        state.error = None;
+        if format != ImportFormat::Sql {
+            state.mode = ImportMode::Execute;
+        }
+    }
+
     pub fn show(
         ctx: &egui::Context,
         show: &mut bool,
@@ -44,10 +63,9 @@ impl ImportDialog {
             }
 
             // Enter 执行导入
-            if can_import
-                && let keyboard::DialogAction::Confirm = keyboard::handle_dialog_keys(ctx)
+            if can_import && let keyboard::DialogAction::Confirm = keyboard::handle_dialog_keys(ctx)
             {
-                return match state.mode {
+                return match Self::effective_mode_for_format(state) {
                     ImportMode::Execute => ImportAction::Execute,
                     ImportMode::CopyToEditor => {
                         if let Some(ref preview) = state.preview {
@@ -63,34 +81,31 @@ impl ImportDialog {
             ctx.input(|i| {
                 // 数字键快速选择格式: 1=SQL, 2=CSV, 3=JSON
                 if i.key_pressed(Key::Num1) {
-                    state.format = ImportFormat::Sql;
-                    state.preview = None;
+                    Self::set_format(state, ImportFormat::Sql);
                 }
                 if i.key_pressed(Key::Num2) {
-                    state.format = ImportFormat::Csv;
-                    state.preview = None;
+                    Self::set_format(state, ImportFormat::Csv);
                 }
                 if i.key_pressed(Key::Num3) {
-                    state.format = ImportFormat::Json;
-                    state.preview = None;
+                    Self::set_format(state, ImportFormat::Json);
                 }
 
                 // h/l 切换格式
                 if i.key_pressed(Key::H) || i.key_pressed(Key::ArrowLeft) {
-                    state.format = match state.format {
+                    let new_format = match state.format {
                         ImportFormat::Sql => ImportFormat::Json,
                         ImportFormat::Csv => ImportFormat::Sql,
                         ImportFormat::Json => ImportFormat::Csv,
                     };
-                    state.preview = None;
+                    Self::set_format(state, new_format);
                 }
                 if i.key_pressed(Key::L) || i.key_pressed(Key::ArrowRight) {
-                    state.format = match state.format {
+                    let new_format = match state.format {
                         ImportFormat::Sql => ImportFormat::Csv,
                         ImportFormat::Csv => ImportFormat::Json,
                         ImportFormat::Json => ImportFormat::Sql,
                     };
-                    state.preview = None;
+                    Self::set_format(state, new_format);
                 }
 
                 // Ctrl+R 刷新预览
@@ -126,13 +141,13 @@ impl ImportDialog {
                     ui.add_space(SPACING_SM);
 
                     // 格式特定选项
-                    ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
-                        match state.format {
+                    ScrollArea::vertical()
+                        .max_height(120.0)
+                        .show(ui, |ui| match state.format {
                             ImportFormat::Sql => Self::show_sql_options(ui, state),
                             ImportFormat::Csv => Self::show_csv_options(ui, state, is_mysql),
                             ImportFormat::Json => Self::show_json_options(ui, state, is_mysql),
-                        }
-                    });
+                        });
 
                     ui.add_space(SPACING_SM);
                     ui.separator();
@@ -219,16 +234,24 @@ impl ImportDialog {
                     } else {
                         format!("{:.1} MB", size as f64 / 1024.0 / 1024.0)
                     };
-                    ui.label(RichText::new(format!("大小: {}", size_str)).small().color(MUTED));
+                    ui.label(
+                        RichText::new(format!("大小: {}", size_str))
+                            .small()
+                            .color(MUTED),
+                    );
                 }
 
                 ui.separator();
 
                 // 格式图标
                 ui.label(
-                    RichText::new(format!("{} {} 格式", state.format.icon(), state.format.name()))
-                        .small()
-                        .color(MUTED),
+                    RichText::new(format!(
+                        "{} {} 格式",
+                        state.format.icon(),
+                        state.format.name()
+                    ))
+                    .small()
+                    .color(MUTED),
                 );
             });
         }
@@ -247,9 +270,11 @@ impl ImportDialog {
             {
                 let is_selected = state.format == *fmt;
                 let text = format!("{} {} [{}]", fmt.icon(), fmt.name(), idx + 1);
-                if ui.selectable_label(is_selected, RichText::new(&text)).clicked() {
-                    state.format = *fmt;
-                    state.preview = None;
+                if ui
+                    .selectable_label(is_selected, RichText::new(&text))
+                    .clicked()
+                {
+                    Self::set_format(state, *fmt);
                 }
             }
 
@@ -286,12 +311,24 @@ impl ImportDialog {
         egui::CollapsingHeader::new("SQL 导入选项")
             .default_open(true)
             .show(ui, |ui| {
+                let mut needs_refresh = false;
+
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut state.sql_config.strip_comments, "移除注释");
+                    if ui
+                        .checkbox(&mut state.sql_config.strip_comments, "移除注释")
+                        .changed()
+                    {
+                        needs_refresh = true;
+                    }
                     ui.label(RichText::new("(-- 和 /* */)").small().color(MUTED));
                 });
 
-                ui.checkbox(&mut state.sql_config.strip_empty_lines, "移除空行");
+                if ui
+                    .checkbox(&mut state.sql_config.strip_empty_lines, "移除空行")
+                    .changed()
+                {
+                    needs_refresh = true;
+                }
 
                 if state.mode == ImportMode::Execute {
                     ui.add_space(SPACING_SM);
@@ -302,6 +339,11 @@ impl ImportDialog {
                         ui.checkbox(&mut state.sql_config.use_transaction, "使用事务");
                         ui.label(RichText::new("(全部成功或全部回滚)").small().color(MUTED));
                     });
+                }
+
+                if needs_refresh {
+                    state.preview = None;
+                    state.error = None;
                 }
             });
     }
@@ -340,7 +382,13 @@ impl ImportDialog {
                 ui.add_space(SPACING_SM);
 
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut state.csv_config.has_header, "首行为表头");
+                    if ui
+                        .checkbox(&mut state.csv_config.has_header, "首行为表头")
+                        .changed()
+                    {
+                        state.preview = None;
+                        state.error = None;
+                    }
 
                     ui.separator();
 
@@ -352,6 +400,7 @@ impl ImportDialog {
                     {
                         state.csv_config.skip_rows = skip_str.parse().unwrap_or(0);
                         state.preview = None;
+                        state.error = None;
                     }
                 });
             });
@@ -362,6 +411,8 @@ impl ImportDialog {
         egui::CollapsingHeader::new("JSON 导入选项")
             .default_open(true)
             .show(ui, |ui| {
+                let mut needs_refresh = false;
+
                 // 表名
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("目标表:").color(GRAY));
@@ -377,16 +428,31 @@ impl ImportDialog {
                 // JSON 路径
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("数据路径:").color(GRAY));
-                    ui.add(
-                        TextEdit::singleline(&mut state.json_config.json_path)
-                            .desired_width(200.0)
-                            .hint_text("例如: data.items (留空表示根数组)"),
-                    );
+                    if ui
+                        .add(
+                            TextEdit::singleline(&mut state.json_config.json_path)
+                                .desired_width(200.0)
+                                .hint_text("例如: data.items (留空表示根数组)"),
+                        )
+                        .changed()
+                    {
+                        needs_refresh = true;
+                    }
                 });
 
                 ui.add_space(SPACING_SM);
 
-                ui.checkbox(&mut state.json_config.flatten_nested, "展平嵌套对象");
+                if ui
+                    .checkbox(&mut state.json_config.flatten_nested, "展平嵌套对象")
+                    .changed()
+                {
+                    needs_refresh = true;
+                }
+
+                if needs_refresh {
+                    state.preview = None;
+                    state.error = None;
+                }
             });
     }
 
@@ -422,16 +488,16 @@ impl ImportDialog {
                     .corner_radius(CornerRadius::same(4))
                     .inner_margin(egui::Margin::symmetric(8, 6))
                     .show(ui, |ui| {
-                        ScrollArea::both().max_height(180.0).show(ui, |ui| {
-                            match state.format {
+                        ScrollArea::both()
+                            .max_height(180.0)
+                            .show(ui, |ui| match state.format {
                                 ImportFormat::Sql => {
                                     Self::show_sql_preview(ui, preview);
                                 }
                                 _ => {
                                     Self::show_table_preview(ui, preview);
                                 }
-                            }
-                        });
+                            });
                     });
             });
     }
@@ -516,6 +582,7 @@ impl ImportDialog {
     /// 底部按钮
     fn show_buttons(ui: &mut egui::Ui, show: &mut bool, state: &ImportState) -> ImportAction {
         let mut action = ImportAction::None;
+        let effective_mode = Self::effective_mode_for_format(state);
 
         ui.horizontal(|ui| {
             let has_file = state.file_path.is_some();
@@ -537,13 +604,13 @@ impl ImportDialog {
                 let can_import = has_file && has_preview && state.error.is_none();
 
                 ui.add_enabled_ui(can_import, |ui| {
-                    let btn_text = match state.mode {
+                    let btn_text = match effective_mode {
                         ImportMode::Execute => "🚀 执行导入 [Enter]",
                         ImportMode::CopyToEditor => "📋 复制到编辑器 [Enter]",
                     };
 
                     if ui.button(RichText::new(btn_text).strong()).clicked() {
-                        match state.mode {
+                        match effective_mode {
                             ImportMode::Execute => action = ImportAction::Execute,
                             ImportMode::CopyToEditor => {
                                 if let Some(ref preview) = state.preview {
@@ -558,5 +625,35 @@ impl ImportDialog {
         });
 
         action
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_set_format_resets_hidden_copy_mode_for_non_sql() {
+        let mut state = ImportState::default();
+        state.mode = ImportMode::CopyToEditor;
+        state.preview = Some(ImportPreview::default());
+        state.error = Some("old error".to_string());
+
+        ImportDialog::set_format(&mut state, ImportFormat::Csv);
+
+        assert_eq!(state.format, ImportFormat::Csv);
+        assert_eq!(state.mode, ImportMode::Execute);
+        assert!(state.preview.is_none());
+        assert!(state.error.is_none());
+    }
+
+    #[test]
+    fn test_effective_mode_for_non_sql_forces_execute() {
+        let mut state = ImportState::default();
+        state.format = ImportFormat::Json;
+        state.mode = ImportMode::CopyToEditor;
+
+        let effective = ImportDialog::effective_mode_for_format(&state);
+        assert_eq!(effective, ImportMode::Execute);
     }
 }

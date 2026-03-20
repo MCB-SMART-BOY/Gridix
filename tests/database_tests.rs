@@ -1,9 +1,8 @@
 //! 数据库模块测试
 
 use gridix::database::{
-    DatabaseType,
-    DriverCapabilities, DriverRegistry, DriverInfo,
-    SshTunnelConfig, SshAuthMethod,
+    ConnectionConfig, DatabaseType, DriverCapabilities, DriverInfo, DriverRegistry, MySqlSslMode,
+    PostgresSslMode, SshAuthMethod, SshTunnelConfig,
 };
 
 // ============================================================================
@@ -86,4 +85,67 @@ fn test_ssh_config_validation_password() {
 fn test_ssh_auth_method_display() {
     assert_eq!(SshAuthMethod::Password.display_name(), "密码");
     assert_eq!(SshAuthMethod::PrivateKey.display_name(), "私钥");
+}
+
+#[test]
+fn test_postgres_connection_string_escapes_special_chars() {
+    let config = ConnectionConfig {
+        db_type: DatabaseType::PostgreSQL,
+        host: "db host".to_string(),
+        port: 5432,
+        username: "user'name".to_string(),
+        password: "pa'ss\\word".to_string(),
+        database: "my db".to_string(),
+        ..Default::default()
+    };
+
+    let conn_str = config.connection_string();
+    assert!(conn_str.contains("host='db host'"));
+    assert!(conn_str.contains("user='user\\'name'"));
+    assert!(conn_str.contains("password='pa\\'ss\\\\word'"));
+    assert!(conn_str.contains("dbname='my db'"));
+}
+
+#[test]
+fn test_pool_key_changes_with_password_and_ssl_postgres() {
+    let base = ConnectionConfig {
+        db_type: DatabaseType::PostgreSQL,
+        host: "localhost".to_string(),
+        port: 5432,
+        username: "user".to_string(),
+        password: "secret1".to_string(),
+        database: "app".to_string(),
+        postgres_ssl_mode: PostgresSslMode::Disable,
+        ..Default::default()
+    };
+
+    let mut changed_password = base.clone();
+    changed_password.password = "secret2".to_string();
+    assert_ne!(base.pool_key(), changed_password.pool_key());
+
+    let mut changed_ssl = base.clone();
+    changed_ssl.postgres_ssl_mode = PostgresSslMode::Require;
+    assert_ne!(base.pool_key(), changed_ssl.pool_key());
+}
+
+#[test]
+fn test_pool_key_changes_with_password_and_ssl_mysql() {
+    let base = ConnectionConfig {
+        db_type: DatabaseType::MySQL,
+        host: "localhost".to_string(),
+        port: 3306,
+        username: "user".to_string(),
+        password: "secret1".to_string(),
+        database: "app".to_string(),
+        mysql_ssl_mode: MySqlSslMode::Disabled,
+        ..Default::default()
+    };
+
+    let mut changed_password = base.clone();
+    changed_password.password = "secret2".to_string();
+    assert_ne!(base.pool_key(), changed_password.pool_key());
+
+    let mut changed_ssl = base.clone();
+    changed_ssl.mysql_ssl_mode = MySqlSslMode::Required;
+    assert_ne!(base.pool_key(), changed_ssl.pool_key());
 }

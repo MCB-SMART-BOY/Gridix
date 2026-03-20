@@ -249,7 +249,10 @@ impl AutoComplete {
     /// 添加表的列信息（限制最大数量）
     pub fn set_columns(&mut self, table: String, columns: Vec<String>) {
         let limited_columns = if columns.len() > consts::MAX_CACHED_COLUMNS_PER_TABLE {
-            columns.into_iter().take(consts::MAX_CACHED_COLUMNS_PER_TABLE).collect()
+            columns
+                .into_iter()
+                .take(consts::MAX_CACHED_COLUMNS_PER_TABLE)
+                .collect()
         } else {
             columns
         };
@@ -369,4 +372,3 @@ impl AutoComplete {
         word
     }
 }
-

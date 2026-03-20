@@ -2,9 +2,9 @@
 //!
 //! 显示在左侧栏的筛选条件管理面板
 
-use crate::ui::{ColumnFilter, FilterLogic, FilterOperator, SidebarSection};
 use crate::ui::styles::{GRAY, MUTED, SUCCESS};
-use egui::{self, Color32, RichText, Vec2, TextEdit, CornerRadius};
+use crate::ui::{ColumnFilter, FilterLogic, FilterOperator, SidebarSection};
+use egui::{self, Color32, CornerRadius, RichText, TextEdit, Vec2};
 
 /// 筛选面板
 pub struct FilterPanel;
@@ -20,6 +20,7 @@ impl FilterPanel {
         filters: &mut Vec<ColumnFilter>,
         columns: &[String],
         height: f32,
+        pending_focus_filter_input: &mut Option<usize>,
     ) -> bool {
         let mut changed = false;
         let mut filter_to_remove: Option<usize> = None;
@@ -42,30 +43,40 @@ impl FilterPanel {
             // 工具按钮
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
-                
+
                 // 添加按钮
                 if !columns.is_empty() {
                     if ui
                         .add(
-                            egui::Button::new(RichText::new("+").size(13.0).color(Color32::from_rgb(100, 180, 100)))
-                                .frame(false)
-                                .min_size(Vec2::new(18.0, 18.0)),
+                            egui::Button::new(
+                                RichText::new("+")
+                                    .size(13.0)
+                                    .color(Color32::from_rgb(100, 180, 100)),
+                            )
+                            .frame(false)
+                            .min_size(Vec2::new(18.0, 18.0)),
                         )
                         .on_hover_text("添加筛选条件")
                         .clicked()
                     {
-                        filters.push(ColumnFilter::new(columns.first().cloned().unwrap_or_default()));
+                        filters.push(ColumnFilter::new(
+                            columns.first().cloned().unwrap_or_default(),
+                        ));
                         changed = true;
                     }
                 }
-                
+
                 // 清空按钮
                 if !filters.is_empty() {
                     if ui
                         .add(
-                            egui::Button::new(RichText::new("×").size(13.0).color(Color32::from_rgb(160, 100, 100)))
-                                .frame(false)
-                                .min_size(Vec2::new(18.0, 18.0)),
+                            egui::Button::new(
+                                RichText::new("×")
+                                    .size(13.0)
+                                    .color(Color32::from_rgb(160, 100, 100)),
+                            )
+                            .frame(false)
+                            .min_size(Vec2::new(18.0, 18.0)),
                         )
                         .on_hover_text("清空全部")
                         .clicked()
@@ -78,11 +89,14 @@ impl FilterPanel {
         });
 
         ui.add_space(2.0);
-        
+
         // 分隔线
         let rect = ui.available_rect_before_wrap();
         ui.painter().line_segment(
-            [egui::pos2(rect.left() + 4.0, rect.top()), egui::pos2(rect.right() - 4.0, rect.top())],
+            [
+                egui::pos2(rect.left() + 4.0, rect.top()),
+                egui::pos2(rect.right() - 4.0, rect.top()),
+            ],
             egui::Stroke::new(1.0, Color32::from_gray(60)),
         );
         ui.add_space(4.0);
@@ -115,22 +129,21 @@ impl FilterPanel {
                             } else {
                                 Color32::from_rgba_unmultiplied(40, 40, 40, 30)
                             };
-                            
+
                             egui::Frame::NONE
                                 .fill(bg_color)
                                 .corner_radius(CornerRadius::same(3))
                                 .inner_margin(egui::Margin::symmetric(6, 4))
                                 .show(ui, |ui| {
                                     ui.set_width(ui.available_width());
-                                    
+
                                     // 第一行：启用 + 列选择 + 操作符 + 删除
                                     ui.horizontal(|ui| {
                                         ui.spacing_mut().item_spacing.x = 3.0;
 
                                         // 启用复选框
-                                        let checkbox_response = ui.add(
-                                            egui::Checkbox::without_text(&mut filter.enabled)
-                                        );
+                                        let checkbox_response = ui
+                                            .add(egui::Checkbox::without_text(&mut filter.enabled));
                                         if checkbox_response.changed() {
                                             changed = true;
                                         }
@@ -138,11 +151,21 @@ impl FilterPanel {
                                         ui.add_enabled_ui(filter.enabled, |ui| {
                                             // 列选择
                                             egui::ComboBox::new(format!("col_{}", idx), "")
-                                                .selected_text(RichText::new(truncate_str(&filter.column, 6)).size(10.0))
+                                                .selected_text(
+                                                    RichText::new(truncate_str(&filter.column, 6))
+                                                        .size(10.0),
+                                                )
                                                 .width(55.0)
                                                 .show_ui(ui, |ui| {
                                                     for c in columns {
-                                                        if ui.selectable_value(&mut filter.column, c.clone(), c).changed() {
+                                                        if ui
+                                                            .selectable_value(
+                                                                &mut filter.column,
+                                                                c.clone(),
+                                                                c,
+                                                            )
+                                                            .changed()
+                                                        {
                                                             changed = true;
                                                         }
                                                     }
@@ -150,26 +173,67 @@ impl FilterPanel {
 
                                             // 操作符
                                             egui::ComboBox::new(format!("op_{}", idx), "")
-                                                .selected_text(RichText::new(filter.operator.symbol()).size(10.0))
+                                                .selected_text(
+                                                    RichText::new(filter.operator.symbol())
+                                                        .size(10.0),
+                                                )
                                                 .width(40.0)
                                                 .show_ui(ui, |ui| {
-                                                    ui.label(RichText::new("文本").size(10.0).color(GRAY));
+                                                    ui.label(
+                                                        RichText::new("文本")
+                                                            .size(10.0)
+                                                            .color(GRAY),
+                                                    );
                                                     for op in FilterOperator::text_operators() {
-                                                        if ui.selectable_value(&mut filter.operator, op.clone(), op.display_name()).changed() {
+                                                        if ui
+                                                            .selectable_value(
+                                                                &mut filter.operator,
+                                                                op.clone(),
+                                                                op.display_name(),
+                                                            )
+                                                            .changed()
+                                                        {
                                                             changed = true;
                                                         }
                                                     }
                                                     ui.separator();
-                                                    ui.label(RichText::new("比较").size(10.0).color(GRAY));
-                                                    for op in FilterOperator::comparison_operators() {
-                                                        if ui.selectable_value(&mut filter.operator, op.clone(), format!("{} {}", op.symbol(), op.display_name())).changed() {
+                                                    ui.label(
+                                                        RichText::new("比较")
+                                                            .size(10.0)
+                                                            .color(GRAY),
+                                                    );
+                                                    for op in FilterOperator::comparison_operators()
+                                                    {
+                                                        if ui
+                                                            .selectable_value(
+                                                                &mut filter.operator,
+                                                                op.clone(),
+                                                                format!(
+                                                                    "{} {}",
+                                                                    op.symbol(),
+                                                                    op.display_name()
+                                                                ),
+                                                            )
+                                                            .changed()
+                                                        {
                                                             changed = true;
                                                         }
                                                     }
                                                     ui.separator();
-                                                    ui.label(RichText::new("空值").size(10.0).color(GRAY));
+                                                    ui.label(
+                                                        RichText::new("空值")
+                                                            .size(10.0)
+                                                            .color(GRAY),
+                                                    );
                                                     for op in FilterOperator::null_operators() {
-                                                        if ui.selectable_value(&mut filter.operator, op.clone(), op.display_name()).changed() {
+                                                        if ui
+                                                            .selectable_value(
+                                                                &mut filter.operator,
+                                                                op.clone(),
+                                                                op.display_name(),
+                                                            )
+                                                            .changed()
+                                                        {
                                                             changed = true;
                                                         }
                                                     }
@@ -177,19 +241,26 @@ impl FilterPanel {
                                         });
 
                                         // 删除按钮
-                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                            if ui
-                                                .add(
-                                                    egui::Button::new(RichText::new("×").size(12.0).color(Color32::from_gray(120)))
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                if ui
+                                                    .add(
+                                                        egui::Button::new(
+                                                            RichText::new("×")
+                                                                .size(12.0)
+                                                                .color(Color32::from_gray(120)),
+                                                        )
                                                         .frame(false)
                                                         .min_size(Vec2::new(16.0, 16.0)),
-                                                )
-                                                .on_hover_text("删除")
-                                                .clicked()
-                                            {
-                                                filter_to_remove = Some(idx);
-                                            }
-                                        });
+                                                    )
+                                                    .on_hover_text("删除")
+                                                    .clicked()
+                                                {
+                                                    filter_to_remove = Some(idx);
+                                                }
+                                            },
+                                        );
                                     });
 
                                     // 第二行：值输入（如果需要）
@@ -198,16 +269,20 @@ impl FilterPanel {
                                         ui.add_enabled_ui(filter.enabled, |ui| {
                                             ui.horizontal(|ui| {
                                                 ui.add_space(20.0);
-                                                
-                                                if ui
-                                                    .add(
-                                                        TextEdit::singleline(&mut filter.value)
-                                                            .desired_width(ui.available_width() - 24.0)
-                                                            .font(egui::TextStyle::Small)
-                                                            .hint_text("值..."),
-                                                    )
-                                                    .changed()
-                                                {
+
+                                                let response = ui.add(
+                                                    TextEdit::singleline(&mut filter.value)
+                                                        .desired_width(ui.available_width() - 24.0)
+                                                        .font(egui::TextStyle::Small)
+                                                        .hint_text("值..."),
+                                                );
+
+                                                if *pending_focus_filter_input == Some(idx) {
+                                                    response.request_focus();
+                                                    *pending_focus_filter_input = None;
+                                                }
+
+                                                if response.changed() {
                                                     changed = true;
                                                 }
 
@@ -220,14 +295,23 @@ impl FilterPanel {
                                                     };
                                                     if ui
                                                         .add(
-                                                            egui::Button::new(RichText::new("Aa").size(9.0).color(case_color))
-                                                                .frame(false)
-                                                                .min_size(Vec2::new(16.0, 16.0)),
+                                                            egui::Button::new(
+                                                                RichText::new("Aa")
+                                                                    .size(9.0)
+                                                                    .color(case_color),
+                                                            )
+                                                            .frame(false)
+                                                            .min_size(Vec2::new(16.0, 16.0)),
                                                         )
-                                                        .on_hover_text(if filter.case_sensitive { "区分大小写" } else { "忽略大小写" })
+                                                        .on_hover_text(if filter.case_sensitive {
+                                                            "区分大小写"
+                                                        } else {
+                                                            "忽略大小写"
+                                                        })
                                                         .clicked()
                                                     {
-                                                        filter.case_sensitive = !filter.case_sensitive;
+                                                        filter.case_sensitive =
+                                                            !filter.case_sensitive;
                                                         changed = true;
                                                     }
                                                 }
@@ -246,8 +330,12 @@ impl FilterPanel {
                                     };
                                     if ui
                                         .add(
-                                            egui::Button::new(RichText::new(logic_text).size(9.0).color(logic_color))
-                                                .frame(false),
+                                            egui::Button::new(
+                                                RichText::new(logic_text)
+                                                    .size(9.0)
+                                                    .color(logic_color),
+                                            )
+                                            .frame(false),
                                         )
                                         .on_hover_text("点击切换")
                                         .clicked()
@@ -257,7 +345,7 @@ impl FilterPanel {
                                     }
                                 });
                             }
-                            
+
                             ui.add_space(2.0);
                         });
                     }

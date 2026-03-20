@@ -61,7 +61,7 @@ impl CreateDbDialogState {
         self.reset();
         self.db_type = db_type;
         self.show = true;
-        
+
         // 设置默认值
         match db_type {
             DatabaseType::MySQL => {
@@ -104,7 +104,11 @@ impl CreateDbDialogState {
         }
 
         // 验证数据库名格式
-        if !self.db_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        if !self
+            .db_name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_')
+        {
             return Err("数据库名只能包含字母、数字和下划线".to_string());
         }
 
@@ -117,34 +121,34 @@ impl CreateDbDialogState {
 
     fn generate_mysql_sql(&self) -> Result<String, String> {
         let mut sql = format!("CREATE DATABASE `{}`", self.db_name);
-        
+
         if !self.charset.is_empty() {
             sql.push_str(&format!(" CHARACTER SET {}", self.charset));
         }
-        
+
         if !self.collation.is_empty() {
             sql.push_str(&format!(" COLLATE {}", self.collation));
         }
-        
+
         sql.push(';');
         Ok(sql)
     }
 
     fn generate_postgres_sql(&self) -> Result<String, String> {
         let mut sql = format!("CREATE DATABASE \"{}\"", self.db_name);
-        
+
         if !self.encoding.is_empty() {
             sql.push_str(&format!(" ENCODING '{}'", self.encoding));
         }
-        
+
         if !self.template.is_empty() {
             sql.push_str(&format!(" TEMPLATE {}", self.template));
         }
-        
+
         if !self.owner.is_empty() {
             sql.push_str(&format!(" OWNER \"{}\"", self.owner));
         }
-        
+
         sql.push(';');
         Ok(sql)
     }
@@ -155,14 +159,14 @@ impl CreateDbDialogState {
         if self.sqlite_path.is_empty() && self.db_name.is_empty() {
             return Err("请指定数据库文件路径或名称".to_string());
         }
-        
+
         // 返回文件路径作为特殊标记
         let path = if self.sqlite_path.is_empty() {
             format!("{}.db", self.db_name)
         } else {
             self.sqlite_path.clone()
         };
-        
+
         Ok(format!("SQLITE_CREATE:{}", path))
     }
 }
@@ -176,10 +180,7 @@ pub struct CreateDbDialog;
 
 impl CreateDbDialog {
     /// 显示对话框
-    pub fn show(
-        ctx: &egui::Context,
-        state: &mut CreateDbDialogState,
-    ) -> CreateDbDialogResult {
+    pub fn show(ctx: &egui::Context, state: &mut CreateDbDialogState) -> CreateDbDialogResult {
         if !state.show {
             return CreateDbDialogResult::None;
         }
@@ -373,7 +374,11 @@ impl CreateDbDialog {
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut state.encoding, "UTF8".to_string(), "UTF8");
                         ui.selectable_value(&mut state.encoding, "LATIN1".to_string(), "LATIN1");
-                        ui.selectable_value(&mut state.encoding, "SQL_ASCII".to_string(), "SQL_ASCII");
+                        ui.selectable_value(
+                            &mut state.encoding,
+                            "SQL_ASCII".to_string(),
+                            "SQL_ASCII",
+                        );
                     });
             });
 
@@ -383,8 +388,16 @@ impl CreateDbDialog {
                     .selected_text(&state.template)
                     .width(120.0)
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut state.template, "template0".to_string(), "template0");
-                        ui.selectable_value(&mut state.template, "template1".to_string(), "template1");
+                        ui.selectable_value(
+                            &mut state.template,
+                            "template0".to_string(),
+                            "template0",
+                        );
+                        ui.selectable_value(
+                            &mut state.template,
+                            "template1".to_string(),
+                            "template1",
+                        );
                     });
             });
 

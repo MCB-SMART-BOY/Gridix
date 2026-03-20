@@ -43,9 +43,7 @@ pub use egui::{self, Color32, Context, RichText, Ui};
 // ============================================================================
 
 // 数据库相关
-pub use crate::database::{
-    ConnectionConfig, ConnectionManager, DatabaseType, QueryResult,
-};
+pub use crate::database::{ConnectionConfig, ConnectionManager, DatabaseType, QueryResult};
 
 // 核心功能
 pub use crate::core::{AppConfig, ThemeManager, ThemePreset};

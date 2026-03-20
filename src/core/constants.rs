@@ -28,7 +28,7 @@ pub mod database {
     pub const MAX_RESULT_SET_ROWS: usize = 500000;
     /// 启用并行筛选的行数阈值
     pub const PARALLEL_FILTER_THRESHOLD: usize = 10000;
-    
+
     /// 连接池相关常量
     pub mod pool {
         /// 最大缓存的 MySQL 连接池数量
@@ -58,7 +58,7 @@ pub mod ui {
     pub const USERNAME_MAX_LENGTH: usize = 128;
     /// 主机地址最大长度
     pub const HOST_MAX_LENGTH: usize = 255;
-    
+
     /// 侧边栏默认宽度比例
     pub const SIDEBAR_DEFAULT_WIDTH_RATIO: f32 = 0.18;
     /// 侧边栏最小宽度比例
@@ -118,15 +118,15 @@ pub mod messages {
     pub const CONNECTION_FAILED: &str = "连接失败";
     pub const QUERY_TIMEOUT: &str = "查询超时";
     pub const NO_DATABASE_CONNECTED: &str = "请先连接数据库";
-    
+
     // 操作相关
     pub const NO_CHANGES_TO_SAVE: &str = "没有需要保存的修改";
     pub const CHANGES_DISCARDED: &str = "已放弃所有修改";
-    
+
     // 验证相关
     pub const IDENTIFIER_EMPTY: &str = "标识符不能为空";
     pub const IDENTIFIER_INVALID_CHAR: &str = "标识符包含非法字符";
-    
+
     // 通道相关
     pub const CHANNEL_CLOSED: &str = "接收端已关闭";
 }

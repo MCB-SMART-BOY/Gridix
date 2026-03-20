@@ -83,16 +83,15 @@ impl ColumnFilter {
         if self.column.is_empty() {
             return false;
         }
-        
+
         if self.operator.needs_value() && self.value.is_empty() {
             return false;
         }
-        
+
         if self.operator.needs_second_value() && self.value2.is_empty() {
             return false;
         }
-        
+
         true
     }
 }
-

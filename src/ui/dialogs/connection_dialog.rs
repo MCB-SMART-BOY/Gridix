@@ -1,9 +1,11 @@
 //! 数据库连接对话框
 
 use super::keyboard::{self, DialogAction};
-use crate::database::{ConnectionConfig, DatabaseType, MySqlSslMode, PostgresSslMode, SshAuthMethod};
-use crate::ui::styles::{DANGER, GRAY, MUTED, SUCCESS, SPACING_SM, SPACING_MD, SPACING_LG};
-use egui::{self, Color32, Key, Modifiers, RichText, CornerRadius, TextEdit};
+use crate::database::{
+    ConnectionConfig, DatabaseType, MySqlSslMode, PostgresSslMode, SshAuthMethod,
+};
+use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_LG, SPACING_MD, SPACING_SM, SUCCESS};
+use egui::{self, Color32, CornerRadius, Key, Modifiers, RichText, TextEdit};
 use std::path::Path;
 
 /// 输入验证结果
@@ -46,9 +48,11 @@ fn validate_config(config: &ConnectionConfig) -> ValidationResult {
                 let path = Path::new(&config.database);
                 // 检查父目录是否存在
                 if let Some(parent) = path.parent()
-                    && !parent.as_os_str().is_empty() && !parent.exists() {
-                        result.add_error(format!("目录不存在: {}", parent.display()));
-                    }
+                    && !parent.as_os_str().is_empty()
+                    && !parent.exists()
+                {
+                    result.add_error(format!("目录不存在: {}", parent.display()));
+                }
                 // 检查文件扩展名
                 if let Some(ext) = path.extension() {
                     let ext_lower = ext.to_string_lossy().to_lowercase();
@@ -92,6 +96,7 @@ impl ConnectionDialog {
         open: &mut bool,
         config: &mut ConnectionConfig,
         on_save: &mut bool,
+        is_edit_mode: bool,
     ) {
         let mut is_open = *open;
         let mut should_close = false;
@@ -107,30 +112,36 @@ impl ConnectionDialog {
             // Enter 保存（如果验证通过）
             let validation = validate_config(config);
             if validation.is_valid
-                && let DialogAction::Confirm = keyboard::handle_dialog_keys(ctx) {
-                    *on_save = true;
-                    *open = false;
-                    return;
-                }
+                && let DialogAction::Confirm = keyboard::handle_dialog_keys(ctx)
+            {
+                *on_save = true;
+                *open = false;
+                return;
+            }
 
             // 数据库类型快捷键
             let db_types = DatabaseType::all();
             ctx.input(|i| {
                 // 数字键 1/2/3 选择数据库类型
                 for (idx, key) in [Key::Num1, Key::Num2, Key::Num3].iter().enumerate() {
-                    if i.key_pressed(*key) && i.modifiers.is_none()
-                        && let Some(db_type) = db_types.get(idx) {
-                            config.db_type = *db_type;
-                            config.port = db_type.default_port();
-                            if config.host.is_empty() && !matches!(db_type, DatabaseType::SQLite) {
-                                config.host = "localhost".to_string();
-                            }
+                    if i.key_pressed(*key)
+                        && i.modifiers.is_none()
+                        && let Some(db_type) = db_types.get(idx)
+                    {
+                        config.db_type = *db_type;
+                        config.port = db_type.default_port();
+                        if config.host.is_empty() && !matches!(db_type, DatabaseType::SQLite) {
+                            config.host = "localhost".to_string();
                         }
+                    }
                 }
 
                 // h/l 切换数据库类型
                 if i.key_pressed(Key::H) && i.modifiers.is_none() {
-                    let current_idx = db_types.iter().position(|t| *t == config.db_type).unwrap_or(0);
+                    let current_idx = db_types
+                        .iter()
+                        .position(|t| *t == config.db_type)
+                        .unwrap_or(0);
                     if current_idx > 0 {
                         let new_type = db_types[current_idx - 1];
                         config.db_type = new_type;
@@ -141,7 +152,10 @@ impl ConnectionDialog {
                     }
                 }
                 if i.key_pressed(Key::L) && i.modifiers.is_none() {
-                    let current_idx = db_types.iter().position(|t| *t == config.db_type).unwrap_or(0);
+                    let current_idx = db_types
+                        .iter()
+                        .position(|t| *t == config.db_type)
+                        .unwrap_or(0);
                     if current_idx < db_types.len() - 1 {
                         let new_type = db_types[current_idx + 1];
                         config.db_type = new_type;
@@ -160,13 +174,19 @@ impl ConnectionDialog {
                         .add_filter("SQLite 数据库", &["db", "sqlite", "sqlite3"])
                         .add_filter("所有文件", &["*"])
                         .pick_file()
-                    {
-                        config.database = path.display().to_string();
-                    }
+                {
+                    config.database = path.display().to_string();
+                }
             });
         }
 
-        egui::Window::new("🔗 新建数据库连接")
+        let dialog_title = if is_edit_mode {
+            "🔗 编辑数据库连接"
+        } else {
+            "🔗 新建数据库连接"
+        };
+
+        egui::Window::new(dialog_title)
             .open(&mut is_open)
             .resizable(false)
             .collapsible(false)
@@ -211,7 +231,7 @@ impl ConnectionDialog {
                 ui.add_space(SPACING_MD);
 
                 // 底部按钮
-                Self::show_buttons(ui, config, on_save, &mut should_close);
+                Self::show_buttons(ui, config, on_save, &mut should_close, is_edit_mode);
 
                 ui.add_space(SPACING_SM);
             });
@@ -227,18 +247,24 @@ impl ConnectionDialog {
         // 快捷键提示
         ui.horizontal(|ui| {
             ui.add_space(SPACING_SM);
-            ui.label(RichText::new("数据库类型 [1/2/3 或 h/l 切换]").small().color(MUTED));
+            ui.label(
+                RichText::new("数据库类型 [1/2/3 或 h/l 切换]")
+                    .small()
+                    .color(MUTED),
+            );
         });
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
             ui.add_space(SPACING_SM);
-            
+
             for (idx, db_type) in DatabaseType::all().iter().enumerate() {
                 let is_selected = config.db_type == *db_type;
                 let (icon, name, color, key) = match db_type {
                     DatabaseType::SQLite => ("🗃️", "SQLite", Color32::from_rgb(80, 160, 220), "1"),
-                    DatabaseType::PostgreSQL => ("🐘", "PostgreSQL", Color32::from_rgb(80, 130, 180), "2"),
+                    DatabaseType::PostgreSQL => {
+                        ("🐘", "PostgreSQL", Color32::from_rgb(80, 130, 180), "2")
+                    }
                     DatabaseType::MySQL => ("🐬", "MySQL", Color32::from_rgb(240, 150, 80), "3"),
                 };
                 let _ = idx; // 用于后续扩展
@@ -265,7 +291,11 @@ impl ConnectionDialog {
                             ui.label(RichText::new(icon).size(18.0));
                             ui.add_space(4.0);
                             let text_color = if is_selected { color } else { GRAY };
-                            ui.label(RichText::new(format!("[{}] {}", key, name)).strong().color(text_color));
+                            ui.label(
+                                RichText::new(format!("[{}] {}", key, name))
+                                    .strong()
+                                    .color(text_color),
+                            );
                         });
                     })
                     .response
@@ -301,7 +331,7 @@ impl ConnectionDialog {
                             TextEdit::singleline(&mut config.name)
                                 .hint_text("我的数据库")
                                 .char_limit(64)
-                                .desired_width(280.0)
+                                .desired_width(280.0),
                         );
                         ui.end_row();
 
@@ -312,7 +342,7 @@ impl ConnectionDialog {
                                 TextEdit::singleline(&mut config.host)
                                     .hint_text("localhost")
                                     .char_limit(255)
-                                    .desired_width(280.0)
+                                    .desired_width(280.0),
                             );
                             ui.end_row();
 
@@ -322,7 +352,7 @@ impl ConnectionDialog {
                             ui.add(
                                 TextEdit::singleline(&mut port_string)
                                     .char_limit(5)
-                                    .desired_width(80.0)
+                                    .desired_width(80.0),
                             );
                             if let Ok(port) = port_string.parse::<u16>() {
                                 config.port = port;
@@ -335,7 +365,7 @@ impl ConnectionDialog {
                                 TextEdit::singleline(&mut config.username)
                                     .hint_text("root")
                                     .char_limit(128)
-                                    .desired_width(280.0)
+                                    .desired_width(280.0),
                             );
                             ui.end_row();
 
@@ -345,7 +375,7 @@ impl ConnectionDialog {
                                 TextEdit::singleline(&mut config.password)
                                     .password(true)
                                     .char_limit(256)
-                                    .desired_width(280.0)
+                                    .desired_width(280.0),
                             );
                             ui.end_row();
                         }
@@ -358,20 +388,22 @@ impl ConnectionDialog {
                                 ui.add(
                                     TextEdit::singleline(&mut config.database)
                                         .hint_text("/path/to/database.db")
-                                        .desired_width(200.0)
+                                        .desired_width(200.0),
                                 );
 
-                                if ui.add(
-                                    egui::Button::new("浏览 [Ctrl+O]")
-                                        .corner_radius(CornerRadius::same(4))
-                                ).clicked()
+                                if ui
+                                    .add(
+                                        egui::Button::new("浏览 [Ctrl+O]")
+                                            .corner_radius(CornerRadius::same(4)),
+                                    )
+                                    .clicked()
                                     && let Some(path) = rfd::FileDialog::new()
                                         .add_filter("SQLite 数据库", &["db", "sqlite", "sqlite3"])
                                         .add_filter("所有文件", &["*"])
                                         .pick_file()
-                                    {
-                                        config.database = path.display().to_string();
-                                    }
+                                {
+                                    config.database = path.display().to_string();
+                                }
                             });
                             ui.end_row();
                         }
@@ -443,9 +475,9 @@ impl ConnectionDialog {
                                             .add_filter("证书文件", &["pem", "crt", "cer"])
                                             .add_filter("所有文件", &["*"])
                                             .pick_file()
-                                        {
-                                            config.ssl_ca_cert = path.display().to_string();
-                                        }
+                                    {
+                                        config.ssl_ca_cert = path.display().to_string();
+                                    }
                                 });
                                 ui.end_row();
                             }
@@ -517,9 +549,9 @@ impl ConnectionDialog {
                                             .add_filter("证书文件", &["pem", "crt", "cer"])
                                             .add_filter("所有文件", &["*"])
                                             .pick_file()
-                                        {
-                                            config.ssl_ca_cert = path.display().to_string();
-                                        }
+                                    {
+                                        config.ssl_ca_cert = path.display().to_string();
+                                    }
                                 });
                                 ui.end_row();
                             }
@@ -575,13 +607,13 @@ impl ConnectionDialog {
                                 // SSH 端口
                                 ui.label(RichText::new("SSH 端口").color(GRAY));
                                 let mut port_str = config.ssh_config.ssh_port.to_string();
-                                if ui.add(
-                                    TextEdit::singleline(&mut port_str)
-                                        .desired_width(80.0),
-                                ).changed()
-                                    && let Ok(port) = port_str.parse::<u16>() {
-                                        config.ssh_config.ssh_port = port;
-                                    }
+                                if ui
+                                    .add(TextEdit::singleline(&mut port_str).desired_width(80.0))
+                                    .changed()
+                                    && let Ok(port) = port_str.parse::<u16>()
+                                {
+                                    config.ssh_config.ssh_port = port;
+                                }
                                 ui.end_row();
 
                                 // SSH 用户名
@@ -614,9 +646,11 @@ impl ConnectionDialog {
                                     SshAuthMethod::Password => {
                                         ui.label(RichText::new("SSH 密码").color(GRAY));
                                         ui.add(
-                                            TextEdit::singleline(&mut config.ssh_config.ssh_password)
-                                                .password(true)
-                                                .desired_width(200.0),
+                                            TextEdit::singleline(
+                                                &mut config.ssh_config.ssh_password,
+                                            )
+                                            .password(true)
+                                            .desired_width(200.0),
                                         );
                                         ui.end_row();
                                     }
@@ -624,26 +658,31 @@ impl ConnectionDialog {
                                         ui.label(RichText::new("私钥路径").color(GRAY));
                                         ui.horizontal(|ui| {
                                             ui.add(
-                                                TextEdit::singleline(&mut config.ssh_config.private_key_path)
-                                                    .hint_text("~/.ssh/id_rsa")
-                                                    .desired_width(160.0),
+                                                TextEdit::singleline(
+                                                    &mut config.ssh_config.private_key_path,
+                                                )
+                                                .hint_text("~/.ssh/id_rsa")
+                                                .desired_width(160.0),
                                             );
                                             if ui.button("浏览").clicked()
                                                 && let Some(path) = rfd::FileDialog::new()
                                                     .add_filter("私钥文件", &["pem", "key", "*"])
                                                     .pick_file()
-                                                {
-                                                    config.ssh_config.private_key_path = path.display().to_string();
-                                                }
+                                            {
+                                                config.ssh_config.private_key_path =
+                                                    path.display().to_string();
+                                            }
                                         });
                                         ui.end_row();
 
                                         ui.label(RichText::new("私钥密码").color(GRAY));
                                         ui.add(
-                                            TextEdit::singleline(&mut config.ssh_config.private_key_passphrase)
-                                                .password(true)
-                                                .hint_text("（可选）")
-                                                .desired_width(200.0),
+                                            TextEdit::singleline(
+                                                &mut config.ssh_config.private_key_passphrase,
+                                            )
+                                            .password(true)
+                                            .hint_text("（可选）")
+                                            .desired_width(200.0),
                                         );
                                         ui.end_row();
                                     }
@@ -661,22 +700,27 @@ impl ConnectionDialog {
                                 // 远程端口
                                 ui.label(RichText::new("远程端口").color(GRAY));
                                 let mut remote_port_str = config.ssh_config.remote_port.to_string();
-                                if ui.add(
-                                    TextEdit::singleline(&mut remote_port_str)
-                                        .hint_text("数据库端口")
-                                        .desired_width(80.0),
-                                ).changed()
-                                    && let Ok(port) = remote_port_str.parse::<u16>() {
-                                        config.ssh_config.remote_port = port;
-                                    }
+                                if ui
+                                    .add(
+                                        TextEdit::singleline(&mut remote_port_str)
+                                            .hint_text("数据库端口")
+                                            .desired_width(80.0),
+                                    )
+                                    .changed()
+                                    && let Ok(port) = remote_port_str.parse::<u16>()
+                                {
+                                    config.ssh_config.remote_port = port;
+                                }
                                 ui.end_row();
                             });
 
                         ui.add_space(SPACING_SM);
                         ui.label(
-                            RichText::new("提示：启用 SSH 隧道后，连接将通过跳板机转发到远程数据库")
-                                .small()
-                                .color(MUTED),
+                            RichText::new(
+                                "提示：启用 SSH 隧道后，连接将通过跳板机转发到远程数据库",
+                            )
+                            .small()
+                            .color(MUTED),
                         );
                     }
                 });
@@ -687,7 +731,7 @@ impl ConnectionDialog {
     fn show_connection_preview(ui: &mut egui::Ui, config: &ConnectionConfig) {
         ui.collapsing("🔍 连接字符串预览", |ui| {
             ui.add_space(SPACING_SM);
-            
+
             egui::Frame::NONE
                 .fill(Color32::from_rgba_unmultiplied(60, 60, 70, 40))
                 .corner_radius(CornerRadius::same(4))
@@ -710,6 +754,7 @@ impl ConnectionDialog {
         config: &ConnectionConfig,
         on_save: &mut bool,
         should_close: &mut bool,
+        is_edit_mode: bool,
     ) {
         // 执行验证
         let validation = validate_config(config);
@@ -717,27 +762,42 @@ impl ConnectionDialog {
         // 快捷键提示
         ui.horizontal(|ui| {
             ui.add_space(SPACING_SM);
-            ui.label(RichText::new("快捷键: Esc/q 关闭 | Enter 保存").small().color(MUTED));
+            ui.label(
+                RichText::new("快捷键: Esc/q 关闭 | Enter 保存")
+                    .small()
+                    .color(MUTED),
+            );
         });
         ui.add_space(SPACING_SM);
 
         ui.horizontal(|ui| {
             // 取消按钮
-            if ui.add(
-                egui::Button::new("取消 [Esc]")
-                    .corner_radius(CornerRadius::same(6))
-            ).clicked() {
+            if ui
+                .add(egui::Button::new("取消 [Esc]").corner_radius(CornerRadius::same(6)))
+                .clicked()
+            {
                 *should_close = true;
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // 保存按钮
-                let save_btn = egui::Button::new(
-                    RichText::new("保存并连接 [Enter]")
-                        .color(if validation.is_valid { Color32::WHITE } else { GRAY })
-                )
-                .fill(if validation.is_valid { SUCCESS } else { Color32::from_rgb(80, 80, 90) })
-                .corner_radius(CornerRadius::same(6));
+                let save_label = if is_edit_mode {
+                    "保存并重连 [Enter]"
+                } else {
+                    "保存并连接 [Enter]"
+                };
+                let save_btn =
+                    egui::Button::new(RichText::new(save_label).color(if validation.is_valid {
+                        Color32::WHITE
+                    } else {
+                        GRAY
+                    }))
+                    .fill(if validation.is_valid {
+                        SUCCESS
+                    } else {
+                        Color32::from_rgb(80, 80, 90)
+                    })
+                    .corner_radius(CornerRadius::same(6));
 
                 if ui.add_enabled(validation.is_valid, save_btn).clicked() {
                     *on_save = true;

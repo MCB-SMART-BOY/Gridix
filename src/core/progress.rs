@@ -5,8 +5,8 @@
 #![allow(dead_code)] // 公开 API，供外部使用
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 /// 进度任务
@@ -121,9 +121,10 @@ impl ProgressManager {
     /// 取消任务
     pub fn cancel(&mut self, id: u64) {
         if let Some(task) = self.tasks.get(&id)
-            && task.cancellable {
-                task.cancel();
-            }
+            && task.cancellable
+        {
+            task.cancel();
+        }
         self.tasks.remove(&id);
     }
 

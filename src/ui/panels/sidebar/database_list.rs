@@ -1,10 +1,10 @@
 //! 数据库列表渲染
 
-use crate::database::ConnectionManager;
-use crate::ui::styles::{MUTED, SPACING_LG};
-use crate::ui::SidebarSection;
 use super::{SidebarActions, SidebarSelectionState, TableList};
-use egui::{self, Color32, RichText, CornerRadius};
+use crate::database::ConnectionManager;
+use crate::ui::SidebarSection;
+use crate::ui::styles::{MUTED, SPACING_LG};
+use egui::{self, Color32, CornerRadius, RichText};
 
 /// 数据库列表
 pub struct DatabaseList;
@@ -29,7 +29,7 @@ impl DatabaseList {
         let highlight_databases = is_focused && focused_section == SidebarSection::Databases;
         // 表区域是否高亮
         let highlight_tables = is_focused && focused_section == SidebarSection::Tables;
-        
+
         // 数据库列表
         for (idx, database) in databases.iter().enumerate() {
             let is_selected = selected_database == Some(database.as_str());
@@ -37,7 +37,7 @@ impl DatabaseList {
 
             // 数据库项 - 整行可点击
             let db_bg = if is_nav_selected {
-                Color32::from_rgba_unmultiplied(100, 150, 255, 35)  // 键盘导航选中（降低透明度）
+                Color32::from_rgba_unmultiplied(100, 150, 255, 35) // 键盘导航选中（降低透明度）
             } else if is_selected {
                 Color32::from_rgba_unmultiplied(80, 140, 80, 30)
             } else {
@@ -59,12 +59,19 @@ impl DatabaseList {
                         };
                         let prefix = if is_nav_selected { "> " } else { "" };
                         ui.label(RichText::new(format!("{}{}", prefix, database)).color(db_color));
-                        
+
                         // 表数量提示（选中时显示）
                         if is_selected {
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.label(RichText::new(format!("{} 表", tables.len())).small().color(MUTED));
-                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        RichText::new(format!("{} 表", tables.len()))
+                                            .small()
+                                            .color(MUTED),
+                                    );
+                                },
+                            );
                         }
                     });
                 })
@@ -76,7 +83,7 @@ impl DatabaseList {
                 connection_manager.active = Some(conn_name.to_string());
                 actions.select_database = Some(database.clone());
             }
-            
+
             // 如果是选中项且有焦点，滚动到可见
             if is_nav_selected {
                 db_response.scroll_to_me(Some(egui::Align::Center));

@@ -2,9 +2,9 @@
 //!
 //! 将对话框的渲染和事件处理从主 update 循环中分离出来。
 
+use super::DbManagerApp;
 use crate::core::KeyBindings;
 use crate::ui::{self, ExportConfig, KeyBindingsDialog};
-use super::DbManagerApp;
 
 /// 对话框处理结果
 #[derive(Default)]
@@ -40,28 +40,37 @@ impl DbManagerApp {
             &mut self.show_connection_dialog,
             &mut self.new_config,
             &mut results.save_connection,
+            self.editing_connection_name.is_some(),
         );
 
         // 删除确认对话框
         let mut confirm_delete = false;
-        let delete_msg = self
-            .pending_delete_name
-            .as_ref()
-            .map(|n| format!("确定要删除连接 '{}' 吗？", n))
-            .unwrap_or_default();
+        let (delete_title, delete_msg) = match self.pending_delete_name.as_deref() {
+            Some(raw) if raw.starts_with("table:") => {
+                let table = raw.trim_start_matches("table:");
+                (
+                    "删除表",
+                    format!("确定要删除表 '{}' 吗？该操作不可撤销。", table),
+                )
+            }
+            Some(conn) => ("删除连接", format!("确定要删除连接 '{}' 吗？", conn)),
+            None => ("删除", String::new()),
+        };
         ui::ConfirmDialog::show(
             ctx,
             &mut self.show_delete_confirm,
-            "删除连接",
+            delete_title,
             &delete_msg,
             "删除",
             &mut confirm_delete,
         );
 
-        if confirm_delete
-            && let Some(name) = self.pending_delete_name.take()
-        {
-            self.delete_connection(&name);
+        if confirm_delete && let Some(name) = self.pending_delete_name.take() {
+            if let Some(table) = name.strip_prefix("table:") {
+                self.delete_table(table);
+            } else {
+                self.delete_connection(&name);
+            }
         }
 
         // 导出对话框
@@ -89,16 +98,10 @@ impl DbManagerApp {
         );
 
         // DDL 对话框（创建表）
-        results.ddl_sql = ui::DdlDialog::show_create_table(
-            ctx,
-            &mut self.ddl_dialog_state,
-        );
+        results.ddl_sql = ui::DdlDialog::show_create_table(ctx, &mut self.ddl_dialog_state);
 
         // 新建数据库对话框
-        let create_db_result = ui::CreateDbDialog::show(
-            ctx,
-            &mut self.create_db_dialog_state,
-        );
+        let create_db_result = ui::CreateDbDialog::show(ctx, &mut self.create_db_dialog_state);
         match create_db_result {
             ui::CreateDbDialogResult::Create(sql) => {
                 results.create_db_sql = Some(sql);
@@ -107,10 +110,8 @@ impl DbManagerApp {
         }
 
         // 新建用户对话框
-        let create_user_result = ui::CreateUserDialog::show(
-            ctx,
-            &mut self.create_user_dialog_state,
-        );
+        let create_user_result =
+            ui::CreateUserDialog::show(ctx, &mut self.create_user_dialog_state);
         match create_user_result {
             ui::CreateUserDialogResult::Create(statements) => {
                 results.create_user_sql = Some(statements);
@@ -130,12 +131,13 @@ impl DbManagerApp {
 
         // 帮助面板
         ui::HelpDialog::show_with_scroll(ctx, &mut self.show_help, &mut self.help_scroll_offset);
-        
+
         // 关于对话框
         ui::AboutDialog::show(ctx, &mut self.show_about);
 
         // 快捷键设置对话框
-        results.updated_keybindings = KeyBindingsDialog::show(ctx, &mut self.keybindings_dialog_state);
+        results.updated_keybindings =
+            KeyBindingsDialog::show(ctx, &mut self.keybindings_dialog_state);
 
         results
     }
@@ -186,7 +188,8 @@ impl DbManagerApp {
         if let Some(sql) = results.create_db_sql {
             if sql.starts_with("SQLITE_CREATE:") {
                 let path = sql.trim_start_matches("SQLITE_CREATE:");
-                self.notifications.info(format!("SQLite 数据库将创建于: {}", path));
+                self.notifications
+                    .info(format!("SQLite 数据库将创建于: {}", path));
             } else {
                 self.sql = sql;
                 self.show_sql_editor = true;
@@ -215,7 +218,12 @@ impl DbManagerApp {
         // 处理快捷键更新
         if let Some(keybindings) = results.updated_keybindings {
             self.keybindings = keybindings;
-            self.notifications.success("快捷键设置已保存");
+            self.app_config.keybindings = self.keybindings.clone();
+            if let Err(e) = self.app_config.save() {
+                self.notifications.error(format!("快捷键保存失败: {}", e));
+            } else {
+                self.notifications.success("快捷键设置已保存");
+            }
         }
     }
 }

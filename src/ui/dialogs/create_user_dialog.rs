@@ -104,7 +104,7 @@ impl CreateUserDialogState {
         self.db_type = db_type;
         self.available_databases = databases;
         self.show = true;
-        
+
         // 初始化权限列表
         self.privileges = match db_type {
             DatabaseType::MySQL => vec![
@@ -159,7 +159,11 @@ impl CreateUserDialogState {
             return Err("用户名不能为空".to_string());
         }
 
-        if !self.username.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        if !self
+            .username
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_')
+        {
             return Err("用户名只能包含字母、数字和下划线".to_string());
         }
 
@@ -204,7 +208,8 @@ impl CreateUserDialogState {
             let privileges = if self.grant_all {
                 "ALL PRIVILEGES".to_string()
             } else {
-                let selected: Vec<&str> = self.privileges
+                let selected: Vec<&str> = self
+                    .privileges
                     .iter()
                     .filter(|p| p.selected)
                     .map(|p| p.name)
@@ -245,7 +250,8 @@ impl CreateUserDialogState {
                     self.grant_database, self.username
                 ));
             } else {
-                let selected: Vec<&str> = self.privileges
+                let selected: Vec<&str> = self
+                    .privileges
                     .iter()
                     .filter(|p| p.selected)
                     .map(|p| p.name)
@@ -253,7 +259,7 @@ impl CreateUserDialogState {
                 if selected.is_empty() {
                     return Err("请至少选择一个权限".to_string());
                 }
-                
+
                 // PostgreSQL 权限授予比较复杂，这里简化处理
                 for priv_name in selected {
                     statements.push(format!(
@@ -277,10 +283,7 @@ pub struct CreateUserDialog;
 
 impl CreateUserDialog {
     /// 显示对话框
-    pub fn show(
-        ctx: &egui::Context,
-        state: &mut CreateUserDialogState,
-    ) -> CreateUserDialogResult {
+    pub fn show(ctx: &egui::Context, state: &mut CreateUserDialogState) -> CreateUserDialogResult {
         if !state.show {
             return CreateUserDialogResult::None;
         }
@@ -425,7 +428,7 @@ impl CreateUserDialog {
 
                         if !state.grant_database.is_empty() {
                             ui.add_space(4.0);
-                            
+
                             ui.checkbox(&mut state.grant_all, "授予所有权限 (ALL PRIVILEGES)");
 
                             if !state.grant_all {
@@ -441,8 +444,11 @@ impl CreateUserDialog {
                                     .show(ui, |ui| {
                                         ui.horizontal_wrapped(|ui| {
                                             for priv_item in &mut state.privileges {
-                                                ui.checkbox(&mut priv_item.selected, priv_item.name)
-                                                    .on_hover_text(priv_item.description);
+                                                ui.checkbox(
+                                                    &mut priv_item.selected,
+                                                    priv_item.name,
+                                                )
+                                                .on_hover_text(priv_item.description);
                                             }
                                         });
                                     });
@@ -455,7 +461,8 @@ impl CreateUserDialog {
 
                     // 预览 SQL
                     ui.collapsing("预览 SQL", |ui| {
-                        let sql = state.generate_sql()
+                        let sql = state
+                            .generate_sql()
                             .map(|stmts| stmts.join("\n"))
                             .unwrap_or_default();
                         ui.add(

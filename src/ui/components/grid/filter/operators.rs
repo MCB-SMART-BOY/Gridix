@@ -13,7 +13,7 @@ pub enum FilterOperator {
     NotEquals,
     StartsWith,
     EndsWith,
-    
+
     // 比较操作符
     GreaterThan,
     GreaterOrEqual,
@@ -21,17 +21,17 @@ pub enum FilterOperator {
     LessOrEqual,
     Between,
     NotBetween,
-    
+
     // 集合操作符
     In,
     NotIn,
-    
+
     // 空值操作符
     IsNull,
     IsNotNull,
     IsEmpty,
     IsNotEmpty,
-    
+
     // 正则
     Regex,
 }
@@ -131,7 +131,12 @@ impl FilterOperator {
 
     /// 空值类操作符
     pub fn null_operators() -> &'static [FilterOperator] {
-        &[Self::IsNull, Self::IsNotNull, Self::IsEmpty, Self::IsNotEmpty]
+        &[
+            Self::IsNull,
+            Self::IsNotNull,
+            Self::IsEmpty,
+            Self::IsNotEmpty,
+        ]
     }
 
     /// 获取所有操作符
@@ -162,8 +167,6 @@ impl FilterOperator {
     }
 }
 
-
-
 /// 检查筛选条件是否匹配
 pub fn check_filter_match(
     cell: &str,
@@ -175,7 +178,11 @@ pub fn check_filter_match(
     let (cell_cmp, value_cmp, value2_cmp) = if case_sensitive {
         (cell.to_string(), value.to_string(), value2.to_string())
     } else {
-        (cell.to_lowercase(), value.to_lowercase(), value2.to_lowercase())
+        (
+            cell.to_lowercase(),
+            value.to_lowercase(),
+            value2.to_lowercase(),
+        )
     };
 
     match operator {
@@ -185,12 +192,12 @@ pub fn check_filter_match(
         FilterOperator::NotEquals => cell_cmp != value_cmp,
         FilterOperator::StartsWith => cell_cmp.starts_with(&value_cmp),
         FilterOperator::EndsWith => cell_cmp.ends_with(&value_cmp),
-        
+
         FilterOperator::GreaterThan => compare_values(cell, value, |a, b| a > b),
         FilterOperator::GreaterOrEqual => compare_values(cell, value, |a, b| a >= b),
         FilterOperator::LessThan => compare_values(cell, value, |a, b| a < b),
         FilterOperator::LessOrEqual => compare_values(cell, value, |a, b| a <= b),
-        
+
         FilterOperator::Between => {
             compare_values(cell, value, |a, b| a >= b)
                 && compare_values(cell, &value2_cmp, |a, b| a <= b)
@@ -221,7 +228,7 @@ pub fn check_filter_match(
         FilterOperator::IsNotNull => cell != "NULL",
         FilterOperator::IsEmpty => cell.is_empty() || cell == "NULL",
         FilterOperator::IsNotEmpty => !cell.is_empty() && cell != "NULL",
-        
+
         FilterOperator::Regex => {
             if value.len() > 100 {
                 false
@@ -249,4 +256,3 @@ where
         .map(|(a, b)| cmp(a, b))
         .unwrap_or_else(|| cell > value)
 }
-

@@ -4,8 +4,8 @@
 
 use eframe::egui;
 
-use crate::ui;
 use super::{DbManagerApp, Message};
+use crate::ui;
 
 impl DbManagerApp {
     /// 处理异步消息
@@ -14,26 +14,31 @@ impl DbManagerApp {
     pub fn handle_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
             match msg {
-                Message::ConnectedWithTables(name, result) => {
-                    self.handle_connected_with_tables(ctx, name, result);
+                Message::ConnectedWithTables(name, request_id, result) => {
+                    self.handle_connected_with_tables(ctx, name, request_id, result);
                 }
-                Message::ConnectedWithDatabases(name, result) => {
-                    self.handle_connected_with_databases(ctx, name, result);
+                Message::ConnectedWithDatabases(name, request_id, result) => {
+                    self.handle_connected_with_databases(ctx, name, request_id, result);
                 }
-                Message::DatabaseSelected(conn_name, db_name, result) => {
-                    self.handle_database_selected(ctx, conn_name, db_name, result);
+                Message::DatabaseSelected(conn_name, db_name, request_id, result) => {
+                    self.handle_database_selected(ctx, conn_name, db_name, request_id, result);
                 }
-                Message::QueryDone(sql, result, elapsed_ms) => {
-                    self.handle_query_done(ctx, sql, result, elapsed_ms);
+                Message::QueryDone(sql, conn_name, tab_id, request_id, result, elapsed_ms) => {
+                    self.handle_query_done(
+                        ctx, sql, conn_name, tab_id, request_id, result, elapsed_ms,
+                    );
+                }
+                Message::ImportDone(result, elapsed_ms) => {
+                    self.handle_import_done(ctx, result, elapsed_ms);
                 }
                 Message::PrimaryKeyFetched(table_name, pk_column) => {
                     self.handle_primary_key_fetched(ctx, table_name, pk_column);
                 }
-                Message::TriggersFetched(result) => {
-                    self.handle_triggers_fetched(ctx, result);
+                Message::TriggersFetched(conn_name, db_name, request_id, result) => {
+                    self.handle_triggers_fetched(ctx, conn_name, db_name, request_id, result);
                 }
-                Message::RoutinesFetched(result) => {
-                    self.handle_routines_fetched(ctx, result);
+                Message::RoutinesFetched(conn_name, db_name, request_id, result) => {
+                    self.handle_routines_fetched(ctx, conn_name, db_name, request_id, result);
                 }
                 Message::ForeignKeysFetched(result) => {
                     self.handle_foreign_keys_fetched(ctx, result);
@@ -50,24 +55,53 @@ impl DbManagerApp {
         &mut self,
         ctx: &egui::Context,
         name: String,
+        request_id: u64,
         result: Result<Vec<String>, String>,
     ) {
-        self.connecting = false;
+        let is_latest = self
+            .pending_connect_requests
+            .get(&name)
+            .is_some_and(|id| *id == request_id);
+        if !is_latest {
+            tracing::debug!(
+                connection = %name,
+                request_id,
+                "忽略过期连接回包（SQLite）"
+            );
+            return;
+        }
+        self.pending_connect_requests.remove(&name);
+        self.refresh_connecting_flag();
+
+        let is_active = self.manager.active.as_deref() == Some(name.as_str());
         match result {
             Ok(tables) => {
-                self.notifications.success(
-                    format!("已连接到 {} ({} 张表)", name, tables.len())
-                );
-                self.load_history_for_connection(&name);
-                self.autocomplete.set_tables(tables.clone());
                 if let Some(conn) = self.manager.connections.get_mut(&name) {
-                    conn.set_connected(tables);
+                    conn.set_connected(tables.clone());
                 }
-                self.sidebar_panel_state.selection.reset_for_connection_change();
-                self.load_triggers();
-                self.load_routines();
+
+                if is_active {
+                    self.notifications.success(format!(
+                        "已连接到 {} ({} 张表)",
+                        name,
+                        tables.len()
+                    ));
+                    self.load_history_for_connection(&name);
+                    self.autocomplete.set_tables(tables);
+                    self.sidebar_panel_state
+                        .selection
+                        .reset_for_connection_change();
+                    self.load_triggers();
+                    self.load_routines();
+                }
             }
-            Err(e) => self.handle_connection_error(&name, e),
+            Err(e) => {
+                if is_active {
+                    self.handle_connection_error(&name, e);
+                } else if let Some(conn) = self.manager.connections.get_mut(&name) {
+                    conn.set_error(e);
+                }
+            }
         }
         ctx.request_repaint();
     }
@@ -77,22 +111,51 @@ impl DbManagerApp {
         &mut self,
         ctx: &egui::Context,
         name: String,
+        request_id: u64,
         result: Result<Vec<String>, String>,
     ) {
-        self.connecting = false;
+        let is_latest = self
+            .pending_connect_requests
+            .get(&name)
+            .is_some_and(|id| *id == request_id);
+        if !is_latest {
+            tracing::debug!(
+                connection = %name,
+                request_id,
+                "忽略过期连接回包（多数据库）"
+            );
+            return;
+        }
+        self.pending_connect_requests.remove(&name);
+        self.refresh_connecting_flag();
+
+        let is_active = self.manager.active.as_deref() == Some(name.as_str());
         match result {
             Ok(databases) => {
-                self.notifications.success(
-                    format!("已连接到 {} ({} 个数据库)", name, databases.len())
-                );
-                self.load_history_for_connection(&name);
-                self.autocomplete.clear();
                 if let Some(conn) = self.manager.connections.get_mut(&name) {
-                    conn.set_connected_with_databases(databases);
+                    conn.set_connected_with_databases(databases.clone());
                 }
-                self.sidebar_panel_state.selection.reset_for_connection_change();
+
+                if is_active {
+                    self.notifications.success(format!(
+                        "已连接到 {} ({} 个数据库)",
+                        name,
+                        databases.len()
+                    ));
+                    self.load_history_for_connection(&name);
+                    self.autocomplete.clear();
+                    self.sidebar_panel_state
+                        .selection
+                        .reset_for_connection_change();
+                }
             }
-            Err(e) => self.handle_connection_error(&name, e),
+            Err(e) => {
+                if is_active {
+                    self.handle_connection_error(&name, e);
+                } else if let Some(conn) = self.manager.connections.get_mut(&name) {
+                    conn.set_error(e);
+                }
+            }
         }
         ctx.request_repaint();
     }
@@ -103,28 +166,53 @@ impl DbManagerApp {
         ctx: &egui::Context,
         conn_name: String,
         db_name: String,
+        request_id: u64,
         result: Result<Vec<String>, String>,
     ) {
-        self.connecting = false;
+        let is_latest = self.pending_database_requests.get(&conn_name).is_some_and(
+            |(pending_db, pending_id)| pending_db == &db_name && *pending_id == request_id,
+        );
+        if !is_latest {
+            tracing::debug!(
+                connection = %conn_name,
+                database = %db_name,
+                request_id,
+                "忽略过期数据库切换回包"
+            );
+            return;
+        }
+        self.pending_database_requests.remove(&conn_name);
+        self.refresh_connecting_flag();
+
+        let is_active = self.manager.active.as_deref() == Some(conn_name.as_str());
         match result {
             Ok(tables) => {
-                self.notifications.success(
-                    format!("已选择数据库 {} ({} 张表)", db_name, tables.len())
-                );
-                self.autocomplete.set_tables(tables.clone());
                 if let Some(conn) = self.manager.connections.get_mut(&conn_name) {
-                    conn.set_database(db_name, tables);
+                    conn.set_database(db_name.clone(), tables.clone());
                 }
-                self.sidebar_panel_state.selection.reset_for_database_change();
-                self.load_triggers();
-                self.load_routines();
+
+                if is_active {
+                    self.notifications.success(format!(
+                        "已选择数据库 {} ({} 张表)",
+                        db_name,
+                        tables.len()
+                    ));
+                    self.autocomplete.set_tables(tables);
+                    self.sidebar_panel_state
+                        .selection
+                        .reset_for_database_change();
+                    self.load_triggers();
+                    self.load_routines();
+                    self.selected_table = None;
+                    self.result = None;
+                }
             }
             Err(e) => {
-                self.notifications.error(format!("选择数据库失败: {}", e));
+                if is_active {
+                    self.notifications.error(format!("选择数据库失败: {}", e));
+                }
             }
         }
-        self.selected_table = None;
-        self.result = None;
         ctx.request_repaint();
     }
 
@@ -133,30 +221,42 @@ impl DbManagerApp {
         &mut self,
         ctx: &egui::Context,
         sql: String,
+        conn_name: String,
+        tab_id: String,
+        request_id: u64,
         result: Result<crate::database::QueryResult, String>,
         elapsed_ms: u64,
     ) {
         use crate::core::constants;
 
-        self.executing = false;
+        self.finalize_query_task(request_id);
         self.last_query_time_ms = Some(elapsed_ms);
 
-        let sql_lower = sql.trim().to_lowercase();
-        let is_update_or_delete = sql_lower.starts_with("update") || sql_lower.starts_with("delete");
-        let is_insert = sql_lower.starts_with("insert");
+        let target_tab_index = self.tab_manager.tabs.iter().position(|t| t.id == tab_id);
+        let is_stale_for_existing_tab = target_tab_index
+            .and_then(|idx| self.tab_manager.tabs.get(idx))
+            .is_some_and(|tab| tab.pending_request_id != Some(request_id));
+
+        let sql_hints = crate::database::analyze_sql_for_ui(&sql);
+        let is_update_or_delete = sql_hints.is_update_or_delete;
+        let is_insert = sql_hints.is_insert;
+        let is_drop_table = sql_hints.is_drop_table;
 
         let db_type = self
             .manager
-            .get_active()
+            .connections
+            .get(&conn_name)
             .map(|c| c.config.db_type.display_name().to_string())
             .unwrap_or_default();
 
         match result {
             Ok(mut res) => {
-                // 限制结果集大小
-                let original_rows = res.rows.len();
-                let was_truncated = original_rows > constants::database::MAX_RESULT_SET_ROWS;
-                if was_truncated {
+                // 查询层已执行结果集限流；这里保留兼容兜底（避免旧路径漏限流）
+                let mut original_rows = res.original_row_count.unwrap_or(res.rows.len());
+                let mut was_truncated = res.truncated;
+                if !was_truncated && res.rows.len() > constants::database::MAX_RESULT_SET_ROWS {
+                    original_rows = res.rows.len();
+                    was_truncated = true;
                     res.rows.truncate(constants::database::MAX_RESULT_SET_ROWS);
                     res.truncated = true;
                     res.original_row_count = Some(original_rows);
@@ -166,66 +266,183 @@ impl DbManagerApp {
                     sql,
                     db_type,
                     true,
-                    if res.affected_rows > 0 { Some(res.affected_rows) } else { None },
+                    if res.affected_rows > 0 {
+                        Some(res.affected_rows)
+                    } else {
+                        None
+                    },
                 );
+
+                if is_stale_for_existing_tab {
+                    if is_drop_table {
+                        self.pending_drop_requests.remove(&request_id);
+                    }
+                    tracing::debug!(
+                        tab_id = %tab_id,
+                        request_id,
+                        "忽略过期查询回包（请求已被新查询覆盖或标签已关闭）"
+                    );
+                    self.refresh_executing_flag();
+                    ctx.request_repaint();
+                    return;
+                }
 
                 let msg = if res.columns.is_empty() {
                     format!("执行成功，影响 {} 行 ({}ms)", res.affected_rows, elapsed_ms)
                 } else if was_truncated {
                     format!(
                         "查询完成，返回 {} 行（已截断，原始 {} 行，建议使用 LIMIT）({}ms)",
-                        res.rows.len(), original_rows, elapsed_ms
+                        res.rows.len(),
+                        original_rows,
+                        elapsed_ms
                     )
                 } else {
                     format!("查询完成，返回 {} 行 ({}ms)", res.rows.len(), elapsed_ms)
                 };
-                self.notifications.success(&msg);
 
-                self.selected_row = None;
-                self.selected_cell = None;
-                self.search_text.clear();
-
-                // 根据 SQL 类型设置光标位置
-                if is_update_or_delete {
-                    self.grid_state.scroll_to_row = Some(self.grid_state.cursor.0);
-                } else if is_insert {
-                    let last_row = res.rows.len().saturating_sub(1);
-                    self.grid_state.cursor = (last_row, 0);
-                    self.grid_state.scroll_to_row = Some(last_row);
-                }
-
-                if self.focus_area == ui::FocusArea::DataGrid {
-                    self.grid_state.focused = true;
-                }
-
-                // 同步到当前 Tab
-                if let Some(tab) = self.tab_manager.get_active_mut() {
-                    tab.result = Some(res.clone());
-                    tab.executing = false;
-                    tab.query_time_ms = Some(elapsed_ms);
-                    tab.last_message = Some(msg);
-                }
-
-                // 更新自动补全
-                if let Some(table) = &self.selected_table
-                    && !res.columns.is_empty() {
-                        self.autocomplete.set_columns(table.clone(), res.columns.clone());
+                if let Some(idx) = target_tab_index {
+                    let is_active_tab = idx == self.tab_manager.active_index;
+                    if let Some(tab) = self.tab_manager.tabs.get_mut(idx) {
+                        tab.result = Some(res.clone());
+                        tab.executing = false;
+                        tab.pending_request_id = None;
+                        tab.query_time_ms = Some(elapsed_ms);
+                        tab.last_message = Some(msg.clone());
                     }
 
-                self.result = Some(res);
+                    if is_active_tab {
+                        self.notifications.success(&msg);
+                        self.selected_row = None;
+                        self.selected_cell = None;
+                        self.search_text.clear();
+
+                        // 根据 SQL 类型设置光标位置
+                        if is_update_or_delete {
+                            self.grid_state.scroll_to_row = Some(self.grid_state.cursor.0);
+                        } else if is_insert {
+                            let last_row = res.rows.len().saturating_sub(1);
+                            self.grid_state.cursor = (last_row, 0);
+                            self.grid_state.scroll_to_row = Some(last_row);
+                        }
+
+                        if self.focus_area == ui::FocusArea::DataGrid {
+                            self.grid_state.focused = true;
+                        }
+
+                        // 更新自动补全
+                        if let Some(table) = &self.selected_table
+                            && !res.columns.is_empty()
+                        {
+                            self.autocomplete
+                                .set_columns(table.clone(), res.columns.clone());
+                        }
+
+                        self.result = Some(res.clone());
+                    }
+                } else {
+                    tracing::debug!(tab_id = %tab_id, "查询回包对应的标签页已不存在");
+                }
+
+                if is_drop_table
+                    && let Some((drop_conn_name, dropped_table)) =
+                        self.pending_drop_requests.remove(&request_id)
+                {
+                    let is_current_active =
+                        self.manager.active.as_deref() == Some(drop_conn_name.as_str());
+
+                    if let Some(conn) = self.manager.connections.get_mut(&drop_conn_name) {
+                        conn.tables.retain(|t| t != &dropped_table);
+                        if is_current_active {
+                            self.autocomplete.set_tables(conn.tables.clone());
+                        }
+                    }
+
+                    if is_current_active && self.selected_table.as_deref() == Some(&dropped_table) {
+                        self.selected_table = None;
+                        self.result = None;
+                    }
+                }
             }
             Err(e) => {
                 self.query_history.add(sql, db_type, false, None);
+                if is_stale_for_existing_tab {
+                    if is_drop_table {
+                        self.pending_drop_requests.remove(&request_id);
+                    }
+                    tracing::debug!(
+                        tab_id = %tab_id,
+                        request_id,
+                        error = %e,
+                        "忽略过期查询错误回包（请求已被新查询覆盖或标签已关闭）"
+                    );
+                    self.refresh_executing_flag();
+                    ctx.request_repaint();
+                    return;
+                }
+
+                if target_tab_index.is_none() {
+                    tracing::debug!(tab_id = %tab_id, "查询错误回包对应的标签页已不存在");
+                    if is_drop_table {
+                        self.pending_drop_requests.remove(&request_id);
+                    }
+                    self.refresh_executing_flag();
+                    ctx.request_repaint();
+                    return;
+                }
+
                 let err_msg = format!("错误: {}", e);
                 self.notifications.error(&err_msg);
-                self.result = Some(crate::database::QueryResult::default());
+                if let Some(idx) = target_tab_index {
+                    let is_active_tab = idx == self.tab_manager.active_index;
+                    if let Some(tab) = self.tab_manager.tabs.get_mut(idx) {
+                        tab.executing = false;
+                        tab.pending_request_id = None;
+                        tab.last_message = Some(err_msg.clone());
+                    }
+                    if is_active_tab {
+                        self.result = Some(crate::database::QueryResult::default());
+                    }
+                }
 
-                if let Some(tab) = self.tab_manager.get_active_mut() {
-                    tab.executing = false;
-                    tab.last_message = Some(err_msg);
+                if is_drop_table {
+                    self.pending_drop_requests.remove(&request_id);
                 }
             }
         }
+        self.refresh_executing_flag();
+        ctx.request_repaint();
+    }
+
+    /// 处理导入完成消息
+    fn handle_import_done(
+        &mut self,
+        ctx: &egui::Context,
+        result: Result<crate::database::ImportExecutionReport, String>,
+        elapsed_ms: u64,
+    ) {
+        self.import_executing = false;
+        self.refresh_executing_flag();
+
+        match result {
+            Ok(report) => {
+                if report.failed == 0 {
+                    self.notifications.success(format!(
+                        "导入完成：成功 {} / {} 条 ({}ms)",
+                        report.succeeded, report.total, elapsed_ms
+                    ));
+                } else {
+                    let detail = report.first_error.as_deref().unwrap_or("部分语句执行失败");
+                    self.notifications.warning(format!(
+                        "导入部分完成：成功 {}，失败 {}，总计 {} 条 ({}ms)。首个错误: {}",
+                        report.succeeded, report.failed, report.total, elapsed_ms, detail
+                    ));
+                }
+            }
+            Err(e) => {
+                self.notifications.error(format!("导入失败: {}", e));
+            }
+        }
+
         ctx.request_repaint();
     }
 
@@ -239,9 +456,10 @@ impl DbManagerApp {
         if self.selected_table.as_deref() == Some(&table_name) {
             if let Some(pk_name) = pk_column {
                 if let Some(result) = &self.result
-                    && let Some(idx) = result.columns.iter().position(|c| c == &pk_name) {
-                        self.grid_state.primary_key_column = Some(idx);
-                    }
+                    && let Some(idx) = result.columns.iter().position(|c| c == &pk_name)
+                {
+                    self.grid_state.primary_key_column = Some(idx);
+                }
             } else {
                 self.grid_state.primary_key_column = None;
             }
@@ -249,12 +467,57 @@ impl DbManagerApp {
         ctx.request_repaint();
     }
 
+    /// 检查异步元数据回包是否仍对应当前连接上下文
+    fn metadata_context_matches_current(&self, conn_name: &str, db_name: &Option<String>) -> bool {
+        if self.manager.active.as_deref() != Some(conn_name) {
+            return false;
+        }
+
+        let Some(conn) = self.manager.connections.get(conn_name) else {
+            return false;
+        };
+
+        match conn.config.db_type {
+            crate::database::DatabaseType::SQLite => true,
+            _ => conn.selected_database == *db_name,
+        }
+    }
+
     /// 处理触发器获取完成消息
     fn handle_triggers_fetched(
         &mut self,
         ctx: &egui::Context,
+        conn_name: String,
+        db_name: Option<String>,
+        request_id: u64,
         result: Result<Vec<crate::database::TriggerInfo>, String>,
     ) {
+        let is_latest = self.pending_triggers_request.as_ref().is_some_and(
+            |(pending_conn, pending_db, pending_id)| {
+                pending_conn == &conn_name && pending_db == &db_name && *pending_id == request_id
+            },
+        );
+        if !is_latest {
+            tracing::debug!(
+                connection = %conn_name,
+                database = ?db_name,
+                request_id,
+                "忽略过期触发器回包（请求ID不匹配）"
+            );
+            return;
+        }
+        self.pending_triggers_request = None;
+
+        if !self.metadata_context_matches_current(&conn_name, &db_name) {
+            tracing::debug!(
+                connection = %conn_name,
+                database = ?db_name,
+                "忽略过期触发器回包"
+            );
+            self.sidebar_panel_state.loading_triggers = false;
+            return;
+        }
+
         self.sidebar_panel_state.loading_triggers = false;
         match result {
             Ok(triggers) => {
@@ -271,8 +534,37 @@ impl DbManagerApp {
     fn handle_routines_fetched(
         &mut self,
         ctx: &egui::Context,
+        conn_name: String,
+        db_name: Option<String>,
+        request_id: u64,
         result: Result<Vec<crate::database::RoutineInfo>, String>,
     ) {
+        let is_latest = self.pending_routines_request.as_ref().is_some_and(
+            |(pending_conn, pending_db, pending_id)| {
+                pending_conn == &conn_name && pending_db == &db_name && *pending_id == request_id
+            },
+        );
+        if !is_latest {
+            tracing::debug!(
+                connection = %conn_name,
+                database = ?db_name,
+                request_id,
+                "忽略过期存储过程回包（请求ID不匹配）"
+            );
+            return;
+        }
+        self.pending_routines_request = None;
+
+        if !self.metadata_context_matches_current(&conn_name, &db_name) {
+            tracing::debug!(
+                connection = %conn_name,
+                database = ?db_name,
+                "忽略过期存储过程回包"
+            );
+            self.sidebar_panel_state.loading_routines = false;
+            return;
+        }
+
         self.sidebar_panel_state.loading_routines = false;
         match result {
             Ok(routines) => {
@@ -298,10 +590,16 @@ impl DbManagerApp {
             Ok(fks) => {
                 // 更新表中列的外键标记
                 for fk in &fks {
-                    if let Some(table) = self.er_diagram_state.tables.iter_mut().find(|t| t.name == fk.from_table)
-                        && let Some(col) = table.columns.iter_mut().find(|c| c.name == fk.from_column) {
-                            col.is_foreign_key = true;
-                        }
+                    if let Some(table) = self
+                        .er_diagram_state
+                        .tables
+                        .iter_mut()
+                        .find(|t| t.name == fk.from_table)
+                        && let Some(col) =
+                            table.columns.iter_mut().find(|c| c.name == fk.from_column)
+                    {
+                        col.is_foreign_key = true;
+                    }
                 }
 
                 // 转换为 ER 图关系
@@ -355,7 +653,12 @@ impl DbManagerApp {
     ) {
         match result {
             Ok(columns) => {
-                if let Some(er_table) = self.er_diagram_state.tables.iter_mut().find(|t| t.name == table_name) {
+                if let Some(er_table) = self
+                    .er_diagram_state
+                    .tables
+                    .iter_mut()
+                    .find(|t| t.name == table_name)
+                {
                     er_table.columns = columns
                         .into_iter()
                         .map(|c| ui::ERColumn {
@@ -372,7 +675,11 @@ impl DbManagerApp {
                 }
 
                 // 检查是否所有表都加载完成
-                let all_loaded = self.er_diagram_state.tables.iter().all(|t| !t.columns.is_empty());
+                let all_loaded = self
+                    .er_diagram_state
+                    .tables
+                    .iter()
+                    .all(|t| !t.columns.is_empty());
                 if all_loaded && !self.er_diagram_state.tables.is_empty() {
                     ui::grid_layout(
                         &mut self.er_diagram_state.tables,
@@ -393,7 +700,8 @@ impl DbManagerApp {
                 }
             }
             Err(e) => {
-                self.notifications.warning(format!("获取表 {} 结构失败: {}", table_name, e));
+                self.notifications
+                    .warning(format!("获取表 {} 结构失败: {}", table_name, e));
             }
         }
         ctx.request_repaint();

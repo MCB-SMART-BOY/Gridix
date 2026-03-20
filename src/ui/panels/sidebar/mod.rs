@@ -21,28 +21,28 @@
 //! - `r` - 重命名
 //! - `R` - 刷新
 
-mod state;
 mod actions;
 mod connection_list;
 mod database_list;
+mod filter_panel;
+mod routine_panel;
+mod state;
 mod table_list;
 mod trigger_panel;
-mod routine_panel;
-mod filter_panel;
 
-pub use state::{SidebarPanelState, SidebarSelectionState};
 pub use actions::{SidebarActions, SidebarFocusTransfer};
 pub use filter_panel::FilterPanel;
+pub use state::{SidebarPanelState, SidebarSelectionState};
 
 use connection_list::ConnectionList;
 use database_list::DatabaseList;
+use routine_panel::RoutinePanel;
 use table_list::TableList;
 use trigger_panel::TriggerPanel;
-use routine_panel::RoutinePanel;
 
 use crate::database::ConnectionManager;
 use crate::ui::SidebarSection;
-use crate::ui::dialogs::keyboard::{self, ListNavigation, HorizontalNavigation};
+use crate::ui::dialogs::keyboard::{self, HorizontalNavigation, ListNavigation};
 use egui::{self, Color32, CornerRadius, Key, Vec2};
 
 /// 分割条高度
@@ -66,6 +66,7 @@ impl Sidebar {
         width: f32,
         filters: &mut Vec<ColumnFilter>,
         columns: &[String],
+        pending_focus_filter_input: &mut Option<usize>,
     ) -> (SidebarActions, bool) {
         let mut filter_changed = false;
         let mut actions = SidebarActions::default();
@@ -75,7 +76,8 @@ impl Sidebar {
         Self::show_visibility_toolbar(ui, panel_state);
 
         // 处理键盘导航
-        let (item_count, selected_index) = Self::get_section_info(focused_section, connection_manager, panel_state, filters);
+        let (item_count, selected_index) =
+            Self::get_section_info(focused_section, connection_manager, panel_state, filters);
         if item_count > 0 && *selected_index >= item_count {
             *selected_index = item_count.saturating_sub(1);
         }
@@ -129,6 +131,7 @@ impl Sidebar {
                 filters,
                 columns,
                 heights.filters,
+                pending_focus_filter_input,
             ) {
                 filter_changed = true;
             }
@@ -167,7 +170,11 @@ impl Sidebar {
         }
 
         // 如果没有任何面板显示
-        if !panel_state.show_connections && !panel_state.show_triggers && !panel_state.show_routines && !panel_state.show_filters {
+        if !panel_state.show_connections
+            && !panel_state.show_triggers
+            && !panel_state.show_routines
+            && !panel_state.show_filters
+        {
             ui.vertical_centered(|ui| {
                 ui.add_space(20.0);
                 ui.label(egui::RichText::new("点击上方按钮显示面板").color(Color32::GRAY));
@@ -190,11 +197,17 @@ impl Sidebar {
                 &mut panel_state.selection.connections,
             ),
             SidebarSection::Databases => (
-                connection_manager.get_active().map(|c| c.databases.len()).unwrap_or(0),
+                connection_manager
+                    .get_active()
+                    .map(|c| c.databases.len())
+                    .unwrap_or(0),
                 &mut panel_state.selection.databases,
             ),
             SidebarSection::Tables => (
-                connection_manager.get_active().map(|c| c.tables.len()).unwrap_or(0),
+                connection_manager
+                    .get_active()
+                    .map(|c| c.tables.len())
+                    .unwrap_or(0),
                 &mut panel_state.selection.tables,
             ),
             SidebarSection::Triggers => (
@@ -205,19 +218,23 @@ impl Sidebar {
                 panel_state.routines.len(),
                 &mut panel_state.selection.routines,
             ),
-            SidebarSection::Filters => (
-                filters.len(),
-                &mut panel_state.selection.filters,
-            ),
+            SidebarSection::Filters => (filters.len(), &mut panel_state.selection.filters),
         }
     }
 
     /// 计算各面板高度
     /// 面板顺序：连接(0) -> 筛选(1) -> 触发器(2) -> 存储过程(3)
-    fn calculate_panel_heights(panel_state: &SidebarPanelState, available_height: f32) -> PanelHeights {
+    fn calculate_panel_heights(
+        panel_state: &SidebarPanelState,
+        available_height: f32,
+    ) -> PanelHeights {
         // 统计可见面板
         let visible_panels: Vec<(usize, f32)> = [
-            (0, panel_state.connections_ratio, panel_state.show_connections),
+            (
+                0,
+                panel_state.connections_ratio,
+                panel_state.show_connections,
+            ),
             (1, panel_state.filters_ratio, panel_state.show_filters),
             (2, panel_state.triggers_ratio, panel_state.show_triggers),
             (3, panel_state.routines_ratio, panel_state.show_routines),
@@ -226,27 +243,37 @@ impl Sidebar {
         .filter(|(_, _, visible)| *visible)
         .map(|(idx, ratio, _)| (*idx, *ratio))
         .collect();
-        
+
         let visible_count = visible_panels.len();
-        
+
         if visible_count == 0 {
-            return PanelHeights { connections: 0.0, filters: 0.0, triggers: 0.0, routines: 0.0 };
+            return PanelHeights {
+                connections: 0.0,
+                filters: 0.0,
+                triggers: 0.0,
+                routines: 0.0,
+            };
         }
 
         // 计算分割条占用的空间
         let divider_count = visible_count.saturating_sub(1);
         let dividers_height = divider_count as f32 * DIVIDER_HEIGHT;
-        
+
         // 可分配的高度
         let expandable_height = (available_height - dividers_height).max(0.0);
-        
+
         // 计算总比例
         let total_ratio: f32 = visible_panels.iter().map(|(_, r)| r).sum();
         let total_ratio = if total_ratio > 0.0 { total_ratio } else { 1.0 };
-        
+
         // 按比例分配高度
-        let mut heights = PanelHeights { connections: 0.0, filters: 0.0, triggers: 0.0, routines: 0.0 };
-        
+        let mut heights = PanelHeights {
+            connections: 0.0,
+            filters: 0.0,
+            triggers: 0.0,
+            routines: 0.0,
+        };
+
         for (idx, ratio) in &visible_panels {
             let height = (expandable_height * ratio / total_ratio).max(60.0);
             match idx {
@@ -257,16 +284,19 @@ impl Sidebar {
                 _ => {}
             }
         }
-        
+
         heights
     }
 
     /// 显示可拖动分割条
-    fn show_divider(ui: &mut egui::Ui, panel_state: &mut SidebarPanelState, divider_index: usize, width: f32) {
-        let (rect, response) = ui.allocate_exact_size(
-            Vec2::new(width, DIVIDER_HEIGHT),
-            egui::Sense::drag(),
-        );
+    fn show_divider(
+        ui: &mut egui::Ui,
+        panel_state: &mut SidebarPanelState,
+        divider_index: usize,
+        width: f32,
+    ) {
+        let (rect, response) =
+            ui.allocate_exact_size(Vec2::new(width, DIVIDER_HEIGHT), egui::Sense::drag());
 
         // 绘制分割条
         let is_dragging = panel_state.dragging_divider == Some(divider_index);
@@ -296,7 +326,7 @@ impl Sidebar {
         if response.dragged() {
             panel_state.dragging_divider = Some(divider_index);
             let delta = response.drag_delta().y;
-            
+
             // 根据分割条位置调整相应面板的比例
             Self::adjust_panel_ratios(panel_state, divider_index, delta);
         } else if response.drag_stopped() {
@@ -313,33 +343,39 @@ impl Sidebar {
     /// 分割条顺序：0=连接↔筛选, 1=筛选↔触发器, 2=触发器↔存储过程
     fn adjust_panel_ratios(panel_state: &mut SidebarPanelState, divider_index: usize, delta: f32) {
         let delta_ratio = delta / 500.0; // 转换为比例变化
-        
+
         match divider_index {
             0 => {
                 // 连接 <-> 筛选
                 if panel_state.show_connections {
-                    panel_state.connections_ratio = (panel_state.connections_ratio + delta_ratio).clamp(0.1, 0.8);
+                    panel_state.connections_ratio =
+                        (panel_state.connections_ratio + delta_ratio).clamp(0.1, 0.8);
                 }
                 if panel_state.show_filters {
-                    panel_state.filters_ratio = (panel_state.filters_ratio - delta_ratio).clamp(0.1, 0.8);
+                    panel_state.filters_ratio =
+                        (panel_state.filters_ratio - delta_ratio).clamp(0.1, 0.8);
                 }
             }
             1 => {
                 // 筛选 <-> 触发器
                 if panel_state.show_filters {
-                    panel_state.filters_ratio = (panel_state.filters_ratio + delta_ratio).clamp(0.1, 0.8);
+                    panel_state.filters_ratio =
+                        (panel_state.filters_ratio + delta_ratio).clamp(0.1, 0.8);
                 }
                 if panel_state.show_triggers {
-                    panel_state.triggers_ratio = (panel_state.triggers_ratio - delta_ratio).clamp(0.1, 0.8);
+                    panel_state.triggers_ratio =
+                        (panel_state.triggers_ratio - delta_ratio).clamp(0.1, 0.8);
                 }
             }
             2 => {
                 // 触发器 <-> 存储过程
                 if panel_state.show_triggers {
-                    panel_state.triggers_ratio = (panel_state.triggers_ratio + delta_ratio).clamp(0.1, 0.8);
+                    panel_state.triggers_ratio =
+                        (panel_state.triggers_ratio + delta_ratio).clamp(0.1, 0.8);
                 }
                 if panel_state.show_routines {
-                    panel_state.routines_ratio = (panel_state.routines_ratio - delta_ratio).clamp(0.1, 0.8);
+                    panel_state.routines_ratio =
+                        (panel_state.routines_ratio - delta_ratio).clamp(0.1, 0.8);
                 }
             }
             _ => {}
@@ -396,7 +432,13 @@ impl Sidebar {
             }
             ListNavigation::Delete => {
                 // dd：删除选中项
-                Self::handle_delete_action(focused_section, *selected_index, connection_manager, filters, actions);
+                Self::handle_delete_action(
+                    focused_section,
+                    *selected_index,
+                    connection_manager,
+                    filters,
+                    actions,
+                );
             }
             _ => {}
         }
@@ -410,7 +452,11 @@ impl Sidebar {
                     SidebarSection::Triggers => Some(SidebarSection::Filters),
                     SidebarSection::Filters => Some(SidebarSection::Tables),
                     SidebarSection::Tables => {
-                        if connection_manager.get_active().map(|c| !c.databases.is_empty()).unwrap_or(false) {
+                        if connection_manager
+                            .get_active()
+                            .map(|c| !c.databases.is_empty())
+                            .unwrap_or(false)
+                        {
                             Some(SidebarSection::Databases)
                         } else {
                             Some(SidebarSection::Connections)
@@ -443,7 +489,11 @@ impl Sidebar {
                         }
                     }
                     SidebarSection::Databases => {
-                        if has_tables { Some(SidebarSection::Tables) } else { None }
+                        if has_tables {
+                            Some(SidebarSection::Tables)
+                        } else {
+                            None
+                        }
                     }
                     SidebarSection::Tables => {
                         if has_filters {
@@ -457,8 +507,8 @@ impl Sidebar {
                         }
                     }
                     SidebarSection::Filters => {
-                        if has_triggers { 
-                            Some(SidebarSection::Triggers) 
+                        if has_triggers {
+                            Some(SidebarSection::Triggers)
                         } else if has_routines {
                             Some(SidebarSection::Routines)
                         } else {
@@ -466,7 +516,11 @@ impl Sidebar {
                         }
                     }
                     SidebarSection::Triggers => {
-                        if has_routines { Some(SidebarSection::Routines) } else { None }
+                        if has_routines {
+                            Some(SidebarSection::Routines)
+                        } else {
+                            None
+                        }
                     }
                     SidebarSection::Routines => None,
                 };
@@ -486,9 +540,10 @@ impl Sidebar {
             if i.key_pressed(Key::S) && panel_state.command_buffer == "g" {
                 if let SidebarSection::Tables = focused_section {
                     if let Some(conn) = connection_manager.get_active()
-                        && let Some(table) = conn.tables.get(*selected_index) {
-                            actions.show_table_schema = Some(table.clone());
-                        }
+                        && let Some(table) = conn.tables.get(*selected_index)
+                    {
+                        actions.show_table_schema = Some(table.clone());
+                    }
                 }
                 panel_state.command_buffer.clear();
             }
@@ -497,23 +552,27 @@ impl Sidebar {
             if i.key_pressed(Key::Enter) {
                 match focused_section {
                     SidebarSection::Connections => {
-                        let names: Vec<_> = connection_manager.connections.keys().cloned().collect();
+                        let mut names: Vec<_> =
+                            connection_manager.connections.keys().cloned().collect();
+                        names.sort_unstable();
                         if let Some(name) = names.get(*selected_index) {
                             actions.connect = Some(name.clone());
                         }
                     }
                     SidebarSection::Databases => {
                         if let Some(conn) = connection_manager.get_active()
-                            && let Some(db) = conn.databases.get(*selected_index) {
-                                actions.select_database = Some(db.clone());
-                            }
+                            && let Some(db) = conn.databases.get(*selected_index)
+                        {
+                            actions.select_database = Some(db.clone());
+                        }
                     }
                     SidebarSection::Tables => {
                         if let Some(conn) = connection_manager.get_active()
-                            && let Some(table) = conn.tables.get(*selected_index) {
-                                actions.query_table = Some(table.clone());
-                                *selected_table = Some(table.clone());
-                            }
+                            && let Some(table) = conn.tables.get(*selected_index)
+                        {
+                            actions.query_table = Some(table.clone());
+                            *selected_table = Some(table.clone());
+                        }
                     }
                     SidebarSection::Triggers => {
                         if let Some(trigger) = panel_state.triggers.get(*selected_index) {
@@ -539,7 +598,9 @@ impl Sidebar {
             if i.key_pressed(Key::D) && !i.modifiers.ctrl && !i.modifiers.shift {
                 match focused_section {
                     SidebarSection::Connections => {
-                        let names: Vec<_> = connection_manager.connections.keys().cloned().collect();
+                        let mut names: Vec<_> =
+                            connection_manager.connections.keys().cloned().collect();
+                        names.sort_unstable();
                         if let Some(name) = names.get(*selected_index) {
                             actions.delete = Some(name.clone());
                         }
@@ -547,9 +608,10 @@ impl Sidebar {
                     SidebarSection::Tables => {
                         // 表删除需要确认对话框，设置删除请求
                         if let Some(conn) = connection_manager.get_active()
-                            && let Some(table) = conn.tables.get(*selected_index) {
-                                actions.delete = Some(format!("table:{}", table));
-                            }
+                            && let Some(table) = conn.tables.get(*selected_index)
+                        {
+                            actions.delete = Some(format!("table:{}", table));
+                        }
                     }
                     SidebarSection::Filters => {
                         // 删除选中的筛选条件
@@ -565,7 +627,7 @@ impl Sidebar {
                     _ => {} // 其他 section 暂不支持删除
                 }
             }
-            
+
             // x：在 Filters section 也支持删除（Helix 风格）
             if i.key_pressed(Key::X) && focused_section == SidebarSection::Filters {
                 if *selected_index < filters.len() {
@@ -580,7 +642,9 @@ impl Sidebar {
             // e：编辑选中的连接配置
             if i.key_pressed(Key::E) && !i.modifiers.ctrl {
                 if let SidebarSection::Connections = focused_section {
-                    let names: Vec<_> = connection_manager.connections.keys().cloned().collect();
+                    let mut names: Vec<_> =
+                        connection_manager.connections.keys().cloned().collect();
+                    names.sort_unstable();
                     if let Some(name) = names.get(*selected_index) {
                         actions.edit_connection = Some(name.clone());
                     }
@@ -591,13 +655,14 @@ impl Sidebar {
             if i.key_pressed(Key::R) && !i.modifiers.ctrl {
                 let item_name = match focused_section {
                     SidebarSection::Connections => {
-                        let names: Vec<_> = connection_manager.connections.keys().cloned().collect();
+                        let mut names: Vec<_> =
+                            connection_manager.connections.keys().cloned().collect();
+                        names.sort_unstable();
                         names.get(*selected_index).cloned()
                     }
-                    SidebarSection::Tables => {
-                        connection_manager.get_active()
-                            .and_then(|c| c.tables.get(*selected_index).cloned())
-                    }
+                    SidebarSection::Tables => connection_manager
+                        .get_active()
+                        .and_then(|c| c.tables.get(*selected_index).cloned()),
                     _ => None,
                 };
                 if let Some(name) = item_name {
@@ -611,7 +676,7 @@ impl Sidebar {
             }
 
             // === Filters section 专用快捷键 (Helix 风格) ===
-            // 
+            //
             // 筛选条件操作快捷键：
             // j/k     - 选择筛选条件（上/下）
             // a/o     - 增加筛选条件
@@ -629,26 +694,26 @@ impl Sidebar {
                 if i.key_pressed(Key::A) || i.key_pressed(Key::O) {
                     actions.add_filter = true;
                 }
-                
+
                 // c：清空所有筛选条件（Helix: c = change）
                 if i.key_pressed(Key::C) && !i.modifiers.ctrl {
                     actions.clear_filters = true;
                 }
-                
+
                 // w：切换筛选对象（列）到下一个（Helix: w = word forward）
                 if i.key_pressed(Key::W) && !i.modifiers.ctrl {
                     if *selected_index < filters.len() {
                         actions.cycle_filter_column = Some((*selected_index, true));
                     }
                 }
-                
+
                 // b：切换筛选对象（列）到上一个（Helix: b = word backward）
                 if i.key_pressed(Key::B) && !i.modifiers.ctrl {
                     if *selected_index < filters.len() {
                         actions.cycle_filter_column = Some((*selected_index, false));
                     }
                 }
-                
+
                 // n：切换筛选规则（操作符）到下一个（Helix: n = next search）
                 if i.key_pressed(Key::N) && !i.modifiers.ctrl && !i.modifiers.shift {
                     if let Some(filter) = filters.get_mut(*selected_index) {
@@ -656,7 +721,7 @@ impl Sidebar {
                         actions.filter_changed = true;
                     }
                 }
-                
+
                 // N (Shift+n)：切换筛选规则（操作符）到上一个
                 if i.key_pressed(Key::N) && i.modifiers.shift {
                     if let Some(filter) = filters.get_mut(*selected_index) {
@@ -664,21 +729,21 @@ impl Sidebar {
                         actions.filter_changed = true;
                     }
                 }
-                
+
                 // t：切换当前筛选条件的 AND/OR 逻辑
                 if i.key_pressed(Key::T) {
                     if *selected_index < filters.len() {
                         actions.toggle_filter_logic = Some(*selected_index);
                     }
                 }
-                
+
                 // i：编辑筛选值（Helix: i = insert mode）
                 if i.key_pressed(Key::I) {
                     if *selected_index < filters.len() {
                         actions.focus_filter_input = Some(*selected_index);
                     }
                 }
-                
+
                 // s：切换大小写敏感（Helix: s = select）
                 if i.key_pressed(Key::S) && panel_state.command_buffer.is_empty() {
                     if let Some(filter) = filters.get_mut(*selected_index) {
@@ -707,7 +772,8 @@ impl Sidebar {
     ) {
         match focused_section {
             SidebarSection::Connections => {
-                let names: Vec<_> = connection_manager.connections.keys().cloned().collect();
+                let mut names: Vec<_> = connection_manager.connections.keys().cloned().collect();
+                names.sort_unstable();
                 if let Some(name) = names.get(selected_index) {
                     actions.delete = Some(name.clone());
                 }
@@ -735,16 +801,21 @@ impl Sidebar {
             ui.spacing_mut().item_spacing.x = 2.0;
 
             // 无边框图标按钮
-            let icon_toggle = |ui: &mut egui::Ui, icon: &str, active: bool, tooltip: &str| -> bool {
-                let color = if active { Color32::from_rgb(100, 200, 150) } else { Color32::from_gray(100) };
-                ui.add(
-                    egui::Button::new(egui::RichText::new(icon).size(14.0).color(color))
-                        .frame(false)
-                        .min_size(egui::Vec2::new(22.0, 22.0)),
-                )
-                .on_hover_text(tooltip)
-                .clicked()
-            };
+            let icon_toggle =
+                |ui: &mut egui::Ui, icon: &str, active: bool, tooltip: &str| -> bool {
+                    let color = if active {
+                        Color32::from_rgb(100, 200, 150)
+                    } else {
+                        Color32::from_gray(100)
+                    };
+                    ui.add(
+                        egui::Button::new(egui::RichText::new(icon).size(14.0).color(color))
+                            .frame(false)
+                            .min_size(egui::Vec2::new(22.0, 22.0)),
+                    )
+                    .on_hover_text(tooltip)
+                    .clicked()
+                };
 
             // 1. 连接面板
             if icon_toggle(ui, "🔗", panel_state.show_connections, "连接面板 (Ctrl+1)") {

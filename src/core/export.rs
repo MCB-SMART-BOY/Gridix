@@ -3,9 +3,14 @@
 //! 支持 CSV、SQL、JSON 格式的数据导入导出。
 
 use crate::database::QueryResult;
+use std::borrow::Cow;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
+
+/// JSON 导入文件大小上限（防止超大文件导致内存峰值过高）
+const MAX_JSON_IMPORT_FILE_BYTES: u64 = 128 * 1024 * 1024;
 
 // ============================================================================
 // 导出格式
@@ -82,6 +87,8 @@ pub struct JsonImportConfig {
     pub max_rows: usize,
     /// JSON 路径 (如 "data.items" 表示从 data.items 开始读取)
     pub json_path: Option<String>,
+    /// 是否展平嵌套对象（a.b.c）
+    pub flatten_nested: bool,
 }
 
 // ============================================================================
@@ -145,7 +152,7 @@ pub fn export_to_sql(result: &QueryResult, table_name: &str, path: &Path) -> Res
     let mut file = File::create(path).map_err(|e| e.to_string())?;
 
     let escaped_table_name = escape_sql_identifier(table_name);
-    
+
     writeln!(file, "-- Exported from Rust DB Manager").map_err(|e| e.to_string())?;
     writeln!(file, "-- Table: {}", table_name).map_err(|e| e.to_string())?;
     writeln!(file, "-- Rows: {}\n", result.rows.len()).map_err(|e| e.to_string())?;
@@ -225,72 +232,139 @@ pub fn export_to_json(result: &QueryResult, path: &Path) -> Result<(), String> {
 // CSV 导入
 // ============================================================================
 
-/// 预览 CSV 文件
-pub fn preview_csv(path: &Path, config: &CsvImportConfig) -> Result<ImportPreview, String> {
+fn csv_config_byte(ch: char, label: &str) -> Result<u8, String> {
+    if !ch.is_ascii() {
+        return Err(format!("{} 必须是 ASCII 单字节字符", label));
+    }
+    Ok(ch as u8)
+}
+
+fn open_csv_reader(
+    path: &Path,
+    config: &CsvImportConfig,
+) -> Result<csv::Reader<BufReader<File>>, String> {
     let file = File::open(path).map_err(|e| format!("无法打开文件: {}", e))?;
-    let reader = BufReader::new(file);
-    
-    let mut lines = reader.lines();
-    let mut warnings = Vec::new();
-    
-    // 跳过指定行数
+    let mut reader = BufReader::new(file);
+
+    // 先按物理行跳过文件头部注释/说明
     for _ in 0..config.skip_rows {
-        if lines.next().is_none() {
+        let mut line = String::new();
+        let read = reader
+            .read_line(&mut line)
+            .map_err(|e| format!("跳过行失败: {}", e))?;
+        if read == 0 {
             return Err("文件行数不足".to_string());
         }
     }
-    
+
+    let delimiter = csv_config_byte(config.delimiter, "CSV 分隔符")?;
+    let quote = csv_config_byte(config.quote_char, "CSV 引号字符")?;
+
+    let mut builder = csv::ReaderBuilder::new();
+    builder
+        .has_headers(config.has_header)
+        .delimiter(delimiter)
+        .quote(quote)
+        .flexible(true);
+
+    Ok(builder.from_reader(reader))
+}
+
+fn is_blank_csv_record(record: &csv::StringRecord) -> bool {
+    record.is_empty() || (record.len() == 1 && record.get(0).is_some_and(|v| v.is_empty()))
+}
+
+/// 预览 CSV 文件
+pub fn preview_csv(path: &Path, config: &CsvImportConfig) -> Result<ImportPreview, String> {
+    let mut reader = open_csv_reader(path, config)?;
+    let mut warnings = Vec::new();
+    let mut first_data_fields: Option<Vec<String>> = None;
+
     // 读取列名
-    let columns = if config.has_header {
-        let header_line = lines
-            .next()
-            .ok_or("文件为空")?
-            .map_err(|e| format!("读取表头失败: {}", e))?;
-        parse_csv_line(&header_line, config.delimiter, config.quote_char)
+    let mut columns = if config.has_header {
+        reader
+            .headers()
+            .map_err(|e| format!("读取表头失败: {}", e))?
+            .iter()
+            .map(|v| v.to_string())
+            .collect()
     } else if !config.column_names.is_empty() {
         config.column_names.clone()
     } else {
-        // 自动生成列名
-        let first_line = lines
+        Vec::new()
+    };
+    let mut records = reader.records();
+    if !config.has_header && config.column_names.is_empty() {
+        let first_record = records
             .next()
             .ok_or("文件为空")?
-            .map_err(|e| format!("读取失败: {}", e))?;
-        let field_count = parse_csv_line(&first_line, config.delimiter, config.quote_char).len();
-        (0..field_count).map(|i| format!("column_{}", i + 1)).collect()
-    };
-    
+            .map_err(|e| format!("读取 CSV 记录失败: {}", e))?;
+        let first_fields = first_record
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>();
+        columns = (0..first_fields.len())
+            .map(|i| format!("column_{}", i + 1))
+            .collect();
+        first_data_fields = Some(first_fields);
+    }
+
     // 读取预览数据 (最多 100 行)
     let mut preview_rows = Vec::new();
     let mut total_rows = 0;
-    
-    for line_result in lines {
-        let line = line_result.map_err(|e| format!("读取行失败: {}", e))?;
-        if line.trim().is_empty() {
+
+    if let Some(fields) = first_data_fields {
+        total_rows += 1;
+        if fields.len() != columns.len() {
+            warnings.push(format!(
+                "第 {} 行字段数 ({}) 与列数 ({}) 不匹配",
+                total_rows,
+                fields.len(),
+                columns.len()
+            ));
+        }
+        preview_rows.push(fields);
+    }
+
+    for record_result in records {
+        let record = record_result.map_err(|e| format!("读取 CSV 记录失败: {}", e))?;
+        if is_blank_csv_record(&record) {
             continue;
         }
-        
+
+        if columns.is_empty() {
+            columns = (0..record.len())
+                .map(|i| format!("column_{}", i + 1))
+                .collect();
+        }
+
         total_rows += 1;
-        
+        let fields = record.iter().map(|v| v.to_string()).collect::<Vec<_>>();
+
         if preview_rows.len() < 100 {
-            let fields = parse_csv_line(&line, config.delimiter, config.quote_char);
-            
             // 检查字段数是否匹配
             if fields.len() != columns.len() {
                 warnings.push(format!(
                     "第 {} 行字段数 ({}) 与列数 ({}) 不匹配",
-                    total_rows, fields.len(), columns.len()
+                    total_rows,
+                    fields.len(),
+                    columns.len()
                 ));
             }
-            
+
             preview_rows.push(fields);
         }
-        
+
         // 限制扫描行数以提高性能
         if total_rows > 10000 {
             break;
         }
     }
-    
+
+    if columns.is_empty() {
+        return Err("文件为空".to_string());
+    }
+
     Ok(ImportPreview {
         columns,
         preview_rows,
@@ -305,37 +379,44 @@ pub fn import_csv_to_sql(
     config: &CsvImportConfig,
     use_mysql_syntax: bool,
 ) -> Result<ImportResult, String> {
-    let file = File::open(path).map_err(|e| format!("无法打开文件: {}", e))?;
-    let reader = BufReader::new(file);
-    
-    let mut lines = reader.lines();
+    let mut reader = open_csv_reader(path, config)?;
     let mut sql_statements = Vec::new();
     let mut rows_imported = 0;
-    
-    // 跳过指定行数
-    for _ in 0..config.skip_rows {
-        if lines.next().is_none() {
-            return Err("文件行数不足".to_string());
-        }
-    }
-    
+    let mut first_data_fields: Option<Vec<String>> = None;
+
     // 读取列名
-    let columns = if config.has_header {
-        let header_line = lines
-            .next()
-            .ok_or("文件为空")?
-            .map_err(|e| format!("读取表头失败: {}", e))?;
-        parse_csv_line(&header_line, config.delimiter, config.quote_char)
+    let mut columns = if config.has_header {
+        reader
+            .headers()
+            .map_err(|e| format!("读取表头失败: {}", e))?
+            .iter()
+            .map(|v| v.to_string())
+            .collect()
     } else if !config.column_names.is_empty() {
         config.column_names.clone()
     } else {
-        return Err("未指定列名且文件无表头".to_string());
+        Vec::new()
     };
-    
+    let mut records = reader.records();
+    if !config.has_header && config.column_names.is_empty() {
+        let first_record = records
+            .next()
+            .ok_or("文件为空")?
+            .map_err(|e| format!("读取 CSV 记录失败: {}", e))?;
+        let first_fields = first_record
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>();
+        columns = (0..first_fields.len())
+            .map(|i| format!("column_{}", i + 1))
+            .collect();
+        first_data_fields = Some(first_fields);
+    }
+
     if config.table_name.is_empty() {
         return Err("未指定目标表名".to_string());
     }
-    
+
     // 生成列名部分
     let quote_char = if use_mysql_syntax { '`' } else { '"' };
     let columns_str = columns
@@ -343,62 +424,89 @@ pub fn import_csv_to_sql(
         .map(|c| format!("{}{}{}", quote_char, escape_sql_identifier(c), quote_char))
         .collect::<Vec<_>>()
         .join(", ");
-    
+
     let table_name = format!(
         "{}{}{}",
         quote_char,
         escape_sql_identifier(&config.table_name),
         quote_char
     );
-    
-    // 处理数据行
-    for line_result in lines {
-        if config.max_rows > 0 && rows_imported >= config.max_rows {
-            break;
-        }
-        
-        let line = match line_result {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
-        
-        if line.trim().is_empty() {
-            continue;
-        }
-        
-        let fields = parse_csv_line(&line, config.delimiter, config.quote_char);
-        
-        // 检查字段数
+
+    let append_insert_statement = |fields: Vec<String>,
+                                   data_row_idx: usize,
+                                   rows_imported: &mut usize,
+                                   sql_statements: &mut Vec<String>|
+     -> Result<(), String> {
         if fields.len() != columns.len() {
-            continue;
+            return Err(format!(
+                "第 {} 行字段数 ({}) 与列数 ({}) 不匹配",
+                data_row_idx,
+                fields.len(),
+                columns.len()
+            ));
         }
-        
-        // 生成值部分
+
         let values = fields
             .iter()
             .map(|field| sql_value_from_string(field))
             .collect::<Vec<_>>()
             .join(", ");
-        
+
         sql_statements.push(format!(
             "INSERT INTO {} ({}) VALUES ({});",
             table_name, columns_str, values
         ));
-        
-        rows_imported += 1;
+        *rows_imported += 1;
+        Ok(())
+    };
+
+    let mut data_row_idx = 0usize;
+
+    if let Some(fields) = first_data_fields
+        && (config.max_rows == 0 || rows_imported < config.max_rows)
+    {
+        data_row_idx += 1;
+        append_insert_statement(
+            fields,
+            data_row_idx,
+            &mut rows_imported,
+            &mut sql_statements,
+        )?;
     }
-    
+
+    // 处理数据记录
+    for record_result in records {
+        if config.max_rows > 0 && rows_imported >= config.max_rows {
+            break;
+        }
+
+        let record = record_result.map_err(|e| format!("读取 CSV 记录失败: {}", e))?;
+        if is_blank_csv_record(&record) {
+            continue;
+        }
+
+        data_row_idx += 1;
+        let fields = record.iter().map(|v| v.to_string()).collect::<Vec<_>>();
+        append_insert_statement(
+            fields,
+            data_row_idx,
+            &mut rows_imported,
+            &mut sql_statements,
+        )?;
+    }
+
     Ok(ImportResult { sql_statements })
 }
 
 /// 解析 CSV 行
 /// 解析 CSV 行，处理引号转义
+#[allow(dead_code)] // 公开 API，供测试和外部调用
 pub fn parse_csv_line(line: &str, delimiter: char, quote_char: char) -> Vec<String> {
     let mut fields = Vec::new();
     let mut current_field = String::new();
     let mut in_quotes = false;
     let mut chars = line.chars().peekable();
-    
+
     while let Some(c) = chars.next() {
         if in_quotes {
             if c == quote_char {
@@ -415,16 +523,16 @@ pub fn parse_csv_line(line: &str, delimiter: char, quote_char: char) -> Vec<Stri
         } else if c == quote_char {
             in_quotes = true;
         } else if c == delimiter {
-            fields.push(current_field.trim().to_string());
+            fields.push(current_field);
             current_field = String::new();
         } else {
             current_field.push(c);
         }
     }
-    
+
     // 添加最后一个字段
-    fields.push(current_field.trim().to_string());
-    
+    fields.push(current_field);
+
     fields
 }
 
@@ -432,55 +540,120 @@ pub fn parse_csv_line(line: &str, delimiter: char, quote_char: char) -> Vec<Stri
 // JSON 导入
 // ============================================================================
 
+fn read_json_content(path: &Path) -> Result<String, String> {
+    let metadata = std::fs::metadata(path).map_err(|e| format!("无法读取文件信息: {}", e))?;
+    if metadata.len() > MAX_JSON_IMPORT_FILE_BYTES {
+        return Err(format!(
+            "JSON 文件过大 ({} MB)，当前上限 {} MB。请先拆分文件后再导入",
+            metadata.len() / 1024 / 1024,
+            MAX_JSON_IMPORT_FILE_BYTES / 1024 / 1024
+        ));
+    }
+
+    std::fs::read_to_string(path).map_err(|e| format!("无法读取文件: {}", e))
+}
+
+fn collect_json_columns(
+    array: &[serde_json::Value],
+    flatten_nested: bool,
+    max_scan_rows: usize,
+) -> (Vec<String>, bool, bool) {
+    let mut columns = Vec::new();
+    let mut seen = HashSet::new();
+    let mut has_object = false;
+    let mut has_non_object = false;
+
+    let scan_rows = array.len().min(max_scan_rows);
+    for item in array.iter().take(scan_rows) {
+        let normalized = normalize_json_item(item, flatten_nested);
+        match normalized.as_ref() {
+            serde_json::Value::Object(obj) => {
+                has_object = true;
+                for key in obj.keys() {
+                    if seen.insert(key.clone()) {
+                        columns.push(key.clone());
+                    }
+                }
+            }
+            _ => {
+                has_non_object = true;
+            }
+        }
+    }
+
+    if !has_object {
+        return (
+            vec!["value".to_string()],
+            scan_rows < array.len(),
+            has_non_object,
+        );
+    }
+
+    if columns.is_empty() {
+        return (vec!["value".to_string()], scan_rows < array.len(), true);
+    }
+
+    (columns, scan_rows < array.len(), has_non_object)
+}
+
 /// 预览 JSON 文件
 pub fn preview_json(path: &Path, config: &JsonImportConfig) -> Result<ImportPreview, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("无法读取文件: {}", e))?;
-    
-    let json_value: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("JSON 解析失败: {}", e))?;
-    
+    let content = read_json_content(path)?;
+
+    let json_value: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("JSON 解析失败: {}", e))?;
+
     // 提取数组数据
     let array = extract_json_array(&json_value, config.json_path.as_deref())?;
-    
+
     if array.is_empty() {
         return Err("JSON 数组为空".to_string());
     }
-    
+
     let mut warnings = Vec::new();
-    
-    // 从第一个对象提取列名
-    let columns: Vec<String> = match &array[0] {
-        serde_json::Value::Object(obj) => obj.keys().cloned().collect(),
-        _ => {
-            warnings.push("JSON 数组元素不是对象，使用索引作为列名".to_string());
-            vec!["value".to_string()]
-        }
-    };
-    
+
+    let (columns, scan_truncated, has_non_object) =
+        collect_json_columns(array, config.flatten_nested, 10_000);
+    if columns.len() == 1 && columns[0] == "value" {
+        warnings.push("未检测到可用对象字段，使用 value 列导入".to_string());
+    } else if has_non_object {
+        warnings.push("检测到非对象元素或空对象，将其写入第一个列，其余列填充 NULL".to_string());
+    }
+    if scan_truncated {
+        warnings.push("列推断仅扫描前 10000 行，后续新字段可能未显示".to_string());
+    }
+
     // 读取预览数据
     let mut preview_rows = Vec::new();
     let total_rows = array.len();
-    
+
     for (idx, item) in array.iter().enumerate() {
         if idx >= 100 {
             break;
         }
-        
-        let row = match item {
-            serde_json::Value::Object(obj) => {
-                columns.iter().map(|col| {
+
+        let normalized_item = normalize_json_item(item, config.flatten_nested);
+        let row = match normalized_item.as_ref() {
+            serde_json::Value::Object(obj) => columns
+                .iter()
+                .map(|col| {
                     obj.get(col)
                         .map(json_value_to_string)
                         .unwrap_or_else(|| "NULL".to_string())
-                }).collect()
+                })
+                .collect(),
+            other => {
+                let mut row = vec!["NULL".to_string(); columns.len()];
+                if let Some(first) = row.first_mut() {
+                    *first = json_value_to_string(other);
+                }
+                row
             }
-            other => vec![json_value_to_string(other)],
         };
-        
+
         preview_rows.push(row);
     }
-    
+
     Ok(ImportPreview {
         columns,
         preview_rows,
@@ -495,77 +668,133 @@ pub fn import_json_to_sql(
     config: &JsonImportConfig,
     use_mysql_syntax: bool,
 ) -> Result<ImportResult, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("无法读取文件: {}", e))?;
-    
-    let json_value: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("JSON 解析失败: {}", e))?;
-    
+    let content = read_json_content(path)?;
+
+    let json_value: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("JSON 解析失败: {}", e))?;
+
     // 提取数组数据
     let array = extract_json_array(&json_value, config.json_path.as_deref())?;
-    
+
     if array.is_empty() {
         return Ok(ImportResult {
             sql_statements: Vec::new(),
         });
     }
-    
+
     if config.table_name.is_empty() {
         return Err("未指定目标表名".to_string());
     }
-    
+
     let mut sql_statements = Vec::new();
     let mut rows_imported = 0;
-    
-    // 从第一个对象提取列名
-    let columns: Vec<String> = match &array[0] {
-        serde_json::Value::Object(obj) => obj.keys().cloned().collect(),
-        _ => vec!["value".to_string()],
+
+    let scan_rows = if config.max_rows > 0 {
+        config.max_rows
+    } else {
+        array.len()
     };
-    
+    let (columns, _scan_truncated, _has_non_object) =
+        collect_json_columns(array, config.flatten_nested, scan_rows);
+
     let quote_char = if use_mysql_syntax { '`' } else { '"' };
     let columns_str = columns
         .iter()
         .map(|c| format!("{}{}{}", quote_char, escape_sql_identifier(c), quote_char))
         .collect::<Vec<_>>()
         .join(", ");
-    
+
     let table_name = format!(
         "{}{}{}",
         quote_char,
         escape_sql_identifier(&config.table_name),
         quote_char
     );
-    
-    for item in array.iter() {
+
+    for item in array {
         if config.max_rows > 0 && rows_imported >= config.max_rows {
             break;
         }
-        
-        let values = match item {
-            serde_json::Value::Object(obj) => {
-                columns.iter().map(|col| {
+
+        let normalized_item = normalize_json_item(item, config.flatten_nested);
+        let values = match normalized_item.as_ref() {
+            serde_json::Value::Object(obj) => columns
+                .iter()
+                .map(|col| {
                     obj.get(col)
                         .map(json_value_to_sql)
                         .unwrap_or_else(|| "NULL".to_string())
-                }).collect::<Vec<_>>().join(", ")
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
+            other => {
+                if columns.len() == 1 {
+                    json_value_to_sql(other)
+                } else {
+                    let mut values = Vec::with_capacity(columns.len());
+                    values.push(json_value_to_sql(other));
+                    values.extend((1..columns.len()).map(|_| "NULL".to_string()));
+                    values.join(", ")
+                }
             }
-            other => json_value_to_sql(other),
         };
-        
+
         if values.is_empty() {
             continue;
         }
-        
+
         sql_statements.push(format!(
             "INSERT INTO {} ({}) VALUES ({});",
             table_name, columns_str, values
         ));
-        
+
         rows_imported += 1;
     }
-    
+
     Ok(ImportResult { sql_statements })
+}
+
+/// 在需要时展平 JSON 对象；未启用时返回借用
+fn normalize_json_item<'a>(
+    item: &'a serde_json::Value,
+    flatten_nested: bool,
+) -> Cow<'a, serde_json::Value> {
+    if !flatten_nested {
+        return Cow::Borrowed(item);
+    }
+
+    match item {
+        serde_json::Value::Object(obj) => {
+            let mut flattened = serde_json::Map::new();
+            flatten_json_object(obj, None, &mut flattened);
+            Cow::Owned(serde_json::Value::Object(flattened))
+        }
+        _ => Cow::Borrowed(item),
+    }
+}
+
+/// 将嵌套对象展平为点路径键（a.b.c）
+fn flatten_json_object(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    prefix: Option<&str>,
+    output: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    for (key, value) in obj {
+        let flat_key = if let Some(parent) = prefix {
+            format!("{}.{}", parent, key)
+        } else {
+            key.clone()
+        };
+
+        match value {
+            serde_json::Value::Object(child) => {
+                flatten_json_object(child, Some(&flat_key), output);
+            }
+            _ => {
+                output.insert(flat_key, value.clone());
+            }
+        }
+    }
 }
 
 /// 从 JSON 值中提取数组
@@ -584,7 +813,7 @@ fn extract_json_array<'a>(
     } else {
         value
     };
-    
+
     match target {
         serde_json::Value::Array(arr) => Ok(arr),
         _ => Err("目标不是 JSON 数组".to_string()),
@@ -629,7 +858,7 @@ pub fn json_value_to_sql(value: &serde_json::Value) -> String {
 /// 将字符串转换为 SQL 值
 pub fn sql_value_from_string(s: &str) -> String {
     let trimmed = s.trim();
-    
+
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("null") {
         "NULL".to_string()
     } else if trimmed.parse::<i64>().is_ok() || trimmed.parse::<f64>().is_ok() {
@@ -671,4 +900,3 @@ pub fn import_sql_file(path: &Path) -> Result<String, String> {
 // ============================================================================
 // 测试
 // ============================================================================
-

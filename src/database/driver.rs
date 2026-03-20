@@ -4,8 +4,8 @@
 
 #![allow(dead_code)] // 公开 API，供未来使用
 
+use super::{ConnectionConfig, DatabaseType, DbError, ForeignKeyInfo, QueryResult, TriggerInfo};
 use async_trait::async_trait;
-use super::{ConnectionConfig, DatabaseType, DbError, QueryResult, TriggerInfo, ForeignKeyInfo};
 
 /// 列信息
 #[derive(Debug, Clone)]
@@ -67,16 +67,31 @@ pub trait DatabaseDriver: Send + Sync {
     async fn list_databases(&self, config: &ConnectionConfig) -> Result<Vec<String>, DbError>;
 
     /// 获取表列表
-    async fn list_tables(&self, config: &ConnectionConfig, database: Option<&str>) -> Result<Vec<String>, DbError>;
+    async fn list_tables(
+        &self,
+        config: &ConnectionConfig,
+        database: Option<&str>,
+    ) -> Result<Vec<String>, DbError>;
 
     /// 获取表结构
-    async fn describe_table(&self, config: &ConnectionConfig, table: &str) -> Result<TableMeta, DbError>;
+    async fn describe_table(
+        &self,
+        config: &ConnectionConfig,
+        table: &str,
+    ) -> Result<TableMeta, DbError>;
 
     /// 获取主键列名
-    async fn get_primary_key(&self, config: &ConnectionConfig, table: &str) -> Result<Option<String>, DbError>;
+    async fn get_primary_key(
+        &self,
+        config: &ConnectionConfig,
+        table: &str,
+    ) -> Result<Option<String>, DbError>;
 
     /// 获取外键关系
-    async fn get_foreign_keys(&self, config: &ConnectionConfig) -> Result<Vec<ForeignKeyInfo>, DbError>;
+    async fn get_foreign_keys(
+        &self,
+        config: &ConnectionConfig,
+    ) -> Result<Vec<ForeignKeyInfo>, DbError>;
 
     /// 获取触发器列表
     async fn get_triggers(&self, config: &ConnectionConfig) -> Result<Vec<TriggerInfo>, DbError>;
@@ -276,4 +291,3 @@ impl Default for DriverCapabilities {
         Self::SQLITE
     }
 }
-

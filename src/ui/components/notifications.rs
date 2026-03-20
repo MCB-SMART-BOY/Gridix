@@ -83,7 +83,8 @@ impl NotificationToast {
                     ui.add_space(8.0);
 
                     // 消息文本
-                    let text_color = egui::Color32::from_rgba_unmultiplied(220, 220, 220, text_alpha);
+                    let text_color =
+                        egui::Color32::from_rgba_unmultiplied(220, 220, 220, text_alpha);
                     ui.label(
                         egui::RichText::new(&notification.message)
                             .color(text_color)
@@ -110,8 +111,11 @@ impl NotificationToast {
                     egui::vec2(rect.width() * remaining, progress_height),
                 );
 
-                ui.painter()
-                    .rect_filled(progress_rect, egui::CornerRadius::same(1), progress_color);
+                ui.painter().rect_filled(
+                    progress_rect,
+                    egui::CornerRadius::same(1),
+                    progress_color,
+                );
             })
             .response;
 

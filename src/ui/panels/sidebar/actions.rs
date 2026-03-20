@@ -57,5 +57,18 @@ impl SidebarActions {
             || self.select_database.is_some()
             || self.show_table_schema.is_some()
             || self.query_table.is_some()
+            || self.show_trigger_definition.is_some()
+            || self.show_routine_definition.is_some()
+            || self.focus_transfer.is_some()
+            || self.section_change.is_some()
+            || self.edit_connection.is_some()
+            || self.rename_item.is_some()
+            || self.refresh
+            || self.filter_changed
+            || self.add_filter
+            || self.clear_filters
+            || self.toggle_filter_logic.is_some()
+            || self.focus_filter_input.is_some()
+            || self.cycle_filter_column.is_some()
     }
 }

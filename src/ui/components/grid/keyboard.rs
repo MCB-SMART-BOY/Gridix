@@ -58,7 +58,7 @@ impl CmdBuffer {
         self.keys.clear();
         self.count = None;
     }
-    
+
     fn get_count(&self) -> usize {
         self.count.unwrap_or(1)
     }
@@ -98,7 +98,7 @@ pub fn handle_keyboard(
             state.count = cmd.count;
             return;
         }
-        
+
         // 数字 + Enter: 切换到指定的查询Tab
         if i.key_pressed(Key::Enter) && cmd.keys.is_empty() {
             if let Some(tab_number) = cmd.count {
@@ -110,18 +110,32 @@ pub fn handle_keyboard(
                 return;
             }
         }
-        
+
         // Backspace 回退数字计数
         if i.key_pressed(Key::Backspace) {
             if let Some(current) = cmd.count {
-                cmd.count = if current < 10 { None } else { Some(current / 10) };
+                cmd.count = if current < 10 {
+                    None
+                } else {
+                    Some(current / 10)
+                };
                 return;
             }
         }
 
         match state.mode {
             GridMode::Normal => {
-                handle_normal_mode(i, state, result, filtered_rows, actions, max_row, max_col, half_page, &mut cmd);
+                handle_normal_mode(
+                    i,
+                    state,
+                    result,
+                    filtered_rows,
+                    actions,
+                    max_row,
+                    max_col,
+                    half_page,
+                    &mut cmd,
+                );
             }
             GridMode::Select => {
                 handle_select_mode(i, state, filtered_rows, actions, max_row, max_col, &mut cmd);
@@ -141,7 +155,7 @@ fn handle_number_input(i: &egui::InputState, cmd: &mut CmdBuffer) -> bool {
     if i.modifiers.ctrl || i.modifiers.alt || i.modifiers.shift {
         return false;
     }
-    
+
     for digit in 0..=9u32 {
         let key = match digit {
             0 => Key::Num0,
@@ -156,7 +170,7 @@ fn handle_number_input(i: &egui::InputState, cmd: &mut CmdBuffer) -> bool {
             9 => Key::Num9,
             _ => continue,
         };
-        
+
         if i.key_pressed(key) {
             // 0 只有在已有计数时才追加，否则作为跳转到行首
             if digit == 0 && cmd.count.is_none() {
@@ -187,7 +201,7 @@ fn handle_normal_mode(
     let repeat = cmd.get_count();
 
     // === 基础导航 ===
-    
+
     // h / 左箭头: 向左
     if (i.key_pressed(Key::H) || i.key_pressed(Key::ArrowLeft)) && cmd.keys.is_empty() {
         if state.cursor.1 == 0 {
@@ -299,7 +313,7 @@ fn handle_normal_mode(
     }
 
     // === 翻页 ===
-    
+
     // Ctrl+U: 向上翻半页
     if i.modifiers.ctrl && i.key_pressed(Key::U) {
         let delta = half_page * repeat;
@@ -346,28 +360,28 @@ fn handle_normal_mode(
             return;
         }
     }
-    
+
     // G (Shift+g): 跳到结尾
     if i.key_pressed(Key::G) && i.modifiers.shift {
         state.goto_file_end(max_row);
         cmd.clear();
         return;
     }
-    
+
     // ge: 跳到结尾
     if i.key_pressed(Key::E) && cmd.keys == "g" {
         state.goto_file_end(max_row);
         cmd.clear();
         return;
     }
-    
+
     // gh: 行首
     if i.key_pressed(Key::H) && cmd.keys == "g" {
         state.goto_line_start();
         cmd.clear();
         return;
     }
-    
+
     // gl: 行尾
     if i.key_pressed(Key::L) && cmd.keys == "g" {
         state.goto_line_end(max_col);
@@ -380,7 +394,7 @@ fn handle_normal_mode(
         cmd.keys = "z".to_string();
         return;
     }
-    
+
     if cmd.keys == "z" {
         if i.key_pressed(Key::Z) || i.key_pressed(Key::C) {
             // zz/zc: 居中
@@ -413,7 +427,7 @@ fn handle_normal_mode(
         cmd.keys = " ".to_string();
         return;
     }
-    
+
     if cmd.keys == " " {
         if i.key_pressed(Key::D) {
             // Space+d: 标记删除
@@ -432,7 +446,7 @@ fn handle_normal_mode(
         cmd.keys = ":".to_string();
         return;
     }
-    
+
     if cmd.keys == ":" {
         if i.key_pressed(Key::W) {
             // :w 保存
@@ -457,7 +471,7 @@ fn handle_normal_mode(
         cmd.keys = "d".to_string();
         return;
     }
-    
+
     if cmd.keys == "d" && i.key_pressed(Key::D) {
         // dd: 标记删除当前行
         let row_idx = state.cursor.0;
@@ -474,7 +488,7 @@ fn handle_normal_mode(
         cmd.keys = "y".to_string();
         return;
     }
-    
+
     if cmd.keys == "y" && i.key_pressed(Key::Y) {
         // yy: 复制整行
         if let Some((_, row_data)) = filtered_rows.get(state.cursor.0) {
@@ -487,7 +501,7 @@ fn handle_normal_mode(
     }
 
     // === 单键命令 ===
-    
+
     // p: 粘贴
     if i.key_pressed(Key::P) && cmd.keys.is_empty() {
         if let Some(text) = &state.clipboard {
@@ -538,7 +552,7 @@ fn handle_normal_mode(
     }
 
     // === 模式切换 ===
-    
+
     // i: 进入插入模式
     if i.key_pressed(Key::I) && !i.modifiers.ctrl && cmd.keys.is_empty() {
         enter_insert_mode(state, filtered_rows);
@@ -610,7 +624,7 @@ fn handle_normal_mode(
     }
 
     // === 筛选 ===
-    
+
     // /: 打开筛选面板
     if i.key_pressed(Key::Slash) && cmd.keys.is_empty() {
         actions.open_filter_panel = true;
@@ -629,7 +643,7 @@ fn handle_normal_mode(
     }
 
     // === 新增行 ===
-    
+
     // o: 在末尾添加新行
     if i.key_pressed(Key::O) && !i.modifiers.shift && cmd.keys.is_empty() {
         let new_row = vec!["".to_string(); result.columns.len()];
@@ -673,7 +687,7 @@ fn handle_select_mode(
     cmd: &mut CmdBuffer,
 ) {
     // === 导航（扩展选区）===
-    
+
     if i.key_pressed(Key::H) || i.key_pressed(Key::ArrowLeft) {
         state.move_cursor(0, -1, max_row, max_col);
         return;
@@ -773,7 +787,7 @@ fn handle_select_mode(
 fn enter_insert_mode(state: &mut DataGridState, filtered_rows: &[(usize, &Vec<String>)]) {
     state.mode = GridMode::Insert;
     state.editing_cell = Some(state.cursor);
-    
+
     if let Some((_, row_data)) = filtered_rows.get(state.cursor.0) {
         if let Some(cell) = row_data.get(state.cursor.1) {
             state.edit_text = state

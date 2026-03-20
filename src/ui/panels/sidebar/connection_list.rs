@@ -1,10 +1,12 @@
 //! 连接列表渲染
 
+use super::{DatabaseList, SidebarActions, SidebarPanelState, SidebarSelectionState, TableList};
 use crate::database::ConnectionManager;
-use crate::ui::styles::{DANGER, GRAY, MUTED, SUCCESS, MARGIN_MD, MARGIN_SM, SPACING_SM, SPACING_MD, SPACING_LG};
 use crate::ui::SidebarSection;
-use super::{SidebarActions, SidebarPanelState, SidebarSelectionState, DatabaseList, TableList};
-use egui::{self, Color32, RichText, CornerRadius, Vec2};
+use crate::ui::styles::{
+    DANGER, GRAY, MARGIN_MD, MARGIN_SM, MUTED, SPACING_LG, SPACING_MD, SPACING_SM, SUCCESS,
+};
+use egui::{self, Color32, CornerRadius, RichText, Vec2};
 
 /// 连接项数据（用于避免借用冲突）
 pub(crate) struct ConnectionItemData {
@@ -45,24 +47,25 @@ impl ConnectionList {
         egui::ScrollArea::vertical()
             .id_salt("upper_scroll")
             .max_height(height - 40.0)
-            .auto_shrink([false, false])  // 不自动收缩，保持固定宽度
+            .auto_shrink([false, false]) // 不自动收缩，保持固定宽度
             .show(ui, |ui| {
-                ui.set_max_width(scroll_width);  // 限制内容最大宽度
+                ui.set_max_width(scroll_width); // 限制内容最大宽度
                 ui.add_space(SPACING_SM);
 
-                let connection_names: Vec<String> =
+                let mut connection_names: Vec<String> =
                     connection_manager.connections.keys().cloned().collect();
+                connection_names.sort_unstable();
 
                 if connection_names.is_empty() {
                     Self::show_empty_state(ui, show_connection_dialog);
                 } else {
                     // 快捷键提示（在第一个连接上方）
                     Self::show_shortcuts_hint(ui);
-                    
+
                     for (idx, name) in connection_names.iter().enumerate() {
                         // 判断是否为键盘导航选中项
-                        let is_nav_selected = is_focused 
-                            && focused_section == SidebarSection::Connections 
+                        let is_nav_selected = is_focused
+                            && focused_section == SidebarSection::Connections
                             && idx == panel_state.selection.connections;
                         Self::show_connection_item(
                             ui,
@@ -83,7 +86,12 @@ impl ConnectionList {
     }
 
     /// 显示标题栏
-    fn show_header(ui: &mut egui::Ui, show_connection_dialog: &mut bool, is_focused: bool, focused_section: SidebarSection) {
+    fn show_header(
+        ui: &mut egui::Ui,
+        show_connection_dialog: &mut bool,
+        is_focused: bool,
+        focused_section: SidebarSection,
+    ) {
         // 使用与工具栏完全相同的 Frame 包裹
         egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(MARGIN_MD, MARGIN_SM))
@@ -93,9 +101,16 @@ impl ConnectionList {
 
                     // 标题
                     ui.label(RichText::new("🔗 连接").strong());
-                    
+
                     // 显示当前焦点区域提示
-                    if is_focused && !matches!(focused_section, SidebarSection::Triggers | SidebarSection::Routines | SidebarSection::Filters) {
+                    if is_focused
+                        && !matches!(
+                            focused_section,
+                            SidebarSection::Triggers
+                                | SidebarSection::Routines
+                                | SidebarSection::Filters
+                        )
+                    {
                         let section_text = match focused_section {
                             SidebarSection::Connections => "连接",
                             SidebarSection::Databases => "数据库",
@@ -104,17 +119,27 @@ impl ConnectionList {
                             SidebarSection::Routines => "存储过程",
                             SidebarSection::Filters => "筛选",
                         };
-                        ui.label(RichText::new(format!("→ {}", section_text)).small().color(SUCCESS));
+                        ui.label(
+                            RichText::new(format!("→ {}", section_text))
+                                .small()
+                                .color(SUCCESS),
+                        );
                     }
 
                     // 把按钮推到右边
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // 新建按钮 - 无边框图标样式
-                        if ui.add(
-                            egui::Button::new(RichText::new("+").size(15.0).color(Color32::LIGHT_GRAY))
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new("+").size(15.0).color(Color32::LIGHT_GRAY),
+                                )
                                 .frame(false)
                                 .min_size(Vec2::new(24.0, 24.0)),
-                        ).on_hover_text("新建连接 (Ctrl+N)").clicked() {
+                            )
+                            .on_hover_text("新建连接 (Ctrl+N)")
+                            .clicked()
+                        {
                             *show_connection_dialog = true;
                         }
                     });
@@ -135,11 +160,7 @@ impl ConnectionList {
 
             ui.add_space(SPACING_LG);
 
-            ui.label(
-                RichText::new("暂无连接")
-                    .size(16.0)
-                    .color(GRAY),
-            );
+            ui.label(RichText::new("暂无连接").size(16.0).color(GRAY));
 
             ui.add_space(SPACING_SM);
 
@@ -151,11 +172,19 @@ impl ConnectionList {
 
             ui.add_space(SPACING_LG);
 
-            if ui.add(
-                egui::Button::new(RichText::new("+ 新建连接").size(14.0).color(Color32::LIGHT_GRAY))
+            if ui
+                .add(
+                    egui::Button::new(
+                        RichText::new("+ 新建连接")
+                            .size(14.0)
+                            .color(Color32::LIGHT_GRAY),
+                    )
                     .frame(false)
                     .min_size(Vec2::new(0.0, 24.0)),
-            ).on_hover_text("新建连接 (Ctrl+N)").clicked() {
+                )
+                .on_hover_text("新建连接 (Ctrl+N)")
+                .clicked()
+            {
                 *show_connection_dialog = true;
             }
         });
@@ -216,65 +245,69 @@ impl ConnectionList {
             .inner_margin(egui::Margin::symmetric(MARGIN_SM, 2))
             .show(ui, |ui| {
                 // 连接头部
-                let header_response = egui::collapsing_header::CollapsingHeader::new(
-                    Self::connection_header_text(name, conn_data.is_active, conn_data.is_connected, is_nav_selected),
-                )
-                .default_open(conn_data.is_active)
-                .show(ui, |ui| {
-                    ui.add_space(SPACING_SM);
-
-                    // 连接信息
-                    Self::show_connection_info(ui, &conn_data.db_type, &conn_data.host);
-
-                    ui.add_space(SPACING_SM);
-
-                    // 操作按钮
-                    Self::show_connection_buttons(
-                        ui,
+                let header_response =
+                    egui::collapsing_header::CollapsingHeader::new(Self::connection_header_text(
                         name,
                         conn_data.is_active,
-                        selected_table,
-                        actions,
-                    );
-
-                    ui.add_space(SPACING_MD);
-
-                    // 如果有数据库列表（MySQL/PostgreSQL），显示数据库列表
-                    if conn_data.is_connected && !conn_data.databases.is_empty() {
-                        DatabaseList::show(
-                            ui,
-                            name,
-                            &conn_data.databases,
-                            conn_data.selected_database.as_deref(),
-                            &conn_data.tables,
-                            connection_manager,
-                            selected_table,
-                            actions,
-                            is_focused,
-                            focused_section,
-                            selection,
-                        );
-                    } else if conn_data.is_connected {
-                        // SQLite 模式：直接显示表列表
-                        TableList::show(
-                            ui,
-                            name,
-                            &conn_data.tables,
-                            connection_manager,
-                            selected_table,
-                            actions,
-                            is_focused,
-                            focused_section,
-                            selection,
-                        );
-                    }
-
-                    // 错误显示
-                    if let Some(error) = &conn_data.error {
+                        conn_data.is_connected,
+                        is_nav_selected,
+                    ))
+                    .default_open(conn_data.is_active)
+                    .show(ui, |ui| {
                         ui.add_space(SPACING_SM);
-                        Self::show_error(ui, error);
-                    }
-                });
+
+                        // 连接信息
+                        Self::show_connection_info(ui, &conn_data.db_type, &conn_data.host);
+
+                        ui.add_space(SPACING_SM);
+
+                        // 操作按钮
+                        Self::show_connection_buttons(
+                            ui,
+                            name,
+                            conn_data.is_active,
+                            selected_table,
+                            actions,
+                        );
+
+                        ui.add_space(SPACING_MD);
+
+                        // 如果有数据库列表（MySQL/PostgreSQL），显示数据库列表
+                        if conn_data.is_connected && !conn_data.databases.is_empty() {
+                            DatabaseList::show(
+                                ui,
+                                name,
+                                &conn_data.databases,
+                                conn_data.selected_database.as_deref(),
+                                &conn_data.tables,
+                                connection_manager,
+                                selected_table,
+                                actions,
+                                is_focused,
+                                focused_section,
+                                selection,
+                            );
+                        } else if conn_data.is_connected {
+                            // SQLite 模式：直接显示表列表
+                            TableList::show(
+                                ui,
+                                name,
+                                &conn_data.tables,
+                                connection_manager,
+                                selected_table,
+                                actions,
+                                is_focused,
+                                focused_section,
+                                selection,
+                            );
+                        }
+
+                        // 错误显示
+                        if let Some(error) = &conn_data.error {
+                            ui.add_space(SPACING_SM);
+                            Self::show_error(ui, error);
+                        }
+                    });
 
                 // 右键菜单
                 let is_active_for_menu = conn_data.is_active;
@@ -289,10 +322,7 @@ impl ConnectionList {
                         ui.close();
                     }
                     ui.separator();
-                    if ui
-                        .button(RichText::new("🗑 删除").color(DANGER))
-                        .clicked()
-                    {
+                    if ui.button(RichText::new("🗑 删除").color(DANGER)).clicked() {
                         actions.delete = Some(name.to_string());
                         ui.close();
                     }
@@ -302,16 +332,21 @@ impl ConnectionList {
 
     /// 连接头部文本
     /// 使用图标+颜色双重指示，对色盲友好
-    fn connection_header_text(name: &str, is_active: bool, is_connected: bool, is_nav_selected: bool) -> RichText {
+    fn connection_header_text(
+        name: &str,
+        is_active: bool,
+        is_connected: bool,
+        is_nav_selected: bool,
+    ) -> RichText {
         // 使用不同形状的图标来区分状态，而不仅依赖颜色
         let (icon, color) = if is_nav_selected {
-            (">", Color32::from_rgb(100, 180, 255))  // 键盘导航选中
+            (">", Color32::from_rgb(100, 180, 255)) // 键盘导航选中
         } else if is_active && is_connected {
-            ("*", SUCCESS)  // 星号表示活跃连接
+            ("*", SUCCESS) // 星号表示活跃连接
         } else if is_connected {
-            ("+", Color32::from_rgb(100, 180, 100))  // 加号表示已连接但非活跃
+            ("+", Color32::from_rgb(100, 180, 100)) // 加号表示已连接但非活跃
         } else {
-            ("-", GRAY)  // 减号表示未连接
+            ("-", GRAY) // 减号表示未连接
         };
 
         RichText::new(format!("{} {}", icon, name))
@@ -357,7 +392,9 @@ impl ConnectionList {
                     egui::Button::new(RichText::new(icon).size(14.0).color(color))
                         .frame(false)
                         .min_size(Vec2::new(22.0, 22.0)),
-                ).on_hover_text(tooltip).clicked()
+                )
+                .on_hover_text(tooltip)
+                .clicked()
             };
 
             if is_active {

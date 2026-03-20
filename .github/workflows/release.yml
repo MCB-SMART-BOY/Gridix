@@ -98,7 +98,7 @@ jobs:
           path: gridix.AppImage
 
   release:
-    needs: [build]
+    needs: [build, build-appimage]
     runs-on: ubuntu-latest
     permissions:
       contents: write

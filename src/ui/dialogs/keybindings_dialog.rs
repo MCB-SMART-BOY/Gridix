@@ -69,9 +69,10 @@ impl KeyBindingsDialogState {
         for a in Action::all() {
             if *a != action
                 && let Some(existing) = self.bindings.get(*a)
-                    && existing == binding {
-                        return Some(*a);
-                    }
+                && existing == binding
+            {
+                return Some(*a);
+            }
         }
         None
     }
@@ -106,7 +107,7 @@ impl KeyBindingsDialog {
                     ui.add(
                         egui::TextEdit::singleline(&mut state.filter)
                             .desired_width(150.0)
-                            .hint_text("输入操作名称...")
+                            .hint_text("输入操作名称..."),
                     );
 
                     ui.separator();
@@ -116,14 +117,20 @@ impl KeyBindingsDialog {
                     egui::ComboBox::from_id_salt("category_filter")
                         .selected_text(state.current_category.unwrap_or("全部"))
                         .show_ui(ui, |ui| {
-                            if ui.selectable_label(state.current_category.is_none(), "全部").clicked() {
+                            if ui
+                                .selectable_label(state.current_category.is_none(), "全部")
+                                .clicked()
+                            {
                                 state.current_category = None;
                             }
                             for category in &["全局", "创建", "Tab", "编辑", "缩放"] {
-                                if ui.selectable_label(
-                                    state.current_category == Some(*category),
-                                    *category
-                                ).clicked() {
+                                if ui
+                                    .selectable_label(
+                                        state.current_category == Some(*category),
+                                        *category,
+                                    )
+                                    .clicked()
+                                {
                                     state.current_category = Some(*category);
                                 }
                             }
@@ -170,14 +177,16 @@ impl KeyBindingsDialog {
 
                                     // 应用过滤
                                     if !state.filter.is_empty()
-                                        && !desc.to_lowercase().contains(&filter_lower) {
+                                        && !desc.to_lowercase().contains(&filter_lower)
+                                    {
                                         continue;
                                     }
 
                                     if let Some(cat) = state.current_category
-                                        && category != cat {
-                                            continue;
-                                        }
+                                        && category != cat
+                                    {
+                                        continue;
+                                    }
 
                                     // 操作名称
                                     let is_selected = state.selected_action == Some(*action);
@@ -188,19 +197,20 @@ impl KeyBindingsDialog {
                                     }
 
                                     // 快捷键显示/编辑
-                                    let binding_text = state.bindings.get(*action)
+                                    let binding_text = state
+                                        .bindings
+                                        .get(*action)
                                         .map(|b| b.display())
                                         .unwrap_or_else(|| "未设置".to_string());
 
-                                    let is_recording = state.recording && state.selected_action == Some(*action);
+                                    let is_recording =
+                                        state.recording && state.selected_action == Some(*action);
 
                                     if is_recording {
                                         // 显示录制中状态
                                         let recording_text = if let Some(key) = state.recorded_key {
-                                            let binding = KeyBinding::new(
-                                                key,
-                                                state.recorded_modifiers,
-                                            );
+                                            let binding =
+                                                KeyBinding::new(key, state.recorded_modifiers);
                                             binding.display()
                                         } else if state.recorded_modifiers != KeyModifiers::NONE {
                                             format!("{}+...", state.recorded_modifiers)
@@ -211,10 +221,11 @@ impl KeyBindingsDialog {
                                         ui.label(
                                             RichText::new(recording_text)
                                                 .color(egui::Color32::LIGHT_BLUE)
-                                                .italics()
+                                                .italics(),
                                         );
                                     } else if ui.button(&binding_text).clicked()
-                                        && state.selected_action == Some(*action) {
+                                        && state.selected_action == Some(*action)
+                                    {
                                         // 开始录制
                                         state.recording = true;
                                         state.recorded_key = None;
@@ -233,7 +244,8 @@ impl KeyBindingsDialog {
 
                 // 录制快捷键时的键盘输入处理
                 if state.recording
-                    && let Some(action) = state.selected_action {
+                    && let Some(action) = state.selected_action
+                {
                     ctx.input(|i| {
                         // 获取修饰键状态
                         let mods = i.modifiers;
@@ -241,19 +253,22 @@ impl KeyBindingsDialog {
 
                         // 检测按键
                         for event in &i.events {
-                            if let egui::Event::Key { key, pressed: true, .. } = event {
+                            if let egui::Event::Key {
+                                key, pressed: true, ..
+                            } = event
+                            {
                                 // 尝试转换为 KeyCode（修饰键会返回 None）
                                 if let Some(key_code) = KeyCode::from_egui_key(*key) {
                                     state.recorded_key = Some(key_code);
 
                                     // 创建新绑定
-                                    let new_binding = KeyBinding::new(
-                                        key_code,
-                                        state.recorded_modifiers,
-                                    );
+                                    let new_binding =
+                                        KeyBinding::new(key_code, state.recorded_modifiers);
 
                                     // 检查冲突
-                                    if let Some(conflict_action) = state.check_conflict(action, &new_binding) {
+                                    if let Some(conflict_action) =
+                                        state.check_conflict(action, &new_binding)
+                                    {
                                         state.conflict_message = Some(format!(
                                             "快捷键 {} 已被 \"{}\" 使用",
                                             new_binding.display(),
@@ -285,17 +300,22 @@ impl KeyBindingsDialog {
                 ui.horizontal(|ui| {
                     // 清除选中操作的快捷键
                     if let Some(action) = state.selected_action
-                        && ui.button("清除快捷键").clicked() {
-                            state.bindings.remove(action);
-                            state.has_changes = true;
-                        }
+                        && ui.button("清除快捷键").clicked()
+                    {
+                        state.bindings.remove(action);
+                        state.has_changes = true;
+                    }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("取消").clicked() {
                             should_close = true;
                         }
 
-                        let save_text = if state.has_changes { "保存 *" } else { "保存" };
+                        let save_text = if state.has_changes {
+                            "保存 *"
+                        } else {
+                            "保存"
+                        };
                         if ui.button(save_text).clicked() {
                             result = Some(state.bindings.clone());
                             should_close = true;
@@ -308,7 +328,7 @@ impl KeyBindingsDialog {
                 ui.label(
                     RichText::new("提示: 选中操作后点击快捷键按钮开始录制，按 ESC 取消")
                         .small()
-                        .weak()
+                        .weak(),
                 );
             });
 

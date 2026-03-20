@@ -33,6 +33,8 @@ pub struct QueryTab {
     pub modified: bool,
     /// 关联的表名 (如果有)
     pub table_name: Option<String>,
+    /// 当前进行中的请求 ID（用于丢弃过期回包）
+    pub pending_request_id: Option<u64>,
 }
 
 impl QueryTab {
@@ -48,6 +50,7 @@ impl QueryTab {
             query_time_ms: None,
             modified: false,
             table_name: None,
+            pending_request_id: None,
         }
     }
 
@@ -73,7 +76,7 @@ impl QueryTab {
     /// 从 SQL 内容提取标题
     fn extract_title(sql: &str) -> String {
         let sql_upper = sql.trim().to_uppercase();
-        
+
         // 尝试提取表名
         if let Some(from_pos) = sql_upper.find("FROM") {
             let after_from = &sql[from_pos + 4..].trim_start();
@@ -85,7 +88,7 @@ impl QueryTab {
                 return format!("查询 {}", table_name);
             }
         }
-        
+
         // 根据 SQL 类型生成标题
         if sql_upper.starts_with("SELECT") {
             "SELECT 查询".to_string()
@@ -158,11 +161,13 @@ impl QueryTabManager {
         manager.new_tab();
         manager
     }
-    
+
     /// 找到下一个可用的Tab编号
     fn find_next_number(&self) -> usize {
         // 收集所有已使用的编号
-        let mut used_numbers: Vec<usize> = self.tabs.iter()
+        let mut used_numbers: Vec<usize> = self
+            .tabs
+            .iter()
             .filter_map(|tab| {
                 // 解析 "查询 N" 格式的标题
                 if tab.title.starts_with("查询 ") {
@@ -173,7 +178,7 @@ impl QueryTabManager {
             })
             .collect();
         used_numbers.sort();
-        
+
         // 找到第一个未使用的编号
         let mut next = 1;
         for num in used_numbers {
@@ -194,7 +199,7 @@ impl QueryTabManager {
 
         let mut tab = QueryTab::new();
         tab.title = format!("查询 {}", self.find_next_number());
-        
+
         self.tabs.push(tab);
         self.active_index = self.tabs.len() - 1;
         self.active_index
@@ -222,7 +227,11 @@ impl QueryTabManager {
     #[allow(dead_code)] // 公开 API，供外部使用
     pub fn new_tab_for_table(&mut self, table_name: &str, sql: &str) -> usize {
         // 检查是否已有该表的 Tab
-        if let Some(idx) = self.tabs.iter().position(|t| t.table_name.as_deref() == Some(table_name)) {
+        if let Some(idx) = self
+            .tabs
+            .iter()
+            .position(|t| t.table_name.as_deref() == Some(table_name))
+        {
             self.active_index = idx;
             return idx;
         }
@@ -251,7 +260,7 @@ impl QueryTabManager {
 
         if index < self.tabs.len() {
             self.tabs.remove(index);
-            
+
             // 调整活动索引
             if self.active_index >= self.tabs.len() {
                 self.active_index = self.tabs.len() - 1;
@@ -388,7 +397,7 @@ impl QueryTabBar {
             // Tab 按钮
             for (idx, tab) in tabs.iter().enumerate() {
                 let is_active = idx == active_index;
-                
+
                 // Tab 背景色
                 let bg_color = if is_active {
                     Color32::from_rgba_unmultiplied(
@@ -421,14 +430,10 @@ impl QueryTabBar {
                         } else {
                             highlight_colors.default
                         };
-                        
+
                         let title_response = ui.add(
-                            egui::Label::new(
-                                RichText::new(&tab.title)
-                                    .color(title_color)
-                                    .small()
-                            )
-                            .sense(egui::Sense::click()),
+                            egui::Label::new(RichText::new(&tab.title).color(title_color).small())
+                                .sense(egui::Sense::click()),
                         );
 
                         if title_response.clicked() {
@@ -440,12 +445,16 @@ impl QueryTabBar {
                             // 无边框菜单按钮
                             let menu_btn = |ui: &mut Ui, text: &str, tooltip: &str| -> bool {
                                 ui.add(
-                                    egui::Button::new(RichText::new(text).size(13.0).color(Color32::LIGHT_GRAY))
-                                        .frame(false)
-                                        .min_size(Vec2::new(0.0, 24.0)),
-                                ).on_hover_text(tooltip).clicked()
+                                    egui::Button::new(
+                                        RichText::new(text).size(13.0).color(Color32::LIGHT_GRAY),
+                                    )
+                                    .frame(false)
+                                    .min_size(Vec2::new(0.0, 24.0)),
+                                )
+                                .on_hover_text(tooltip)
+                                .clicked()
                             };
-                            
+
                             if menu_btn(ui, "✕ 关闭", "关闭此标签") {
                                 actions.close_tab = Some(idx);
                                 ui.close();
@@ -462,12 +471,18 @@ impl QueryTabBar {
 
                         // 关闭按钮 - 无边框图标
                         if tabs.len() > 1 {
-                            let close_response = ui.add(
-                                egui::Button::new(RichText::new("×").size(12.0).color(highlight_colors.comment))
+                            let close_response = ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new("×")
+                                            .size(12.0)
+                                            .color(highlight_colors.comment),
+                                    )
                                     .frame(false)
                                     .min_size(Vec2::new(18.0, 18.0)),
-                            ).on_hover_text("关闭标签");
-                            
+                                )
+                                .on_hover_text("关闭标签");
+
                             if close_response.clicked() {
                                 actions.close_tab = Some(idx);
                             }
@@ -483,20 +498,24 @@ impl QueryTabBar {
 
             // 新建 Tab 按钮 - 无边框图标
             ui.add_space(4.0);
-            if ui.add(
-                egui::Button::new(RichText::new("+").size(14.0).color(Color32::LIGHT_GRAY))
-                    .frame(false)
-                    .min_size(Vec2::new(22.0, 22.0)),
-            ).on_hover_text("新建查询 (Ctrl+T)").clicked() {
+            if ui
+                .add(
+                    egui::Button::new(RichText::new("+").size(14.0).color(Color32::LIGHT_GRAY))
+                        .frame(false)
+                        .min_size(Vec2::new(22.0, 22.0)),
+                )
+                .on_hover_text("新建查询 (Ctrl+T)")
+                .clicked()
+            {
                 actions.new_tab = true;
             }
         });
 
         actions
     }
-    
+
     /// 处理Tab栏键盘输入 (Helix风格)
-    /// 
+    ///
     /// - h/l: 左右切换Tab
     /// - j: 向下进入数据表格
     /// - k: 向上进入工具栏
@@ -511,7 +530,7 @@ impl QueryTabBar {
         if tab_count == 0 {
             return;
         }
-        
+
         ui.input(|i| {
             // h/左箭头: 切换到左边的Tab
             if i.key_pressed(egui::Key::H) || i.key_pressed(egui::Key::ArrowLeft) {
@@ -519,34 +538,34 @@ impl QueryTabBar {
                     actions.switch_to = Some(active_index - 1);
                 }
             }
-            
+
             // l/右箭头: 切换到右边的Tab
             if i.key_pressed(egui::Key::L) || i.key_pressed(egui::Key::ArrowRight) {
                 if active_index < tab_count - 1 {
                     actions.switch_to = Some(active_index + 1);
                 }
             }
-            
+
             // j/下箭头: 向下进入数据表格
             if i.key_pressed(egui::Key::J) || i.key_pressed(egui::Key::ArrowDown) {
                 actions.focus_transfer = Some(TabBarFocusTransfer::ToDataGrid);
             }
-            
+
             // k/上箭头: 向上进入工具栏
             if i.key_pressed(egui::Key::K) || i.key_pressed(egui::Key::ArrowUp) {
                 actions.focus_transfer = Some(TabBarFocusTransfer::ToToolbar);
             }
-            
+
             // Enter: 确认选择，进入数据表格
             if i.key_pressed(egui::Key::Enter) {
                 actions.focus_transfer = Some(TabBarFocusTransfer::ToDataGrid);
             }
-            
+
             // d: 删除当前Tab
             if i.key_pressed(egui::Key::D) && tab_count > 1 {
                 actions.close_tab = Some(active_index);
             }
-            
+
             // Escape: 返回数据表格
             if i.key_pressed(egui::Key::Escape) {
                 actions.focus_transfer = Some(TabBarFocusTransfer::ToDataGrid);
@@ -558,4 +577,3 @@ impl QueryTabBar {
 // ============================================================================
 // 测试
 // ============================================================================
-

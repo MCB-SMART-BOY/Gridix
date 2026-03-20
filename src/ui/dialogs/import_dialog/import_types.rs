@@ -159,10 +159,7 @@ impl ImportState {
     }
 
     pub fn set_file(&mut self, path: PathBuf) {
-        let ext = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("sql");
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("sql");
 
         self.format = ImportFormat::from_extension(ext);
 

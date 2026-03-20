@@ -1964,6 +1964,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_extras",
+ "futures-util",
  "hostname",
  "lazy_static",
  "mysql_async",

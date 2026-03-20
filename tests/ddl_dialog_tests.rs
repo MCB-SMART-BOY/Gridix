@@ -1,7 +1,7 @@
 //! DDL 对话框测试
 
-use gridix::ui::dialogs::{ColumnType, ColumnDefinition, TableDefinition};
 use gridix::database::DatabaseType;
+use gridix::ui::dialogs::{ColumnDefinition, ColumnType, TableDefinition};
 
 #[test]
 fn test_column_type_sql() {

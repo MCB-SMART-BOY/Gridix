@@ -63,11 +63,17 @@ pub fn helix_theme_combo_simple(
 
     // 按钮 - 无边框图标样式
     let display_text = current_theme.display_name();
-    let response = ui.add(
-        egui::Button::new(RichText::new(display_text).size(13.0).color(Color32::LIGHT_GRAY))
+    let response = ui
+        .add(
+            egui::Button::new(
+                RichText::new(display_text)
+                    .size(13.0)
+                    .color(Color32::LIGHT_GRAY),
+            )
             .frame(false)
-            .min_size(Vec2::new(0.0, 24.0))
-    ).on_hover_text("选择主题 (Ctrl+Shift+T)");
+            .min_size(Vec2::new(0.0, 24.0)),
+        )
+        .on_hover_text("选择主题 (Ctrl+Shift+T)");
 
     if response.clicked() {
         state.is_open = !state.is_open;
@@ -77,10 +83,7 @@ pub fn helix_theme_combo_simple(
     if state.is_open {
         egui::Area::new(popup_id)
             .order(egui::Order::Foreground)
-            .fixed_pos(
-                response.rect.left_bottom()
-                    - Vec2::new(width - response.rect.width(), -4.0),
-            )
+            .fixed_pos(response.rect.left_bottom() - Vec2::new(width - response.rect.width(), -4.0))
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style())
                     .corner_radius(CornerRadius::same(8))
@@ -153,8 +156,12 @@ pub fn helix_theme_combo_simple(
                                 ui.add_space(4.0);
                                 for (idx, theme) in themes.iter().enumerate() {
                                     let is_hover = idx == state.selected_index;
-                                    let item_response =
-                                        render_combo_item(ui, theme.display_name(), is_hover, false);
+                                    let item_response = render_combo_item(
+                                        ui,
+                                        theme.display_name(),
+                                        is_hover,
+                                        false,
+                                    );
 
                                     // 键盘选中时自动滚动到该项
                                     if is_hover {

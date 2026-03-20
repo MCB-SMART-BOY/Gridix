@@ -27,7 +27,7 @@ impl SidebarSelectionState {
         self.triggers = 0;
         self.routines = 0;
     }
-    
+
     /// 重置表相关的选中索引（切换数据库时调用）
     pub fn reset_for_database_change(&mut self) {
         self.tables = 0;
@@ -44,7 +44,7 @@ pub struct SidebarPanelState {
     pub show_connections: bool,
     /// 连接面板高度比例 (相对于可用空间)
     pub connections_ratio: f32,
-    
+
     // ===== 触发器面板 =====
     /// 触发器面板是否显示
     pub show_triggers: bool,
@@ -56,7 +56,7 @@ pub struct SidebarPanelState {
     pub trigger_selected_index: usize,
     /// 是否正在加载触发器
     pub loading_triggers: bool,
-    
+
     // ===== 存储过程面板 =====
     /// 存储过程/函数面板是否显示
     pub show_routines: bool,
@@ -68,13 +68,13 @@ pub struct SidebarPanelState {
     pub routine_selected_index: usize,
     /// 是否正在加载存储过程
     pub loading_routines: bool,
-    
+
     // ===== 筛选面板 =====
     /// 筛选面板是否显示
     pub show_filters: bool,
     /// 筛选面板高度比例
     pub filters_ratio: f32,
-    
+
     // ===== 其他状态 =====
     /// 各区域的选中状态
     pub selection: SidebarSelectionState,
@@ -90,25 +90,25 @@ impl Default for SidebarPanelState {
             // 连接面板 - 默认显示，占 40%
             show_connections: true,
             connections_ratio: 0.4,
-            
+
             // 触发器面板 - 默认显示，占 20%
             show_triggers: true,
             triggers_ratio: 0.2,
             triggers: Vec::new(),
             trigger_selected_index: 0,
             loading_triggers: false,
-            
+
             // 存储过程面板 - 默认显示，占 20%
             show_routines: true,
             routines_ratio: 0.2,
             routines: Vec::new(),
             routine_selected_index: 0,
             loading_routines: false,
-            
+
             // 筛选面板 - 默认显示，占 20%
             show_filters: true,
             filters_ratio: 0.2,
-            
+
             selection: SidebarSelectionState::default(),
             dragging_divider: None,
             command_buffer: String::new(),
@@ -123,7 +123,7 @@ impl SidebarPanelState {
         self.trigger_selected_index = 0;
         self.selection.triggers = 0;
     }
-    
+
     /// 设置触发器列表
     pub fn set_triggers(&mut self, triggers: Vec<TriggerInfo>) {
         self.triggers = triggers;
@@ -131,14 +131,14 @@ impl SidebarPanelState {
         self.selection.triggers = 0;
         self.loading_triggers = false;
     }
-    
+
     /// 清空存储过程/函数列表
     pub fn clear_routines(&mut self) {
         self.routines.clear();
         self.routine_selected_index = 0;
         self.selection.routines = 0;
     }
-    
+
     /// 设置存储过程/函数列表
     pub fn set_routines(&mut self, routines: Vec<RoutineInfo>) {
         self.routines = routines;

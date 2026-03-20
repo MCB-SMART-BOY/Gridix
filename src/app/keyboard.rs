@@ -2,8 +2,9 @@
 //!
 //! 集中管理所有键盘快捷键的处理逻辑。
 
-use eframe::egui;
+use crate::core::Action;
 use crate::ui;
+use eframe::egui;
 
 use super::DbManagerApp;
 
@@ -12,12 +13,20 @@ impl DbManagerApp {
     pub(super) fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
         // 检查是否有模态对话框打开
         let has_dialog = self.has_modal_dialog_open();
+        let keybindings = self.keybindings.clone();
 
         ctx.input(|i| {
+            let action_triggered = |action: Action| {
+                keybindings.get(action).is_some_and(|binding| {
+                    binding.modifiers.matches(&i.modifiers)
+                        && i.key_pressed(binding.key.to_egui_key())
+                })
+            };
+
             // ===== 始终可用的快捷键（即使对话框打开） =====
-            
+
             // F1: 帮助（切换）
-            if i.key_pressed(egui::Key::F1) {
+            if action_triggered(Action::ShowHelp) {
                 self.show_help = !self.show_help;
             }
 
@@ -27,12 +36,12 @@ impl DbManagerApp {
             }
 
             // Ctrl+N: 新建连接
-            if i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::N) {
+            if action_triggered(Action::NewConnection) {
                 self.show_connection_dialog = true;
             }
-            
+
             // Ctrl+Shift+N: 新建表
-            if i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::N)
+            if action_triggered(Action::NewTable)
                 && let Some(conn) = self.manager.get_active()
                 && conn.selected_database.is_some()
             {
@@ -41,15 +50,17 @@ impl DbManagerApp {
             }
 
             // Ctrl+Shift+D: 新建数据库
-            if i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::D) {
-                let db_type = self.manager.get_active()
+            if action_triggered(Action::NewDatabase) {
+                let db_type = self
+                    .manager
+                    .get_active()
                     .map(|c| c.config.db_type)
                     .unwrap_or_default();
                 self.create_db_dialog_state.open(db_type);
             }
 
             // Ctrl+Shift+U: 新建用户
-            if i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::U) {
+            if action_triggered(Action::NewUser) {
                 if let Some(conn) = self.manager.get_active() {
                     let db_type = conn.config.db_type;
                     if matches!(db_type, crate::database::DatabaseType::SQLite) {
@@ -64,23 +75,23 @@ impl DbManagerApp {
             }
 
             // Ctrl+E: 导出
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::E) && self.result.is_some() {
+            if action_triggered(Action::Export) && self.result.is_some() {
                 self.show_export_dialog = true;
                 self.export_status = None;
             }
 
             // Ctrl+I: 导入
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::I) {
+            if action_triggered(Action::Import) {
                 self.handle_import();
             }
 
             // Ctrl+H: 历史记录
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::H) {
+            if action_triggered(Action::ShowHistory) {
                 self.show_history_panel = !self.show_history_panel;
             }
 
             // Ctrl+R: 切换 ER 关系图
-            if i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::R) {
+            if action_triggered(Action::ToggleErDiagram) {
                 self.show_er_diagram = !self.show_er_diagram;
                 if self.show_er_diagram {
                     self.load_er_diagram_data();
@@ -91,20 +102,20 @@ impl DbManagerApp {
             }
 
             // F5: 刷新表列表
-            if i.key_pressed(egui::Key::F5)
+            if action_triggered(Action::Refresh)
                 && let Some(name) = self.manager.active.clone()
             {
                 self.connect(name);
             }
 
             // Ctrl+L: 清空命令行
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::L) {
+            if action_triggered(Action::ClearCommandLine) {
                 self.sql.clear();
                 self.notifications.dismiss_all();
             }
 
             // Ctrl+J: 切换 SQL 编辑器显示
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::J) {
+            if action_triggered(Action::ToggleEditor) {
                 self.show_sql_editor = !self.show_sql_editor;
                 if self.show_sql_editor {
                     // 打开时自动聚焦到编辑器
@@ -119,7 +130,7 @@ impl DbManagerApp {
             }
 
             // Ctrl+B: 切换侧边栏显示
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::B) {
+            if action_triggered(Action::ToggleSidebar) {
                 self.show_sidebar = !self.show_sidebar;
                 if self.show_sidebar {
                     // 打开侧边栏时聚焦到侧边栏
@@ -133,45 +144,65 @@ impl DbManagerApp {
             }
 
             // Ctrl+K: 清空搜索
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::K) {
+            if action_triggered(Action::ClearSearch) {
                 self.search_text.clear();
             }
 
             // Ctrl+F: 添加筛选条件
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::F) && !i.modifiers.shift
+            if action_triggered(Action::AddFilter)
                 && let Some(result) = &self.result
-                    && let Some(col) = result.columns.first() {
-                        self.grid_state.filters.push(ui::components::ColumnFilter::new(col.clone()));
-                    }
+                && let Some(col) = result.columns.first()
+            {
+                self.grid_state
+                    .filters
+                    .push(ui::components::ColumnFilter::new(col.clone()));
+            }
 
             // Ctrl+Shift+F: 清空筛选条件
-            if i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::F) {
+            if action_triggered(Action::ClearFilters) {
                 self.grid_state.filters.clear();
             }
 
             // Ctrl+S: 触发保存表格修改
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::S) {
+            if action_triggered(Action::Save) {
                 self.grid_state.pending_save = true;
             }
 
             // Ctrl+G: 跳转到行
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::G) {
+            if action_triggered(Action::GotoLine) {
                 self.grid_state.show_goto_dialog = true;
             }
 
+            // 用户可选：新建查询标签页（默认未绑定）
+            if action_triggered(Action::NewTab) {
+                self.tab_manager.new_tab();
+                self.sync_from_active_tab();
+            }
+
             // Ctrl+Tab: 下一个查询标签页
-            if i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::Tab) {
+            if action_triggered(Action::NextTab) {
                 self.tab_manager.next_tab();
+                self.sync_from_active_tab();
             }
 
             // Ctrl+Shift+Tab: 上一个查询标签页
-            if i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::Tab) {
+            if action_triggered(Action::PrevTab) {
                 self.tab_manager.prev_tab();
+                self.sync_from_active_tab();
             }
 
             // Ctrl+W: 关闭当前查询标签页
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::W) {
+            if action_triggered(Action::CloseTab) {
+                if self.tab_manager.tabs.len() > 1
+                    && let Some(request_id) = self
+                        .tab_manager
+                        .get_active()
+                        .and_then(|tab| tab.pending_request_id)
+                {
+                    self.cancel_query_request(request_id);
+                }
                 self.tab_manager.close_active_tab();
+                self.sync_from_active_tab();
             }
 
             // Ctrl+D: 切换日/夜模式
@@ -189,38 +220,47 @@ impl DbManagerApp {
                 let section = if i.key_pressed(egui::Key::Num1) {
                     Some(ui::SidebarSection::Connections) // 1: 连接
                 } else if i.key_pressed(egui::Key::Num2) {
-                    Some(ui::SidebarSection::Databases)   // 2: 数据库
+                    Some(ui::SidebarSection::Databases) // 2: 数据库
                 } else if i.key_pressed(egui::Key::Num3) {
-                    Some(ui::SidebarSection::Tables)      // 3: 表
+                    Some(ui::SidebarSection::Tables) // 3: 表
                 } else if i.key_pressed(egui::Key::Num4) {
-                    Some(ui::SidebarSection::Filters)     // 4: 筛选
+                    Some(ui::SidebarSection::Filters) // 4: 筛选
                 } else if i.key_pressed(egui::Key::Num5) {
-                    Some(ui::SidebarSection::Triggers)    // 5: 触发器
+                    Some(ui::SidebarSection::Triggers) // 5: 触发器
                 } else if i.key_pressed(egui::Key::Num6) {
-                    Some(ui::SidebarSection::Routines)    // 6: 存储过程
+                    Some(ui::SidebarSection::Routines) // 6: 存储过程
                 } else {
                     None
                 };
-                
+
                 if let Some(s) = section {
                     // Ctrl+2/3 (数据库/表) 只做导航，不切换面板显示
                     // Ctrl+1/4/5/6 切换对应面板的显示状态
-                    let is_toggle_panel = matches!(s, 
-                        ui::SidebarSection::Connections | 
-                        ui::SidebarSection::Filters | 
-                        ui::SidebarSection::Triggers | 
-                        ui::SidebarSection::Routines
+                    let is_toggle_panel = matches!(
+                        s,
+                        ui::SidebarSection::Connections
+                            | ui::SidebarSection::Filters
+                            | ui::SidebarSection::Triggers
+                            | ui::SidebarSection::Routines
                     );
-                    
+
                     let panel_visible = match s {
-                        ui::SidebarSection::Connections => self.sidebar_panel_state.show_connections,
-                        ui::SidebarSection::Databases | ui::SidebarSection::Tables => self.sidebar_panel_state.show_connections,
+                        ui::SidebarSection::Connections => {
+                            self.sidebar_panel_state.show_connections
+                        }
+                        ui::SidebarSection::Databases | ui::SidebarSection::Tables => {
+                            self.sidebar_panel_state.show_connections
+                        }
                         ui::SidebarSection::Filters => self.sidebar_panel_state.show_filters,
                         ui::SidebarSection::Triggers => self.sidebar_panel_state.show_triggers,
                         ui::SidebarSection::Routines => self.sidebar_panel_state.show_routines,
                     };
-                    
-                    if is_toggle_panel && self.show_sidebar && self.sidebar_section == s && panel_visible {
+
+                    if is_toggle_panel
+                        && self.show_sidebar
+                        && self.sidebar_section == s
+                        && panel_visible
+                    {
                         // 当前已在该面板，切换关闭（仅对 Ctrl+1/4/5/6）
                         match s {
                             ui::SidebarSection::Connections => {
@@ -245,7 +285,9 @@ impl DbManagerApp {
                         self.grid_state.focused = false;
                         // 确保对应面板可见
                         match s {
-                            ui::SidebarSection::Connections | ui::SidebarSection::Databases | ui::SidebarSection::Tables => {
+                            ui::SidebarSection::Connections
+                            | ui::SidebarSection::Databases
+                            | ui::SidebarSection::Tables => {
                                 self.sidebar_panel_state.show_connections = true;
                             }
                             ui::SidebarSection::Filters => {
@@ -285,7 +327,11 @@ impl DbManagerApp {
     fn cycle_focus(&mut self, reverse: bool) {
         // 焦点循环顺序: Sidebar -> DataGrid -> SqlEditor -> Sidebar
         let areas = if self.show_sidebar && self.show_sql_editor {
-            vec![ui::FocusArea::Sidebar, ui::FocusArea::DataGrid, ui::FocusArea::SqlEditor]
+            vec![
+                ui::FocusArea::Sidebar,
+                ui::FocusArea::DataGrid,
+                ui::FocusArea::SqlEditor,
+            ]
         } else if self.show_sidebar {
             vec![ui::FocusArea::Sidebar, ui::FocusArea::DataGrid]
         } else if self.show_sql_editor {
@@ -298,16 +344,23 @@ impl DbManagerApp {
             return;
         }
 
-        let current_idx = areas.iter().position(|&a| a == self.focus_area).unwrap_or(0);
+        let current_idx = areas
+            .iter()
+            .position(|&a| a == self.focus_area)
+            .unwrap_or(0);
         let next_idx = if reverse {
-            if current_idx == 0 { areas.len() - 1 } else { current_idx - 1 }
+            if current_idx == 0 {
+                areas.len() - 1
+            } else {
+                current_idx - 1
+            }
         } else {
             (current_idx + 1) % areas.len()
         };
 
         let new_focus = areas[next_idx];
         self.focus_area = new_focus;
-        
+
         // 更新焦点状态
         match new_focus {
             ui::FocusArea::Toolbar => {
@@ -338,21 +391,28 @@ impl DbManagerApp {
 
     /// 处理缩放快捷键
     pub(super) fn handle_zoom_shortcuts(&mut self, ctx: &egui::Context) {
+        let keybindings = self.keybindings.clone();
         let zoom_delta = ctx.input(|i| {
             let mut delta = 0.0f32;
+            let action_triggered = |action: Action| {
+                keybindings.get(action).is_some_and(|binding| {
+                    binding.modifiers.matches(&i.modifiers)
+                        && i.key_pressed(binding.key.to_egui_key())
+                })
+            };
 
             // Ctrl++ 或 Ctrl+= 放大
-            if i.modifiers.ctrl && (i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals)) {
+            if action_triggered(Action::ZoomIn) {
                 delta = 0.1;
             }
 
             // Ctrl+- 缩小
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::Minus) {
+            if action_triggered(Action::ZoomOut) {
                 delta = -0.1;
             }
 
             // Ctrl+0 重置缩放
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::Num0) {
+            if action_triggered(Action::ZoomReset) {
                 return Some(-999.0); // 特殊值表示重置
             }
 
@@ -361,11 +421,7 @@ impl DbManagerApp {
                 delta = i.raw_scroll_delta.y * 0.001;
             }
 
-            if delta != 0.0 {
-                Some(delta)
-            } else {
-                None
-            }
+            if delta != 0.0 { Some(delta) } else { None }
         });
 
         if let Some(delta) = zoom_delta {

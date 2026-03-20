@@ -3,7 +3,7 @@
 //! 提供 SSH 隧道功能，允许通过 SSH 跳板机连接远程数据库。
 
 use russh::client::{Config, Handle, Handler};
-use russh::keys::{ssh_key, PrivateKeyWithHashAlg};
+use russh::keys::{PrivateKeyWithHashAlg, ssh_key};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::net::SocketAddr;
@@ -53,7 +53,7 @@ impl SshAuthMethod {
             Self::PrivateKey => "私钥",
         }
     }
-    
+
     /// 获取所有认证方式
     #[allow(dead_code)] // 公开 API，供外部使用
     pub fn all() -> Vec<Self> {
@@ -103,6 +103,14 @@ impl SshTunnelConfig {
         format!("{}:{}", self.ssh_host, self.ssh_port)
     }
 
+    /// 获取隧道唯一名称（用于复用与回收）
+    pub fn tunnel_name(&self) -> String {
+        format!(
+            "{}:{}->{}:{}",
+            self.ssh_host, self.ssh_port, self.remote_host, self.remote_port
+        )
+    }
+
     /// 验证配置是否有效
     pub fn validate(&self) -> Result<(), String> {
         if !self.enabled {
@@ -149,7 +157,16 @@ impl SshTunnelConfig {
 // SSH 客户端处理器
 // ============================================================================
 
-struct SshClientHandler;
+struct SshClientHandler {
+    host: String,
+    port: u16,
+}
+
+impl SshClientHandler {
+    fn new(host: String, port: u16) -> Self {
+        Self { host, port }
+    }
+}
 
 impl Handler for SshClientHandler {
     type Error = russh::Error;
@@ -157,11 +174,34 @@ impl Handler for SshClientHandler {
     #[allow(clippy::manual_async_fn)]
     fn check_server_key(
         &mut self,
-        _server_public_key: &ssh_key::PublicKey,
+        server_public_key: &ssh_key::PublicKey,
     ) -> impl Future<Output = Result<bool, Self::Error>> + Send {
-        // 在生产环境中，应该验证服务器密钥
-        // 这里简化处理，始终接受
-        async { Ok(true) }
+        let host = self.host.clone();
+        let port = self.port;
+        let server_public_key = server_public_key.clone();
+
+        async move {
+            match russh::keys::check_known_hosts(&host, port, &server_public_key) {
+                Ok(true) => Ok(true),
+                Ok(false) => {
+                    tracing::error!(
+                        host = %host,
+                        port,
+                        "SSH 服务器密钥未在 known_hosts 中找到或不匹配"
+                    );
+                    Ok(false)
+                }
+                Err(e) => {
+                    tracing::error!(
+                        host = %host,
+                        port,
+                        error = %e,
+                        "SSH 服务器密钥校验失败"
+                    );
+                    Ok(false)
+                }
+            }
+        }
     }
 }
 
@@ -202,7 +242,14 @@ impl SshTunnel {
 
         // 启动隧道转发任务
         let task_handle = tokio::spawn(async move {
-            Self::run_tunnel(listener, ssh_handle, remote_host, remote_port, running_clone).await;
+            Self::run_tunnel(
+                listener,
+                ssh_handle,
+                remote_host,
+                remote_port,
+                running_clone,
+            )
+            .await;
         });
 
         Ok(Self {
@@ -217,14 +264,10 @@ impl SshTunnel {
         let ssh_config = Config::default();
         let ssh_config = Arc::new(ssh_config);
 
-        // 解析地址
-        let addr: SocketAddr = config
-            .ssh_addr()
-            .parse()
-            .map_err(|_| SshError::Connection("无效的 SSH 地址".to_string()))?;
+        let handler = SshClientHandler::new(config.ssh_host.clone(), config.ssh_port);
 
         // 连接 SSH 服务器
-        let mut session = russh::client::connect(ssh_config, addr, SshClientHandler)
+        let mut session = russh::client::connect(ssh_config, config.ssh_addr(), handler)
             .await
             .map_err(|e| SshError::Connection(format!("连接失败: {}", e)))?;
 
@@ -237,7 +280,7 @@ impl SshTunnel {
             SshAuthMethod::PrivateKey => {
                 let key_data = std::fs::read_to_string(&config.private_key_path)
                     .map_err(|e| SshError::Key(format!("读取私钥文件失败: {}", e)))?;
-                
+
                 let key_pair = if config.private_key_passphrase.is_empty() {
                     russh::keys::decode_secret_key(&key_data, None)
                 } else {
@@ -246,7 +289,7 @@ impl SshTunnel {
                 .map_err(|e| SshError::Key(format!("解析私钥失败: {}", e)))?;
 
                 let key_with_alg = PrivateKeyWithHashAlg::new(Arc::new(key_pair), None);
-                
+
                 session
                     .authenticate_publickey(&config.ssh_username, key_with_alg)
                     .await
@@ -409,9 +452,10 @@ impl SshTunnelManager {
         {
             let tunnels = self.tunnels.read().await;
             if let Some(tunnel) = tunnels.get(name)
-                && tunnel.is_running().await {
-                    return Ok(tunnel.clone());
-                }
+                && tunnel.is_running().await
+            {
+                return Ok(tunnel.clone());
+            }
         }
 
         // 创建新隧道
@@ -465,4 +509,3 @@ lazy_static::lazy_static! {
 // ============================================================================
 // 测试
 // ============================================================================
-

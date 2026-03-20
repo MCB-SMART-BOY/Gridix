@@ -19,9 +19,8 @@ pub use sql_editor::{EditorMode, SqlEditor, SqlEditorActions};
 
 // 数据表格（Helix 风格）
 pub use grid::{
-    check_filter_match, escape_identifier, escape_value,
-    filter_rows_cached, quote_identifier, ColumnFilter, DataGrid,
-    DataGridState, FilterCache, FilterLogic, FilterOperator, FocusTransfer,
+    ColumnFilter, DataGrid, DataGridState, FilterCache, FilterLogic, FilterOperator, FocusTransfer,
+    check_filter_match, escape_identifier, escape_value, filter_rows_cached, quote_identifier,
 };
 
 // 欢迎页面
@@ -33,7 +32,7 @@ pub use query_tabs::{QueryTab, QueryTabBar, QueryTabManager, TabBarActions, TabB
 // ER 关系图
 #[allow(unused_imports)] // 公开 API
 pub use er_diagram::{
-    ERColumn, ERDiagramResponse, ERDiagramState, ERTable, Relationship, RelationType,
+    ERColumn, ERDiagramResponse, ERDiagramState, ERTable, RelationType, Relationship,
     calculate_table_size, force_directed_layout, grid_layout,
 };
 

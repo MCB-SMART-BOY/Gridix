@@ -8,9 +8,11 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use crate::core::{highlight_sql, AutoComplete, CompletionKind, HighlightColors};
+use crate::core::{AutoComplete, CompletionKind, HighlightColors, highlight_sql};
 use crate::ui::styles::GRAY;
-use egui::{self, Align, Color32, Key, Layout, PopupCloseBehavior, RichText, ScrollArea, TextEdit, Vec2};
+use egui::{
+    self, Align, Color32, Key, Layout, PopupCloseBehavior, RichText, ScrollArea, TextEdit, Vec2,
+};
 
 /// 行号区域宽度
 const LINE_NUMBER_WIDTH: f32 = 45.0;
@@ -30,11 +32,11 @@ impl EditorMode {
             EditorMode::Insert => "INS",
         }
     }
-    
+
     pub fn color(&self) -> Color32 {
         match self {
-            EditorMode::Normal => Color32::from_rgb(130, 170, 255),  // 蓝色
-            EditorMode::Insert => Color32::from_rgb(180, 230, 140),  // 绿色
+            EditorMode::Normal => Color32::from_rgb(130, 170, 255), // 蓝色
+            EditorMode::Insert => Color32::from_rgb(180, 230, 140), // 绿色
         }
     }
 }
@@ -45,7 +47,7 @@ pub struct SqlEditor;
 fn apply_completion_at_cursor(text: &mut String, cursor_pos: usize, insert_text: &str) -> usize {
     let pos = cursor_pos.min(text.len());
     let text_before = &text[..pos];
-    
+
     // 找到当前单词的开始位置
     let mut word_start = pos;
     for (i, c) in text_before.char_indices().rev() {
@@ -55,12 +57,12 @@ fn apply_completion_at_cursor(text: &mut String, cursor_pos: usize, insert_text:
             break;
         }
     }
-    
+
     // 替换当前单词
     let text_after = &text[pos..];
     let new_text = format!("{}{} {}", &text[..word_start], insert_text, text_after);
     *text = new_text;
-    
+
     // 返回新的光标位置
     word_start + insert_text.len() + 1
 }
@@ -100,7 +102,10 @@ fn get_cursor_position(text: &str, cursor_pos: usize) -> (usize, usize) {
 fn get_line_bounds(text: &str, cursor_pos: usize) -> (usize, usize) {
     let pos = cursor_pos.min(text.len());
     let start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
+    let end = text[pos..]
+        .find('\n')
+        .map(|i| pos + i)
+        .unwrap_or(text.len());
     (start, end)
 }
 
@@ -110,7 +115,7 @@ fn next_word_pos(text: &str, cursor_pos: usize) -> usize {
     let pos = cursor_pos.min(text.len());
     let chars: Vec<char> = text.chars().collect();
     let mut i = pos;
-    
+
     // 跳过当前单词
     while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
         i += 1;
@@ -128,13 +133,15 @@ fn prev_word_pos(text: &str, cursor_pos: usize) -> usize {
     let pos = cursor_pos.min(text.len());
     let chars: Vec<char> = text.chars().collect();
     let mut i = pos;
-    
+
     // 跳过前面的空白
     while i > 0 && chars[i.saturating_sub(1)].is_whitespace() {
         i -= 1;
     }
     // 跳过单词
-    while i > 0 && (chars[i.saturating_sub(1)].is_alphanumeric() || chars[i.saturating_sub(1)] == '_') {
+    while i > 0
+        && (chars[i.saturating_sub(1)].is_alphanumeric() || chars[i.saturating_sub(1)] == '_')
+    {
         i -= 1;
     }
     i
@@ -175,44 +182,52 @@ impl SqlEditor {
 
         let available_height = ui.available_height();
         let available_width = ui.available_width();
-        
+
         let status_bar_height = 20.0;
         let toolbar_height = 26.0;
         let editor_height = (available_height - status_bar_height - toolbar_height - 8.0).max(60.0);
 
         // ========== 工具栏 ==========
-        Self::show_toolbar(ui, sql_input, is_executing, &mut actions, toolbar_height, *editor_mode);
-        
+        Self::show_toolbar(
+            ui,
+            sql_input,
+            is_executing,
+            &mut actions,
+            toolbar_height,
+            *editor_mode,
+        );
+
         ui.add_space(2.0);
 
         // ========== 编辑器主体 ==========
         let line_count = count_lines(sql_input);
         let line_height = 16.0;
-        
+
         // 共享滚动状态 ID
         let scroll_id = ui.id().with("editor_scroll");
-        
+
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
-            
+
             // ===== 行号区域 =====
             egui::Frame::NONE
                 .fill(ui.style().visuals.faint_bg_color)
                 .show(ui, |ui| {
                     ui.set_width(LINE_NUMBER_WIDTH);
                     ui.set_height(editor_height);
-                    
-                    let scroll_offset = ui.ctx().data(|d| {
-                        d.get_temp::<f32>(scroll_id).unwrap_or(0.0)
-                    });
-                    
+
+                    let scroll_offset = ui
+                        .ctx()
+                        .data(|d| d.get_temp::<f32>(scroll_id).unwrap_or(0.0));
+
                     ScrollArea::vertical()
                         .id_salt("line_numbers")
                         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
                         .vertical_scroll_offset(scroll_offset)
                         .show(ui, |ui| {
                             ui.set_width(LINE_NUMBER_WIDTH);
-                            let display_lines = line_count.max((editor_height / line_height) as usize);
+                            let display_lines =
+                                line_count.max((editor_height / line_height) as usize);
                             for line_num in 1..=display_lines {
                                 ui.horizontal(|ui| {
                                     ui.set_height(line_height);
@@ -229,22 +244,23 @@ impl SqlEditor {
                             }
                         });
                 });
-            
+
             // ===== 编辑器区域 =====
             let editor_width = available_width - LINE_NUMBER_WIDTH - 8.0;
-            
+
             egui::Frame::NONE
                 .fill(ui.style().visuals.extreme_bg_color)
                 .show(ui, |ui| {
                     ui.set_width(editor_width);
                     ui.set_height(editor_height);
-                    
+
                     let colors = highlight_colors.clone();
-                    let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
-                        let mut job = highlight_sql(text.as_str(), &colors);
-                        job.wrap.max_width = wrap_width;
-                        ui.ctx().fonts_mut(|f| f.layout_job(job))
-                    };
+                    let mut layouter =
+                        |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+                            let mut job = highlight_sql(text.as_str(), &colors);
+                            job.wrap.max_width = wrap_width;
+                            ui.ctx().fonts_mut(|f| f.layout_job(job))
+                        };
 
                     let scroll_output = ScrollArea::vertical()
                         .id_salt("sql_editor_content")
@@ -252,22 +268,22 @@ impl SqlEditor {
                         .show(ui, |ui| {
                             // Insert 模式：可编辑；Normal 模式：只读显示
                             let is_insert_mode = *editor_mode == EditorMode::Insert;
-                            
+
                             let output = TextEdit::multiline(sql_input)
                                 .font(egui::TextStyle::Monospace)
                                 .desired_width(editor_width - 16.0)
                                 .desired_rows(((editor_height / line_height) as usize).max(4))
-                                .hint_text(if is_insert_mode { 
-                                    "输入 SQL... (Esc 退出编辑, Ctrl+Enter 执行)" 
-                                } else { 
-                                    "双击进入编辑模式, Ctrl+Enter 执行" 
+                                .hint_text(if is_insert_mode {
+                                    "输入 SQL... (Esc 退出编辑, Ctrl+Enter 执行)"
+                                } else {
+                                    "双击进入编辑模式, Ctrl+Enter 执行"
                                 })
                                 .frame(false)
                                 .margin(Vec2::new(8.0, 0.0))
                                 .interactive(is_insert_mode)
                                 .layouter(&mut layouter)
                                 .show(ui);
-                            
+
                             let response = &output.response;
 
                             // 双击进入 Insert 模式
@@ -275,17 +291,20 @@ impl SqlEditor {
                                 *editor_mode = EditorMode::Insert;
                                 response.request_focus();
                             }
-                            
+
                             // i 键也可进入 Insert 模式（在 Normal 模式下）
                             if *editor_mode == EditorMode::Normal && is_focused {
                                 let enter_insert = ui.input(|i| {
-                                    i.key_pressed(Key::I) || i.key_pressed(Key::A) || i.key_pressed(Key::O)
+                                    i.key_pressed(Key::I)
+                                        || i.key_pressed(Key::A)
+                                        || i.key_pressed(Key::O)
                                 });
                                 if enter_insert {
                                     *editor_mode = EditorMode::Insert;
                                     // o 键在当前行后插入新行
                                     if ui.input(|i| i.key_pressed(Key::O)) {
-                                        let cursor_pos = output.cursor_range
+                                        let cursor_pos = output
+                                            .cursor_range
                                             .map(|r| r.primary.index)
                                             .unwrap_or(sql_input.len());
                                         let (_, line_end) = get_line_bounds(sql_input, cursor_pos);
@@ -304,7 +323,8 @@ impl SqlEditor {
                             }
 
                             // 获取光标位置
-                            let cursor_pos = output.cursor_range
+                            let cursor_pos = output
+                                .cursor_range
                                 .map(|range| range.primary.index)
                                 .unwrap_or(sql_input.len());
 
@@ -323,7 +343,7 @@ impl SqlEditor {
                                     response.request_focus();
                                 }
                             }
-                            
+
                             // Insert 模式下的其他快捷键处理
                             if response.has_focus() && is_focused && is_insert_mode {
                                 Self::handle_insert_mode(
@@ -338,13 +358,15 @@ impl SqlEditor {
                                     cursor_pos,
                                     editor_mode,
                                 );
-                                
+
                                 // 输入改变时自动触发补全
                                 if response.changed() {
-                                    let text_before_cursor = &sql_input[..cursor_pos.min(sql_input.len())];
+                                    let text_before_cursor =
+                                        &sql_input[..cursor_pos.min(sql_input.len())];
                                     let current_word = get_current_word(text_before_cursor);
                                     if !current_word.is_empty() {
-                                        let completions = autocomplete.get_completions(sql_input, cursor_pos);
+                                        let completions =
+                                            autocomplete.get_completions(sql_input, cursor_pos);
                                         if !completions.is_empty() {
                                             *show_autocomplete = true;
                                             *selected_completion = 0;
@@ -355,7 +377,7 @@ impl SqlEditor {
                                         *show_autocomplete = false;
                                     }
                                 }
-                                
+
                                 Self::show_autocomplete_popup(
                                     ui,
                                     response,
@@ -381,7 +403,7 @@ impl SqlEditor {
                                 *show_autocomplete = false;
                             }
                         });
-                    
+
                     ui.ctx().data_mut(|d| {
                         d.insert_temp(scroll_id, scroll_output.state.offset.y);
                     });
@@ -417,9 +439,13 @@ impl SqlEditor {
         ui.horizontal(|ui| {
             ui.set_height(height);
             ui.spacing_mut().item_spacing.x = 2.0;
-            
+
             let icon_btn = |ui: &mut egui::Ui, icon: &str, enabled: bool, tooltip: &str| -> bool {
-                let color = if enabled { Color32::LIGHT_GRAY } else { Color32::from_gray(60) };
+                let color = if enabled {
+                    Color32::LIGHT_GRAY
+                } else {
+                    Color32::from_gray(60)
+                };
                 ui.add_enabled(
                     enabled,
                     egui::Button::new(RichText::new(icon).size(16.0).color(color))
@@ -429,29 +455,34 @@ impl SqlEditor {
                 .on_hover_text(tooltip)
                 .clicked()
             };
-            
+
             // 模式指示
             ui.label(RichText::new(mode.label()).monospace().color(mode.color()));
             ui.add_space(8.0);
-            
+
             if is_executing {
                 ui.spinner();
             } else if icon_btn(ui, "▶", !sql_input.trim().is_empty(), "执行 (Ctrl+Enter)") {
                 actions.execute = true;
             }
-            
-            if icon_btn(ui, "📊", !is_executing && !sql_input.trim().is_empty(), "分析 (F6)") {
+
+            if icon_btn(
+                ui,
+                "📊",
+                !is_executing && !sql_input.trim().is_empty(),
+                "分析 (F6)",
+            ) {
                 actions.explain = true;
             }
-            
+
             if icon_btn(ui, "🗑", !sql_input.is_empty(), "清空") {
                 actions.clear = true;
             }
-            
+
             ui.add_space(8.0);
             ui.label(RichText::new("|").small().color(Color32::from_gray(60)));
             ui.add_space(8.0);
-            
+
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if mode == EditorMode::Normal {
                     ui.label(RichText::new("双击/i 编辑").small().color(GRAY));
@@ -479,32 +510,50 @@ impl SqlEditor {
         let (line, column) = get_cursor_position(sql_input, sql_input.len());
         let char_count = sql_input.chars().count();
         let line_count = count_lines(sql_input);
-        
+
         egui::Frame::NONE
             .fill(ui.style().visuals.faint_bg_color)
             .inner_margin(egui::Margin::symmetric(8, 2))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 10.0;
-                    
+
                     // 模式指示
                     egui::Frame::NONE
                         .fill(mode.color().gamma_multiply(0.3))
                         .corner_radius(2.0)
                         .inner_margin(egui::Margin::symmetric(4, 1))
                         .show(ui, |ui| {
-                            ui.label(RichText::new(mode.label()).small().strong().color(mode.color()));
+                            ui.label(
+                                RichText::new(mode.label())
+                                    .small()
+                                    .strong()
+                                    .color(mode.color()),
+                            );
                         });
-                    
+
                     if is_executing {
                         ui.spinner();
-                        ui.label(RichText::new("执行中...").small().color(highlight_colors.keyword));
+                        ui.label(
+                            RichText::new("执行中...")
+                                .small()
+                                .color(highlight_colors.keyword),
+                        );
                     } else if let Some(msg) = last_message {
-                        let is_error = msg.contains("错误") || msg.contains("Error") || msg.contains("失败");
-                        let color = if is_error { highlight_colors.operator } else { highlight_colors.string };
+                        let is_error =
+                            msg.contains("错误") || msg.contains("Error") || msg.contains("失败");
+                        let color = if is_error {
+                            highlight_colors.operator
+                        } else {
+                            highlight_colors.string
+                        };
                         let icon = if is_error { "✗" } else { "✓" };
                         ui.label(RichText::new(icon).color(color));
-                        let display_msg = if msg.len() > 50 { format!("{}...", &msg[..47]) } else { msg.clone() };
+                        let display_msg = if msg.len() > 50 {
+                            format!("{}...", &msg[..47])
+                        } else {
+                            msg.clone()
+                        };
                         ui.label(RichText::new(display_msg).small().color(color));
                     } else {
                         ui.label(RichText::new("就绪").small().color(GRAY));
@@ -512,20 +561,34 @@ impl SqlEditor {
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
-                        
-                        ui.label(RichText::new(format!("历史 {}", history_count)).small().color(GRAY));
-                        ui.label(RichText::new(format!("{}行 {}字符", line_count, char_count)).small().color(GRAY));
-                        ui.label(RichText::new(format!("Ln {} Col {}", line, column)).small().color(GRAY));
-                        
+
+                        ui.label(
+                            RichText::new(format!("历史 {}", history_count))
+                                .small()
+                                .color(GRAY),
+                        );
+                        ui.label(
+                            RichText::new(format!("{}行 {}字符", line_count, char_count))
+                                .small()
+                                .color(GRAY),
+                        );
+                        ui.label(
+                            RichText::new(format!("Ln {} Col {}", line, column))
+                                .small()
+                                .color(GRAY),
+                        );
+
                         if let Some(ms) = query_time_ms {
                             let time_text = if ms >= 1000 {
                                 format!("{:.1}s", ms as f64 / 1000.0)
                             } else {
                                 format!("{}ms", ms)
                             };
-                            ui.label(RichText::new(time_text).small().color(
-                                if ms > 1000 { highlight_colors.operator } else { highlight_colors.string }
-                            ));
+                            ui.label(RichText::new(time_text).small().color(if ms > 1000 {
+                                highlight_colors.operator
+                            } else {
+                                highlight_colors.string
+                            }));
                         }
                     });
                 });
@@ -546,40 +609,43 @@ impl SqlEditor {
             let text_before_cursor = &sql_input[..cursor_pos.min(sql_input.len())];
             !text_before_cursor.contains('\n')
         };
-        
+
         ui.input(|i| {
             // k/上箭头: 如果在第一行，转移焦点到数据表格
-            if (i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp)) && !i.modifiers.shift && is_at_first_line {
+            if (i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp))
+                && !i.modifiers.shift
+                && is_at_first_line
+            {
                 actions.focus_to_grid = true;
                 return;
             }
-            
+
             // Ctrl+Enter 执行
             if i.modifiers.ctrl && i.key_pressed(Key::Enter) && !sql_input.trim().is_empty() {
                 actions.execute = true;
             }
-            
+
             // F5 执行
             if i.key_pressed(Key::F5) && !sql_input.trim().is_empty() {
                 actions.execute = true;
             }
-            
+
             // F6 EXPLAIN
             if i.key_pressed(Key::F6) && !sql_input.trim().is_empty() {
                 actions.explain = true;
             }
-            
+
             // Escape 切换焦点到 Grid
             if i.key_pressed(Key::Escape) {
                 actions.focus_to_grid = true;
             }
-            
+
             // Shift+↑↓ 或 K/J 历史导航
-            let history_up = (i.modifiers.shift && i.key_pressed(Key::ArrowUp)) 
+            let history_up = (i.modifiers.shift && i.key_pressed(Key::ArrowUp))
                 || (i.key_pressed(Key::K) && i.modifiers.shift);
             let history_down = (i.modifiers.shift && i.key_pressed(Key::ArrowDown))
                 || (i.key_pressed(Key::J) && i.modifiers.shift);
-            
+
             if history_up && !command_history.is_empty() {
                 let new_idx = match *history_index {
                     None => Some(0),
@@ -591,7 +657,7 @@ impl SqlEditor {
                     *sql_input = command_history[idx].clone();
                 }
             }
-            
+
             if history_down {
                 match *history_index {
                     Some(0) => {
@@ -605,7 +671,7 @@ impl SqlEditor {
                     None => {}
                 }
             }
-            
+
             // dd 清空（模拟 Helix 删除行）
             if i.key_pressed(Key::D) && i.modifiers.shift {
                 actions.clear = true;
@@ -631,26 +697,28 @@ impl SqlEditor {
 
         ui.input(|i| {
             // 注意：Escape 键在外层已经处理，这里不再处理
-            
+
             // Ctrl+Enter 执行
             if i.modifiers.ctrl && i.key_pressed(Key::Enter) && !sql_input.trim().is_empty() {
                 actions.execute = true;
                 *editor_mode = EditorMode::Normal;
             }
-            
+
             // F5 执行
             if i.key_pressed(Key::F5) && !sql_input.trim().is_empty() {
                 actions.execute = true;
                 *editor_mode = EditorMode::Normal;
             }
-            
+
             // F6 EXPLAIN
             if i.key_pressed(Key::F6) && !sql_input.trim().is_empty() {
                 actions.explain = true;
             }
-            
+
             // Ctrl+Space 或 Alt+L 触发补全
-            if (i.modifiers.ctrl && i.key_pressed(Key::Space)) || (i.modifiers.alt && i.key_pressed(Key::L)) {
+            if (i.modifiers.ctrl && i.key_pressed(Key::Space))
+                || (i.modifiers.alt && i.key_pressed(Key::L))
+            {
                 if has_completions {
                     *show_autocomplete = true;
                     *selected_completion = 0;
@@ -671,12 +739,16 @@ impl SqlEditor {
                 }
                 if i.key_pressed(Key::Tab) || i.key_pressed(Key::Enter) {
                     if *selected_completion < completions.len() {
-                        apply_completion_at_cursor(sql_input, cursor_pos, &completions[*selected_completion].insert_text);
+                        apply_completion_at_cursor(
+                            sql_input,
+                            cursor_pos,
+                            &completions[*selected_completion].insert_text,
+                        );
                         *show_autocomplete = false;
                     }
                 }
             }
-            
+
             // Shift+↑↓ 历史
             if i.modifiers.shift && !*show_autocomplete {
                 if i.key_pressed(Key::ArrowUp) && !command_history.is_empty() {
@@ -743,33 +815,52 @@ impl SqlEditor {
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         let (icon, icon_color) = match item.kind {
-                                            CompletionKind::Keyword => ("K", highlight_colors.keyword),
-                                            CompletionKind::Function => ("F", highlight_colors.function),
+                                            CompletionKind::Keyword => {
+                                                ("K", highlight_colors.keyword)
+                                            }
+                                            CompletionKind::Function => {
+                                                ("F", highlight_colors.function)
+                                            }
                                             CompletionKind::Table => ("T", highlight_colors.string),
-                                            CompletionKind::Column => ("C", highlight_colors.identifier),
+                                            CompletionKind::Column => {
+                                                ("C", highlight_colors.identifier)
+                                            }
                                         };
-                                        
+
                                         egui::Frame::NONE
                                             .fill(icon_color.gamma_multiply(0.3))
                                             .corner_radius(2.0)
                                             .inner_margin(egui::Margin::symmetric(3, 0))
                                             .show(ui, |ui| {
-                                                ui.label(RichText::new(icon).color(icon_color).monospace().size(10.0));
+                                                ui.label(
+                                                    RichText::new(icon)
+                                                        .color(icon_color)
+                                                        .monospace()
+                                                        .size(10.0),
+                                                );
                                             });
 
                                         ui.label(RichText::new(&item.label).monospace().color(
-                                            if is_selected { Color32::WHITE } else { Color32::LIGHT_GRAY }
+                                            if is_selected {
+                                                Color32::WHITE
+                                            } else {
+                                                Color32::LIGHT_GRAY
+                                            },
                                         ));
                                     });
                                 })
                                 .response
                                 .interact(egui::Sense::click());
-                            
+
                             if frame_response.clicked() {
-                                apply_completion_at_cursor(sql_input, cursor_pos, &item.insert_text);
+                                apply_completion_at_cursor(
+                                    sql_input,
+                                    cursor_pos,
+                                    &item.insert_text,
+                                );
                                 *show_autocomplete = false;
                             }
-                            
+
                             if is_selected {
                                 frame_response.scroll_to_me(Some(Align::Center));
                             }
