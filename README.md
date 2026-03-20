@@ -341,7 +341,7 @@ src/
 
 ```bash
 cargo run              # Development build
-cargo test             # Run tests (13 test modules)
+cargo test             # Run tests (14 test modules)
 cargo clippy           # Lint
 cargo build --release  # Release build
 cargo appimage         # Build AppImage (Linux)
@@ -711,7 +711,7 @@ src/
 
 ```bash
 cargo run              # 开发构建
-cargo test             # 运行测试（13 个测试模块）
+cargo test             # 运行测试（14 个测试模块）
 cargo clippy           # 代码检查
 cargo build --release  # 发布构建
 cargo appimage         # 构建 AppImage（Linux）
