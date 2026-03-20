@@ -1,5 +1,5 @@
 use crate::core::QueryHistory;
-use crate::ui::dialogs::keyboard;
+use crate::ui::dialogs::keyboard::{self, DialogAction, ListNavigation};
 use crate::ui::styles::{DANGER, GRAY, SUCCESS};
 use egui::{self, Key, RichText};
 
@@ -23,53 +23,62 @@ impl HistoryPanel {
             return;
         }
 
-        // Helix 键盘导航
+        // Helix 键盘导航（使用统一键盘模块）
         if !keyboard::has_text_focus(ctx) {
             let len = history.len();
-            
+
             // Esc/q 关闭
             if keyboard::handle_close_keys(ctx) {
                 *show = false;
                 return;
             }
-            
+
             // Ctrl+Delete 清空历史
             if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(Key::Delete)) {
                 *clear_history = true;
             }
-            
+
             if len > 0 {
-                // j/k 或 ↑/↓ 导航
-                if ctx.input(|i| i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown)) {
-                    state.selected_index = (state.selected_index + 1).min(len - 1);
+                // 使用统一的列表导航处理 j/k/gg/G
+                match keyboard::handle_list_navigation(ctx) {
+                    ListNavigation::Down => {
+                        state.selected_index = (state.selected_index + 1).min(len - 1);
+                    }
+                    ListNavigation::Up => {
+                        state.selected_index = state.selected_index.saturating_sub(1);
+                    }
+                    ListNavigation::Start => {
+                        state.selected_index = 0;
+                    }
+                    ListNavigation::End => {
+                        state.selected_index = len - 1;
+                    }
+                    ListNavigation::PageUp => {
+                        state.selected_index = state.selected_index.saturating_sub(10);
+                    }
+                    ListNavigation::PageDown => {
+                        state.selected_index = (state.selected_index + 10).min(len - 1);
+                    }
+                    _ => {}
                 }
-                if ctx.input(|i| i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp)) {
-                    state.selected_index = state.selected_index.saturating_sub(1);
-                }
-                
-                // g/G 跳转到首/尾
-                if ctx.input(|i| i.key_pressed(Key::G) && !i.modifiers.shift) {
-                    state.selected_index = 0;
-                }
-                if ctx.input(|i| i.key_pressed(Key::G) && i.modifiers.shift) {
-                    state.selected_index = len - 1;
-                }
-                
-                // Ctrl+u/d 翻页
-                if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(Key::U)) {
-                    state.selected_index = state.selected_index.saturating_sub(10);
-                }
-                if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(Key::D)) {
-                    state.selected_index = (state.selected_index + 10).min(len - 1);
-                }
-                
-                // Enter/l 选择当前项
-                if ctx.input(|i| i.key_pressed(Key::Enter) || i.key_pressed(Key::L))
-                    && let Some(item) = history.items().get(state.selected_index) {
+
+                // Enter 选择当前项（使用统一确认处理）
+                if let DialogAction::Confirm = keyboard::handle_dialog_keys(ctx) {
+                    if let Some(item) = history.items().get(state.selected_index) {
                         *selected_sql = Some(item.sql.clone());
                         *show = false;
                         return;
                     }
+                }
+
+                // l 也可以选择当前项（保持 Helix 风格兼容）
+                if ctx.input(|i| i.key_pressed(Key::L)) {
+                    if let Some(item) = history.items().get(state.selected_index) {
+                        *selected_sql = Some(item.sql.clone());
+                        *show = false;
+                        return;
+                    }
+                }
             }
         }
 
@@ -111,7 +120,7 @@ impl HistoryPanel {
                         } else {
                             ui.visuals().extreme_bg_color
                         };
-                        
+
                         let frame = egui::Frame::NONE
                             .inner_margin(8.0)
                             .corner_radius(4.0)
@@ -173,12 +182,12 @@ impl HistoryPanel {
 
                             response.on_hover_text("点击使用此查询");
                         });
-                        
+
                         // 点击整个条目也可以选择
                         if response.response.clicked() {
                             state.selected_index = idx;
                         }
-                        
+
                         // 双击执行
                         if response.response.double_clicked() {
                             *selected_sql = Some(item.sql.clone());

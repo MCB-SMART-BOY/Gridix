@@ -1,29 +1,32 @@
 //! 欢迎页面组件 - 应用启动时的欢迎界面
 
-use crate::ui::styles::{GRAY, MUTED, SUCCESS, SPACING_SM, SPACING_MD, SPACING_LG};
-use egui::{self, Color32, RichText, CornerRadius, Vec2};
+use crate::ui::styles::{GRAY, MUTED, SPACING_LG, SPACING_MD, SPACING_SM, SUCCESS};
+use egui::{self, Color32, CornerRadius, RichText, Vec2};
 
 pub struct Welcome;
 
 impl Welcome {
     pub fn show(ui: &mut egui::Ui) {
         let available_rect = ui.available_rect_before_wrap();
-        
+
         // 内容尺寸
         let content_width = 500.0;
         let content_height = 500.0;
-        
+
         // 计算居中位置
         let x = available_rect.min.x + (available_rect.width() - content_width) / 2.0;
         let y = available_rect.min.y + (available_rect.height() - content_height) / 2.0;
-        
+
         // 使用 Area 实现居中
         egui::Area::new(egui::Id::new("welcome_center"))
-            .fixed_pos(egui::pos2(x.max(available_rect.min.x), y.max(available_rect.min.y)))
+            .fixed_pos(egui::pos2(
+                x.max(available_rect.min.x),
+                y.max(available_rect.min.y),
+            ))
             .show(ui.ctx(), |ui| {
                 ui.set_min_width(content_width);
                 ui.set_max_width(content_width);
-                
+
                 ui.vertical_centered(|ui| {
                     // Logo 和标题区域
                     Self::show_header(ui);
@@ -53,7 +56,7 @@ impl Welcome {
             RichText::new("Rust DB Manager")
                 .size(28.0)
                 .strong()
-                .color(Color32::from_rgb(100, 160, 220))
+                .color(Color32::from_rgb(100, 160, 220)),
         );
 
         ui.add_space(SPACING_SM);
@@ -62,7 +65,7 @@ impl Welcome {
         ui.label(
             RichText::new("简洁、快速、安全的数据库管理工具")
                 .size(16.0)
-                .color(GRAY)
+                .color(GRAY),
         );
 
         ui.add_space(SPACING_SM);
@@ -71,7 +74,7 @@ impl Welcome {
         ui.label(
             RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
                 .small()
-                .color(MUTED)
+                .color(MUTED),
         );
     }
 
@@ -84,7 +87,7 @@ impl Welcome {
         // 手动居中
         let available = ui.available_width();
         let offset = ((available - total_width) / 2.0).max(0.0);
-        
+
         ui.horizontal(|ui| {
             ui.add_space(offset);
             ui.spacing_mut().item_spacing.x = card_spacing;
@@ -154,9 +157,10 @@ impl Welcome {
 
                 ui.vertical_centered(|ui| {
                     // 图标 - 使用圆形背景的字母
-                    let (rect, _) = ui.allocate_exact_size(Vec2::new(48.0, 48.0), egui::Sense::hover());
+                    let (rect, _) =
+                        ui.allocate_exact_size(Vec2::new(48.0, 48.0), egui::Sense::hover());
                     let painter = ui.painter();
-                    
+
                     // 绘制圆形背景
                     painter.circle_filled(
                         rect.center(),
@@ -168,7 +172,7 @@ impl Welcome {
                             40,
                         ),
                     );
-                    
+
                     // 绘制字母
                     painter.text(
                         rect.center(),
@@ -181,21 +185,12 @@ impl Welcome {
                     ui.add_space(SPACING_SM);
 
                     // 名称
-                    ui.label(
-                        RichText::new(name)
-                            .size(15.0)
-                            .strong()
-                            .color(accent_color)
-                    );
+                    ui.label(RichText::new(name).size(15.0).strong().color(accent_color));
 
                     ui.add_space(4.0);
 
                     // 描述
-                    ui.label(
-                        RichText::new(desc)
-                            .small()
-                            .color(GRAY)
-                    );
+                    ui.label(RichText::new(desc).small().color(GRAY));
                 });
             });
     }
@@ -212,26 +207,12 @@ impl Welcome {
             .inner_margin(egui::Margin::symmetric(24, 12))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("\u{2139}").size(16.0).color(SUCCESS));  // info 符号
+                    ui.label(RichText::new("\u{2139}").size(16.0).color(SUCCESS)); // info 符号
                     ui.add_space(8.0);
-                    ui.label(
-                        RichText::new("点击侧边栏的")
-                            .color(GRAY)
-                    );
-                    ui.label(
-                        RichText::new("「+ 新建」")
-                            .strong()
-                            .color(SUCCESS)
-                    );
-                    ui.label(
-                        RichText::new("创建数据库连接，或按")
-                            .color(GRAY)
-                    );
-                    ui.label(
-                        RichText::new("Ctrl+N")
-                            .monospace()
-                            .strong()
-                    );
+                    ui.label(RichText::new("点击侧边栏的").color(GRAY));
+                    ui.label(RichText::new("「+ 新建」").strong().color(SUCCESS));
+                    ui.label(RichText::new("创建数据库连接，或按").color(GRAY));
+                    ui.label(RichText::new("Ctrl+N").monospace().strong());
                 });
             });
     }
@@ -240,10 +221,10 @@ impl Welcome {
     fn show_shortcuts(ui: &mut egui::Ui) {
         // 标题
         ui.label(
-            RichText::new("\u{2328} 常用快捷键")  // 键盘符号
+            RichText::new("\u{2328} 常用快捷键") // 键盘符号
                 .size(14.0)
                 .strong()
-                .color(GRAY)
+                .color(GRAY),
         );
 
         ui.add_space(SPACING_MD);
@@ -289,18 +270,14 @@ impl Welcome {
             .corner_radius(CornerRadius::same(4))
             .inner_margin(egui::Margin::symmetric(8, 3))
             .show(ui, |ui| {
-                ui.label(
-                    RichText::new(key)
-                        .monospace()
-                        .size(12.0)
-                );
+                ui.label(RichText::new(key).monospace().size(12.0));
             });
 
         // 描述
         ui.label(
             RichText::new(desc)
                 .size(13.0)
-                .color(Color32::from_rgb(180, 180, 190))
+                .color(Color32::from_rgb(180, 180, 190)),
         );
     }
 }

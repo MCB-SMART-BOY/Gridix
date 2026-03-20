@@ -6,6 +6,7 @@ use super::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
 use crate::core::constants;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::RwLock;
 
 /// 全局连接池管理器
@@ -13,9 +14,9 @@ use tokio::sync::RwLock;
 /// 使用 lazy_static 模式实现单例，避免每次查询都创建新连接
 pub struct PoolManager {
     /// MySQL 连接池缓存
-    mysql_pools: RwLock<HashMap<String, mysql_async::Pool>>,
+    mysql_pools: RwLock<HashMap<String, (mysql_async::Pool, Instant)>>,
     /// PostgreSQL 客户端缓存（tokio-postgres 使用长连接）
-    pg_clients: RwLock<HashMap<String, Arc<tokio_postgres::Client>>>,
+    pg_clients: RwLock<HashMap<String, (Arc<tokio_postgres::Client>, Instant)>>,
 }
 
 impl PoolManager {
@@ -35,23 +36,33 @@ impl PoolManager {
         let key = config.pool_key();
 
         // 先尝试读取缓存并验证连接池健康
-        {
+        let cached_pool = {
             let pools = self.mysql_pools.read().await;
-            if let Some(pool) = pools.get(&key) {
-                // 尝试获取连接以验证连接池是否健康
-                match pool.get_conn().await {
-                    Ok(_) => return Ok(pool.clone()),
-                    Err(_) => {
-                        // 连接池不健康，稍后会重新创建
+            pools.get(&key).map(|(pool, _)| pool.clone())
+        };
+        if let Some(pool) = cached_pool {
+            // 尝试获取连接以验证连接池是否健康
+            match pool.get_conn().await {
+                Ok(_) => {
+                    let mut pools = self.mysql_pools.write().await;
+                    if let Some((_, last_used)) = pools.get_mut(&key) {
+                        *last_used = Instant::now();
                     }
+                    return Ok(pool);
+                }
+                Err(_) => {
+                    // 连接池不健康，稍后会重新创建
                 }
             }
         }
 
         // 移除失效的连接池
-        {
+        let invalid_pool = {
             let mut pools = self.mysql_pools.write().await;
-            pools.remove(&key);
+            pools.remove(&key).map(|(pool, _)| pool)
+        };
+        if let Some(pool) = invalid_pool {
+            pool.disconnect().await.ok();
         }
 
         // 创建新连接池，使用常量配置连接池参数
@@ -90,18 +101,25 @@ impl PoolManager {
             .map_err(|e| DbError::Connection(format!("MySQL 连接失败: {}", e)))?;
 
         // 存入缓存（限制缓存数量，防止内存溢出）
-        {
+        let evicted_pool = {
             let mut pools = self.mysql_pools.write().await;
 
-            // 如果缓存已满，移除最早的连接池
-            if pools.len() >= constants::database::pool::MAX_MYSQL_POOLS {
-                // 移除第一个键（HashMap 无序，但这里只是简单清理）
-                if let Some(oldest_key) = pools.keys().next().cloned() {
-                    pools.remove(&oldest_key);
-                }
+            // 如果缓存已满，移除最久未使用的连接池
+            let mut evicted: Option<mysql_async::Pool> = None;
+            if pools.len() >= constants::database::pool::MAX_MYSQL_POOLS
+                && let Some(oldest_key) = pools
+                    .iter()
+                    .min_by_key(|(_, (_, last_used))| *last_used)
+                    .map(|(key, _)| key.clone())
+            {
+                evicted = pools.remove(&oldest_key).map(|(pool, _)| pool);
             }
 
-            pools.insert(key, pool.clone());
+            pools.insert(key, (pool.clone(), Instant::now()));
+            evicted
+        };
+        if let Some(pool) = evicted_pool {
+            pool.disconnect().await.ok();
         }
 
         Ok(pool)
@@ -183,13 +201,18 @@ impl PoolManager {
         let key = config.pool_key();
 
         // 先尝试读取缓存并验证连接健康
-        {
+        let cached_client = {
             let clients = self.pg_clients.read().await;
-            if let Some(client) = clients.get(&key) {
-                // 检查连接是否仍然有效
-                if !client.is_closed() {
-                    return Ok(client.clone());
+            clients.get(&key).map(|(client, _)| client.clone())
+        };
+        if let Some(client) = cached_client {
+            // 检查连接是否仍然有效
+            if !client.is_closed() {
+                let mut clients = self.pg_clients.write().await;
+                if let Some((_, last_used)) = clients.get_mut(&key) {
+                    *last_used = Instant::now();
                 }
+                return Ok(client);
             }
         }
 
@@ -207,13 +230,17 @@ impl PoolManager {
         {
             let mut clients = self.pg_clients.write().await;
 
-            // 如果缓存已满，移除最早的客户端
+            // 如果缓存已满，移除最久未使用的客户端
             if clients.len() >= constants::database::pool::MAX_POSTGRES_CLIENTS
-                && let Some(oldest_key) = clients.keys().next().cloned() {
-                    clients.remove(&oldest_key);
-                }
+                && let Some(oldest_key) = clients
+                    .iter()
+                    .min_by_key(|(_, (_, last_used))| *last_used)
+                    .map(|(key, _)| key.clone())
+            {
+                clients.remove(&oldest_key);
+            }
 
-            clients.insert(key, client.clone());
+            clients.insert(key, (client.clone(), Instant::now()));
         }
 
         Ok(client)
@@ -291,13 +318,11 @@ impl PoolManager {
                 )));
             }
 
-            let ca_data = std::fs::read(&config.ssl_ca_cert).map_err(|e| {
-                DbError::Connection(format!("读取 CA 证书失败: {}", e))
-            })?;
+            let ca_data = std::fs::read(&config.ssl_ca_cert)
+                .map_err(|e| DbError::Connection(format!("读取 CA 证书失败: {}", e)))?;
 
-            let cert = native_tls::Certificate::from_pem(&ca_data).map_err(|e| {
-                DbError::Connection(format!("解析 CA 证书失败: {}", e))
-            })?;
+            let cert = native_tls::Certificate::from_pem(&ca_data)
+                .map_err(|e| DbError::Connection(format!("解析 CA 证书失败: {}", e)))?;
 
             builder.add_root_certificate(cert);
         }
@@ -307,9 +332,9 @@ impl PoolManager {
             builder.danger_accept_invalid_hostnames(true);
         }
 
-        let connector = builder.build().map_err(|e| {
-            DbError::Connection(format!("TLS 连接器构建失败: {}", e))
-        })?;
+        let connector = builder
+            .build()
+            .map_err(|e| DbError::Connection(format!("TLS 连接器构建失败: {}", e)))?;
 
         let tls = MakeTlsConnector::new(connector);
 
@@ -342,7 +367,7 @@ impl PoolManager {
         match config.db_type {
             DatabaseType::MySQL => {
                 let mut pools = self.mysql_pools.write().await;
-                if let Some(pool) = pools.remove(&key) {
+                if let Some((pool, _)) = pools.remove(&key) {
                     // 断开连接池
                     pool.disconnect().await.ok();
                 }
@@ -361,7 +386,7 @@ impl PoolManager {
     pub async fn clear_all(&self) {
         {
             let mut pools = self.mysql_pools.write().await;
-            for (_, pool) in pools.drain() {
+            for (_, (pool, _)) in pools.drain() {
                 pool.disconnect().await.ok();
             }
         }

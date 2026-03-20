@@ -64,8 +64,13 @@
           meta = with pkgs.lib; {
             description = "Fast, secure, cross-platform database management tool with Helix/Vim keybindings";
             homepage = "https://github.com/MCB-SMART-BOY/Gridix";
-            license = licenses.mit;
-            maintainers = [ ];
+            license = licenses.asl20;
+            maintainers = [{
+              name = "MCB-SMART-BOY";
+              email = "mcb2720838051@gmail.com";
+              github = "MCB-SMART-BOY";
+            }];
+            mainProgram = "gridix";
             platforms = platforms.unix;
           };
         };

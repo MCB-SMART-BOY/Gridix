@@ -33,7 +33,11 @@ impl TabState {
     }
 
     /// 创建关联表的 Tab 状态
-    pub fn with_table(title: impl Into<String>, sql: impl Into<String>, table: impl Into<String>) -> Self {
+    pub fn with_table(
+        title: impl Into<String>,
+        sql: impl Into<String>,
+        table: impl Into<String>,
+    ) -> Self {
         Self {
             title: title.into(),
             sql: sql.into(),
@@ -48,43 +52,43 @@ pub struct SessionState {
     /// 打开的 Tab 列表
     #[serde(default)]
     pub tabs: Vec<TabState>,
-    
+
     /// 活动 Tab 索引
     #[serde(default)]
     pub active_tab_index: usize,
-    
+
     /// 上次连接的连接名
     #[serde(default)]
     pub last_connection: Option<String>,
-    
+
     /// 上次选择的数据库
     #[serde(default)]
     pub last_database: Option<String>,
-    
+
     /// 上次选择的表
     #[serde(default)]
     pub last_table: Option<String>,
-    
+
     /// 侧边栏宽度
     #[serde(default = "default_sidebar_width")]
     pub sidebar_width: f32,
-    
+
     /// 中央面板分割比例（SQL 编辑器 vs 数据表格）
     #[serde(default = "default_central_panel_ratio")]
     pub central_panel_ratio: f32,
-    
+
     /// 是否显示侧边栏
     #[serde(default = "default_show_sidebar")]
     pub show_sidebar: bool,
-    
+
     /// 是否显示 SQL 编辑器
     #[serde(default = "default_show_sql_editor")]
     pub show_sql_editor: bool,
-    
+
     /// 是否显示 ER 关系图
     #[serde(default)]
     pub show_er_diagram: bool,
-    
+
     /// 窗口位置和大小（可选）
     #[serde(default)]
     pub window_state: Option<WindowState>,
@@ -110,7 +114,7 @@ fn default_sidebar_width() -> f32 {
 }
 
 fn default_central_panel_ratio() -> f32 {
-    0.3  // SQL 编辑器占 30%
+    0.3 // SQL 编辑器占 30%
 }
 
 fn default_show_sidebar() -> bool {
@@ -135,11 +139,11 @@ impl SessionState {
     /// 加载会话状态
     pub fn load() -> Option<Self> {
         let path = Self::session_path()?;
-        
+
         if !path.exists() {
             return None;
         }
-        
+
         let content = match fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
@@ -147,7 +151,7 @@ impl SessionState {
                 return None;
             }
         };
-        
+
         match toml::from_str(&content) {
             Ok(session) => Some(session),
             Err(e) => {
@@ -160,28 +164,29 @@ impl SessionState {
     /// 保存会话状态
     pub fn save(&self) -> Result<(), String> {
         let path = Self::session_path().ok_or("无法获取会话文件路径")?;
-        
+
         // 确保目录存在
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
         }
-        
+
         let toml_str = toml::to_string_pretty(self).map_err(|e| format!("序列化失败: {}", e))?;
-        
+
         // 原子写入
         let temp_path = path.with_extension("toml.tmp");
         fs::write(&temp_path, &toml_str).map_err(|e| format!("写入失败: {}", e))?;
         fs::rename(&temp_path, &path).map_err(|e| format!("重命名失败: {}", e))?;
-        
+
         Ok(())
     }
 
     /// 清除会话文件
     pub fn clear() -> Result<(), String> {
         if let Some(path) = Self::session_path()
-            && path.exists() {
-                fs::remove_file(&path).map_err(|e| format!("删除失败: {}", e))?;
-            }
+            && path.exists()
+        {
+            fs::remove_file(&path).map_err(|e| format!("删除失败: {}", e))?;
+        }
         Ok(())
     }
 
@@ -216,14 +221,25 @@ impl SessionState {
     }
 
     /// 记录最后访问的位置
-    pub fn record_last_location(&mut self, connection: Option<String>, database: Option<String>, table: Option<String>) {
+    pub fn record_last_location(
+        &mut self,
+        connection: Option<String>,
+        database: Option<String>,
+        table: Option<String>,
+    ) {
         self.last_connection = connection;
         self.last_database = database;
         self.last_table = table;
     }
 
     /// 记录 UI 布局
-    pub fn record_layout(&mut self, sidebar_width: f32, central_panel_ratio: f32, show_sidebar: bool, show_sql_editor: bool) {
+    pub fn record_layout(
+        &mut self,
+        sidebar_width: f32,
+        central_panel_ratio: f32,
+        show_sidebar: bool,
+        show_sql_editor: bool,
+    ) {
         self.sidebar_width = sidebar_width;
         self.central_panel_ratio = central_panel_ratio;
         self.show_sidebar = show_sidebar;
@@ -242,7 +258,7 @@ impl SessionState {
 }
 
 /// 会话管理器
-/// 
+///
 /// 提供会话的自动保存和恢复功能
 pub struct SessionManager {
     /// 当前会话状态
@@ -262,7 +278,7 @@ impl SessionManager {
         Self {
             state,
             dirty: false,
-            auto_save_interval: 60,  // 默认 60 秒自动保存
+            auto_save_interval: 60, // 默认 60 秒自动保存
             last_save: std::time::Instant::now(),
         }
     }

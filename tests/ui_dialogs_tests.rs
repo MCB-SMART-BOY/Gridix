@@ -1,9 +1,8 @@
 //! UI 对话框测试
 
 use gridix::ui::dialogs::{
-    DialogResult, DialogSize, DialogButtons, DialogState,
-    SimpleDialogState, DataDialogState,
-    DialogStyle, FooterResult,
+    DataDialogState, DialogButtons, DialogResult, DialogSize, DialogState, DialogStyle,
+    FooterResult, SimpleDialogState,
 };
 
 // ============================================================================
@@ -51,7 +50,10 @@ fn test_dialog_size() {
     assert_eq!(DialogSize::Medium.width(), 420.0);
     assert_eq!(DialogSize::Large.width(), 520.0);
 
-    let custom = DialogSize::Custom { width: 600.0, max_height: 800.0 };
+    let custom = DialogSize::Custom {
+        width: 600.0,
+        max_height: 800.0,
+    };
     assert_eq!(custom.width(), 600.0);
     assert_eq!(custom.max_height(), 800.0);
 }

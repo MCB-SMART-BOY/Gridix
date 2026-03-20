@@ -1954,7 +1954,7 @@ dependencies = [
 
 [[package]]
 name = "gridix"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "async-trait",
  "base64",
@@ -1964,6 +1964,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_extras",
+ "futures-util",
  "hostname",
  "lazy_static",
  "mysql_async",

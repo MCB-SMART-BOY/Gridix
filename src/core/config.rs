@@ -1,4 +1,5 @@
 use super::history::QueryHistory;
+use super::keybindings::KeyBindings;
 use super::theme::ThemePreset;
 use crate::database::ConnectionConfig;
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,9 @@ pub struct AppConfig {
     /// UI 缩放比例 (0.5 - 2.0)
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f32,
+    /// 自定义快捷键绑定
+    #[serde(default)]
+    pub keybindings: KeyBindings,
 }
 
 fn default_ui_scale() -> f32 {
@@ -57,6 +61,7 @@ impl Default for AppConfig {
             query_history: QueryHistory::new(100),
             command_history: HashMap::new(),
             ui_scale: default_ui_scale(),
+            keybindings: KeyBindings::default(),
         }
     }
 }
@@ -75,12 +80,12 @@ impl AppConfig {
             tracing::warn!("无法获取配置文件路径");
             return Self::default();
         };
-        
+
         if !path.exists() {
             // 首次启动，配置文件不存在是正常的
             return Self::default();
         }
-        
+
         let content = match fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
@@ -88,7 +93,7 @@ impl AppConfig {
                 return Self::default();
             }
         };
-        
+
         match toml::from_str(&content) {
             Ok(config) => config,
             Err(e) => {
@@ -105,12 +110,12 @@ impl AppConfig {
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
         let toml_str = toml::to_string_pretty(self).map_err(|e| e.to_string())?;
-        
+
         // 原子写入：先写入临时文件，再重命名
         // 这样即使程序在写入过程中崩溃，原配置文件也不会损坏
         let temp_path = path.with_extension("toml.tmp");
         fs::write(&temp_path, &toml_str).map_err(|e| format!("写入临时文件失败: {}", e))?;
-        
+
         // 设置临时文件权限（在重命名之前）
         #[cfg(unix)]
         {
@@ -118,7 +123,7 @@ impl AppConfig {
             let permissions = fs::Permissions::from_mode(0o600);
             fs::set_permissions(&temp_path, permissions).map_err(|e| e.to_string())?;
         }
-        
+
         // 原子重命名（在同一文件系统上是原子操作）
         fs::rename(&temp_path, &path).map_err(|e| format!("重命名配置文件失败: {}", e))?;
 

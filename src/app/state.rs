@@ -4,20 +4,18 @@
 
 #![allow(dead_code)] // 公开 API，供未来使用
 
-use crate::database::{ConnectionConfig, ConnectionManager, QueryResult};
-use crate::ui::{
-    DataGridState, ExportConfig, FocusArea, HistoryPanelState, ImportState,
-    KeyBindingsDialogState, QueryTabManager, SidebarPanelState, SidebarSection,
-};
-use crate::ui::{
-    CreateDbDialogState, CreateUserDialogState, DdlDialogState, ERDiagramState,
-};
-use crate::core::{
-    AppConfig, AutoComplete, HighlightColors, NotificationManager, ProgressManager,
-    QueryHistory, ThemeManager,
-};
-use std::sync::mpsc::{Sender, Receiver};
 use super::message::Message;
+use crate::core::{
+    AppConfig, AutoComplete, HighlightColors, NotificationManager, ProgressManager, QueryHistory,
+    ThemeManager,
+};
+use crate::database::{ConnectionConfig, ConnectionManager, QueryResult};
+use crate::ui::{CreateDbDialogState, CreateUserDialogState, DdlDialogState, ERDiagramState};
+use crate::ui::{
+    DataGridState, ExportConfig, FocusArea, HistoryPanelState, ImportState, KeyBindingsDialogState,
+    QueryTabManager, SidebarPanelState, SidebarSection,
+};
+use std::sync::mpsc::{Receiver, Sender};
 
 /// 连接相关状态
 #[derive(Default)]
@@ -132,7 +130,7 @@ impl Default for UiState {
 }
 
 /// 对话框状态
-/// 
+///
 /// 集中管理所有对话框的显示状态，减少 DbManagerApp 中的布尔字段
 #[derive(Default)]
 pub struct DialogState {
@@ -194,7 +192,7 @@ impl DialogState {
             keybindings_state: KeyBindingsDialogState::default(),
         }
     }
-    
+
     /// 检查是否有任何模态对话框打开
     pub fn has_modal_open(&self) -> bool {
         self.show_connection

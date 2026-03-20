@@ -59,8 +59,6 @@ impl<T> DialogResult<T> {
     }
 }
 
-
-
 /// 对话框尺寸预设
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum DialogSize {
@@ -199,19 +197,19 @@ impl DialogButtons {
 }
 
 /// 对话框状态 trait
-/// 
+///
 /// 实现此 trait 的类型可以用作对话框的状态容器。
 /// 提供打开/关闭和重置功能。
 pub trait DialogState: Default {
     /// 是否显示对话框
     fn is_open(&self) -> bool;
-    
+
     /// 打开对话框
     fn open(&mut self);
-    
+
     /// 关闭对话框
     fn close(&mut self);
-    
+
     /// 重置对话框状态（关闭并清空数据）
     fn reset(&mut self) {
         *self = Self::default();
@@ -219,7 +217,7 @@ pub trait DialogState: Default {
 }
 
 /// 简单对话框状态包装器
-/// 
+///
 /// 用于包装只需要一个 `bool` 控制显示的简单对话框。
 #[derive(Debug, Clone, Default)]
 pub struct SimpleDialogState {
@@ -241,7 +239,7 @@ impl DialogState for SimpleDialogState {
 }
 
 /// 带数据的对话框状态包装器
-/// 
+///
 /// 用于包装需要额外数据的对话框。
 #[derive(Debug, Clone)]
 pub struct DataDialogState<T: Default> {
@@ -289,4 +287,3 @@ impl<T: Default> DataDialogState<T> {
         &self.data
     }
 }
-

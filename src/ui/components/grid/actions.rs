@@ -41,9 +41,9 @@ pub struct DataGridActions {
 
 /// SQL 危险保留字（可能被用于注入攻击）
 const SQL_DANGEROUS_KEYWORDS: &[&str] = &[
-    "DROP", "DELETE", "TRUNCATE", "ALTER", "CREATE", "INSERT", "UPDATE",
-    "EXEC", "EXECUTE", "UNION", "SELECT", "FROM", "WHERE", "OR", "AND",
-    "--", "/*", "*/", "GRANT", "REVOKE", "SHUTDOWN", "KILL",
+    "DROP", "DELETE", "TRUNCATE", "ALTER", "CREATE", "INSERT", "UPDATE", "EXEC", "EXECUTE",
+    "UNION", "SELECT", "FROM", "WHERE", "OR", "AND", "--", "/*", "*/", "GRANT", "REVOKE",
+    "SHUTDOWN", "KILL",
 ];
 
 /// 验证 SQL 标识符（表名、列名）
@@ -81,13 +81,13 @@ pub fn escape_identifier(name: &str) -> Result<String, String> {
 }
 
 /// 为 SQL 查询引用标识符（根据数据库类型使用不同的引号）
-/// 
+///
 /// - MySQL: 使用反引号 `table`
 /// - PostgreSQL/SQLite: 使用双引号 "table"
 pub fn quote_identifier(name: &str, use_backticks: bool) -> Result<String, String> {
     // 先验证标识符
     let validated = escape_identifier(name)?;
-    
+
     if use_backticks {
         // MySQL 使用反引号
         Ok(format!("`{}`", validated.replace('`', "``")))
@@ -145,20 +145,25 @@ pub fn generate_save_sql(
         Some(idx) => idx,
         None => {
             // 尝试查找名为 "id" 的列
-            match result.columns.iter().position(|c| c.eq_ignore_ascii_case("id")) {
+            match result
+                .columns
+                .iter()
+                .position(|c| c.eq_ignore_ascii_case("id"))
+            {
                 Some(idx) => idx,
                 None => {
                     // 无法确定主键，拒绝执行修改操作以防止数据损坏
                     actions.message = Some(
                         "无法确定主键列：未找到 'id' 列。\n\
-                         请确保表有主键列，或使用自定义 SQL 进行修改。".to_string()
+                         请确保表有主键列，或使用自定义 SQL 进行修改。"
+                            .to_string(),
                     );
                     return;
                 }
             }
         }
     };
-    
+
     let pk_col = match safe_columns.get(pk_idx) {
         Some(col) => col.clone(),
         None => {
@@ -171,33 +176,35 @@ pub fn generate_save_sql(
     for ((row_idx, col_idx), new_value) in &state.modified_cells {
         if let Some(row) = result.rows.get(*row_idx)
             && let Some(pk_value) = row.get(pk_idx)
-                && let Some(col_name) = safe_columns.get(*col_idx) {
-                    let safe_value = if new_value.is_empty() || new_value.eq_ignore_ascii_case("null") {
-                        "NULL".to_string()
-                    } else {
-                        escape_value(new_value)
-                    };
-                    let safe_pk_value = escape_value(pk_value);
+            && let Some(col_name) = safe_columns.get(*col_idx)
+        {
+            let safe_value = if new_value.is_empty() || new_value.eq_ignore_ascii_case("null") {
+                "NULL".to_string()
+            } else {
+                escape_value(new_value)
+            };
+            let safe_pk_value = escape_value(pk_value);
 
-                    let sql = format!(
-                        "UPDATE {} SET {} = {} WHERE {} = {};",
-                        safe_table_name, col_name, safe_value, pk_col, safe_pk_value
-                    );
-                    sql_statements.push(sql);
-                }
+            let sql = format!(
+                "UPDATE {} SET {} = {} WHERE {} = {};",
+                safe_table_name, col_name, safe_value, pk_col, safe_pk_value
+            );
+            sql_statements.push(sql);
+        }
     }
 
     // 生成 DELETE 语句
     for row_idx in &state.rows_to_delete {
         if let Some(row) = result.rows.get(*row_idx)
-            && let Some(pk_value) = row.get(pk_idx) {
-                let safe_pk_value = escape_value(pk_value);
-                let sql = format!(
-                    "DELETE FROM {} WHERE {} = {};",
-                    safe_table_name, pk_col, safe_pk_value
-                );
-                sql_statements.push(sql);
-            }
+            && let Some(pk_value) = row.get(pk_idx)
+        {
+            let safe_pk_value = escape_value(pk_value);
+            let sql = format!(
+                "DELETE FROM {} WHERE {} = {};",
+                safe_table_name, pk_col, safe_pk_value
+            );
+            sql_statements.push(sql);
+        }
     }
 
     // 生成 INSERT 语句
@@ -263,4 +270,3 @@ pub fn cancel_pending_sql(state: &mut DataGridState) {
     state.pending_sql.clear();
     state.show_save_confirm = false;
 }
-

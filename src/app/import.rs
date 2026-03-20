@@ -3,12 +3,13 @@
 //! 处理 CSV、JSON、SQL 文件的导入逻辑。
 
 use crate::core::{
-    import_csv_to_sql, import_json_to_sql, preview_csv, preview_json,
-    CsvImportConfig, JsonImportConfig,
+    CsvImportConfig, JsonImportConfig, import_csv_to_sql, import_json_to_sql, preview_csv,
+    preview_json,
 };
+use crate::database::execute_import_batch;
 use crate::ui;
 
-use super::DbManagerApp;
+use super::{DbManagerApp, message::Message};
 
 impl DbManagerApp {
     /// 打开导入对话框
@@ -16,7 +17,7 @@ impl DbManagerApp {
         self.show_import_dialog = true;
         self.import_state.clear();
     }
-    
+
     /// 选择导入文件
     pub(super) fn select_import_file(&mut self) {
         let file_dialog = rfd::FileDialog::new()
@@ -29,16 +30,17 @@ impl DbManagerApp {
             self.import_state.set_file(path);
         }
     }
-    
+
     /// 刷新导入预览
     pub(super) fn refresh_import_preview(&mut self) {
         let Some(ref path) = self.import_state.file_path else {
             return;
         };
-        
+
         self.import_state.loading = true;
         self.import_state.error = None;
-        
+        self.import_state.preview = None;
+
         match self.import_state.format {
             ui::ImportFormat::Sql => {
                 // SQL 文件解析
@@ -61,7 +63,7 @@ impl DbManagerApp {
                     quote_char: self.import_state.csv_config.quote_char,
                     ..Default::default()
                 };
-                
+
                 match preview_csv(path, &config) {
                     Ok(preview) => {
                         self.import_state.preview = Some(ui::ImportPreview {
@@ -86,9 +88,10 @@ impl DbManagerApp {
                     } else {
                         Some(self.import_state.json_config.json_path.clone())
                     },
+                    flatten_nested: self.import_state.json_config.flatten_nested,
                     ..Default::default()
                 };
-                
+
                 match preview_json(path, &config) {
                     Ok(preview) => {
                         self.import_state.preview = Some(ui::ImportPreview {
@@ -106,18 +109,18 @@ impl DbManagerApp {
                 }
             }
         }
-        
+
         self.import_state.loading = false;
     }
-    
+
     /// 执行导入（直接执行 SQL）
     pub(super) fn execute_import(&mut self) {
         let Some(ref path) = self.import_state.file_path else {
             return;
         };
-        
+
         let is_mysql = self.is_mysql();
-        
+
         let statements: Vec<String> = match self.import_state.format {
             ui::ImportFormat::Sql => {
                 if let Some(ref preview) = self.import_state.preview {
@@ -135,7 +138,7 @@ impl DbManagerApp {
                     table_name: self.import_state.csv_config.table_name.clone(),
                     ..Default::default()
                 };
-                
+
                 match import_csv_to_sql(path, &config, is_mysql) {
                     Ok(result) => result.sql_statements,
                     Err(e) => {
@@ -152,9 +155,10 @@ impl DbManagerApp {
                         Some(self.import_state.json_config.json_path.clone())
                     },
                     table_name: self.import_state.json_config.table_name.clone(),
+                    flatten_nested: self.import_state.json_config.flatten_nested,
                     ..Default::default()
                 };
-                
+
                 match import_json_to_sql(path, &config, is_mysql) {
                     Ok(result) => result.sql_statements,
                     Err(e) => {
@@ -164,51 +168,66 @@ impl DbManagerApp {
                 }
             }
         };
-        
+
         if statements.is_empty() {
             self.notifications.warning("没有可执行的 SQL 语句");
             return;
         }
-        
+
+        let Some(active_name) = self.manager.active.clone() else {
+            self.notifications.warning("请先连接数据库");
+            return;
+        };
+        let Some(conn) = self.manager.connections.get(&active_name) else {
+            self.notifications.warning("请先连接数据库");
+            return;
+        };
+        let config = conn.config.clone();
+
         // 关闭对话框
         self.show_import_dialog = false;
-        
+
         // 根据配置决定是否使用事务
         let use_transaction = self.import_state.sql_config.use_transaction;
-        
+        let stop_on_error = self.import_state.sql_config.stop_on_error;
+
         // 执行 SQL
         let valid_statements: Vec<String> = statements
             .into_iter()
             .filter(|s| !s.trim().is_empty())
             .collect();
         let valid_count = valid_statements.len();
-        
+
         if valid_count == 0 {
             self.notifications.warning("没有有效的 SQL 语句");
             return;
         }
-        
-        // 开始事务（如果启用）
-        if use_transaction {
-            self.execute("BEGIN".to_string());
-        }
-        
-        // 批量执行所有语句
-        for stmt in valid_statements {
-            self.execute(stmt);
-        }
-        
-        // 提交事务（如果启用）
-        if use_transaction {
-            self.execute("COMMIT".to_string());
-        }
-        
+
+        let tx = self.tx.clone();
+        self.import_executing = true;
+        self.refresh_executing_flag();
+        self.last_query_time_ms = None;
+
+        self.runtime.spawn(async move {
+            let start = std::time::Instant::now();
+            let result =
+                execute_import_batch(&config, valid_statements, use_transaction, stop_on_error)
+                    .await
+                    .map_err(|e| e.to_string());
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+
+            if tx.send(Message::ImportDone(result, elapsed_ms)).is_err() {
+                tracing::warn!("无法发送导入结果：接收端已关闭");
+            }
+        });
+
         self.notifications.info(format!(
-            "导入中: {} 条语句已提交执行（使用事务: {}）",
+            "导入已开始：共 {} 条语句（事务: {}，遇错停止: {}）",
             valid_count,
-            if use_transaction { "是" } else { "否" }
+            if use_transaction { "是" } else { "否" },
+            if stop_on_error { "是" } else { "否" },
         ));
-        
+
         self.import_state.clear();
     }
 }

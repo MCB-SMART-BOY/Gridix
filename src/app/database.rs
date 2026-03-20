@@ -6,41 +6,111 @@ use std::time::Instant;
 
 use crate::core::constants;
 use crate::database::{
-    connect_database, execute_query, get_primary_key_column, get_tables_for_database,
-    ConnectResult,
-    ssh_tunnel::SSH_TUNNEL_MANAGER,
+    ConnectResult, connect_database, execute_query_cancellable, get_primary_key_column,
+    get_tables_for_database, ssh_tunnel::SSH_TUNNEL_MANAGER,
 };
+use crate::ui;
 
-use super::message::Message;
 use super::DbManagerApp;
+use super::message::Message;
 
 impl DbManagerApp {
+    /// 打开连接编辑对话框（预填当前配置）
+    pub(super) fn open_connection_editor(&mut self, name: &str) {
+        if let Some(conn) = self.manager.connections.get(name) {
+            self.new_config = conn.config.clone();
+            self.editing_connection_name = Some(name.to_string());
+            self.show_connection_dialog = true;
+        } else {
+            self.notifications
+                .warning(format!("连接 '{}' 不存在", name));
+        }
+    }
+
+    /// 保存连接对话框结果（新建或编辑）
+    pub(super) fn save_connection_from_dialog(&mut self) {
+        let config = std::mem::take(&mut self.new_config);
+        let name = config.name.clone();
+
+        let editing_name = self.editing_connection_name.clone();
+        let has_name_conflict = match editing_name.as_deref() {
+            Some(old_name) => old_name != name && self.manager.connections.contains_key(&name),
+            None => self.manager.connections.contains_key(&name),
+        };
+        if has_name_conflict {
+            self.notifications
+                .error(format!("连接名 '{}' 已存在，请使用其他名称", name));
+            self.new_config = config;
+            self.show_connection_dialog = true;
+            return;
+        }
+
+        if let Some(old_name) = self.editing_connection_name.take() {
+            if self.manager.connections.contains_key(&old_name) {
+                self.disconnect(old_name.clone());
+                self.manager.connections.remove(&old_name);
+            }
+
+            if old_name != name {
+                if let Some(history) = self.app_config.command_history.remove(&old_name) {
+                    self.app_config
+                        .command_history
+                        .insert(name.clone(), history);
+                }
+                if self.current_history_connection.as_deref() == Some(&old_name) {
+                    self.current_history_connection = Some(name.clone());
+                }
+            }
+
+            self.notifications
+                .success(format!("连接 '{}' 已更新", name));
+        }
+
+        self.manager.add(config);
+        self.save_config();
+        self.connect(name);
+    }
+
     /// 连接到数据库
     pub(super) fn connect(&mut self, name: String) {
         if let Some(conn) = self.manager.connections.get(&name) {
             let config = conn.config.clone();
             let tx = self.tx.clone();
+            let request_id = self.next_connect_request_id();
 
-            self.connecting = true;
             self.manager.active = Some(name.clone());
+            self.pending_connect_requests
+                .insert(name.clone(), request_id);
+            self.pending_database_requests.remove(&name);
+            self.pending_triggers_request = None;
+            self.pending_routines_request = None;
+            self.sidebar_panel_state.loading_triggers = false;
+            self.sidebar_panel_state.loading_routines = false;
+            self.sidebar_panel_state.clear_triggers();
+            self.sidebar_panel_state.clear_routines();
+            self.refresh_connecting_flag();
+
+            tracing::info!(connection = %name, db_type = ?config.db_type, "开始连接数据库");
 
             self.runtime.spawn(async move {
-                use tokio::time::{timeout, Duration};
+                use tokio::time::{Duration, timeout};
                 // 连接超时
                 let timeout_secs = constants::database::CONNECTION_TIMEOUT_SECS;
-                let result = timeout(
-                    Duration::from_secs(timeout_secs),
-                    connect_database(&config),
-                )
-                .await;
+                let result =
+                    timeout(Duration::from_secs(timeout_secs), connect_database(&config)).await;
                 let message = match result {
                     Ok(Ok(ConnectResult::Tables(tables))) => {
-                        Message::ConnectedWithTables(name, Ok(tables))
+                        tracing::info!(connection = %name, tables_count = tables.len(), "数据库连接成功");
+                        Message::ConnectedWithTables(name, request_id, Ok(tables))
                     }
                     Ok(Ok(ConnectResult::Databases(databases))) => {
-                        Message::ConnectedWithDatabases(name, Ok(databases))
+                        tracing::info!(connection = %name, databases_count = databases.len(), "数据库连接成功，获取到数据库列表");
+                        Message::ConnectedWithDatabases(name, request_id, Ok(databases))
                     }
-                    Ok(Err(e)) => Message::ConnectedWithTables(name, Err(e.to_string())),
+                    Ok(Err(e)) => {
+                        tracing::error!(connection = %name, error = %e, "数据库连接失败");
+                        Message::ConnectedWithTables(name, request_id, Err(e.to_string()))
+                    }
                     Err(_) => {
                         // 提供更详细的超时错误信息
                         let host_info = match &config.db_type {
@@ -53,7 +123,7 @@ impl DbManagerApp {
                             "连接超时 ({}秒)。目标: {}。请检查: 1) 网络连接 2) 防火墙设置 3) 数据库服务是否运行",
                             timeout_secs, host_info
                         );
-                        Message::ConnectedWithTables(name, Err(err_msg))
+                        Message::ConnectedWithTables(name, request_id, Err(err_msg))
                     }
                 };
                 if tx.send(message).is_err() {
@@ -73,11 +143,20 @@ impl DbManagerApp {
         };
         let config = conn.config.clone();
         let tx = self.tx.clone();
+        let request_id = self.next_connect_request_id();
 
-        self.connecting = true;
+        self.pending_database_requests
+            .insert(active_name.clone(), (database.clone(), request_id));
+        self.pending_triggers_request = None;
+        self.pending_routines_request = None;
+        self.sidebar_panel_state.loading_triggers = false;
+        self.sidebar_panel_state.loading_routines = false;
+        self.sidebar_panel_state.clear_triggers();
+        self.sidebar_panel_state.clear_routines();
+        self.refresh_connecting_flag();
 
         self.runtime.spawn(async move {
-            use tokio::time::{timeout, Duration};
+            use tokio::time::{Duration, timeout};
             let timeout_secs = constants::database::CONNECTION_TIMEOUT_SECS;
             let db_name = database.clone();
             let result = timeout(
@@ -97,6 +176,7 @@ impl DbManagerApp {
                 .send(Message::DatabaseSelected(
                     active_name,
                     database,
+                    request_id,
                     tables_result,
                 ))
                 .is_err()
@@ -115,7 +195,7 @@ impl DbManagerApp {
 
             // 停止关联的 SSH 隧道
             if config.ssh_config.enabled {
-                let tunnel_name = format!("{}_{}", name, config.ssh_config.remote_host);
+                let tunnel_name = config.ssh_config.tunnel_name();
                 let handle_clone = handle.clone();
                 std::thread::spawn(move || {
                     handle_clone.block_on(async {
@@ -133,20 +213,37 @@ impl DbManagerApp {
         }
 
         self.manager.disconnect(&name);
+        self.cancel_queries_for_connection(&name);
+        self.pending_connect_requests.remove(&name);
+        self.pending_database_requests.remove(&name);
+        self.pending_triggers_request = None;
+        self.pending_routines_request = None;
+        self.pending_drop_requests
+            .retain(|_, (conn_name, _)| conn_name != &name);
         if self.manager.active.as_deref() == Some(&name) {
             self.manager.active = None;
             self.selected_table = None;
             self.result = None;
+            self.autocomplete.clear();
+            self.sidebar_panel_state.clear_triggers();
+            self.sidebar_panel_state.clear_routines();
+            self.sidebar_panel_state.loading_triggers = false;
+            self.sidebar_panel_state.loading_routines = false;
         }
+        self.refresh_connecting_flag();
     }
 
     /// 删除连接配置
     pub(super) fn delete_connection(&mut self, name: &str) {
-        self.manager.connections.remove(name);
+        let was_active = self.manager.active.as_deref() == Some(name);
+        if self.manager.connections.contains_key(name) {
+            self.disconnect(name.to_string());
+            self.manager.connections.remove(name);
+        }
         // 删除该连接的历史记录
         self.app_config.command_history.remove(name);
         // 如果删除的是当前连接，清空当前状态
-        if self.manager.active.as_deref() == Some(name) {
+        if was_active {
             self.manager.active = None;
             self.selected_table = None;
             self.result = None;
@@ -156,24 +253,52 @@ impl DbManagerApp {
         self.save_config();
     }
 
-    /// 执行 SQL 查询
-    pub(super) fn execute(&mut self, sql: String) {
-        if sql.trim().is_empty() {
-            return;
-        }
-
-        // 提前检查连接状态
-        let Some(active_name) = &self.manager.active else {
+    /// 删除表（执行 DROP TABLE）
+    pub(super) fn delete_table(&mut self, table: &str) {
+        let Some(conn) = self.manager.get_active() else {
             self.notifications.warning("请先连接数据库");
             return;
         };
-        let Some(conn) = self.manager.connections.get(active_name) else {
+        let active_name = conn.config.name.clone();
+
+        let use_backticks = matches!(conn.config.db_type, crate::database::DatabaseType::MySQL);
+        let quoted_table = match ui::quote_identifier(table, use_backticks) {
+            Ok(name) => name,
+            Err(e) => {
+                self.notifications.error(format!("表名无效: {}", e));
+                return;
+            }
+        };
+
+        if let Some(request_id) = self.execute(format!("DROP TABLE {};", quoted_table)) {
+            self.pending_drop_requests
+                .insert(request_id, (active_name, table.to_string()));
+        }
+    }
+
+    /// 执行 SQL 查询
+    pub(super) fn execute(&mut self, sql: String) -> Option<u64> {
+        if sql.trim().is_empty() {
+            tracing::debug!("SQL 为空，跳过执行");
+            return None;
+        }
+
+        // 提前检查连接状态
+        let Some(active_name) = self.manager.active.clone() else {
+            tracing::warn!("尝试执行查询但未连接数据库");
             self.notifications.warning("请先连接数据库");
-            return;
+            return None;
+        };
+        let Some(conn) = self.manager.connections.get(&active_name) else {
+            tracing::warn!(connection = %active_name, "连接配置不存在");
+            self.notifications.warning("请先连接数据库");
+            return None;
         };
 
         let config = conn.config.clone();
         let tx = self.tx.clone();
+
+        tracing::info!(connection = %active_name, sql_length = sql.len(), "开始执行查询");
 
         // 添加到命令历史
         if self.command_history.first() != Some(&sql) {
@@ -191,40 +316,77 @@ impl DbManagerApp {
         self.executing = true;
         self.result = None;
         self.last_query_time_ms = None;
+        self.next_query_request_id = self.next_query_request_id.wrapping_add(1);
+        if self.next_query_request_id == 0 {
+            self.next_query_request_id = 1;
+        }
+        let request_id = self.next_query_request_id;
+        let mut target_tab_id = String::new();
 
         // 同步 SQL 到当前 Tab 并设置执行状态
+        let mut previous_request_id = None;
         if let Some(tab) = self.tab_manager.get_active_mut() {
+            previous_request_id = tab.pending_request_id.take();
             tab.sql = sql.clone();
             tab.executing = true;
+            tab.pending_request_id = Some(request_id);
             tab.update_title();
+            target_tab_id = tab.id.clone();
         }
+        if let Some(prev_request_id) = previous_request_id {
+            self.cancel_query_request(prev_request_id);
+        }
+        self.refresh_executing_flag();
 
-        self.runtime.spawn(async move {
+        let tx_tab_id = target_tab_id;
+        let task_conn_name = active_name.clone();
+        let tx_conn_name = active_name;
+        let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+        let query_task = self.runtime.spawn(async move {
             use tokio::time::{timeout, Duration};
             let start = Instant::now();
             let timeout_secs = constants::database::QUERY_TIMEOUT_SECS;
             // 查询超时
             let result = timeout(
                 Duration::from_secs(timeout_secs),
-                execute_query(&config, &sql),
+                execute_query_cancellable(&config, &sql, cancel_rx),
             )
             .await;
             let elapsed_ms = start.elapsed().as_millis() as u64;
             let query_result = match result {
-                Ok(Ok(res)) => Ok(res),
-                Ok(Err(e)) => Err(e.to_string()),
-                Err(_) => Err(format!(
-                    "查询超时 ({}秒)。建议: 1) 添加 LIMIT 限制结果集 2) 优化查询条件 3) 检查索引",
-                    timeout_secs
-                )),
+                Ok(Ok(res)) => {
+                    tracing::info!(rows = res.rows.len(), columns = res.columns.len(), elapsed_ms, "查询执行成功");
+                    Ok(res)
+                }
+                Ok(Err(e)) => {
+                    tracing::error!(error = %e, elapsed_ms, "查询执行失败");
+                    Err(e.to_string())
+                }
+                Err(_) => {
+                    tracing::error!(timeout_secs, elapsed_ms, "查询执行超时");
+                    Err(format!(
+                        "查询超时 ({}秒)。建议: 1) 添加 LIMIT 限制结果集 2) 优化查询条件 3) 检查索引",
+                        timeout_secs
+                    ))
+                }
             };
             if tx
-                .send(Message::QueryDone(sql, query_result, elapsed_ms))
+                .send(Message::QueryDone(
+                    sql,
+                    tx_conn_name,
+                    tx_tab_id,
+                    request_id,
+                    query_result,
+                    elapsed_ms,
+                ))
                 .is_err()
             {
                 tracing::warn!("无法发送查询结果：接收端已关闭");
             }
         });
+        self.track_query_task(request_id, task_conn_name, query_task, cancel_tx);
+
+        Some(request_id)
     }
 
     /// 异步获取表的主键列

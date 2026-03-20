@@ -45,11 +45,7 @@ pub fn filter_result_for_export(result: &QueryResult, config: &ExportConfig) -> 
 }
 
 /// 导出为 CSV 格式
-pub fn export_csv(
-    result: &QueryResult,
-    path: &Path,
-    config: &ExportConfig,
-) -> Result<(), String> {
+pub fn export_csv(result: &QueryResult, path: &Path, config: &ExportConfig) -> Result<(), String> {
     use std::fs::File;
     use std::io::Write;
 
@@ -59,10 +55,7 @@ pub fn export_csv(
 
     // 转义 CSV 字段
     let escape_field = |field: &str| -> String {
-        if field.contains(config.csv_delimiter)
-            || field.contains(quote)
-            || field.contains('\n')
-        {
+        if field.contains(config.csv_delimiter) || field.contains(quote) || field.contains('\n') {
             format!(
                 "{}{}{}",
                 quote,
@@ -198,11 +191,7 @@ pub fn export_sql(
 }
 
 /// 导出为 JSON 格式
-pub fn export_json(
-    result: &QueryResult,
-    path: &Path,
-    config: &ExportConfig,
-) -> Result<(), String> {
+pub fn export_json(result: &QueryResult, path: &Path, config: &ExportConfig) -> Result<(), String> {
     use std::fs::File;
     use std::io::Write;
 

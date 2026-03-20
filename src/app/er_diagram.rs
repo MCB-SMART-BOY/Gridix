@@ -2,8 +2,8 @@
 //!
 //! 处理 ER 图数据加载和关系推断。
 
-use crate::ui;
 use super::{DbManagerApp, Message};
+use crate::ui;
 
 impl DbManagerApp {
     /// 加载 ER 图数据
@@ -16,11 +16,15 @@ impl DbManagerApp {
 
         if let Some(conn) = self.manager.get_active() {
             let tables = conn.tables.clone();
-            let db_name = conn.selected_database.clone().unwrap_or_else(|| "未选择".to_string());
+            let db_name = conn
+                .selected_database
+                .clone()
+                .unwrap_or_else(|| "未选择".to_string());
             let config = conn.config.clone();
 
             if tables.is_empty() {
-                self.notifications.warning(format!("数据库 {} 没有表，请先选择数据库", db_name));
+                self.notifications
+                    .warning(format!("数据库 {} 没有表，请先选择数据库", db_name));
                 self.er_diagram_state.loading = false;
                 return;
             }
@@ -50,7 +54,8 @@ impl DbManagerApp {
                 let config_clone = config.clone();
                 let table_clone = table_name.clone();
                 self.runtime.spawn(async move {
-                    let result = crate::database::get_table_columns(&config_clone, &table_clone).await;
+                    let result =
+                        crate::database::get_table_columns(&config_clone, &table_clone).await;
                     let _ = tx.send(Message::ERTableColumnsFetched(
                         table_clone,
                         result.map_err(|e| e.to_string()),
@@ -62,7 +67,9 @@ impl DbManagerApp {
             let tx = self.tx.clone();
             self.runtime.spawn(async move {
                 let result = crate::database::get_foreign_keys(&config).await;
-                let _ = tx.send(Message::ForeignKeysFetched(result.map_err(|e| e.to_string())));
+                let _ = tx.send(Message::ForeignKeysFetched(
+                    result.map_err(|e| e.to_string()),
+                ));
             });
         } else {
             self.notifications.warning("请先连接数据库");

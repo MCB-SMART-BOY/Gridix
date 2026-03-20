@@ -11,7 +11,6 @@ use super::{
 use crate::ui::styles::GRAY;
 use egui::{self, Color32, Key, RichText, Sense, TextEdit, Vec2};
 
-
 // NULL 值颜色
 const COLOR_NULL: Color32 = Color32::from_rgb(120, 120, 140);
 
@@ -47,11 +46,15 @@ pub fn render_column_header(
         } else {
             GRAY
         };
-        if ui.add(
-            egui::Button::new(RichText::new(filter_icon).size(10.0).color(btn_color))
-                .frame(false)
-                .min_size(Vec2::new(16.0, 16.0)),
-        ).on_hover_text(format!("筛选 {} 列", col_name)).clicked() {
+        if ui
+            .add(
+                egui::Button::new(RichText::new(filter_icon).size(10.0).color(btn_color))
+                    .frame(false)
+                    .min_size(Vec2::new(16.0, 16.0)),
+            )
+            .on_hover_text(format!("筛选 {} 列", col_name))
+            .clicked()
+        {
             columns_to_filter.push(col_name.to_string());
         }
     });
@@ -72,54 +75,68 @@ pub fn render_row_number(
         Color32::TRANSPARENT
     };
 
-    egui::Frame::NONE
-        .fill(bg)
-        .inner_margin(4.0)
-        .show(ui, |ui| {
-            let text = if is_deleted {
-                RichText::new(format!("✕{}", row_idx + 1))
-                    .color(Color32::WHITE)
-                    .small()
-            } else if is_cursor_row {
-                RichText::new(format!("{}", row_idx + 1))
-                    .color(state.mode.color())
-                    .small()
-            } else {
-                RichText::new(format!("{}", row_idx + 1))
-                    .color(GRAY)
-                    .small()
+    egui::Frame::NONE.fill(bg).inner_margin(4.0).show(ui, |ui| {
+        let text = if is_deleted {
+            RichText::new(format!("✕{}", row_idx + 1))
+                .color(Color32::WHITE)
+                .small()
+        } else if is_cursor_row {
+            RichText::new(format!("{}", row_idx + 1))
+                .color(state.mode.color())
+                .small()
+        } else {
+            RichText::new(format!("{}", row_idx + 1))
+                .color(GRAY)
+                .small()
+        };
+
+        let response = ui.add(egui::Label::new(text).sense(Sense::click()));
+
+        if response.clicked() {
+            state.cursor.0 = row_idx;
+            state.focused = true;
+        }
+
+        // 右键菜单 - 无边框按钮
+        response.context_menu(|ui| {
+            let menu_btn = |ui: &mut egui::Ui,
+                            icon: &str,
+                            text: &str,
+                            tooltip: &str,
+                            color: Color32|
+             -> bool {
+                ui.add(
+                    egui::Button::new(
+                        RichText::new(format!("{} {}", icon, text))
+                            .size(13.0)
+                            .color(color),
+                    )
+                    .frame(false)
+                    .min_size(Vec2::new(0.0, 24.0)),
+                )
+                .on_hover_text(tooltip)
+                .clicked()
             };
 
-            let response = ui.add(egui::Label::new(text).sense(Sense::click()));
-
-            if response.clicked() {
-                state.cursor.0 = row_idx;
-                state.focused = true;
-            }
-
-            // 右键菜单 - 无边框按钮
-            response.context_menu(|ui| {
-                let menu_btn = |ui: &mut egui::Ui, icon: &str, text: &str, tooltip: &str, color: Color32| -> bool {
-                    ui.add(
-                        egui::Button::new(RichText::new(format!("{} {}", icon, text)).size(13.0).color(color))
-                            .frame(false)
-                            .min_size(Vec2::new(0.0, 24.0)),
-                    ).on_hover_text(tooltip).clicked()
-                };
-                
-                if is_deleted {
-                    if menu_btn(ui, "↩", "取消删除", "取消删除 (u)", Color32::LIGHT_GRAY) {
-                        state.rows_to_delete.retain(|&x| x != row_idx);
-                        ui.close();
-                    }
-                } else if menu_btn(ui, "🗑", "标记删除", "标记删除 (Space+d)", Color32::from_rgb(255, 100, 100)) {
-                    if !state.rows_to_delete.contains(&row_idx) {
-                        state.rows_to_delete.push(row_idx);
-                    }
+            if is_deleted {
+                if menu_btn(ui, "↩", "取消删除", "取消删除 (u)", Color32::LIGHT_GRAY) {
+                    state.rows_to_delete.retain(|&x| x != row_idx);
                     ui.close();
                 }
-            });
+            } else if menu_btn(
+                ui,
+                "🗑",
+                "标记删除",
+                "标记删除 (Space+d)",
+                Color32::from_rgb(255, 100, 100),
+            ) {
+                if !state.rows_to_delete.contains(&row_idx) {
+                    state.rows_to_delete.push(row_idx);
+                }
+                ui.close();
+            }
         });
+    });
 }
 
 /// 渲染可编辑的数据单元格
@@ -237,12 +254,18 @@ fn render_display_cell(
     response.context_menu(|ui| {
         let menu_btn = |ui: &mut egui::Ui, icon: &str, text: &str, tooltip: &str| -> bool {
             ui.add(
-                egui::Button::new(RichText::new(format!("{} {}", icon, text)).size(13.0).color(Color32::LIGHT_GRAY))
-                    .frame(false)
-                    .min_size(Vec2::new(0.0, 24.0)),
-            ).on_hover_text(tooltip).clicked()
+                egui::Button::new(
+                    RichText::new(format!("{} {}", icon, text))
+                        .size(13.0)
+                        .color(Color32::LIGHT_GRAY),
+                )
+                .frame(false)
+                .min_size(Vec2::new(0.0, 24.0)),
+            )
+            .on_hover_text(tooltip)
+            .clicked()
         };
-        
+
         if menu_btn(ui, "✏", "编辑", "编辑单元格 (i)") {
             state.mode = GridMode::Insert;
             state.editing_cell = Some((row_idx, col_idx));
@@ -263,7 +286,8 @@ fn render_display_cell(
             }
             ui.close();
         }
-        if state.modified_cells.contains_key(&(row_idx, col_idx)) && menu_btn(ui, "↩", "还原", "还原修改 (u)")
+        if state.modified_cells.contains_key(&(row_idx, col_idx))
+            && menu_btn(ui, "↩", "还原", "还原修改 (u)")
         {
             state.modified_cells.remove(&(row_idx, col_idx));
             ui.close();
@@ -285,11 +309,7 @@ fn format_cell_text(cell: &str, is_cursor: bool) -> RichText {
         RichText::new(cell)
     };
 
-    if is_cursor {
-        text.underline()
-    } else {
-        text
-    }
+    if is_cursor { text.underline() } else { text }
 }
 
 // 新增行的背景色 - 浅绿色表示待保存
@@ -362,11 +382,7 @@ fn render_new_row_display_cell(
     col_idx: usize,
     is_cursor: bool,
 ) {
-    let display_value = if cell.is_empty() {
-        "(空)"
-    } else {
-        cell
-    };
+    let display_value = if cell.is_empty() { "(空)" } else { cell };
 
     let cell_text = if cell.is_empty() {
         RichText::new(display_value).italics().color(GRAY)
@@ -394,12 +410,18 @@ fn render_new_row_display_cell(
     response.context_menu(|ui| {
         let menu_btn = |ui: &mut egui::Ui, icon: &str, text: &str, tooltip: &str| -> bool {
             ui.add(
-                egui::Button::new(RichText::new(format!("{} {}", icon, text)).size(13.0).color(Color32::LIGHT_GRAY))
-                    .frame(false)
-                    .min_size(Vec2::new(0.0, 24.0)),
-            ).on_hover_text(tooltip).clicked()
+                egui::Button::new(
+                    RichText::new(format!("{} {}", icon, text))
+                        .size(13.0)
+                        .color(Color32::LIGHT_GRAY),
+                )
+                .frame(false)
+                .min_size(Vec2::new(0.0, 24.0)),
+            )
+            .on_hover_text(tooltip)
+            .clicked()
         };
-        
+
         if menu_btn(ui, "✏", "编辑", "编辑单元格 (i)") {
             state.mode = GridMode::Insert;
             state.editing_cell = Some((row_idx, col_idx));

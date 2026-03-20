@@ -41,7 +41,11 @@ pub fn icon_button_with_focus(
 
 /// 纯文字按钮（无边框）
 pub fn text_button(ui: &mut egui::Ui, text: &str, tooltip: &str, enabled: bool) -> bool {
-    let color = if enabled { Color32::LIGHT_GRAY } else { Color32::from_gray(60) };
+    let color = if enabled {
+        Color32::LIGHT_GRAY
+    } else {
+        Color32::from_gray(60)
+    };
     ui.add_enabled(
         enabled,
         egui::Button::new(RichText::new(text).size(13.0).color(color))
@@ -79,7 +83,7 @@ pub fn render_menu_item(
     } else {
         Color32::TRANSPARENT
     };
-    
+
     let text_color = if !enabled {
         Color32::from_gray(100)
     } else if is_selected {
@@ -87,7 +91,7 @@ pub fn render_menu_item(
     } else {
         Color32::from_rgb(180, 180, 190)
     };
-    
+
     let frame_response = egui::Frame::NONE
         .fill(bg_color)
         .inner_margin(egui::Margin::symmetric(12, 6))
@@ -97,18 +101,22 @@ pub fn render_menu_item(
             ui.horizontal(|ui| {
                 // 选中指示器
                 let indicator = if is_selected { ">" } else { " " };
-                ui.label(RichText::new(indicator).color(Color32::from_rgb(130, 180, 255)).monospace());
-                
+                ui.label(
+                    RichText::new(indicator)
+                        .color(Color32::from_rgb(130, 180, 255))
+                        .monospace(),
+                );
+
                 // 标签
                 ui.label(RichText::new(label).color(text_color));
-                
+
                 // 快捷键（右对齐）
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(RichText::new(shortcut).small().color(MUTED));
                 });
             });
         });
-    
+
     frame_response.response.interact(egui::Sense::click())
 }
 
@@ -151,7 +159,11 @@ pub fn render_combo_item(
                 // 浅色主题标识
                 if is_light_theme {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new("日").small().color(Color32::from_rgb(255, 200, 100)));
+                        ui.label(
+                            RichText::new("日")
+                                .small()
+                                .color(Color32::from_rgb(255, 200, 100)),
+                        );
                     });
                 }
             });

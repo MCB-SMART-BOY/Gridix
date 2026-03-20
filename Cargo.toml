@@ -1,6 +1,6 @@
 [package]
 name = "gridix"
-version = "2.0.0"
+version = "2.0.1"
 edition = "2024"
 description = "跨平台数据库管理工具，支持 SQLite/PostgreSQL/MySQL"
 authors = ["MCB-SMART-BOY"]
@@ -103,6 +103,7 @@ lazy_static = "1"
 parking_lot = "0.12"
 once_cell = "1"
 rayon = "1.11"
+futures-util = "0.3"
 
 # -----------------------------------------------------------------------------
 # 加密与安全
@@ -131,7 +132,7 @@ pretty_assertions = "1.4"
 
 [profile.release]
 opt-level = "z"     # 优化体积
-lto = true          # 链接时优化
+lto = "thin"        # 使用 thin LTO，避免与静态库冲突
 strip = true        # 移除符号
 panic = "abort"     # 精简 panic 代码
 codegen-units = 1   # 更好的优化

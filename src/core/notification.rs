@@ -34,10 +34,10 @@ impl NotificationLevel {
     /// 获取对应的颜色
     pub fn color(&self) -> egui::Color32 {
         match self {
-            NotificationLevel::Info => egui::Color32::from_rgb(100, 149, 237),    // 蓝色
-            NotificationLevel::Success => egui::Color32::from_rgb(46, 204, 113),  // 绿色
-            NotificationLevel::Warning => egui::Color32::from_rgb(241, 196, 15),  // 黄色
-            NotificationLevel::Error => egui::Color32::from_rgb(231, 76, 60),     // 红色
+            NotificationLevel::Info => egui::Color32::from_rgb(100, 149, 237), // 蓝色
+            NotificationLevel::Success => egui::Color32::from_rgb(46, 204, 113), // 绿色
+            NotificationLevel::Warning => egui::Color32::from_rgb(241, 196, 15), // 黄色
+            NotificationLevel::Error => egui::Color32::from_rgb(231, 76, 60),  // 红色
         }
     }
 

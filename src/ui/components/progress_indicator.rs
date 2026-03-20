@@ -14,13 +14,13 @@ impl ProgressIndicator {
     /// 在工具栏显示进度指示器
     pub fn show_in_toolbar(ui: &mut egui::Ui, progress: &ProgressManager) -> Option<u64> {
         let mut cancel_id = None;
-        
+
         if !progress.has_active_tasks() {
             return None;
         }
 
         let tasks = progress.active_tasks();
-        
+
         // 显示第一个任务的进度
         if let Some(task) = tasks.first() {
             ui.horizontal(|ui| {
@@ -33,7 +33,7 @@ impl ProgressIndicator {
                     2 => "-",
                     _ => "\\",
                 };
-                
+
                 ui.label(
                     egui::RichText::new(spinner_char)
                         .color(egui::Color32::from_rgb(100, 149, 237))
@@ -46,7 +46,7 @@ impl ProgressIndicator {
                 } else {
                     task.description.clone()
                 };
-                
+
                 ui.label(
                     egui::RichText::new(&desc)
                         .size(12.0)
@@ -57,19 +57,19 @@ impl ProgressIndicator {
                 if let Some(progress_value) = task.progress {
                     let progress_width = 60.0;
                     let progress_height = 4.0;
-                    
+
                     let (rect, _) = ui.allocate_exact_size(
                         egui::vec2(progress_width, progress_height),
                         egui::Sense::hover(),
                     );
-                    
+
                     // 背景
                     ui.painter().rect_filled(
                         rect,
                         egui::CornerRadius::same(2),
                         egui::Color32::from_gray(60),
                     );
-                    
+
                     // 进度
                     let progress_rect = egui::Rect::from_min_size(
                         rect.min,
@@ -113,7 +113,7 @@ impl ProgressIndicator {
             // 请求持续重绘以更新动画
             ui.ctx().request_repaint();
         }
-        
+
         cancel_id
     }
 
@@ -146,8 +146,7 @@ impl ProgressIndicator {
 
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new(spinner_char)
-                    .color(egui::Color32::from_rgb(100, 149, 237)),
+                egui::RichText::new(spinner_char).color(egui::Color32::from_rgb(100, 149, 237)),
             );
             ui.label(
                 egui::RichText::new(&text)

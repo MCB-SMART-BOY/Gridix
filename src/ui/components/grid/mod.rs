@@ -19,10 +19,11 @@ mod mode;
 mod render;
 mod state;
 
-pub use actions::{escape_identifier, escape_value, quote_identifier, DataGridActions, FocusTransfer};
+pub use actions::{
+    DataGridActions, FocusTransfer, escape_identifier, escape_value, quote_identifier,
+};
 pub use filter::{
-    check_filter_match, filter_rows_cached,
-    ColumnFilter, FilterCache, FilterLogic, FilterOperator,
+    ColumnFilter, FilterCache, FilterLogic, FilterOperator, check_filter_match, filter_rows_cached,
 };
 pub use mode::GridMode;
 pub use state::DataGridState;
@@ -111,9 +112,10 @@ impl DataGrid {
             // 计算新增行在 new_rows 中的索引
             let new_row_idx = virtual_idx.saturating_sub(result.rows.len());
             if let Some(row_data) = state.new_rows.get_mut(new_row_idx)
-                && col_idx < row_data.len() {
-                    row_data[col_idx] = new_value;
-                }
+                && col_idx < row_data.len()
+            {
+                row_data[col_idx] = new_value;
+            }
         }
 
         // 处理 Ctrl+S 保存请求
@@ -131,7 +133,8 @@ impl DataGrid {
         *selected_cell = Some(state.cursor);
 
         // 获取每列的最佳宽度（使用缓存优化）
-        let col_widths = Self::get_column_widths(result, &filtered_rows, &mut state.column_width_cache);
+        let col_widths =
+            Self::get_column_widths(result, &filtered_rows, &mut state.column_width_cache);
 
         // 收集需要添加筛选的列
         let mut columns_to_filter: Vec<String> = Vec::new();
@@ -139,10 +142,10 @@ impl DataGrid {
         // 获取需要滚动到的行（表格内部处理垂直滚动）
         let scroll_to_row = state.scroll_to_row.take();
         let _ = state.scroll_to_col.take();
-        
+
         // 获取可用宽度
         let available_width = ui.available_width();
-        
+
         // 计算目标列的位置信息
         let current_col = state.cursor.1;
         let mut col_left = ROW_NUM_WIDTH;
@@ -151,13 +154,16 @@ impl DataGrid {
                 col_left += w;
             }
         }
-        let col_width = col_widths.get(current_col).copied().unwrap_or(MIN_COL_WIDTH);
+        let col_width = col_widths
+            .get(current_col)
+            .copied()
+            .unwrap_or(MIN_COL_WIDTH);
         let col_right = col_left + col_width;
-        
+
         // 检测光标列是否改变
         let col_changed = current_col != state.last_cursor_col;
         state.last_cursor_col = current_col;
-        
+
         // 计算水平滚动偏移
         let mut target_h_offset = state.h_scroll_offset;
         if col_changed {
@@ -186,18 +192,15 @@ impl DataGrid {
 
                     // 为每列设置基于内容的初始宽度
                     for &width in &col_widths {
-                        table_builder = table_builder.column(
-                            Column::initial(width)
-                                .at_least(MIN_COL_WIDTH)
-                                .clip(true),
-                        );
+                        table_builder = table_builder
+                            .column(Column::initial(width).at_least(MIN_COL_WIDTH).clip(true));
                     }
 
                     // 使用表格内部的垂直滚动
                     if let Some(target_row) = scroll_to_row {
-                        table_builder = table_builder.scroll_to_row(target_row, Some(egui::Align::Center));
+                        table_builder =
+                            table_builder.scroll_to_row(target_row, Some(egui::Align::Center));
                     }
-
 
                     table_builder
                         .header(HEADER_HEIGHT, |mut header| {
@@ -222,7 +225,7 @@ impl DataGrid {
                             let filtered_rows_len = filtered_rows.len();
                             body.rows(ROW_HEIGHT, filtered_count, |mut row| {
                                 let display_idx = row.index();
-                                
+
                                 // 判断是显示已有数据还是新增行
                                 if display_idx < filtered_rows_len {
                                     // 显示已有数据行
@@ -380,7 +383,8 @@ impl DataGrid {
                     RichText::new(truncated_msg)
                         .small()
                         .color(Color32::from_rgb(255, 165, 0)), // 橙色警告
-                ).on_hover_text("结果集过大已被截断。建议在 SQL 中添加 LIMIT 子句限制返回行数。");
+                )
+                .on_hover_text("结果集过大已被截断。建议在 SQL 中添加 LIMIT 子句限制返回行数。");
             }
 
             ui.separator();
@@ -389,10 +393,20 @@ impl DataGrid {
             let filter_text = if state.filters.is_empty() {
                 "+ 筛选".to_string()
             } else {
-                format!("筛选({})", state.filters.iter().filter(|f| f.enabled).count())
+                format!(
+                    "筛选({})",
+                    state.filters.iter().filter(|f| f.enabled).count()
+                )
             };
             if ui
-                .add(egui::Label::new(RichText::new(filter_text).size(12.0).color(Color32::from_rgb(130, 160, 200))).sense(egui::Sense::click()))
+                .add(
+                    egui::Label::new(
+                        RichText::new(filter_text)
+                            .size(12.0)
+                            .color(Color32::from_rgb(130, 160, 200)),
+                    )
+                    .sense(egui::Sense::click()),
+                )
                 .on_hover_text("打开筛选面板 [/]")
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .clicked()
@@ -404,10 +418,17 @@ impl DataGrid {
             // 操作按钮
             if table_name.is_some() {
                 ui.add_space(16.0);
-                
+
                 // 新增行 - 可点击文字
                 if ui
-                    .add(egui::Label::new(RichText::new("+ 行").size(12.0).color(Color32::from_rgb(130, 160, 200))).sense(egui::Sense::click()))
+                    .add(
+                        egui::Label::new(
+                            RichText::new("+ 行")
+                                .size(12.0)
+                                .color(Color32::from_rgb(130, 160, 200)),
+                        )
+                        .sense(egui::Sense::click()),
+                    )
                     .on_hover_text("添加新行 [o]")
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .clicked()
@@ -423,7 +444,11 @@ impl DataGrid {
                 }
 
                 let has_changes = state.has_changes();
-                let save_color = if has_changes { Color32::LIGHT_GRAY } else { Color32::from_gray(60) };
+                let save_color = if has_changes {
+                    Color32::LIGHT_GRAY
+                } else {
+                    Color32::from_gray(60)
+                };
                 if ui
                     .add_enabled(
                         has_changes,
@@ -433,11 +458,16 @@ impl DataGrid {
                     )
                     .on_hover_text("保存所有修改到数据库 [w / Ctrl+S]")
                     .clicked()
-                    && let Some(table) = table_name {
-                        actions::generate_save_sql(result, state, table, actions);
-                    }
+                    && let Some(table) = table_name
+                {
+                    actions::generate_save_sql(result, state, table, actions);
+                }
 
-                let discard_color = if has_changes { Color32::LIGHT_GRAY } else { Color32::from_gray(60) };
+                let discard_color = if has_changes {
+                    Color32::LIGHT_GRAY
+                } else {
+                    Color32::from_gray(60)
+                };
                 if ui
                     .add_enabled(
                         has_changes,
@@ -620,34 +650,54 @@ impl DataGrid {
                     // 回车确认
                     if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         if let Ok(line) = state.goto_input.trim().parse::<usize>()
-                            && line >= 1 && line <= max_row {
-                                state.cursor.0 = line - 1;
-                                state.scroll_to_row = Some(state.cursor.0);
-                            }
+                            && line >= 1
+                            && line <= max_row
+                        {
+                            state.cursor.0 = line - 1;
+                            state.scroll_to_row = Some(state.cursor.0);
+                        }
                         state.show_goto_dialog = false;
                         state.goto_input.clear();
                     }
                 });
 
                 ui.horizontal(|ui| {
-                    if ui.add(
-                        egui::Button::new(RichText::new("↵ 跳转").size(13.0).color(Color32::LIGHT_GRAY))
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                RichText::new("↵ 跳转")
+                                    .size(13.0)
+                                    .color(Color32::LIGHT_GRAY),
+                            )
                             .frame(false)
                             .min_size(Vec2::new(0.0, 24.0)),
-                    ).on_hover_text("跳转到指定行 [Enter]").clicked() {
+                        )
+                        .on_hover_text("跳转到指定行 [Enter]")
+                        .clicked()
+                    {
                         if let Ok(line) = state.goto_input.trim().parse::<usize>()
-                            && line >= 1 && line <= max_row {
-                                state.cursor.0 = line - 1;
-                                state.scroll_to_row = Some(state.cursor.0);
-                            }
+                            && line >= 1
+                            && line <= max_row
+                        {
+                            state.cursor.0 = line - 1;
+                            state.scroll_to_row = Some(state.cursor.0);
+                        }
                         state.show_goto_dialog = false;
                         state.goto_input.clear();
                     }
-                    if ui.add(
-                        egui::Button::new(RichText::new("✕ 取消").size(13.0).color(Color32::LIGHT_GRAY))
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                RichText::new("✕ 取消")
+                                    .size(13.0)
+                                    .color(Color32::LIGHT_GRAY),
+                            )
                             .frame(false)
                             .min_size(Vec2::new(0.0, 24.0)),
-                    ).on_hover_text("取消 [Esc]").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape))
+                        )
+                        .on_hover_text("取消 [Esc]")
+                        .clicked()
+                        || ui.input(|i| i.key_pressed(egui::Key::Escape))
                     {
                         state.show_goto_dialog = false;
                         state.goto_input.clear();
@@ -715,9 +765,13 @@ impl DataGrid {
                         // 确认按钮（红色警告文字）
                         if ui
                             .add(
-                                egui::Button::new(RichText::new("⚠ 确认执行").size(13.0).color(Color32::from_rgb(255, 100, 100)))
-                                    .frame(false)
-                                    .min_size(Vec2::new(0.0, 24.0)),
+                                egui::Button::new(
+                                    RichText::new("⚠ 确认执行")
+                                        .size(13.0)
+                                        .color(Color32::from_rgb(255, 100, 100)),
+                                )
+                                .frame(false)
+                                .min_size(Vec2::new(0.0, 24.0)),
                             )
                             .on_hover_text("确认执行 SQL 操作 [Enter]")
                             .clicked()
@@ -727,11 +781,18 @@ impl DataGrid {
 
                         ui.add_space(16.0);
 
-                        if ui.add(
-                            egui::Button::new(RichText::new("✕ 取消").size(13.0).color(Color32::LIGHT_GRAY))
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new("✕ 取消")
+                                        .size(13.0)
+                                        .color(Color32::LIGHT_GRAY),
+                                )
                                 .frame(false)
                                 .min_size(Vec2::new(0.0, 24.0)),
-                        ).on_hover_text("取消 [Esc]").clicked()
+                            )
+                            .on_hover_text("取消 [Esc]")
+                            .clicked()
                             || ui.input(|i| i.key_pressed(egui::Key::Escape))
                         {
                             actions::cancel_pending_sql(state);

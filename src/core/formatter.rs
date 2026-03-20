@@ -54,7 +54,7 @@ pub fn format_sql(sql: &str) -> String {
     let upper = normalized.to_uppercase();
     let chars: Vec<char> = normalized.chars().collect();
     let mut i = 0;
-    
+
     // 安全计数器，防止无限循环（最多处理字符数的2倍迭代）
     let max_iterations = chars.len() * 2 + 1;
     let mut iterations = 0;
@@ -172,4 +172,3 @@ pub fn format_sql(sql: &str) -> String {
 
     cleaned.join("\n")
 }
-

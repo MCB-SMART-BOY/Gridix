@@ -3,7 +3,7 @@
 //! 使用 syntect 库提供专业级的 SQL 语法高亮，支持多种主题。
 
 use super::theme::ThemeColors;
-use egui::{text::LayoutJob, Color32, FontFamily, FontId, TextFormat};
+use egui::{Color32, FontFamily, FontId, TextFormat, text::LayoutJob};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -15,19 +15,14 @@ use syntect::parsing::SyntaxSet;
 // ============================================================================
 
 /// 全局语法集（包含 SQL 语法定义）
-static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(|| {
-    SyntaxSet::load_defaults_newlines()
-});
+static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(|| SyntaxSet::load_defaults_newlines());
 
 /// 全局主题集
-static THEME_SET: Lazy<ThemeSet> = Lazy::new(|| {
-    ThemeSet::load_defaults()
-});
+static THEME_SET: Lazy<ThemeSet> = Lazy::new(|| ThemeSet::load_defaults());
 
 /// 高亮缓存（避免重复计算）
-static HIGHLIGHT_CACHE: Lazy<RwLock<HighlightCache>> = Lazy::new(|| {
-    RwLock::new(HighlightCache::new(500))
-});
+static HIGHLIGHT_CACHE: Lazy<RwLock<HighlightCache>> =
+    Lazy::new(|| RwLock::new(HighlightCache::new(500)));
 
 // ============================================================================
 // 高亮缓存
@@ -74,7 +69,7 @@ impl HighlightCache {
 
     fn get(&mut self, text: &str, theme_name: &str) -> Option<LayoutJob> {
         let key = Self::make_key(text, theme_name);
-        
+
         if let Some(job) = self.cache.get(&key) {
             // 更新访问顺序（惰性更新，只在获取时更新位置）
             self.position_counter += 1;
@@ -87,7 +82,7 @@ impl HighlightCache {
 
     fn insert(&mut self, text: &str, theme_name: &str, job: LayoutJob) {
         let key = Self::make_key(text, theme_name);
-        
+
         // 如果键已存在，直接更新
         if self.cache.contains_key(&key) {
             self.cache.insert(key, job);
@@ -100,7 +95,7 @@ impl HighlightCache {
         while self.cache.len() >= self.max_size {
             self.evict_oldest();
         }
-        
+
         self.cache.insert(key, job);
         self.access_order.push_back(key);
         self.position_counter += 1;
@@ -191,59 +186,259 @@ impl Default for HighlightColors {
 /// SQL 关键字列表
 const SQL_KEYWORDS: &[&str] = &[
     // DML
-    "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN",
-    "IS", "NULL", "AS", "ON", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER",
-    "FULL", "CROSS", "NATURAL", "USING", "ORDER", "BY", "ASC", "DESC",
-    "LIMIT", "OFFSET", "GROUP", "HAVING", "DISTINCT", "ALL", "UNION",
-    "INTERSECT", "EXCEPT", "INSERT", "INTO", "VALUES", "UPDATE", "SET",
-    "DELETE", "TRUNCATE", "MERGE",
+    "SELECT",
+    "FROM",
+    "WHERE",
+    "AND",
+    "OR",
+    "NOT",
+    "IN",
+    "LIKE",
+    "BETWEEN",
+    "IS",
+    "NULL",
+    "AS",
+    "ON",
+    "JOIN",
+    "LEFT",
+    "RIGHT",
+    "INNER",
+    "OUTER",
+    "FULL",
+    "CROSS",
+    "NATURAL",
+    "USING",
+    "ORDER",
+    "BY",
+    "ASC",
+    "DESC",
+    "LIMIT",
+    "OFFSET",
+    "GROUP",
+    "HAVING",
+    "DISTINCT",
+    "ALL",
+    "UNION",
+    "INTERSECT",
+    "EXCEPT",
+    "INSERT",
+    "INTO",
+    "VALUES",
+    "UPDATE",
+    "SET",
+    "DELETE",
+    "TRUNCATE",
+    "MERGE",
     // DDL
-    "CREATE", "ALTER", "DROP", "TABLE", "INDEX", "VIEW", "DATABASE", "SCHEMA",
-    "CONSTRAINT", "PRIMARY", "KEY", "FOREIGN", "REFERENCES", "UNIQUE", "CHECK",
-    "DEFAULT", "AUTO_INCREMENT", "AUTOINCREMENT", "IF", "EXISTS", "CASCADE",
-    "RESTRICT", "TEMPORARY", "TEMP",
+    "CREATE",
+    "ALTER",
+    "DROP",
+    "TABLE",
+    "INDEX",
+    "VIEW",
+    "DATABASE",
+    "SCHEMA",
+    "CONSTRAINT",
+    "PRIMARY",
+    "KEY",
+    "FOREIGN",
+    "REFERENCES",
+    "UNIQUE",
+    "CHECK",
+    "DEFAULT",
+    "AUTO_INCREMENT",
+    "AUTOINCREMENT",
+    "IF",
+    "EXISTS",
+    "CASCADE",
+    "RESTRICT",
+    "TEMPORARY",
+    "TEMP",
     // 数据类型
-    "INT", "INTEGER", "BIGINT", "SMALLINT", "TINYINT", "FLOAT", "DOUBLE",
-    "DECIMAL", "NUMERIC", "REAL", "BOOLEAN", "BOOL", "CHAR", "VARCHAR",
-    "TEXT", "BLOB", "DATE", "TIME", "DATETIME", "TIMESTAMP", "YEAR", "JSON",
-    "UUID", "SERIAL", "BYTEA",
+    "INT",
+    "INTEGER",
+    "BIGINT",
+    "SMALLINT",
+    "TINYINT",
+    "FLOAT",
+    "DOUBLE",
+    "DECIMAL",
+    "NUMERIC",
+    "REAL",
+    "BOOLEAN",
+    "BOOL",
+    "CHAR",
+    "VARCHAR",
+    "TEXT",
+    "BLOB",
+    "DATE",
+    "TIME",
+    "DATETIME",
+    "TIMESTAMP",
+    "YEAR",
+    "JSON",
+    "UUID",
+    "SERIAL",
+    "BYTEA",
     // 其他
-    "CASE", "WHEN", "THEN", "ELSE", "END", "CAST", "CONVERT", "COALESCE",
-    "NULLIF", "WITH", "RECURSIVE", "RETURNING", "EXPLAIN", "ANALYZE",
-    "BEGIN", "COMMIT", "ROLLBACK", "TRANSACTION", "SAVEPOINT", "GRANT",
-    "REVOKE", "DENY", "TO", "ROLE", "USER", "TRUE", "FALSE",
+    "CASE",
+    "WHEN",
+    "THEN",
+    "ELSE",
+    "END",
+    "CAST",
+    "CONVERT",
+    "COALESCE",
+    "NULLIF",
+    "WITH",
+    "RECURSIVE",
+    "RETURNING",
+    "EXPLAIN",
+    "ANALYZE",
+    "BEGIN",
+    "COMMIT",
+    "ROLLBACK",
+    "TRANSACTION",
+    "SAVEPOINT",
+    "GRANT",
+    "REVOKE",
+    "DENY",
+    "TO",
+    "ROLE",
+    "USER",
+    "TRUE",
+    "FALSE",
 ];
 
 /// SQL 内置函数
 const SQL_FUNCTIONS: &[&str] = &[
     // 聚合函数
-    "COUNT", "SUM", "AVG", "MIN", "MAX", "TOTAL", "GROUP_CONCAT",
+    "COUNT",
+    "SUM",
+    "AVG",
+    "MIN",
+    "MAX",
+    "TOTAL",
+    "GROUP_CONCAT",
     // 字符串函数
-    "CONCAT", "SUBSTRING", "SUBSTR", "LENGTH", "UPPER", "LOWER", "TRIM",
-    "LTRIM", "RTRIM", "REPLACE", "REVERSE", "LPAD", "RPAD", "INSTR",
-    "LOCATE", "POSITION", "CHAR_LENGTH", "CHARACTER_LENGTH", "OCTET_LENGTH",
-    "BIT_LENGTH", "ASCII", "FORMAT", "QUOTE", "SOUNDEX", "SPACE", "REPEAT",
+    "CONCAT",
+    "SUBSTRING",
+    "SUBSTR",
+    "LENGTH",
+    "UPPER",
+    "LOWER",
+    "TRIM",
+    "LTRIM",
+    "RTRIM",
+    "REPLACE",
+    "REVERSE",
+    "LPAD",
+    "RPAD",
+    "INSTR",
+    "LOCATE",
+    "POSITION",
+    "CHAR_LENGTH",
+    "CHARACTER_LENGTH",
+    "OCTET_LENGTH",
+    "BIT_LENGTH",
+    "ASCII",
+    "FORMAT",
+    "QUOTE",
+    "SOUNDEX",
+    "SPACE",
+    "REPEAT",
     // 数学函数
-    "ABS", "CEIL", "CEILING", "FLOOR", "ROUND", "TRUNCATE", "MOD", "POWER",
-    "POW", "SQRT", "EXP", "LOG", "LOG10", "LOG2", "LN", "SIGN", "RAND",
-    "RANDOM", "PI", "SIN", "COS", "TAN", "ASIN", "ACOS", "ATAN", "ATAN2",
-    "COT", "DEGREES", "RADIANS",
+    "ABS",
+    "CEIL",
+    "CEILING",
+    "FLOOR",
+    "ROUND",
+    "TRUNCATE",
+    "MOD",
+    "POWER",
+    "POW",
+    "SQRT",
+    "EXP",
+    "LOG",
+    "LOG10",
+    "LOG2",
+    "LN",
+    "SIGN",
+    "RAND",
+    "RANDOM",
+    "PI",
+    "SIN",
+    "COS",
+    "TAN",
+    "ASIN",
+    "ACOS",
+    "ATAN",
+    "ATAN2",
+    "COT",
+    "DEGREES",
+    "RADIANS",
     // 日期时间函数
-    "NOW", "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "YEAR",
-    "MONTH", "DAY", "HOUR", "MINUTE", "SECOND", "DAYOFWEEK", "DAYOFMONTH",
-    "DAYOFYEAR", "WEEK", "WEEKDAY", "QUARTER", "EXTRACT", "DATE_ADD",
-    "DATE_SUB", "DATEDIFF", "TIMEDIFF", "TIMESTAMPDIFF", "DATE_FORMAT",
-    "TIME_FORMAT", "STR_TO_DATE", "MAKEDATE", "MAKETIME", "LAST_DAY",
-    "ADDDATE", "SUBDATE", "ADDTIME", "SUBTIME", "PERIOD_ADD", "PERIOD_DIFF",
+    "NOW",
+    "CURRENT_DATE",
+    "CURRENT_TIME",
+    "CURRENT_TIMESTAMP",
+    "YEAR",
+    "MONTH",
+    "DAY",
+    "HOUR",
+    "MINUTE",
+    "SECOND",
+    "DAYOFWEEK",
+    "DAYOFMONTH",
+    "DAYOFYEAR",
+    "WEEK",
+    "WEEKDAY",
+    "QUARTER",
+    "EXTRACT",
+    "DATE_ADD",
+    "DATE_SUB",
+    "DATEDIFF",
+    "TIMEDIFF",
+    "TIMESTAMPDIFF",
+    "DATE_FORMAT",
+    "TIME_FORMAT",
+    "STR_TO_DATE",
+    "MAKEDATE",
+    "MAKETIME",
+    "LAST_DAY",
+    "ADDDATE",
+    "SUBDATE",
+    "ADDTIME",
+    "SUBTIME",
+    "PERIOD_ADD",
+    "PERIOD_DIFF",
     // 条件函数
-    "IF", "IFNULL", "COALESCE", "GREATEST", "LEAST", "IIF", "NVL", "NVL2",
+    "IF",
+    "IFNULL",
+    "COALESCE",
+    "GREATEST",
+    "LEAST",
+    "IIF",
+    "NVL",
+    "NVL2",
     "DECODE",
     // 类型转换
     "TYPEOF",
     // 窗口函数
-    "ROW_NUMBER", "RANK", "DENSE_RANK", "NTILE", "LAG", "LEAD",
-    "FIRST_VALUE", "LAST_VALUE", "NTH_VALUE", "OVER", "PARTITION",
-    "ROWID", "OID", "CTID",
+    "ROW_NUMBER",
+    "RANK",
+    "DENSE_RANK",
+    "NTILE",
+    "LAG",
+    "LEAD",
+    "FIRST_VALUE",
+    "LAST_VALUE",
+    "NTH_VALUE",
+    "OVER",
+    "PARTITION",
+    "ROWID",
+    "OID",
+    "CTID",
 ];
 
 // ============================================================================
@@ -282,8 +477,11 @@ impl SqlHighlighter {
     pub fn new(colors: HighlightColors) -> Self {
         // 检查 syntect 是否可用
         let use_syntect = SYNTAX_SET.find_syntax_by_extension("sql").is_some();
-        
-        Self { colors, use_syntect }
+
+        Self {
+            colors,
+            use_syntect,
+        }
     }
 
     /// 创建带语法高亮的 LayoutJob
@@ -315,24 +513,24 @@ impl SqlHighlighter {
     /// 使用 syntect 进行高亮
     fn highlight_with_syntect(&self, text: &str) -> LayoutJob {
         use syntect::easy::HighlightLines;
-        
+
         let syntax = SYNTAX_SET
             .find_syntax_by_extension("sql")
             .unwrap_or_else(|| SYNTAX_SET.find_syntax_plain_text());
-        
+
         // 选择合适的主题
         let theme_name = if self.is_dark_theme() {
             "base16-ocean.dark"
         } else {
             "base16-ocean.light"
         };
-        
+
         let theme = THEME_SET
             .themes
             .get(theme_name)
             .or_else(|| THEME_SET.themes.values().next())
             .expect("No themes available");
-        
+
         let mut highlighter = HighlightLines::new(syntax, theme);
         let mut job = LayoutJob::default();
         let font_id = FontId::new(14.0, FontFamily::Monospace);
@@ -384,9 +582,10 @@ impl SqlHighlighter {
         } else if job.text.ends_with('\n') && !text.ends_with('\n') {
             job.text.pop();
             if let Some(section) = job.sections.last_mut()
-                && section.byte_range.end > job.text.len() {
-                    section.byte_range.end = job.text.len();
-                }
+                && section.byte_range.end > job.text.len()
+            {
+                section.byte_range.end = job.text.len();
+            }
         }
 
         job
@@ -672,4 +871,3 @@ pub fn clear_highlight_cache() {
 // ============================================================================
 // 测试
 // ============================================================================
-

@@ -20,32 +20,32 @@ pub enum ColumnType {
     BigInt,
     SmallInt,
     TinyInt,
-    
+
     // 浮点类型
     Float,
     Double,
     Decimal { precision: u8, scale: u8 },
-    
+
     // 字符串类型
     Varchar(u16),
     Char(u16),
     Text,
-    
+
     // 日期时间类型
     Date,
     Time,
     DateTime,
     Timestamp,
-    
+
     // 二进制类型
     Blob,
     Binary(u16),
-    
+
     // 其他类型
     Boolean,
     Json,
     Uuid,
-    
+
     // 自定义类型（原始 SQL 类型字符串）
     Custom(String),
 }
@@ -161,7 +161,10 @@ impl ColumnType {
             Self::Boolean,
             Self::Date,
             Self::DateTime,
-            Self::Decimal { precision: 10, scale: 2 },
+            Self::Decimal {
+                precision: 10,
+                scale: 2,
+            },
             Self::Float,
             Self::Json,
         ]
@@ -296,11 +299,7 @@ impl TableDefinition {
             .map(|c| format!("    {}", c.to_sql(&self.db_type)))
             .collect();
 
-        let mut sql = format!(
-            "CREATE TABLE {} (\n{}\n)",
-            table_name,
-            columns.join(",\n")
-        );
+        let mut sql = format!("CREATE TABLE {} (\n{}\n)", table_name, columns.join(",\n"));
 
         // MySQL 表注释
         if !self.comment.is_empty() && matches!(self.db_type, DatabaseType::MySQL) {
@@ -417,10 +416,7 @@ pub struct DdlDialog;
 
 impl DdlDialog {
     /// 显示创建表对话框
-    pub fn show_create_table(
-        ctx: &egui::Context,
-        state: &mut DdlDialogState,
-    ) -> Option<String> {
+    pub fn show_create_table(ctx: &egui::Context, state: &mut DdlDialogState) -> Option<String> {
         if !state.show {
             return None;
         }
@@ -481,32 +477,40 @@ impl DdlDialog {
                 ListNavigation::AddBelow => {
                     // o 在下方添加列
                     let insert_pos = (state.selected_column + 1).min(col_count);
-                    state.table.columns.insert(insert_pos, ColumnDefinition::default());
+                    state
+                        .table
+                        .columns
+                        .insert(insert_pos, ColumnDefinition::default());
                     state.selected_column = insert_pos;
                 }
                 ListNavigation::AddAbove => {
                     // O 在上方添加列
-                    state.table.columns.insert(state.selected_column, ColumnDefinition::default());
+                    state
+                        .table
+                        .columns
+                        .insert(state.selected_column, ColumnDefinition::default());
                 }
                 _ => {}
             }
 
             // 空格切换主键
             ctx.input(|i| {
-                if i.key_pressed(Key::Space) && i.modifiers.is_none()
-                    && let Some(col) = state.table.columns.get_mut(state.selected_column) {
-                        let new_pk = !col.primary_key;
-                        col.primary_key = new_pk;
-                        if new_pk {
-                            col.nullable = false;
-                            // 取消其他列的主键
-                            for (idx, other_col) in state.table.columns.iter_mut().enumerate() {
-                                if idx != state.selected_column {
-                                    other_col.primary_key = false;
-                                }
+                if i.key_pressed(Key::Space)
+                    && i.modifiers.is_none()
+                    && let Some(col) = state.table.columns.get_mut(state.selected_column)
+                {
+                    let new_pk = !col.primary_key;
+                    col.primary_key = new_pk;
+                    if new_pk {
+                        col.nullable = false;
+                        // 取消其他列的主键
+                        for (idx, other_col) in state.table.columns.iter_mut().enumerate() {
+                            if idx != state.selected_column {
+                                other_col.primary_key = false;
                             }
                         }
                     }
+                }
             });
         }
 
@@ -548,7 +552,7 @@ impl DdlDialog {
                                 .small()
                                 .color(Color32::from_rgb(120, 120, 120)),
                         );
-                        
+
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("+ 添加列 [o]").clicked() {
                                 state.table.columns.push(ColumnDefinition::default());
@@ -581,19 +585,22 @@ impl DdlDialog {
                     let mut col_to_remove: Option<usize> = None;
                     let mut new_pk_idx: Option<usize> = None;
                     let col_count = state.table.columns.len();
-                    
+
                     egui::ScrollArea::vertical()
                         .max_height(200.0)
                         .show(ui, |ui| {
                             for idx in 0..col_count {
                                 let is_selected = idx == state.selected_column;
                                 let col = &mut state.table.columns[idx];
-                                
+
                                 // 选中行高亮背景
                                 let row_response = ui.horizontal(|ui| {
                                     // 选中指示器
                                     if is_selected {
-                                        ui.label(RichText::new(">").color(Color32::from_rgb(100, 180, 255)));
+                                        ui.label(
+                                            RichText::new(">")
+                                                .color(Color32::from_rgb(100, 180, 255)),
+                                        );
                                     } else {
                                         ui.label(RichText::new(" ").monospace());
                                     }
@@ -617,10 +624,7 @@ impl DdlDialog {
 
                                     // 主键
                                     let mut pk = col.primary_key;
-                                    if ui.checkbox(&mut pk, "")
-                                        .on_hover_text("主键")
-                                        .changed()
-                                    {
+                                    if ui.checkbox(&mut pk, "").on_hover_text("主键").changed() {
                                         col.primary_key = pk;
                                         if pk {
                                             col.nullable = false;
@@ -634,7 +638,8 @@ impl DdlDialog {
 
                                     // 非空
                                     let mut not_null = !col.nullable;
-                                    if ui.checkbox(&mut not_null, "")
+                                    if ui
+                                        .checkbox(&mut not_null, "")
                                         .on_hover_text("非空")
                                         .changed()
                                     {
@@ -642,8 +647,7 @@ impl DdlDialog {
                                     }
 
                                     // 唯一
-                                    ui.checkbox(&mut col.unique, "")
-                                        .on_hover_text("唯一");
+                                    ui.checkbox(&mut col.unique, "").on_hover_text("唯一");
 
                                     // 默认值
                                     ui.add(
@@ -654,12 +658,13 @@ impl DdlDialog {
 
                                     // 删除按钮
                                     if col_count > 1
-                                        && ui.small_button("×")
+                                        && ui
+                                            .small_button("×")
                                             .on_hover_text("删除列 [dd]")
                                             .clicked()
-                                        {
-                                            col_to_remove = Some(idx);
-                                        }
+                                    {
+                                        col_to_remove = Some(idx);
+                                    }
                                 });
 
                                 // 点击行选中
@@ -761,4 +766,3 @@ fn quote_identifier(name: &str, db_type: &DatabaseType) -> String {
 // ============================================================================
 // 测试
 // ============================================================================
-

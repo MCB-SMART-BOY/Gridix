@@ -1,8 +1,12 @@
 //! SQLite 查询实现
 
-use rusqlite::{types::ValueRef, Connection as SqliteConn};
-use crate::database::{ConnectionConfig, DbError, QueryResult, DatabaseType};
-use super::{query_result, exec_result, is_query_statement, TriggerInfo, ForeignKeyInfo, ColumnInfo};
+use super::{
+    ColumnInfo, ForeignKeyInfo, ImportExecutionReport, TriggerInfo, exec_result,
+    is_query_statement, query_result,
+};
+use crate::core::constants;
+use crate::database::{ConnectionConfig, DatabaseType, DbError, QueryResult};
+use rusqlite::{Connection as SqliteConn, InterruptHandle, types::ValueRef};
 
 /// 连接 SQLite 并获取表列表
 pub fn connect(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
@@ -25,19 +29,20 @@ pub fn connect(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
 pub fn get_primary_key(config: &ConnectionConfig, table: &str) -> Result<Option<String>, DbError> {
     let conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
-    
+
     // 使用 PRAGMA table_info 查询主键列（pk 字段 > 0 表示是主键）
     let escaped_table = table.replace('\'', "''");
     let sql = format!("PRAGMA table_info('{}')", escaped_table);
-    
-    let mut stmt = conn.prepare(&sql)
+
+    let mut stmt = conn
+        .prepare(&sql)
         .map_err(|e| DbError::Query(e.to_string()))?;
-    
+
     // table_info 返回: cid, name, type, notnull, dflt_value, pk
     let pk_columns: Vec<String> = stmt
         .query_map([], |row| {
-            let pk: i32 = row.get(5)?;  // pk 列
-            let name: String = row.get(1)?;  // name 列
+            let pk: i32 = row.get(5)?; // pk 列
+            let name: String = row.get(1)?; // name 列
             Ok((name, pk))
         })
         .map_err(|e| DbError::Query(e.to_string()))?
@@ -45,7 +50,7 @@ pub fn get_primary_key(config: &ConnectionConfig, table: &str) -> Result<Option<
         .filter(|(_, pk)| *pk > 0)
         .map(|(name, _)| name)
         .collect();
-    
+
     // 返回第一个主键列（通常只有一个）
     Ok(pk_columns.into_iter().next())
 }
@@ -55,24 +60,60 @@ pub fn execute(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbEr
     let conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
 
+    execute_with_connection(&conn, sql)
+}
+
+/// 执行 SQLite 查询并返回可用于中断的句柄
+pub fn execute_with_interrupt_handle(
+    config: &ConnectionConfig,
+    sql: &str,
+    interrupt_sender: Option<tokio::sync::oneshot::Sender<InterruptHandle>>,
+) -> Result<QueryResult, DbError> {
+    let conn = SqliteConn::open(&config.database)
+        .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
+
+    if let Some(sender) = interrupt_sender {
+        let _ = sender.send(conn.get_interrupt_handle());
+    }
+
+    execute_with_connection(&conn, sql)
+}
+
+fn execute_with_connection(conn: &SqliteConn, sql: &str) -> Result<QueryResult, DbError> {
+    
     if is_query_statement(sql, &DatabaseType::SQLite) {
         let mut stmt = conn
             .prepare(sql)
             .map_err(|e| DbError::Query(e.to_string()))?;
 
         let columns: Vec<String> = stmt.column_names().into_iter().map(String::from).collect();
+        let mut rows: Vec<Vec<String>> = Vec::new();
+        let mut total_rows = 0usize;
+        let max_rows = constants::database::MAX_RESULT_SET_ROWS;
 
-        let rows: Result<Vec<Vec<String>>, _> = stmt
+        let row_iter = stmt
             .query_map([], |row| {
                 (0..columns.len())
                     .map(|i| value_to_string(row.get_ref(i)))
                     .collect::<Result<Vec<_>, _>>()
             })
-            .map_err(|e| DbError::Query(e.to_string()))?
-            .collect();
+            .map_err(|e| DbError::Query(e.to_string()))?;
 
-        let rows = rows.map_err(|e| DbError::Query(e.to_string()))?;
-        Ok(query_result(columns, rows))
+        for row in row_iter {
+            let row = row.map_err(|e| DbError::Query(e.to_string()))?;
+            total_rows += 1;
+            if rows.len() < max_rows {
+                rows.push(row);
+            }
+        }
+
+        let mut result = query_result(columns, rows);
+        if total_rows > max_rows {
+            result.truncated = true;
+            result.original_row_count = Some(total_rows);
+        }
+
+        Ok(result)
     } else {
         let affected = conn
             .execute(sql, [])
@@ -81,10 +122,67 @@ pub fn execute(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbEr
     }
 }
 
+/// 批量执行 SQLite 语句（用于导入）
+pub fn execute_batch(
+    config: &ConnectionConfig,
+    statements: &[String],
+    use_transaction: bool,
+    stop_on_error: bool,
+) -> Result<ImportExecutionReport, DbError> {
+    let mut conn = SqliteConn::open(&config.database)
+        .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
+
+    let mut report = ImportExecutionReport::new(statements.len());
+    if statements.is_empty() {
+        return Ok(report);
+    }
+
+    if use_transaction {
+        let tx = conn
+            .transaction()
+            .map_err(|e| DbError::Query(format!("开启事务失败: {}", e)))?;
+
+        for (index, statement) in statements.iter().enumerate() {
+            if let Err(e) = tx.execute_batch(statement) {
+                return Err(DbError::Query(format!(
+                    "事务已回滚，第 {} 条语句执行失败: {}",
+                    index + 1,
+                    e
+                )));
+            }
+            report.succeeded += 1;
+        }
+
+        tx.commit()
+            .map_err(|e| DbError::Query(format!("提交事务失败: {}", e)))?;
+        return Ok(report);
+    }
+
+    for (index, statement) in statements.iter().enumerate() {
+        if let Err(e) = conn.execute_batch(statement) {
+            report.failed += 1;
+            if report.first_error.is_none() {
+                report.first_error = Some(format!("第 {} 条语句执行失败: {}", index + 1, e));
+            }
+
+            if stop_on_error {
+                return Err(DbError::Query(
+                    report
+                        .first_error
+                        .clone()
+                        .unwrap_or_else(|| format!("第 {} 条语句执行失败", index + 1)),
+                ));
+            }
+        } else {
+            report.succeeded += 1;
+        }
+    }
+
+    Ok(report)
+}
+
 /// 将 SQLite 值转换为字符串
-fn value_to_string(
-    val: Result<ValueRef<'_>, rusqlite::Error>,
-) -> Result<String, rusqlite::Error> {
+fn value_to_string(val: Result<ValueRef<'_>, rusqlite::Error>) -> Result<String, rusqlite::Error> {
     Ok(match val? {
         ValueRef::Null => String::from("NULL"),
         ValueRef::Integer(i) => i.to_string(),

@@ -11,18 +11,16 @@
 .DS_Store
 Thumbs.db
 
-# Config (local)
+# Local config
 *.local
+
+# Build artifacts
 dist/
 releases/
-
-# AppImage build artifacts
 libs/
-
-# External packaging repositories (independent git repos)
-packaging
-.nixpkgs-temp
-nixpkgs-fork/
 result
-gridix-linux-x86_64.tar.gz
-release-artifacts/
+*.tar.gz
+
+packaging-updates/
+flake.nix
+flake.lock

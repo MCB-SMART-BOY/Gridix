@@ -5,8 +5,8 @@
 //! - `Esc` / `n` - 取消操作
 
 use super::keyboard;
-use crate::ui::styles::{DANGER, GRAY, SPACING_MD, SPACING_LG};
-use egui::{self, Color32, RichText, CornerRadius};
+use crate::ui::styles::{DANGER, GRAY, SPACING_LG, SPACING_MD};
+use egui::{self, Color32, CornerRadius, RichText};
 
 pub struct ConfirmDialog;
 
@@ -48,7 +48,7 @@ impl ConfirmDialog {
                 // 警告图标和消息
                 ui.horizontal(|ui| {
                     ui.add_space(SPACING_MD);
-                    
+
                     // 警告图标
                     egui::Frame::NONE
                         .fill(Color32::from_rgba_unmultiplied(235, 87, 87, 25))
@@ -57,9 +57,9 @@ impl ConfirmDialog {
                         .show(ui, |ui| {
                             ui.label(RichText::new("⚠").size(20.0).color(DANGER));
                         });
-                    
+
                     ui.add_space(SPACING_MD);
-                    
+
                     // 消息文本
                     ui.vertical(|ui| {
                         ui.add_space(4.0);
@@ -82,8 +82,7 @@ impl ConfirmDialog {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // 确认按钮（危险样式）
                         let confirm_btn = egui::Button::new(
-                            RichText::new(format!("{} [y]", confirm_text))
-                                .color(Color32::WHITE)
+                            RichText::new(format!("{} [y]", confirm_text)).color(Color32::WHITE),
                         )
                         .fill(DANGER)
                         .corner_radius(CornerRadius::same(6));
@@ -96,8 +95,8 @@ impl ConfirmDialog {
                         ui.add_space(SPACING_MD);
 
                         // 取消按钮
-                        let cancel_btn = egui::Button::new("取消 [n]")
-                            .corner_radius(CornerRadius::same(6));
+                        let cancel_btn =
+                            egui::Button::new("取消 [n]").corner_radius(CornerRadius::same(6));
 
                         if ui.add(cancel_btn).clicked() {
                             *show = false;
