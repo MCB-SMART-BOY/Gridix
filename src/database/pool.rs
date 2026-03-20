@@ -126,7 +126,7 @@ impl PoolManager {
     }
 
     /// 配置 MySQL SSL 选项
-    fn configure_mysql_ssl(
+    pub(crate) fn configure_mysql_ssl(
         opts: mysql_async::OptsBuilder,
         config: &ConnectionConfig,
     ) -> Result<mysql_async::OptsBuilder, DbError> {
