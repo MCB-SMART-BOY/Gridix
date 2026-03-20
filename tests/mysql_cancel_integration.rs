@@ -101,3 +101,57 @@ async fn mysql_connection_still_works_after_cancel() {
     assert_eq!(quick.columns, vec!["ping".to_string()]);
     assert_eq!(quick.rows.len(), 1);
 }
+
+#[tokio::test]
+#[ignore = "requires external MySQL and GRIDIX_IT_MYSQL_* env vars"]
+async fn mysql_cancel_still_works_when_pool_near_capacity() {
+    let Some(config) = mysql_test_config() else {
+        eprintln!("skip mysql integration test: missing GRIDIX_IT_MYSQL_* env vars");
+        return;
+    };
+
+    // 默认池上限为 10，先占用 9 个连接，再验证取消查询仍可生效。
+    let mut blockers = Vec::new();
+    for _ in 0..9 {
+        let blocker_config = config.clone();
+        blockers.push(tokio::spawn(async move {
+            let _ = execute_query(&blocker_config, "SELECT SLEEP(5)").await;
+        }));
+    }
+
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let _ = cancel_tx.send(());
+    });
+
+    let started = Instant::now();
+    let result = tokio::time::timeout(
+        Duration::from_secs(6),
+        execute_query_cancellable(&config, "SELECT SLEEP(10)", cancel_rx),
+    )
+    .await;
+    let elapsed = started.elapsed();
+
+    assert!(
+        elapsed < Duration::from_secs(6),
+        "cancelled query should return before timeout under high pool usage, elapsed: {:?}",
+        elapsed
+    );
+
+    let err = result
+        .expect("cancellable query future should complete before timeout")
+        .expect_err("query should be cancelled");
+    let err_text = err.to_string();
+    assert!(
+        err_text.contains("查询已取消") || err_text.to_ascii_lowercase().contains("cancel"),
+        "unexpected cancel error text: {}",
+        err_text
+    );
+
+    for blocker in blockers {
+        let _ = blocker.await;
+    }
+}
