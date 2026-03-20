@@ -2,6 +2,8 @@
 //!
 //! 处理数据库连接、断开、查询执行等操作。
 
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::core::constants;
@@ -342,34 +344,50 @@ impl DbManagerApp {
         let task_conn_name = active_name.clone();
         let tx_conn_name = active_name;
         let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+        let cancel_sender = Arc::new(Mutex::new(Some(cancel_tx)));
+        let timeout_cancel_sender = Arc::clone(&cancel_sender);
         let query_task = self.runtime.spawn(async move {
-            use tokio::time::{timeout, Duration};
+            use tokio::time::{Duration, sleep, timeout};
             let start = Instant::now();
             let timeout_secs = constants::database::QUERY_TIMEOUT_SECS;
-            // 查询超时
-            let result = timeout(
-                Duration::from_secs(timeout_secs),
-                execute_query_cancellable(&config, &sql, cancel_rx),
-            )
-            .await;
-            let elapsed_ms = start.elapsed().as_millis() as u64;
-            let query_result = match result {
-                Ok(Ok(res)) => {
-                    tracing::info!(rows = res.rows.len(), columns = res.columns.len(), elapsed_ms, "查询执行成功");
-                    Ok(res)
-                }
-                Ok(Err(e)) => {
-                    tracing::error!(error = %e, elapsed_ms, "查询执行失败");
-                    Err(e.to_string())
-                }
-                Err(_) => {
-                    tracing::error!(timeout_secs, elapsed_ms, "查询执行超时");
+            let sql_for_exec = sql.clone();
+            let mut execute_fut =
+                std::pin::pin!(execute_query_cancellable(&config, &sql_for_exec, cancel_rx));
+            let mut timeout_fut = std::pin::pin!(sleep(Duration::from_secs(timeout_secs)));
+
+            let query_result = tokio::select! {
+                result = &mut execute_fut => result.map_err(|e| e.to_string()),
+                _ = &mut timeout_fut => {
+                    if let Some(sender) = timeout_cancel_sender.lock().take() {
+                        let _ = sender.send(());
+                    }
+
+                    // 继续短暂轮询执行 future，让数据库侧取消请求有机会发送/生效。
+                    let _ = timeout(
+                        Duration::from_secs(constants::database::QUERY_CANCEL_GRACE_SECS),
+                        &mut execute_fut,
+                    )
+                    .await;
+
                     Err(format!(
                         "查询超时 ({}秒)。建议: 1) 添加 LIMIT 限制结果集 2) 优化查询条件 3) 检查索引",
                         timeout_secs
                     ))
                 }
             };
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+            match &query_result {
+                Ok(res) => {
+                    tracing::info!(rows = res.rows.len(), columns = res.columns.len(), elapsed_ms, "查询执行成功");
+                }
+                Err(err) => {
+                    if err.starts_with("查询超时") {
+                        tracing::error!(timeout_secs, elapsed_ms, "查询执行超时");
+                    } else {
+                        tracing::error!(error = %err, elapsed_ms, "查询执行失败");
+                    }
+                }
+            }
             if tx
                 .send(Message::QueryDone(
                     sql,
@@ -384,7 +402,7 @@ impl DbManagerApp {
                 tracing::warn!("无法发送查询结果：接收端已关闭");
             }
         });
-        self.track_query_task(request_id, task_conn_name, query_task, cancel_tx);
+        self.track_query_task(request_id, task_conn_name, query_task, cancel_sender);
 
         Some(request_id)
     }

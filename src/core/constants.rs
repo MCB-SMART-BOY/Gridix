@@ -20,6 +20,8 @@ pub mod database {
     pub const SSH_TUNNEL_TIMEOUT_SECS: u64 = 30;
     /// 查询超时时间（秒）
     pub const QUERY_TIMEOUT_SECS: u64 = 300;
+    /// 查询超时后等待取消生效的宽限时间（秒）
+    pub const QUERY_CANCEL_GRACE_SECS: u64 = 2;
     /// 默认查询限制行数
     pub const DEFAULT_QUERY_LIMIT: usize = 100;
     /// 大结果集警告阈值

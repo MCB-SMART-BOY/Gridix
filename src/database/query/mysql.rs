@@ -13,6 +13,7 @@ use tokio::sync::oneshot;
 
 const MYSQL_CANCEL_GRACE_PERIOD: Duration = Duration::from_millis(500);
 const MYSQL_CONN_ID_WAIT_PERIOD: Duration = Duration::from_millis(200);
+const MYSQL_CANCEL_RACE_WAIT_PERIOD: Duration = Duration::from_millis(50);
 
 struct AbortOnDrop(Option<tokio::task::AbortHandle>);
 
@@ -122,7 +123,7 @@ fn quote_mysql_identifier(name: &str) -> String {
 mod tests {
     use super::{
         DbError, await_cancellable_query, build_kill_query_sql, format_cancel_message,
-        quote_mysql_identifier, query_result,
+        query_result, quote_mysql_identifier,
     };
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -175,6 +176,7 @@ mod tests {
             cancel_rx,
             conn_id_rx,
             Duration::from_millis(5),
+            Duration::from_millis(5),
             Duration::from_millis(10),
             |_| async { Ok(()) },
         )
@@ -208,6 +210,7 @@ mod tests {
             conn_id_rx,
             Duration::from_millis(5),
             Duration::from_millis(5),
+            Duration::from_millis(5),
             move |conn_id| {
                 let cancelled_conn_id = Arc::clone(&cancelled_conn_id_clone);
                 async move {
@@ -224,6 +227,46 @@ mod tests {
             other => panic!("unexpected error type: {}", other),
         }
         assert_eq!(cancelled_conn_id.load(Ordering::Relaxed), 88);
+    }
+
+    #[tokio::test]
+    async fn test_await_cancellable_query_skips_kill_when_query_finishes_during_race_window() {
+        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+        let (conn_id_tx, conn_id_rx) = oneshot::channel::<u32>();
+        let kill_called = Arc::new(AtomicU32::new(0));
+        let kill_called_clone = Arc::clone(&kill_called);
+
+        let query_task = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            Ok(query_result(
+                vec!["ok".to_string()],
+                vec![vec!["1".to_string()]],
+            ))
+        });
+
+        conn_id_tx.send(99).expect("connection id should be sent");
+        cancel_tx.send(()).expect("cancel signal should be sent");
+
+        let result = await_cancellable_query(
+            query_task,
+            cancel_rx,
+            conn_id_rx,
+            Duration::from_millis(20),
+            Duration::from_millis(5),
+            Duration::from_millis(5),
+            move |_| {
+                let kill_called = Arc::clone(&kill_called_clone);
+                async move {
+                    kill_called.store(1, Ordering::Relaxed);
+                    Ok(())
+                }
+            },
+        )
+        .await
+        .expect("query should win race window and avoid kill");
+
+        assert_eq!(result.columns, vec!["ok".to_string()]);
+        assert_eq!(kill_called.load(Ordering::Relaxed), 0);
     }
 }
 
@@ -249,6 +292,7 @@ pub async fn execute_cancellable(
         query_task,
         cancel_rx,
         conn_id_rx,
+        MYSQL_CANCEL_RACE_WAIT_PERIOD,
         MYSQL_CONN_ID_WAIT_PERIOD,
         MYSQL_CANCEL_GRACE_PERIOD,
         |connection_id| cancel_query_by_id(config, connection_id),
@@ -262,6 +306,7 @@ async fn await_cancellable_query<F, K>(
     mut query_task: tokio::task::JoinHandle<Result<QueryResult, DbError>>,
     mut cancel_rx: oneshot::Receiver<()>,
     conn_id_rx: oneshot::Receiver<u32>,
+    cancel_race_wait_period: Duration,
     conn_id_wait_period: Duration,
     cancel_grace_period: Duration,
     send_kill_query: F,
@@ -270,16 +315,38 @@ where
     F: Fn(u32) -> K,
     K: Future<Output = Result<(), DbError>>,
 {
+    fn join_query_task(
+        res: Result<Result<QueryResult, DbError>, tokio::task::JoinError>,
+    ) -> Result<QueryResult, DbError> {
+        res.map_err(|e| DbError::Query(format!("任务执行失败: {}", e)))?
+    }
+
     tokio::select! {
         res = &mut query_task => {
-            res.map_err(|e| DbError::Query(format!("任务执行失败: {}", e)))?
+            join_query_task(res)
         }
         _ = &mut cancel_rx => {
+            // 取消请求与查询完成可能几乎同时发生。先给查询一个很短的收敛窗口，
+            // 避免查询已完成却仍发送 KILL QUERY 的竞态。
+            if let Ok(res) = tokio::time::timeout(cancel_race_wait_period, &mut query_task).await {
+                return join_query_task(res);
+            }
+
+            if query_task.is_finished() {
+                return join_query_task(query_task.await);
+            }
+
             let cancel_detail = match tokio::time::timeout(conn_id_wait_period, conn_id_rx).await {
-                Ok(Ok(connection_id)) => send_kill_query(connection_id)
-                    .await
-                    .err()
-                    .map(|e| e.to_string()),
+                Ok(Ok(connection_id)) => {
+                    if query_task.is_finished() {
+                        return join_query_task(query_task.await);
+                    }
+
+                    send_kill_query(connection_id)
+                        .await
+                        .err()
+                        .map(|e| e.to_string())
+                }
                 Ok(Err(_)) => Some("未能获取 MySQL 连接 ID，取消请求可能未发送".to_string()),
                 Err(_) => Some("取消请求过早，尚未建立 MySQL 会话".to_string()),
             };

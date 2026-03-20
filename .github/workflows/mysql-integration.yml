@@ -1,0 +1,52 @@
+name: MySQL Integration
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1' # Every Monday 03:00 UTC
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  mysql-cancel-tests:
+    name: MySQL Cancel Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: gridix_test
+          MYSQL_USER: gridix
+          MYSQL_PASSWORD: gridix
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    env:
+      GRIDIX_IT_MYSQL_HOST: 127.0.0.1
+      GRIDIX_IT_MYSQL_PORT: "3306"
+      GRIDIX_IT_MYSQL_USER: gridix
+      GRIDIX_IT_MYSQL_PASSWORD: gridix
+      GRIDIX_IT_MYSQL_DB: gridix_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libxdo-dev
+
+      - name: Run MySQL cancellation integration tests
+        run: cargo test --test mysql_cancel_integration -- --ignored --nocapture

@@ -28,7 +28,9 @@ mod render;
 pub mod state;
 
 use eframe::egui;
+use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::core::{
@@ -116,7 +118,7 @@ pub struct DbManagerApp {
     /// 查询请求与连接映射（用于按连接取消）
     pending_query_connections: HashMap<u64, String>,
     /// 查询取消信号发送器
-    pending_query_cancellers: HashMap<u64, tokio::sync::oneshot::Sender<()>>,
+    pending_query_cancellers: HashMap<u64, Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>>,
 
     // ==================== 配置和历史 ====================
     /// 应用程序配置（主题、UI 缩放等）
@@ -301,7 +303,7 @@ impl DbManagerApp {
         request_id: u64,
         conn_name: String,
         handle: tokio::task::JoinHandle<()>,
-        cancel_sender: tokio::sync::oneshot::Sender<()>,
+        cancel_sender: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     ) {
         if let Some(prev_handle) = self.pending_query_tasks.insert(request_id, handle) {
             prev_handle.abort();
@@ -333,7 +335,12 @@ impl DbManagerApp {
         let cancel_sent = self
             .pending_query_cancellers
             .remove(&request_id)
-            .is_some_and(|sender| sender.send(()).is_ok());
+            .is_some_and(|sender| {
+                sender
+                    .lock()
+                    .take()
+                    .is_some_and(|cancel| cancel.send(()).is_ok())
+            });
         if !cancel_sent && let Some(handle) = self.pending_query_tasks.remove(&request_id) {
             handle.abort();
         }

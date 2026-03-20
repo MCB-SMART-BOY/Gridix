@@ -345,6 +345,14 @@ cargo test             # Run tests (13 test modules)
 cargo clippy           # Lint
 cargo build --release  # Release build
 cargo appimage         # Build AppImage (Linux)
+
+# Optional: MySQL cancellation integration tests (requires MySQL)
+GRIDIX_IT_MYSQL_HOST=127.0.0.1 \
+GRIDIX_IT_MYSQL_PORT=3306 \
+GRIDIX_IT_MYSQL_USER=root \
+GRIDIX_IT_MYSQL_PASSWORD=secret \
+GRIDIX_IT_MYSQL_DB=test \
+cargo test --test mysql_cancel_integration -- --ignored --nocapture
 ```
 
 ## Contributing
@@ -707,6 +715,14 @@ cargo test             # 运行测试（13 个测试模块）
 cargo clippy           # 代码检查
 cargo build --release  # 发布构建
 cargo appimage         # 构建 AppImage（Linux）
+
+# 可选：MySQL 查询取消集成测试（需要 MySQL）
+GRIDIX_IT_MYSQL_HOST=127.0.0.1 \
+GRIDIX_IT_MYSQL_PORT=3306 \
+GRIDIX_IT_MYSQL_USER=root \
+GRIDIX_IT_MYSQL_PASSWORD=secret \
+GRIDIX_IT_MYSQL_DB=test \
+cargo test --test mysql_cancel_integration -- --ignored --nocapture
 ```
 
 ## 贡献

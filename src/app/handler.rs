@@ -7,6 +7,19 @@ use eframe::egui;
 use super::{DbManagerApp, Message};
 use crate::ui;
 
+fn is_cancelled_query_error(err: &str) -> bool {
+    let trimmed = err.trim();
+    if trimmed.starts_with("查询已取消") {
+        return true;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    lower.contains("query canceled")
+        || lower.contains("query cancelled")
+        || lower.contains("canceling statement due to user request")
+        || lower.contains("query execution was interrupted")
+}
+
 impl DbManagerApp {
     /// 处理异步消息
     ///
@@ -364,7 +377,10 @@ impl DbManagerApp {
                 }
             }
             Err(e) => {
-                self.query_history.add(sql, db_type, false, None);
+                let is_cancelled = is_cancelled_query_error(&e);
+                if !is_cancelled {
+                    self.query_history.add(sql, db_type, false, None);
+                }
                 if is_stale_for_existing_tab {
                     if is_drop_table {
                         self.pending_drop_requests.remove(&request_id);
@@ -390,8 +406,20 @@ impl DbManagerApp {
                     return;
                 }
 
-                let err_msg = format!("错误: {}", e);
-                self.notifications.error(&err_msg);
+                let err_msg = if is_cancelled {
+                    if e.starts_with("查询已取消") {
+                        e.clone()
+                    } else {
+                        format!("查询已取消 ({})", e)
+                    }
+                } else {
+                    format!("错误: {}", e)
+                };
+                if is_cancelled {
+                    self.notifications.warning(&err_msg);
+                } else {
+                    self.notifications.error(&err_msg);
+                }
                 if let Some(idx) = target_tab_index {
                     let is_active_tab = idx == self.tab_manager.active_index;
                     if let Some(tab) = self.tab_manager.tabs.get_mut(idx) {
@@ -399,7 +427,7 @@ impl DbManagerApp {
                         tab.pending_request_id = None;
                         tab.last_message = Some(err_msg.clone());
                     }
-                    if is_active_tab {
+                    if is_active_tab && !is_cancelled {
                         self.result = Some(crate::database::QueryResult::default());
                     }
                 }
@@ -705,5 +733,30 @@ impl DbManagerApp {
             }
         }
         ctx.request_repaint();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_cancelled_query_error;
+
+    #[test]
+    fn test_is_cancelled_query_error_chinese() {
+        assert!(is_cancelled_query_error("查询已取消"));
+        assert!(is_cancelled_query_error("查询已取消（权限不足）"));
+    }
+
+    #[test]
+    fn test_is_cancelled_query_error_english_patterns() {
+        assert!(is_cancelled_query_error(
+            "canceling statement due to user request"
+        ));
+        assert!(is_cancelled_query_error("Query execution was interrupted"));
+        assert!(is_cancelled_query_error("query canceled by user"));
+    }
+
+    #[test]
+    fn test_is_cancelled_query_error_negative_case() {
+        assert!(!is_cancelled_query_error("syntax error near from"));
     }
 }
