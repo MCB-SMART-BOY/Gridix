@@ -5,7 +5,9 @@ use super::{
     empty_result, exec_result, is_query_statement, query_result,
 };
 use crate::core::constants;
-use crate::database::{ConnectionConfig, DatabaseType, DbError, POOL_MANAGER, QueryResult};
+use crate::database::{
+    ConnectionConfig, DatabaseType, DbError, MySqlSslMode, POOL_MANAGER, QueryResult,
+};
 use mysql_async::prelude::*;
 use std::future::Future;
 use std::time::Duration;
@@ -375,17 +377,121 @@ fn build_kill_query_sql(connection_id: u32) -> String {
 }
 
 async fn cancel_query_by_id(config: &ConnectionConfig, connection_id: u32) -> Result<(), DbError> {
+    match cancel_query_with_dedicated_connection(config, connection_id).await {
+        Ok(()) => Ok(()),
+        Err(primary_err) => {
+            tracing::warn!(error = %primary_err, "MySQL 直连取消失败，回退连接池取消");
+            cancel_query_with_pool_connection(config, connection_id)
+                .await
+                .map_err(|fallback_err| {
+                    DbError::Query(format!(
+                        "MySQL 取消查询失败（直连: {}; 连接池回退: {}）",
+                        primary_err, fallback_err
+                    ))
+                })
+        }
+    }
+}
+
+async fn cancel_query_with_dedicated_connection(
+    config: &ConnectionConfig,
+    connection_id: u32,
+) -> Result<(), DbError> {
+    let opts = build_mysql_direct_opts(config)?;
+    let mut killer_conn = mysql_async::Conn::new(opts)
+        .await
+        .map_err(|e| DbError::Connection(format!("MySQL 建立取消连接失败: {}", e)))?;
+
+    let kill_res = execute_kill_query(&mut killer_conn, connection_id).await;
+    if let Err(e) = killer_conn.disconnect().await {
+        tracing::debug!(error = %e, "MySQL 取消连接关闭失败");
+    }
+
+    kill_res
+}
+
+async fn cancel_query_with_pool_connection(
+    config: &ConnectionConfig,
+    connection_id: u32,
+) -> Result<(), DbError> {
     let pool = POOL_MANAGER.get_mysql_pool(config).await?;
     let mut killer_conn = pool
         .get_conn()
         .await
         .map_err(|e| DbError::Connection(format!("MySQL 获取取消连接失败: {}", e)))?;
 
+    execute_kill_query(&mut killer_conn, connection_id).await
+}
+
+async fn execute_kill_query(
+    killer_conn: &mut mysql_async::Conn,
+    connection_id: u32,
+) -> Result<(), DbError> {
     let kill_sql = build_kill_query_sql(connection_id);
     killer_conn
         .query_drop(kill_sql)
         .await
         .map_err(|e| DbError::Query(format!("MySQL 取消查询失败: {}", e)))
+}
+
+fn build_mysql_direct_opts(config: &ConnectionConfig) -> Result<mysql_async::Opts, DbError> {
+    let opts = mysql_async::Opts::from_url(config.connection_string().as_str())
+        .map_err(|e| DbError::Connection(format!("MySQL 取消连接 URL 解析失败: {}", e)))?;
+    let opts = mysql_async::OptsBuilder::from_opts(opts);
+    let opts = configure_mysql_ssl(opts, config)?;
+    Ok(mysql_async::Opts::from(opts))
+}
+
+fn configure_mysql_ssl(
+    opts: mysql_async::OptsBuilder,
+    config: &ConnectionConfig,
+) -> Result<mysql_async::OptsBuilder, DbError> {
+    use mysql_async::SslOpts;
+    use std::path::Path;
+
+    match config.mysql_ssl_mode {
+        MySqlSslMode::Disabled => Ok(opts.ssl_opts(None::<SslOpts>)),
+        MySqlSslMode::Preferred => {
+            let ssl_opts = SslOpts::default()
+                .with_danger_accept_invalid_certs(true)
+                .with_danger_skip_domain_validation(true);
+            Ok(opts.ssl_opts(Some(ssl_opts)))
+        }
+        MySqlSslMode::Required => {
+            let ssl_opts = SslOpts::default()
+                .with_danger_accept_invalid_certs(true)
+                .with_danger_skip_domain_validation(true);
+            Ok(opts.ssl_opts(Some(ssl_opts)))
+        }
+        MySqlSslMode::VerifyCa => {
+            let mut ssl_opts = SslOpts::default().with_danger_skip_domain_validation(true);
+            if !config.ssl_ca_cert.is_empty() {
+                let ca_path = Path::new(&config.ssl_ca_cert);
+                if !ca_path.exists() {
+                    return Err(DbError::Connection(format!(
+                        "CA 证书文件不存在: {}",
+                        config.ssl_ca_cert
+                    )));
+                }
+                ssl_opts = ssl_opts.with_root_certs(vec![ca_path.to_path_buf().into()]);
+            }
+            Ok(opts.ssl_opts(Some(ssl_opts)))
+        }
+        MySqlSslMode::VerifyIdentity => {
+            let mut ssl_opts = SslOpts::default();
+            if !config.ssl_ca_cert.is_empty() {
+                let ca_path = Path::new(&config.ssl_ca_cert);
+                if !ca_path.exists() {
+                    return Err(DbError::Connection(format!(
+                        "CA 证书文件不存在: {}",
+                        config.ssl_ca_cert
+                    )));
+                }
+                ssl_opts = ssl_opts.with_root_certs(vec![ca_path.to_path_buf().into()]);
+            }
+            Ok(opts.ssl_opts(Some(ssl_opts)))
+        }
+    }
 }
 
 async fn execute_with_connection_id(
