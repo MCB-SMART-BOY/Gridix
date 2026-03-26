@@ -21,6 +21,7 @@ mod dialogs;
 mod er_diagram;
 mod export;
 mod handler;
+mod help;
 mod import;
 mod keyboard;
 mod message;
@@ -211,6 +212,8 @@ pub struct DbManagerApp {
     show_help: bool,
     /// 帮助面板滚动位置
     help_scroll_offset: f32,
+    /// 帮助面板分类与学习主题状态
+    help_state: ui::HelpState,
     /// 是否显示关于对话框
     show_about: bool,
     /// 用户设置的 UI 缩放比例
@@ -473,6 +476,7 @@ impl DbManagerApp {
             sidebar_width: 280.0, // 默认侧边栏宽度
             show_help: false,
             help_scroll_offset: 0.0,
+            help_state: ui::HelpState::default(),
             show_about: false,
             ui_scale,
             base_pixels_per_point,

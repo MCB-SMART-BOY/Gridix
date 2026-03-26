@@ -42,8 +42,8 @@ pub(crate) use query::analyze_sql_for_ui;
 pub use query::{
     ColumnInfo, ConnectResult, ForeignKeyInfo, ImportExecutionReport, RoutineInfo, RoutineType,
     TriggerInfo, connect_database, execute_import_batch, execute_query, execute_query_cancellable,
-    get_foreign_keys,
-    get_primary_key_column, get_routines, get_table_columns, get_tables_for_database, get_triggers,
+    get_foreign_keys, get_primary_key_column, get_routines, get_table_columns,
+    get_tables_for_database, get_triggers,
 };
 
 // SSH 隧道

@@ -18,16 +18,16 @@ impl Welcome {
                 Vec2::new(content_width, 0.0),
                 egui::Layout::top_down(egui::Align::Center),
                 |ui| {
-                Self::show_hero(ui, content_width);
-                ui.add_space(SPACING_LG);
+                    Self::show_hero(ui, content_width);
+                    ui.add_space(SPACING_LG);
 
-                Self::show_database_cards(ui, content_width);
-                ui.add_space(SPACING_LG);
+                    Self::show_database_cards(ui, content_width);
+                    ui.add_space(SPACING_LG);
 
-                Self::show_quick_start(ui);
-                ui.add_space(SPACING_MD);
+                    Self::show_quick_start(ui);
+                    ui.add_space(SPACING_MD);
 
-                Self::show_shortcuts(ui, content_width);
+                    Self::show_shortcuts(ui, content_width);
                 },
             );
         });
@@ -109,7 +109,7 @@ impl Welcome {
             Self::database_card(
                 ui,
                 "M",
-                "MySQL",
+                "MySQL/MariaDB",
                 "流行的开源数据库",
                 Color32::from_rgb(200, 120, 60),
                 card_width,
@@ -151,7 +151,8 @@ impl Welcome {
 
                 ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                     // 图标 - 使用圆形背景的字母
-                    let (rect, _) = ui.allocate_exact_size(Vec2::new(56.0, 56.0), egui::Sense::hover());
+                    let (rect, _) =
+                        ui.allocate_exact_size(Vec2::new(56.0, 56.0), egui::Sense::hover());
                     let painter = ui.painter();
 
                     // 绘制圆形背景
@@ -216,7 +217,18 @@ impl Welcome {
 
                     ui.add_space(8.0);
 
-                    ui.label(RichText::new("连接后可直接使用 Ctrl+Enter 执行 SQL 查询").color(GRAY));
+                    ui.label(
+                        RichText::new("连接后可直接使用 Ctrl+Enter 执行 SQL 查询").color(GRAY),
+                    );
+
+                    ui.add_space(8.0);
+
+                    ui.label(
+                        RichText::new(
+                            "如果是想要入门操作和学习数据库相关概念的请点击左上角的小问号",
+                        )
+                        .color(GRAY),
+                    );
                 });
             });
     }
