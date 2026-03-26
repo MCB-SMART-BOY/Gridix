@@ -196,8 +196,8 @@ impl Welcome {
             .corner_radius(CornerRadius::same(8))
             .inner_margin(egui::Margin::symmetric(20, 12))
             .show(ui, |ui| {
-                ui.vertical(|ui| {
-                    ui.horizontal(|ui| {
+                ui.vertical_centered(|ui| {
+                    ui.horizontal_centered(|ui| {
                         ui.label(RichText::new("\u{2139}").size(16.0).color(SUCCESS));
                         ui.label(
                             RichText::new("快速开始")
@@ -209,35 +209,32 @@ impl Welcome {
 
                     ui.add_space(2.0);
 
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new("点击侧边栏的").color(GRAY));
-                        ui.label(RichText::new("「+ 新建」").strong().color(SUCCESS));
-                        ui.label(RichText::new("创建数据库连接，或按").color(GRAY));
-                        ui.label(RichText::new("Ctrl+N").monospace().strong());
-                    });
+                    ui.label(
+                        RichText::new("点击侧边栏的 「+ 新建」 创建数据库连接，或按 Ctrl+N")
+                            .color(GRAY),
+                    );
 
                     ui.add_space(8.0);
 
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new("连接后可直接使用").color(GRAY));
-                        ui.label(RichText::new("Ctrl+Enter").monospace().strong());
-                        ui.label(RichText::new("执行 SQL 查询").color(GRAY));
-                    });
+                    ui.label(
+                        RichText::new("连接后可直接使用 Ctrl+Enter 执行 SQL 查询").color(GRAY),
+                    );
                 });
             });
     }
 
     /// 显示快捷键列表
     fn show_shortcuts(ui: &mut egui::Ui) {
-        // 标题
-        ui.label(
-            RichText::new("\u{2328} 常用快捷键") // 键盘符号
-                .size(14.0)
-                .strong()
-                .color(GRAY),
-        );
+        ui.vertical_centered(|ui| {
+            ui.label(
+                RichText::new("\u{2328} 常用快捷键")
+                    .size(14.0)
+                    .strong()
+                    .color(GRAY),
+            );
+        });
 
-        ui.add_space(SPACING_SM);
+        ui.add_space(SPACING_SM * 0.8);
 
         // 快捷键网格
         egui::Frame::NONE
@@ -249,30 +246,31 @@ impl Welcome {
             .corner_radius(CornerRadius::same(8))
             .inner_margin(egui::Margin::symmetric(20, 14))
             .show(ui, |ui| {
-                egui::Grid::new("shortcuts_grid")
-                    .num_columns(4)
-                    .spacing([36.0, 10.0])
-                    .show(ui, |ui| {
-                        let shortcuts = [
-                            ("Ctrl+N", "新建连接"),
-                            ("Ctrl+Enter", "执行查询"),
-                            ("Ctrl+J", "切换编辑器"),
-                            ("Ctrl+H", "查询历史"),
-                            ("Ctrl+E", "导出结果"),
-                            ("Ctrl+I", "导入 SQL"),
-                            ("F5", "刷新表"),
-                            ("F1", "帮助"),
-                        ];
+                ui.vertical_centered(|ui| {
+                    egui::Grid::new("shortcuts_grid")
+                        .num_columns(4)
+                        .spacing([36.0, 10.0])
+                        .show(ui, |ui| {
+                            let shortcuts = [
+                                ("Ctrl+N", "新建连接"),
+                                ("Ctrl+Enter", "执行查询"),
+                                ("Ctrl+J", "切换编辑器"),
+                                ("Ctrl+H", "查询历史"),
+                                ("Ctrl+E", "导出结果"),
+                                ("Ctrl+I", "导入 SQL"),
+                                ("F5", "刷新表"),
+                                ("F1", "帮助"),
+                            ];
 
-                        for (i, (key, desc)) in shortcuts.iter().enumerate() {
-                            Self::shortcut_item(ui, key, desc);
+                            for (i, (key, desc)) in shortcuts.iter().enumerate() {
+                                Self::shortcut_item(ui, key, desc);
 
-                            // 每两个换行
-                            if i % 2 == 1 {
-                                ui.end_row();
+                                if i % 2 == 1 {
+                                    ui.end_row();
+                                }
                             }
-                        }
-                    });
+                        });
+                });
             });
     }
 
