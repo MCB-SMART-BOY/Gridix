@@ -16,21 +16,24 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        runtimeLibs = with pkgs; [
+        cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+        commonBuildInputs = with pkgs; [
+          openssl
+        ];
+        linuxRuntimeLibs = with pkgs; [
           gtk3
           xdotool
-          openssl
           wayland
           libxkbcommon
           libglvnd
           mesa
         ];
-        runtimeLibraryPath = pkgs.lib.makeLibraryPath runtimeLibs;
+        runtimeLibraryPath = pkgs.lib.makeLibraryPath linuxRuntimeLibs;
       in
       {
         packages.default = pkgs.rustPlatform.buildRustPackage rec {
           pname = "gridix";
-          version = "2.0.1";
+          version = cargoToml.package.version;
 
           src = ./.;
 
@@ -44,7 +47,8 @@
           ];
 
           buildInputs =
-            runtimeLibs
+            commonBuildInputs
+            ++ pkgs.lib.optionals pkgs.stdenv.isLinux linuxRuntimeLibs
             ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
               pkgs.darwin.apple_sdk.frameworks.AppKit
               pkgs.darwin.apple_sdk.frameworks.CoreGraphics
@@ -71,7 +75,7 @@
               github = "MCB-SMART-BOY";
             }];
             mainProgram = "gridix";
-            platforms = platforms.unix;
+            platforms = platforms.linux ++ platforms.darwin;
           };
         };
 
@@ -81,10 +85,19 @@
             [
               rustup
               pkg-config
+              openssl
             ]
-            ++ runtimeLibs;
+            ++ pkgs.lib.optionals pkgs.stdenv.isLinux linuxRuntimeLibs
+            ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+              pkgs.darwin.apple_sdk.frameworks.AppKit
+              pkgs.darwin.apple_sdk.frameworks.CoreGraphics
+              pkgs.darwin.apple_sdk.frameworks.CoreText
+              pkgs.darwin.apple_sdk.frameworks.Foundation
+              pkgs.darwin.apple_sdk.frameworks.Metal
+              pkgs.darwin.apple_sdk.frameworks.QuartzCore
+            ];
 
-          shellHook = ''
+          shellHook = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
             export LD_LIBRARY_PATH="${runtimeLibraryPath}:''${LD_LIBRARY_PATH:-}"
             export __EGL_VENDOR_LIBRARY_DIRS="${pkgs.mesa}/share/glvnd/egl_vendor.d"
             export LIBGL_DRIVERS_PATH="${pkgs.mesa}/lib/dri"
