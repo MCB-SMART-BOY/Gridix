@@ -1,81 +1,72 @@
 //! 欢迎页面组件 - 应用启动时的欢迎界面
 
 use crate::ui::styles::{GRAY, MUTED, SPACING_LG, SPACING_MD, SPACING_SM, SUCCESS};
-use egui::{self, Color32, CornerRadius, RichText, Vec2};
+use egui::{self, Color32, CornerRadius, RichText, Stroke, Vec2};
 
 pub struct Welcome;
 
 impl Welcome {
     pub fn show(ui: &mut egui::Ui) {
-        let available_rect = ui.available_rect_before_wrap();
+        let max_width = (ui.available_width() - SPACING_LG * 2.0).clamp(360.0, 860.0);
 
-        // 内容尺寸
-        let content_width = 500.0;
-        let content_height = 500.0;
+        ui.vertical_centered(|ui| {
+            ui.set_max_width(max_width);
+            ui.add_space((ui.available_height() * 0.08).max(SPACING_MD));
 
-        // 计算居中位置
-        let x = available_rect.min.x + (available_rect.width() - content_width) / 2.0;
-        let y = available_rect.min.y + (available_rect.height() - content_height) / 2.0;
+            Self::show_hero(ui, max_width);
+            ui.add_space(SPACING_LG);
 
-        // 使用 Area 实现居中
-        egui::Area::new(egui::Id::new("welcome_center"))
-            .fixed_pos(egui::pos2(
-                x.max(available_rect.min.x),
-                y.max(available_rect.min.y),
+            Self::show_database_cards(ui);
+            ui.add_space(SPACING_LG);
+
+            Self::show_quick_start(ui);
+            ui.add_space(SPACING_MD);
+
+            Self::show_shortcuts(ui);
+        });
+    }
+
+    fn show_hero(ui: &mut egui::Ui, width: f32) {
+        egui::Frame::NONE
+            .fill(Color32::from_rgba_unmultiplied(90, 140, 210, 18))
+            .stroke(Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(120, 170, 230, 48),
             ))
-            .show(ui.ctx(), |ui| {
-                ui.set_min_width(content_width);
-                ui.set_max_width(content_width);
-
-                ui.vertical_centered(|ui| {
-                    // Logo 和标题区域
-                    Self::show_header(ui);
-
-                    ui.add_space(SPACING_LG * 2.0);
-
-                    // 数据库卡片
-                    Self::show_database_cards(ui);
-
-                    ui.add_space(SPACING_LG * 2.0);
-
-                    // 快速开始提示
-                    Self::show_quick_start(ui);
-
-                    ui.add_space(SPACING_LG * 2.0);
-
-                    // 快捷键
-                    Self::show_shortcuts(ui);
-                });
+            .corner_radius(CornerRadius::same(14))
+            .inner_margin(egui::Margin::symmetric(24, 20))
+            .show(ui, |ui| {
+                ui.set_width(width.min(820.0));
+                Self::show_header(ui);
             });
     }
 
     /// 显示头部标题
     fn show_header(ui: &mut egui::Ui) {
-        // 应用标题
-        ui.label(
-            RichText::new("Rust DB Manager")
-                .size(28.0)
-                .strong()
-                .color(Color32::from_rgb(100, 160, 220)),
-        );
+        ui.vertical_centered(|ui| {
+            ui.label(
+                RichText::new("GRIDIX")
+                    .size(30.0)
+                    .strong()
+                    .color(Color32::from_rgb(105, 168, 236)),
+            );
 
-        ui.add_space(SPACING_SM);
+            ui.add_space(6.0);
 
-        // 主标题
-        ui.label(
-            RichText::new("简洁、快速、安全的数据库管理工具")
-                .size(16.0)
-                .color(GRAY),
-        );
+            ui.label(
+                RichText::new("简洁、快速、安全的数据库管理工具")
+                    .size(16.0)
+                    .color(GRAY),
+            );
 
-        ui.add_space(SPACING_SM);
+            ui.add_space(4.0);
 
-        // 版本号
-        ui.label(
-            RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
-                .small()
-                .color(MUTED),
-        );
+            ui.label(
+                RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                    .small()
+                    .color(MUTED),
+            );
+        });
     }
 
     /// 显示数据库类型卡片
@@ -157,8 +148,7 @@ impl Welcome {
 
                 ui.vertical_centered(|ui| {
                     // 图标 - 使用圆形背景的字母
-                    let (rect, _) =
-                        ui.allocate_exact_size(Vec2::new(48.0, 48.0), egui::Sense::hover());
+                    let (rect, _) = ui.allocate_exact_size(Vec2::new(48.0, 48.0), egui::Sense::hover());
                     let painter = ui.painter();
 
                     // 绘制圆形背景
@@ -198,21 +188,41 @@ impl Welcome {
     /// 显示快速开始提示
     fn show_quick_start(ui: &mut egui::Ui) {
         egui::Frame::NONE
-            .fill(Color32::from_rgba_unmultiplied(100, 180, 100, 20))
+            .fill(Color32::from_rgba_unmultiplied(92, 180, 118, 22))
             .stroke(egui::Stroke::new(
                 1.0,
-                Color32::from_rgba_unmultiplied(100, 180, 100, 40),
+                Color32::from_rgba_unmultiplied(100, 190, 126, 52),
             ))
             .corner_radius(CornerRadius::same(8))
-            .inner_margin(egui::Margin::symmetric(24, 12))
+            .inner_margin(egui::Margin::symmetric(20, 12))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("\u{2139}").size(16.0).color(SUCCESS)); // info 符号
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("\u{2139}").size(16.0).color(SUCCESS));
+                        ui.label(
+                            RichText::new("快速开始")
+                                .size(14.0)
+                                .strong()
+                                .color(Color32::from_rgb(190, 230, 200)),
+                        );
+                    });
+
+                    ui.add_space(2.0);
+
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new("点击侧边栏的").color(GRAY));
+                        ui.label(RichText::new("「+ 新建」").strong().color(SUCCESS));
+                        ui.label(RichText::new("创建数据库连接，或按").color(GRAY));
+                        ui.label(RichText::new("Ctrl+N").monospace().strong());
+                    });
+
                     ui.add_space(8.0);
-                    ui.label(RichText::new("点击侧边栏的").color(GRAY));
-                    ui.label(RichText::new("「+ 新建」").strong().color(SUCCESS));
-                    ui.label(RichText::new("创建数据库连接，或按").color(GRAY));
-                    ui.label(RichText::new("Ctrl+N").monospace().strong());
+
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new("连接后可直接使用").color(GRAY));
+                        ui.label(RichText::new("Ctrl+Enter").monospace().strong());
+                        ui.label(RichText::new("执行 SQL 查询").color(GRAY));
+                    });
                 });
             });
     }
@@ -227,17 +237,21 @@ impl Welcome {
                 .color(GRAY),
         );
 
-        ui.add_space(SPACING_MD);
+        ui.add_space(SPACING_SM);
 
         // 快捷键网格
         egui::Frame::NONE
-            .fill(Color32::from_rgba_unmultiplied(120, 120, 130, 10))
+            .fill(Color32::from_rgba_unmultiplied(120, 120, 130, 12))
+            .stroke(Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(155, 155, 170, 26),
+            ))
             .corner_radius(CornerRadius::same(8))
-            .inner_margin(egui::Margin::symmetric(24, 16))
+            .inner_margin(egui::Margin::symmetric(20, 14))
             .show(ui, |ui| {
                 egui::Grid::new("shortcuts_grid")
                     .num_columns(4)
-                    .spacing([48.0, 8.0])
+                    .spacing([36.0, 10.0])
                     .show(ui, |ui| {
                         let shortcuts = [
                             ("Ctrl+N", "新建连接"),
@@ -266,17 +280,17 @@ impl Welcome {
     fn shortcut_item(ui: &mut egui::Ui, key: &str, desc: &str) {
         // 按键
         egui::Frame::NONE
-            .fill(Color32::from_rgba_unmultiplied(150, 150, 160, 30))
+            .fill(Color32::from_rgba_unmultiplied(150, 150, 160, 36))
             .corner_radius(CornerRadius::same(4))
             .inner_margin(egui::Margin::symmetric(8, 3))
             .show(ui, |ui| {
-                ui.label(RichText::new(key).monospace().size(12.0));
+                ui.label(RichText::new(key).monospace().size(11.5));
             });
 
         // 描述
         ui.label(
             RichText::new(desc)
-                .size(13.0)
+                .size(12.5)
                 .color(Color32::from_rgb(180, 180, 190)),
         );
     }
