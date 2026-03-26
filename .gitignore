@@ -24,3 +24,5 @@ result
 packaging-updates/
 flake.nix
 flake.lock
+*.log
+_work_*

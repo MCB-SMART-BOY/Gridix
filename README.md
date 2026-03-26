@@ -12,7 +12,7 @@
 
 **A keyboard-first database management tool for developers who live in the terminal**
 
-[![Version](https://img.shields.io/badge/version-2.0.1-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
+[![Version](https://img.shields.io/badge/version-2.0.2-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024_edition-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
@@ -341,10 +341,18 @@ src/
 
 ```bash
 cargo run              # Development build
-cargo test             # Run tests (13 test modules)
+cargo test             # Run tests (14 test modules)
 cargo clippy           # Lint
 cargo build --release  # Release build
 cargo appimage         # Build AppImage (Linux)
+
+# Optional: MySQL cancellation integration tests (requires MySQL)
+GRIDIX_IT_MYSQL_HOST=127.0.0.1 \
+GRIDIX_IT_MYSQL_PORT=3306 \
+GRIDIX_IT_MYSQL_USER=root \
+GRIDIX_IT_MYSQL_PASSWORD=secret \
+GRIDIX_IT_MYSQL_DB=test \
+cargo test --test mysql_cancel_integration -- --ignored --nocapture
 ```
 
 ## Contributing
@@ -374,7 +382,7 @@ cargo appimage         # Build AppImage (Linux)
 
 **给住在终端里的开发者做的键盘优先数据库工具**
 
-[![Version](https://img.shields.io/badge/version-2.0.1-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
+[![Version](https://img.shields.io/badge/version-2.0.2-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024_edition-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
@@ -703,10 +711,18 @@ src/
 
 ```bash
 cargo run              # 开发构建
-cargo test             # 运行测试（13 个测试模块）
+cargo test             # 运行测试（14 个测试模块）
 cargo clippy           # 代码检查
 cargo build --release  # 发布构建
 cargo appimage         # 构建 AppImage（Linux）
+
+# 可选：MySQL 查询取消集成测试（需要 MySQL）
+GRIDIX_IT_MYSQL_HOST=127.0.0.1 \
+GRIDIX_IT_MYSQL_PORT=3306 \
+GRIDIX_IT_MYSQL_USER=root \
+GRIDIX_IT_MYSQL_PASSWORD=secret \
+GRIDIX_IT_MYSQL_DB=test \
+cargo test --test mysql_cancel_integration -- --ignored --nocapture
 ```
 
 ## 贡献
