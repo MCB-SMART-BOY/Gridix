@@ -25,6 +25,8 @@ pub struct DialogResults {
     pub history_selected_sql: Option<String>,
     /// 是否清空历史
     pub clear_history: bool,
+    /// 帮助面板动作
+    pub help_action: Option<ui::HelpAction>,
     /// 更新后的快捷键绑定
     pub updated_keybindings: Option<KeyBindings>,
 }
@@ -130,7 +132,20 @@ impl DbManagerApp {
         );
 
         // 帮助面板
-        ui::HelpDialog::show_with_scroll(ctx, &mut self.show_help, &mut self.help_scroll_offset);
+        let help_context = ui::HelpContext {
+            active_connection_name: self.manager.active.clone(),
+            selected_table: self.selected_table.clone(),
+            has_result: self.result.is_some(),
+            show_sql_editor: self.show_sql_editor,
+            show_er_diagram: self.show_er_diagram,
+        };
+        results.help_action = ui::HelpDialog::show_with_scroll(
+            ctx,
+            &mut self.show_help,
+            &mut self.help_scroll_offset,
+            &mut self.help_state,
+            &help_context,
+        );
 
         // 关于对话框
         ui::AboutDialog::show(ctx, &mut self.show_about);
@@ -213,6 +228,10 @@ impl DbManagerApp {
 
         if results.clear_history {
             self.query_history.clear();
+        }
+
+        if let Some(action) = results.help_action {
+            self.handle_help_action(action);
         }
 
         // 处理快捷键更新

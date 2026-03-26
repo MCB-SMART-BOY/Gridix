@@ -80,7 +80,6 @@ pub fn execute_with_interrupt_handle(
 }
 
 fn execute_with_connection(conn: &SqliteConn, sql: &str) -> Result<QueryResult, DbError> {
-    
     if is_query_statement(sql, &DatabaseType::SQLite) {
         let mut stmt = conn
             .prepare(sql)

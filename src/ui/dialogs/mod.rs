@@ -39,7 +39,7 @@ pub use dialog_trait::{
     DataDialogState, DialogButtons, DialogResult, DialogSize, DialogState, SimpleDialogState,
 };
 pub use export_dialog::{ExportConfig, ExportDialog};
-pub use help_dialog::HelpDialog;
+pub use help_dialog::{HelpAction, HelpContext, HelpDialog, HelpState, HelpTab, LearningTopic};
 pub use import_dialog::{
     ImportAction, ImportDialog, ImportFormat, ImportPreview, ImportState, parse_sql_file,
 };

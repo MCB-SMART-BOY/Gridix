@@ -65,7 +65,11 @@ pub use dialogs::{
     DdlDialogState,
     ExportConfig,
     ExportDialog,
+    HelpAction,
+    HelpContext,
     HelpDialog,
+    HelpState,
+    HelpTab,
     ImportAction,
     ImportDialog,
     ImportFormat,
@@ -74,6 +78,7 @@ pub use dialogs::{
     // 快捷键设置对话框
     KeyBindingsDialog,
     KeyBindingsDialogState,
+    LearningTopic,
     TableDefinition,
     // 导入对话框
     parse_sql_file,
