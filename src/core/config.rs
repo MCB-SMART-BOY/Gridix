@@ -54,9 +54,9 @@ pub struct AppConfig {
     /// 首次启动引导进度
     #[serde(default)]
     pub onboarding: OnboardingProgress,
-    /// 连接对话框是否使用新手模式（默认开启）
-    #[serde(default = "default_connection_dialog_novice_mode")]
-    pub connection_dialog_novice_mode: bool,
+    /// 连接对话框是否展开高级配置
+    #[serde(default = "default_connection_dialog_show_advanced")]
+    pub connection_dialog_show_advanced: bool,
 }
 
 fn default_ui_scale() -> f32 {
@@ -75,8 +75,8 @@ fn default_dark_mode() -> bool {
     true
 }
 
-fn default_connection_dialog_novice_mode() -> bool {
-    true
+fn default_connection_dialog_show_advanced() -> bool {
+    false
 }
 
 impl Default for AppConfig {
@@ -92,7 +92,7 @@ impl Default for AppConfig {
             ui_scale: default_ui_scale(),
             keybindings: KeyBindings::default(),
             onboarding: OnboardingProgress::default(),
-            connection_dialog_novice_mode: default_connection_dialog_novice_mode(),
+            connection_dialog_show_advanced: default_connection_dialog_show_advanced(),
         }
     }
 }

@@ -73,8 +73,6 @@ pub struct DbManagerApp {
     manager: ConnectionManager,
     /// 是否显示新建/编辑连接对话框
     show_connection_dialog: bool,
-    /// 连接对话框新手模式（仅显示必填项）
-    connection_dialog_novice_mode: bool,
     /// 连接对话框是否展开高级配置
     connection_dialog_show_advanced: bool,
     /// 当前编辑的连接配置（用于新建/编辑对话框）
@@ -426,8 +424,7 @@ impl DbManagerApp {
         let mut app = Self {
             manager,
             show_connection_dialog: false,
-            connection_dialog_novice_mode: app_config.connection_dialog_novice_mode,
-            connection_dialog_show_advanced: !app_config.connection_dialog_novice_mode,
+            connection_dialog_show_advanced: app_config.connection_dialog_show_advanced,
             new_config: ConnectionConfig::default(),
             editing_connection_name: None,
             selected_table: None,
@@ -550,7 +547,7 @@ impl DbManagerApp {
             .map(|c| c.config.clone())
             .collect();
         self.app_config.keybindings = self.keybindings.clone();
-        self.app_config.connection_dialog_novice_mode = self.connection_dialog_novice_mode;
+        self.app_config.connection_dialog_show_advanced = self.connection_dialog_show_advanced;
         let _ = self.app_config.save();
     }
 

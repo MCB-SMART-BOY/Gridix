@@ -94,7 +94,6 @@ impl ConnectionDialog {
     pub fn show(
         ctx: &egui::Context,
         open: &mut bool,
-        novice_mode: &mut bool,
         show_advanced: &mut bool,
         config: &mut ConnectionConfig,
         on_save: &mut bool,
@@ -196,17 +195,13 @@ impl ConnectionDialog {
             .show(ctx, |ui| {
                 ui.add_space(SPACING_MD);
 
-                // 模式切换（新手/专家）
-                Self::show_mode_switch(ui, novice_mode, show_advanced);
-                ui.add_space(SPACING_MD);
-
                 // 数据库类型选择卡片
                 Self::show_db_type_selector(ui, config);
 
                 ui.add_space(SPACING_LG);
 
                 // 连接表单
-                Self::show_connection_form(ui, config, *novice_mode);
+                Self::show_connection_form(ui, config);
 
                 ui.add_space(SPACING_MD);
 
@@ -215,13 +210,10 @@ impl ConnectionDialog {
 
                 ui.add_space(SPACING_LG);
 
-                let show_advanced_sections = !*novice_mode || *show_advanced;
-                if *novice_mode {
-                    Self::show_advanced_toggle(ui, show_advanced);
-                    ui.add_space(SPACING_MD);
-                }
+                Self::show_advanced_toggle(ui, show_advanced);
+                ui.add_space(SPACING_MD);
 
-                if show_advanced_sections {
+                if *show_advanced {
                     // SSL/TLS 配置
                     match config.db_type {
                         DatabaseType::MySQL => {
@@ -243,7 +235,7 @@ impl ConnectionDialog {
 
                     // 连接字符串预览
                     Self::show_connection_preview(ui, config);
-                } else if *novice_mode {
+                } else {
                     ui.horizontal(|ui| {
                         ui.add_space(SPACING_MD);
                         ui.label(
@@ -270,53 +262,6 @@ impl ConnectionDialog {
         *open = is_open;
     }
 
-    fn show_mode_switch(ui: &mut egui::Ui, novice_mode: &mut bool, show_advanced: &mut bool) {
-        egui::Frame::NONE
-            .fill(Color32::from_rgba_unmultiplied(92, 140, 230, 12))
-            .stroke(egui::Stroke::new(
-                1.0,
-                Color32::from_rgba_unmultiplied(110, 160, 240, 40),
-            ))
-            .corner_radius(CornerRadius::same(8))
-            .inner_margin(egui::Margin::symmetric(12, 10))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("连接填写模式")
-                            .strong()
-                            .color(Color32::from_rgb(125, 178, 246)),
-                    );
-                    ui.add_space(SPACING_MD);
-
-                    if ui
-                        .selectable_label(*novice_mode, "新手模式（推荐）")
-                        .on_hover_text("仅显示必填项，减少误配置")
-                        .clicked()
-                    {
-                        *novice_mode = true;
-                        *show_advanced = false;
-                    }
-
-                    if ui
-                        .selectable_label(!*novice_mode, "专家模式")
-                        .on_hover_text("显示全部连接参数（SSL/SSH/预览）")
-                        .clicked()
-                    {
-                        *novice_mode = false;
-                        *show_advanced = true;
-                    }
-                });
-
-                ui.add_space(4.0);
-                let tip = if *novice_mode {
-                    "当前是新手模式：先填连接名称、主机、端口、账号密码即可开始。"
-                } else {
-                    "当前是专家模式：可直接配置 SSL、SSH 隧道与连接字符串预览。"
-                };
-                ui.label(RichText::new(tip).small().color(MUTED));
-            });
-    }
-
     fn show_advanced_toggle(ui: &mut egui::Ui, show_advanced: &mut bool) {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(120, 120, 130, 10))
@@ -328,17 +273,13 @@ impl ConnectionDialog {
                         .button(if *show_advanced {
                             "收起高级配置"
                         } else {
-                            "展开高级配置"
+                            "显示高级配置（SSL/SSH/连接串）"
                         })
                         .clicked()
                     {
                         *show_advanced = !*show_advanced;
                     }
-                    ui.label(
-                        RichText::new("高级配置包含 SSL/TLS、SSH 隧道和连接字符串预览")
-                            .small()
-                            .color(MUTED),
-                    );
+                    ui.label(RichText::new("默认只保留核心连接字段").small().color(MUTED));
                 });
             });
     }
@@ -416,7 +357,7 @@ impl ConnectionDialog {
     }
 
     /// 连接表单
-    fn show_connection_form(ui: &mut egui::Ui, config: &mut ConnectionConfig, novice_mode: bool) {
+    fn show_connection_form(ui: &mut egui::Ui, config: &mut ConnectionConfig) {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(100, 100, 110, 10))
             .corner_radius(CornerRadius::same(8))
@@ -522,14 +463,12 @@ impl ConnectionDialog {
                 DatabaseType::MySQL => "默认端口 3306，连接后可选择数据库",
             };
             ui.label(RichText::new(tip).small().color(MUTED));
-            if novice_mode {
-                ui.add_space(SPACING_SM);
-                ui.label(
-                    RichText::new("需要更多能力时，可点击上方“展开高级配置”。")
-                        .small()
-                        .color(MUTED),
-                );
-            }
+            ui.add_space(SPACING_SM);
+            ui.label(
+                RichText::new("需要 SSL/SSH 时，点击“显示高级配置”即可。")
+                    .small()
+                    .color(MUTED),
+            );
         });
     }
 

@@ -37,18 +37,17 @@ impl DbManagerApp {
         let mut results = DialogResults::default();
 
         // 连接对话框
-        let old_novice_mode = self.connection_dialog_novice_mode;
+        let old_show_advanced = self.connection_dialog_show_advanced;
         ui::ConnectionDialog::show(
             ctx,
             &mut self.show_connection_dialog,
-            &mut self.connection_dialog_novice_mode,
             &mut self.connection_dialog_show_advanced,
             &mut self.new_config,
             &mut results.save_connection,
             self.editing_connection_name.is_some(),
         );
-        if old_novice_mode != self.connection_dialog_novice_mode {
-            self.app_config.connection_dialog_novice_mode = self.connection_dialog_novice_mode;
+        if old_show_advanced != self.connection_dialog_show_advanced {
+            self.app_config.connection_dialog_show_advanced = self.connection_dialog_show_advanced;
             if let Err(e) = self.app_config.save() {
                 self.notifications
                     .error(format!("保存连接对话框模式失败: {}", e));
