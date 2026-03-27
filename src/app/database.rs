@@ -8,8 +8,8 @@ use std::time::Instant;
 
 use crate::core::constants;
 use crate::database::{
-    ConnectResult, connect_database, execute_query_cancellable, get_primary_key_column,
-    get_tables_for_database, ssh_tunnel::SSH_TUNNEL_MANAGER,
+    ConnectResult, ConnectionConfig, DatabaseType, connect_database, execute_query_cancellable,
+    get_primary_key_column, get_tables_for_database, ssh_tunnel::SSH_TUNNEL_MANAGER,
 };
 use crate::ui;
 
@@ -32,6 +32,7 @@ impl DbManagerApp {
     /// 保存连接对话框结果（新建或编辑）
     pub(super) fn save_connection_from_dialog(&mut self) {
         let config = std::mem::take(&mut self.new_config);
+        let saved_db_type = config.db_type;
         let name = config.name.clone();
 
         let editing_name = self.editing_connection_name.clone();
@@ -69,6 +70,11 @@ impl DbManagerApp {
         }
 
         self.manager.add(config);
+        self.mark_onboarding_connection_created();
+        self.welcome_setup_target = saved_db_type;
+        if !self.welcome_onboarding_status().is_complete() {
+            self.show_welcome_setup_dialog = true;
+        }
         self.save_config();
         self.connect(name);
     }
@@ -431,10 +437,88 @@ impl DbManagerApp {
 
     /// 处理连接错误的通用逻辑
     pub(super) fn handle_connection_error(&mut self, name: &str, error: String) {
-        self.notifications.error(format!("连接失败: {}", error));
+        let conn_config = self.manager.connections.get(name).map(|c| c.config.clone());
+        let friendly = conn_config
+            .as_ref()
+            .map(|cfg| Self::friendly_connection_error(cfg, &error))
+            .unwrap_or_else(|| format!("连接失败：{}", error));
+
+        self.notifications.error(friendly);
+        if let Some(config) = conn_config {
+            self.welcome_setup_target = config.db_type;
+            self.show_welcome_setup_dialog = true;
+            self.notifications.info(format!(
+                "已打开 {} 安装与初始化引导",
+                config.db_type.display_name()
+            ));
+        }
         self.autocomplete.clear();
         if let Some(conn) = self.manager.connections.get_mut(name) {
             conn.set_error(error);
+        }
+    }
+
+    fn friendly_connection_error(config: &ConnectionConfig, raw_error: &str) -> String {
+        let err = raw_error.trim();
+        let lower = err.to_ascii_lowercase();
+
+        match config.db_type {
+            DatabaseType::SQLite => {
+                if lower.contains("unable to open database file")
+                    || lower.contains("no such file")
+                    || lower.contains("permission denied")
+                {
+                    return "连接失败：SQLite 文件不可访问。请检查文件路径是否存在、目录权限是否允许读写。".to_string();
+                }
+                format!("连接失败：{}。请先确认 SQLite 文件路径可用。", err)
+            }
+            DatabaseType::PostgreSQL | DatabaseType::MySQL => {
+                if lower.contains("timeout") || lower.contains("超时") {
+                    return format!(
+                        "连接超时：无法访问 {}:{}。请先确认数据库服务已启动、防火墙未拦截、主机端口填写正确。",
+                        config.host, config.port
+                    );
+                }
+                if lower.contains("refused")
+                    || lower.contains("can't connect")
+                    || lower.contains("could not connect")
+                {
+                    return format!(
+                        "连接被拒绝：{}:{} 未接受连接。通常是数据库服务未启动，或端口配置错误。",
+                        config.host, config.port
+                    );
+                }
+                if lower.contains("access denied")
+                    || lower.contains("authentication failed")
+                    || lower.contains("password authentication failed")
+                {
+                    return format!(
+                        "认证失败：用户名或密码不正确（当前用户：{}）。请检查账号密码并重试。",
+                        if config.username.is_empty() {
+                            "<未填写>"
+                        } else {
+                            &config.username
+                        }
+                    );
+                }
+                if lower.contains("unknown database")
+                    || lower.contains("does not exist")
+                    || lower.contains("database") && lower.contains("不存在")
+                {
+                    return format!(
+                        "目标数据库不存在：{}。请先初始化数据库，或改用已存在的数据库名。",
+                        if config.database.is_empty() {
+                            "<未填写>"
+                        } else {
+                            &config.database
+                        }
+                    );
+                }
+                format!(
+                    "连接失败：{}。请检查主机、端口、账号密码以及数据库服务状态。",
+                    err
+                )
+            }
         }
     }
 }

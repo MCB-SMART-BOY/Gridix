@@ -33,6 +33,11 @@ pub use components::{
     ToolbarActions,
     ToolbarFocusTransfer,
     Welcome,
+    WelcomeAction,
+    WelcomeOnboardingStatus,
+    WelcomeOnboardingStep,
+    WelcomeServiceState,
+    WelcomeStatusSummary,
     // 数据表格相关
     check_filter_match,
     // ER 关系图

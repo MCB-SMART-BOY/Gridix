@@ -37,13 +37,23 @@ impl DbManagerApp {
         let mut results = DialogResults::default();
 
         // 连接对话框
+        let old_novice_mode = self.connection_dialog_novice_mode;
         ui::ConnectionDialog::show(
             ctx,
             &mut self.show_connection_dialog,
+            &mut self.connection_dialog_novice_mode,
+            &mut self.connection_dialog_show_advanced,
             &mut self.new_config,
             &mut results.save_connection,
             self.editing_connection_name.is_some(),
         );
+        if old_novice_mode != self.connection_dialog_novice_mode {
+            self.app_config.connection_dialog_novice_mode = self.connection_dialog_novice_mode;
+            if let Err(e) = self.app_config.save() {
+                self.notifications
+                    .error(format!("保存连接对话框模式失败: {}", e));
+            }
+        }
 
         // 删除确认对话框
         let mut confirm_delete = false;
@@ -211,6 +221,7 @@ impl DbManagerApp {
                 self.focus_sql_editor = true;
                 self.notifications.info("SQL 已生成，按 Ctrl+Enter 执行");
             }
+            self.mark_onboarding_database_initialized();
         }
 
         // 处理创建用户
@@ -219,6 +230,7 @@ impl DbManagerApp {
             self.show_sql_editor = true;
             self.focus_sql_editor = true;
             self.notifications.info("SQL 已生成，按 Ctrl+Enter 执行");
+            self.mark_onboarding_user_created();
         }
 
         // 处理历史记录

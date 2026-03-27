@@ -93,7 +93,11 @@ impl DbManagerApp {
         }
     }
 
-    fn ensure_learning_connection(&mut self, reset: bool, notify: bool) -> Result<(), String> {
+    pub(super) fn ensure_learning_connection(
+        &mut self,
+        reset: bool,
+        notify: bool,
+    ) -> Result<(), String> {
         let path = learning_database_path()?;
 
         if reset {

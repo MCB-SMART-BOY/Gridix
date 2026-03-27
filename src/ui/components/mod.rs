@@ -24,7 +24,10 @@ pub use grid::{
 };
 
 // 欢迎页面
-pub use welcome::Welcome;
+pub use welcome::{
+    Welcome, WelcomeAction, WelcomeOnboardingStatus, WelcomeOnboardingStep, WelcomeServiceState,
+    WelcomeStatusSummary,
+};
 
 // 多 Tab 查询窗口
 pub use query_tabs::{QueryTab, QueryTabBar, QueryTabManager, TabBarActions, TabBarFocusTransfer};
