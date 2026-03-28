@@ -1,723 +1,132 @@
-# Gridix 全面优化计划
-
-## 目标
-
-将 Gridix 打造成**纯键盘驱动的 TUI 级别操作体验**，同时整合市面上主流数据库工具（DataGrip、DBeaver、TablePlus、Beekeeper Studio、LazySQL）的最佳功能。
-
----
-
-## 第一部分：键盘操作体验优化（TUI 级别）
-
-### 1.1 当前问题分析
-
-| 组件 | 当前状态 | 问题 |
-|------|---------|------|
-| **DataGrid** | ✅ 优秀 | 完整的 Helix 风格键位 |
-| **Sidebar** | ✅ 良好 | 支持 hjkl 和层级导航 |
-| **SQL Editor** | ⚠️ 一般 | 缺少查找替换快捷键 |
-| **Toolbar** | ❌ 差 | 主题选择器/下拉菜单缺少键盘导航 |
-| **Dialogs** | ❌ 差 | DDL/创建数据库/创建用户对话框缺少键盘导航 |
-| **ER Diagram** | ❌ 差 | 完全依赖鼠标 |
-| **ComboBox/Dropdown** | ❌ 差 | 无统一键盘支持 |
-
-### 1.2 优化方案
-
-#### 1.2.1 统一命令面板 (Command Palette) - 高优先级
-
-**参考**: DataGrip 的 Find Action (Ctrl+Shift+A), VSCode 的 Command Palette
-
-```
-快捷键: Ctrl+P 或 Ctrl+Shift+P
-
-功能:
-- 模糊搜索所有可用命令
-- 显示命令对应的快捷键
-- 支持最近使用命令
-- 分类过滤 (连接、查询、表、导出等)
-
-界面:
-┌─────────────────────────────────────────────┐
-│ > 输入命令...                               │
-├─────────────────────────────────────────────┤
-│ 🔗 新建连接                        Ctrl+N   │
-│ 📊 导出结果                        Ctrl+E   │
-│ 🔍 添加筛选                        Ctrl+F   │
-│ 📝 格式化 SQL                      Ctrl+;   │
-│ 🎨 切换主题...                     Ctrl+T   │
-│ ...                                         │
-└─────────────────────────────────────────────┘
-```
-
-**实现要点**:
-- 新建 `src/ui/components/command_palette.rs`
-- 注册所有命令到统一的命令注册中心
-- 支持 j/k 导航，Enter 执行，Esc 关闭
-- 模糊匹配算法（拼音首字母支持）
-
-#### 1.2.2 统一下拉选择器 (Helix Picker) - 高优先级
-
-**参考**: Helix 的 file picker, LazySQL 的选择器
-
-为所有下拉菜单提供统一的键盘交互:
-
-```rust
-// src/ui/components/helix_picker.rs
-
-pub struct HelixPicker<T> {
-    items: Vec<T>,
-    selected: usize,
-    filter: String,
-    is_open: bool,
-}
-
-impl<T> HelixPicker<T> {
-    // 键盘处理:
-    // - j/k 或 Ctrl+n/p: 上下选择
-    // - Enter: 确认选择
-    // - Esc: 取消
-    // - /: 开始过滤
-    // - 字母: 增量搜索
-}
-```
-
-**应用场景**:
-- 主题选择器
-- 数据库类型选择
-- SSL 模式选择
-- 列类型选择（DDL 对话框）
-- 筛选操作符选择
-
-#### 1.2.3 对话框键盘导航系统 - 高优先级
-
-**问题**: 当前大多数对话框只支持 Enter/Esc，缺少字段间导航。
-
-**方案**: 引入 Tab 组导航 + 快捷键
-
-```
-对话框导航规则:
-- Tab/Shift+Tab: 字段间循环
-- j/k (在选择器内): 上下选择
-- Enter: 确认当前选择或提交
-- Esc: 关闭对话框
-- Ctrl+1/2/3...: 快速跳转到第 N 个字段组
-
-连接对话框示例:
-┌─────────────────────────────────────────────┐
-│ 🔗 新建数据库连接                           │
-├─────────────────────────────────────────────┤
-│ [1] SQLite  [2] PostgreSQL  [3] MySQL       │ ← h/l 切换
-├─────────────────────────────────────────────┤
-│ 连接名称: [________________]                │ ← Tab 导航
-│ 主机地址: [________________]                │
-│ 端口:     [____]                            │
-│ 用户名:   [________________]                │
-│ 密码:     [________________]                │
-├─────────────────────────────────────────────┤
-│         [取消 Esc]    [保存 Enter]          │
-└─────────────────────────────────────────────┘
-```
-
-**需要更新的对话框**:
-- `connection_dialog.rs` - ✅ 已有基础，需增强
-- `ddl_dialog.rs` - 需要完善字段导航
-- `create_db_dialog.rs` - 需要添加键盘支持
-- `create_user_dialog.rs` - 需要添加键盘支持
-- `export_dialog.rs` - 需要添加键盘支持
-- `import_dialog/mod.rs` - 需要添加键盘支持
-- `keybindings_dialog.rs` - 需要添加键盘支持
-
-#### 1.2.4 ER 图键盘导航 - 中优先级
-
-**当前问题**: 完全依赖鼠标拖动
-
-**方案**:
-```
-ER 图键盘操作:
-- hjkl: 移动选中的表
-- Tab/Shift+Tab: 在表之间循环
-- Enter: 展开/折叠表详情
-- f: 聚焦到搜索框，过滤表
-- z: 缩放控制 (zi 放大, zo 缩小, z0 重置)
-- c: 居中视图
-- r: 重新布局
-- /: 搜索表名
-```
-
-**实现**:
-```rust
-// src/ui/components/er_diagram/keyboard.rs
-
-pub struct ERDiagramKeyboard;
-
-impl ERDiagramKeyboard {
-    pub fn handle(
-        state: &mut ERDiagramState,
-        ctx: &egui::Context,
-    ) -> ERDiagramActions {
-        // 实现键盘处理逻辑
-    }
-}
-```
-
-#### 1.2.5 工具栏键盘增强 - 中优先级
-
-**当前状态**: 有基础的焦点导航，但下拉菜单不支持键盘
-
-**方案**:
-```
-工具栏键盘操作:
-- h/l: 在工具栏项目间移动
-- j: 打开当前项的下拉菜单 / 向下进入主区域
-- k: 向上（如果有上层区域）
-- Enter/Space: 激活当前项
-- 数字键: 快速访问 (1=侧边栏, 2=编辑器, 3=刷新...)
-
-下拉菜单内:
-- j/k: 上下选择
-- Enter: 执行选中项
-- Esc/h: 关闭菜单
-- l: 进入子菜单（如有）
-```
-
-#### 1.2.6 SQL 编辑器增强 - 中优先级
-
-**缺失功能**:
-- 查找替换 (Ctrl+F / Ctrl+H)
-- 跳转到行 (Ctrl+G)
-- 多光标编辑
-- 代码折叠
-
-**方案**:
-```rust
-// 新增功能
-SQL 编辑器快捷键:
-- Ctrl+F: 查找（弹出查找栏）
-- Ctrl+H: 查找替换
-- Ctrl+G: 跳转到行
-- Ctrl+D: 选择下一个相同词（多光标）
-- Ctrl+L: 选择当前行
-- Alt+Up/Down: 移动当前行
-- Ctrl+Shift+K: 删除当前行
-- Ctrl+/: 注释/取消注释
-```
-
----
-
-## 第二部分：功能增强（参考市面工具）
-
-### 2.1 查询功能增强
-
-#### 2.1.1 查询执行计划 (EXPLAIN) - DataGrip/DBeaver
-
-```
-快捷键: Ctrl+Shift+E 或 F6
-
-功能:
-- 可视化显示执行计划
-- 树形结构展示各步骤
-- 高亮性能瓶颈
-- 支持 SQLite/PostgreSQL/MySQL 不同格式
-```
-
-#### 2.1.2 查询参数化 - DataGrip
-
-```
-支持在 SQL 中使用参数:
-SELECT * FROM users WHERE id = :id AND status = :status
-
-执行时弹出参数输入对话框:
-┌─────────────────────────────────┐
-│ 查询参数                        │
-├─────────────────────────────────┤
-│ :id     [________]              │
-│ :status [________]              │
-├─────────────────────────────────┤
-│      [取消]    [执行]           │
-└─────────────────────────────────┘
-```
-
-#### 2.1.3 查询片段/代码片段 - DBeaver/DataGrip
-
-```
-快捷键: Ctrl+J
-
-功能:
-- 预定义常用 SQL 片段
-- 用户自定义片段
-- 支持变量占位符
-
-内置片段:
-- sel*  → SELECT * FROM |
-- selc  → SELECT COUNT(*) FROM |
-- ins   → INSERT INTO | (col1, col2) VALUES (?, ?)
-- upd   → UPDATE | SET col = ? WHERE id = ?
-- del   → DELETE FROM | WHERE id = ?
-- crt   → CREATE TABLE | (id INTEGER PRIMARY KEY)
-```
-
-### 2.2 数据浏览增强
-
-#### 2.2.1 单元格数据预览 - TablePlus
-
-```
-大文本/JSON/二进制数据预览:
-- 选中单元格后按 Space 或 Enter 弹出预览
-- JSON 自动格式化和语法高亮
-- 图片数据直接预览
-- 二进制数据十六进制视图
-```
-
-#### 2.2.2 数据可视化 - DBeaver
-
-```
-快捷键: Ctrl+Shift+V
-
-功能:
-- 数值列 → 柱状图/折线图
-- 分类列 → 饼图
-- 时间序列 → 时间线图
-```
-
-#### 2.2.3 外键导航 - DataGrip
-
-```
-功能:
-- 在外键列上按 Ctrl+Click 或 gd 跳转到关联表
-- 显示外键关系图标
-- 支持反向导航（查看哪些表引用了当前表）
-```
-
-### 2.3 连接管理增强
-
-#### 2.3.1 连接分组 - DBeaver/Navicat
-
-```
-功能:
-- 按项目/环境分组连接
-- 拖放排序
-- 颜色标记（生产=红色, 开发=绿色, 测试=蓝色）
-- 快速复制连接配置
-```
-
-#### 2.3.2 连接状态监控 - DBeaver
-
-```
-功能:
-- 显示当前连接数
-- 查询执行时间统计
-- 连接断开自动重连
-- 空闲连接超时警告
-```
-
-### 2.4 模式/Schema 管理增强
-
-#### 2.4.1 模式比较 - DataGrip/DBeaver
-
-```
-快捷键: Ctrl+Shift+C
-
-功能:
-- 比较两个数据库/模式的结构差异
-- 生成同步 SQL 脚本
-- 可视化差异展示
-```
-
-#### 2.4.2 模式导出 - 通用功能
-
-```
-功能:
-- 导出完整 DDL (所有表、索引、触发器)
-- 导出 ER 图为图片 (PNG/SVG)
-- 导出文档 (Markdown/HTML)
-```
-
-### 2.5 AI 辅助 (可选/未来)
-
-#### 2.5.1 自然语言转 SQL - DataGrip AI
-
-```
-功能:
-- 输入自然语言描述，生成 SQL
-- 解释复杂 SQL 的含义
-- SQL 优化建议
-
-界面:
-┌─────────────────────────────────────────────┐
-│ 🤖 AI 助手                                  │
-├─────────────────────────────────────────────┤
-│ > 查询最近7天注册的用户数量按日期分组       │
-│                                             │
-│ 生成的 SQL:                                 │
-│ SELECT DATE(created_at) as date,            │
-│        COUNT(*) as count                    │
-│ FROM users                                  │
-│ WHERE created_at >= DATE('now', '-7 days')  │
-│ GROUP BY DATE(created_at)                   │
-│ ORDER BY date;                              │
-│                                             │
-│      [复制]  [执行]  [编辑]                 │
-└─────────────────────────────────────────────┘
-```
-
----
-
-## 第三部分：实施计划
-
-### 3.1 Phase 1: 核心键盘体验 (2-3 周)
-
-| 任务 | 优先级 | 工作量 | 文件 |
-|------|--------|--------|------|
-| 统一命令面板 | P0 | 3天 | `ui/components/command_palette.rs` |
-| Helix Picker 组件 | P0 | 2天 | `ui/components/helix_picker.rs` |
-| 对话框键盘导航 | P0 | 3天 | `ui/dialogs/*.rs` |
-| 工具栏键盘增强 | P1 | 2天 | `ui/components/toolbar/*.rs` |
-| SQL 编辑器查找替换 | P1 | 2天 | `ui/components/sql_editor.rs` |
-
-### 3.2 Phase 2: 功能增强 (3-4 周)
-
-| 任务 | 优先级 | 工作量 | 文件 |
-|------|--------|--------|------|
-| 查询执行计划 | P1 | 3天 | `core/explain.rs`, `ui/components/explain_view.rs` |
-| 代码片段系统 | P1 | 2天 | `core/snippets.rs` |
-| 单元格数据预览 | P1 | 2天 | `ui/components/cell_preview.rs` |
-| 外键导航 | P2 | 2天 | `ui/components/grid/actions.rs` |
-| ER 图键盘导航 | P2 | 2天 | `ui/components/er_diagram/keyboard.rs` |
-| 连接分组 | P2 | 2天 | `database/connection.rs`, `ui/panels/sidebar/*.rs` |
-
-### 3.3 Phase 3: 高级功能 (4-6 周)
-
-| 任务 | 优先级 | 工作量 | 文件 |
-|------|--------|--------|------|
-| 模式比较工具 | P2 | 5天 | `core/schema_diff.rs` |
-| 查询参数化 | P2 | 2天 | `core/query_params.rs` |
-| 数据可视化 | P3 | 5天 | `ui/components/chart.rs` |
-| 模式导出文档 | P3 | 3天 | `core/schema_export.rs` |
-| AI 辅助 (可选) | P4 | 7天 | `core/ai_assistant.rs` |
-
----
-
-## 第四部分：技术实现细节
-
-### 4.1 命令面板架构
-
-```rust
-// src/core/commands.rs
-
-use std::collections::HashMap;
-
-/// 命令定义
-pub struct Command {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub description: &'static str,
-    pub shortcut: Option<&'static str>,
-    pub category: CommandCategory,
-    pub action: CommandAction,
-}
-
-pub enum CommandCategory {
-    Connection,
-    Query,
-    Data,
-    View,
-    Tools,
-    Help,
-}
-
-pub enum CommandAction {
-    /// 简单操作
-    Simple(fn(&mut AppState)),
-    /// 需要参数的操作
-    WithInput(fn(&mut AppState, &str)),
-    /// 打开对话框
-    Dialog(DialogType),
-}
-
-/// 命令注册中心
-pub struct CommandRegistry {
-    commands: HashMap<&'static str, Command>,
-    recent: Vec<&'static str>,
-}
-
-impl CommandRegistry {
-    pub fn register(&mut self, command: Command) {
-        self.commands.insert(command.id, command);
-    }
-
-    pub fn search(&self, query: &str) -> Vec<&Command> {
-        // 模糊搜索实现
-    }
-
-    pub fn execute(&mut self, id: &str, state: &mut AppState) {
-        // 执行命令并记录到最近使用
-    }
-}
-```
-
-### 4.2 Helix Picker 组件
-
-```rust
-// src/ui/components/helix_picker.rs
-
-use egui::{self, Key, Response};
-
-pub struct HelixPicker<'a, T> {
-    id: egui::Id,
-    items: &'a [T],
-    selected: &'a mut usize,
-    filter: &'a mut String,
-    display_fn: fn(&T) -> String,
-    filter_fn: fn(&T, &str) -> bool,
-}
-
-pub struct PickerResponse {
-    pub confirmed: bool,
-    pub cancelled: bool,
-    pub changed: bool,
-}
-
-impl<'a, T> HelixPicker<'a, T> {
-    pub fn new(
-        id: impl std::hash::Hash,
-        items: &'a [T],
-        selected: &'a mut usize,
-        filter: &'a mut String,
-    ) -> Self {
-        Self {
-            id: egui::Id::new(id),
-            items,
-            selected,
-            filter,
-            display_fn: |_| String::new(),
-            filter_fn: |_, _| true,
-        }
-    }
-
-    pub fn display(mut self, f: fn(&T) -> String) -> Self {
-        self.display_fn = f;
-        self
-    }
-
-    pub fn filter(mut self, f: fn(&T, &str) -> bool) -> Self {
-        self.filter_fn = f;
-        self
-    }
-
-    pub fn show(self, ui: &mut egui::Ui) -> PickerResponse {
-        let filtered: Vec<_> = self.items
-            .iter()
-            .enumerate()
-            .filter(|(_, item)| (self.filter_fn)(item, self.filter))
-            .collect();
-
-        let mut response = PickerResponse {
-            confirmed: false,
-            cancelled: false,
-            changed: false,
-        };
-
-        // 键盘处理
-        ui.input(|i| {
-            // j/k 或 Ctrl+n/p 导航
-            if i.key_pressed(Key::J) || (i.modifiers.ctrl && i.key_pressed(Key::N)) {
-                *self.selected = (*self.selected + 1).min(filtered.len().saturating_sub(1));
-                response.changed = true;
-            }
-            if i.key_pressed(Key::K) || (i.modifiers.ctrl && i.key_pressed(Key::P)) {
-                *self.selected = self.selected.saturating_sub(1);
-                response.changed = true;
-            }
-
-            // Enter 确认
-            if i.key_pressed(Key::Enter) {
-                response.confirmed = true;
-            }
-
-            // Esc 取消
-            if i.key_pressed(Key::Escape) {
-                response.cancelled = true;
-            }
-        });
-
-        // 渲染列表
-        egui::ScrollArea::vertical()
-            .max_height(300.0)
-            .show(ui, |ui| {
-                for (idx, (orig_idx, item)) in filtered.iter().enumerate() {
-                    let is_selected = idx == *self.selected;
-                    let text = (self.display_fn)(item);
-                    
-                    let response = ui.selectable_label(is_selected, &text);
-                    if response.clicked() {
-                        *self.selected = idx;
-                        response.confirmed = true;
-                    }
-                }
-            });
-
-        response
-    }
-}
-```
-
-### 4.3 对话框键盘导航 trait
-
-```rust
-// src/ui/dialogs/keyboard.rs
-
-/// 对话框键盘导航 trait
-pub trait KeyboardNavigable {
-    /// 获取可聚焦字段数量
-    fn field_count(&self) -> usize;
-    
-    /// 获取当前聚焦字段
-    fn focused_field(&self) -> usize;
-    
-    /// 设置聚焦字段
-    fn set_focused_field(&mut self, index: usize);
-    
-    /// 处理键盘输入
-    fn handle_keyboard(&mut self, ctx: &egui::Context) -> DialogAction {
-        if has_text_focus(ctx) {
-            // 在文本框中，只处理 Tab 和 Escape
-            ctx.input(|i| {
-                if i.key_pressed(Key::Tab) {
-                    let next = if i.modifiers.shift {
-                        self.focused_field().checked_sub(1)
-                            .unwrap_or(self.field_count() - 1)
-                    } else {
-                        (self.focused_field() + 1) % self.field_count()
-                    };
-                    self.set_focused_field(next);
-                    return DialogAction::FocusChanged;
-                }
-                if i.key_pressed(Key::Escape) {
-                    return DialogAction::Cancel;
-                }
-                DialogAction::None
-            })
-        } else {
-            // 不在文本框中，处理更多快捷键
-            handle_dialog_keys(ctx)
-        }
-    }
-}
-```
-
----
-
-## 第五部分：快捷键完整参考
-
-### 5.1 全局快捷键
-
-| 快捷键 | 功能 | 状态 |
-|--------|------|------|
-| `Ctrl+P` | 命令面板 | 🆕 新增 |
-| `Ctrl+N` | 新建连接 | ✅ 已有 |
-| `Ctrl+Shift+N` | 新建表 | ✅ 已有 |
-| `Ctrl+E` | 导出 | ✅ 已有 |
-| `Ctrl+I` | 导入 | ✅ 已有 |
-| `Ctrl+H` | 历史记录 | ✅ 已有 |
-| `Ctrl+R` | ER 关系图 | ✅ 已有 |
-| `Ctrl+B` | 侧边栏 | ✅ 已有 |
-| `Ctrl+J` | SQL 编辑器 | ✅ 已有 |
-| `Ctrl+F` | 添加筛选 / 查找 | ⚠️ 需区分上下文 |
-| `Ctrl+G` | 跳转到行 | 🆕 新增 |
-| `Ctrl+D` | 日/夜模式 | ✅ 已有 |
-| `Ctrl+T` | 主题选择 | 🆕 新增 |
-| `Ctrl+Tab` | 下一个标签 | ✅ 已有 |
-| `Ctrl+W` | 关闭标签 | ✅ 已有 |
-| `Ctrl+1-6` | 侧边栏区域 | ✅ 已有 |
-| `F1` | 帮助 | ✅ 已有 |
-| `F5` | 刷新 | ✅ 已有 |
-| `Escape` | 取消/关闭 | ✅ 已有 |
-
-### 5.2 DataGrid 快捷键 (Helix 风格)
-
-| 快捷键 | 功能 | 状态 |
-|--------|------|------|
-| `hjkl` | 光标移动 | ✅ 已有 |
-| `w/b` | 列跳转 | ✅ 已有 |
-| `gg/G` | 首/尾行 | ✅ 已有 |
-| `gh/gl` | 行首/尾 | ✅ 已有 |
-| `i/a/c` | 编辑模式 | ✅ 已有 |
-| `v` | 选择模式 | ✅ 已有 |
-| `x` | 选择整行 | ✅ 已有 |
-| `d/dd` | 删除 | ✅ 已有 |
-| `y/yy` | 复制 | ✅ 已有 |
-| `p` | 粘贴 | ✅ 已有 |
-| `u/U` | 撤销 | ✅ 已有 |
-| `o/O` | 新增行 | ✅ 已有 |
-| `/` | 筛选面板 | ✅ 已有 |
-| `f` | 当前列筛选 | ✅ 已有 |
-| `:w` | 保存 | ✅ 已有 |
-| `Ctrl+S` | 保存 | ✅ 已有 |
-| `zz/zt/zb` | 滚动视图 | ✅ 已有 |
-| `gd` | 外键跳转 | 🆕 新增 |
-| `Space` | 预览单元格 | 🆕 新增 |
-
-### 5.3 SQL 编辑器快捷键
-
-| 快捷键 | 功能 | 状态 |
-|--------|------|------|
-| `Ctrl+Enter` | 执行 SQL | ✅ 已有 |
-| `Ctrl+;` | 格式化 | ✅ 已有 |
-| `Ctrl+Space` | 自动补全 | ✅ 已有 |
-| `Ctrl+/` | 注释 | ✅ 已有 |
-| `Ctrl+F` | 查找 | 🆕 新增 |
-| `Ctrl+H` | 替换 | 🆕 新增 |
-| `Ctrl+G` | 跳转到行 | 🆕 新增 |
-| `Ctrl+D` | 选择下一个相同词 | 🆕 新增 |
-| `Ctrl+L` | 选择当前行 | 🆕 新增 |
-| `Alt+Up/Down` | 移动行 | 🆕 新增 |
-| `Ctrl+Shift+K` | 删除行 | 🆕 新增 |
-| `Ctrl+J` | 代码片段 | 🆕 新增 |
-| `Ctrl+Shift+E` | 执行计划 | 🆕 新增 |
-
-### 5.4 对话框快捷键
-
-| 快捷键 | 功能 | 状态 |
-|--------|------|------|
-| `Tab` | 下一个字段 | ⚠️ 需完善 |
-| `Shift+Tab` | 上一个字段 | ⚠️ 需完善 |
-| `Enter` | 确认/提交 | ✅ 已有 |
-| `Escape` | 取消/关闭 | ✅ 已有 |
-| `1/2/3...` | 快速选择选项 | ⚠️ 部分有 |
-| `h/l` | 选项间切换 | ⚠️ 部分有 |
-| `j/k` | 列表导航 | ⚠️ 部分有 |
-| `Space` | 切换复选框 | ⚠️ 部分有 |
-
----
-
-## 第六部分：质量保证
-
-### 6.1 测试计划
-
-1. **单元测试**: 每个新组件的键盘处理逻辑
-2. **集成测试**: 焦点转移流程
-3. **E2E 测试**: 完整的键盘操作工作流
-
-### 6.2 文档更新
-
-1. 更新 `KEYBINDINGS.md` 快捷键参考
-2. 更新 README 功能列表
-3. 添加帮助对话框中的快捷键说明
-
-### 6.3 用户体验测试
-
-1. 邀请 Vim/Helix 用户进行测试
-2. 收集反馈并迭代改进
-3. 确保无障碍访问
-
----
-
-## 总结
-
-本优化计划的核心目标是:
-
-1. **纯键盘操作**: 所有功能都可以通过键盘完成，达到 TUI 级别体验
-2. **Helix 风格一致性**: 统一使用 Helix/Vim 风格快捷键
-3. **功能完整性**: 整合市面主流工具的最佳功能
-4. **渐进式实施**: 分阶段实施，确保稳定性
-
-预计总工期: 8-12 周（取决于可选功能的取舍）
+# Gridix Optimization Roadmap | 优化路线图
+
+> Baseline: `v3.2.x`  
+> 基线版本：`v3.2.x`  
+> Status labels: `已完成` / `进行中` / `待开始` / `暂缓`
+
+## 1. Goal | 目标
+- Keep keyboard-first productivity.
+  保持键盘优先的高效工作流。
+- Lower beginner onboarding cost.
+  持续降低新手上手门槛。
+- Improve release and package consistency.
+  提升发布与多平台分发一致性。
+
+## 2. Baseline Snapshot | 当前基线
+
+### 2.1 Done in v3.2 | v3.2 已完成
+- Welcome page onboarding loop and environment checks. `已完成`
+- Help split: tool quick-start + DB learning guide. `已完成`
+- SQL editor completion/focus stability (`Tab` chain fixed). `已完成`
+- GitHub Release + AUR/Homebrew/Nix update flow aligned. `已完成`
+- Core docs rewritten and indexed. `已完成`
+
+## 3. Priorities | 优先级
+
+### P0: Correctness & Stability | 正确性与稳定性
+
+#### P0-1 Editor focus/completion regression suite
+- Why: avoid regressions in `Tab` completion and cursor/focus behavior.
+  目的：防止 `Tab` 补全、光标与焦点行为回归。
+- Deliverables:
+  - Define critical scenarios (manual + CI checklist).
+  - Cover: completion accept, cursor relocation, tab switch draft sync, `F5` semantics.
+- Acceptance:
+  - >= 8 critical paths pass.
+  - Same-class regressions stay at zero for 3 releases.
+- Status: `待开始`
+
+#### P0-2 Unified query status/error surface
+- Why: execution state must be consistent across toolbar/status/notifications.
+  目的：执行状态在工具栏、状态栏、通知里保持一致。
+- Deliverables:
+  - Unified state copy: running/success/failure/canceled.
+  - Error format: DB raw message + user-friendly hint.
+- Acceptance:
+  - SQLite/PostgreSQL/MySQL errors each can be located by SQL and stage.
+- Status: `待开始`
+
+#### P0-3 Release verification automation
+- Why: prevent package version/hash drift after release.
+  目的：避免发布后各平台版本/哈希不一致。
+- Deliverables:
+  - Add post-release verification script for artifacts + templates.
+  - Release completion depends on script pass.
+- Acceptance:
+  - One command outputs clear diff report.
+- Status: `待开始`
+
+### P1: Beginner End-to-End Path | 新手闭环
+
+#### P1-1 Detection -> install/init -> connect -> first query
+- Deliverables:
+  - Welcome-page guidance for PostgreSQL/MySQL install and init.
+  - Connection dialog presets for beginner templates.
+  - Step guidance for create DB/create user/first query.
+- Acceptance:
+  - New users can run first query without leaving app docs/help flow.
+- Status: `进行中`
+
+#### P1-2 Learning topic to in-app action linkage
+- Deliverables:
+  - For each topic: concept -> manual steps -> one-click demo.
+  - Keep dependency and next-step hints explicit.
+- Acceptance:
+  - At least 6 core topics form one coherent path.
+- Status: `进行中`
+
+#### P1-3 Beginner/advanced information layering
+- Deliverables:
+  - Keep connection dialog simple by default.
+  - Show advanced options on demand with terminology hints.
+- Acceptance:
+  - First-screen required fields <= 8.
+- Status: `待开始`
+
+### P2: Power User Efficiency | 进阶效率
+
+#### P2-1 Command palette
+- `Ctrl+P`, fuzzy action search, >= 20 high-frequency commands.
+- 状态：`待开始`
+
+#### P2-2 SQL editor capabilities
+- Find/replace, line jump, comment toggle, snippets.
+- Must not break existing completion/focus flow.
+- 状态：`待开始`
+
+#### P2-3 ER keyboard navigation
+- Node focus/move/arrange via keyboard.
+- Complete basic ER browsing without mouse.
+- 状态：`待开始`
+
+## 4. Milestones | 里程碑
+
+| Milestone | Timebox | Scope |
+|---|---|---|
+| `M1` | 1-2 weeks | P0-1 + P0-2 first implementation |
+| `M2` | 2-4 weeks | P1-1 usable loop + P1-2 core topics |
+| `M3` | 4-6 weeks | P2-1 MVP + P2-2 MVP |
+
+## 5. Metrics | 验收指标
+- Focus/completion regression issues trend down.
+  焦点与补全回归问题持续下降。
+- Beginner first-connection and first-query success trend up.
+  新手首次连接和首次查询成功率持续上升。
+- Release artifact/package mismatch count stays zero.
+  发布产物与包管理器版本不一致问题保持为零。
+- Docs drift bugs stay zero.
+  文档与实际行为偏差问题保持为零。
+
+## 6. Non-goals (Current Stage) | 当前非目标
+- No large AI module expansion before P0/P1 closure.
+  在 P0/P1 完成前不扩展大型 AI 模块。
+- No heavy BI/reporting system as near-term priority.
+  近期不优先做重量级 BI/报表系统。
+
+## 7. Maintenance Rules | 维护规则
+- Update this roadmap before each minor release.
+  每次小版本发布前更新本路线图。
+- Add acceptance notes/risk notes after each completed item.
+  每完成一个任务都补充验收与风险备注。
+- Freeze docs before release publication.
+  发布前先冻结文档，避免发布后补文档。
