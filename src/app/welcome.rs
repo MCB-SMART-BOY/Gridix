@@ -41,9 +41,6 @@ impl DbManagerApp {
                 self.refresh_welcome_environment_status();
                 self.notifications.info("已重新检测本机数据库环境");
             }
-            ui::WelcomeAction::ContinueOnboarding(step) => {
-                self.handle_onboarding_step(step);
-            }
             ui::WelcomeAction::OpenLearningSample => {
                 self.welcome_setup_target = DatabaseType::SQLite;
                 match self.ensure_learning_connection(false, true) {
@@ -114,7 +111,7 @@ impl DbManagerApp {
         let _ = self.app_config.save();
     }
 
-    fn handle_onboarding_step(&mut self, step: ui::WelcomeOnboardingStep) {
+    pub(super) fn handle_onboarding_step(&mut self, step: ui::WelcomeOnboardingStep) {
         match step {
             ui::WelcomeOnboardingStep::EnvironmentCheck => {
                 self.refresh_welcome_environment_status();

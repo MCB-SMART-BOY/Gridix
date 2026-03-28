@@ -277,6 +277,17 @@ impl DbManagerApp {
         }
     }
 
+    /// 将当前编辑中的 SQL 草稿同步回活动 Tab
+    fn sync_sql_to_active_tab(&mut self) {
+        if let Some(tab) = self.tab_manager.get_active_mut()
+            && tab.sql != self.sql
+        {
+            tab.sql = self.sql.clone();
+            tab.modified = !self.sql.trim().is_empty();
+            tab.update_title();
+        }
+    }
+
     /// 根据导入状态和 Tab 执行状态刷新全局 executing 标记
     fn refresh_executing_flag(&mut self) {
         let query_executing = self.tab_manager.tabs.iter().any(|t| t.executing);
@@ -1183,11 +1194,7 @@ impl eframe::App for DbManagerApp {
                                         });
                                     }
                                 } else if self.manager.connections.is_empty() {
-                                    welcome_action = ui::Welcome::show(
-                                        ui,
-                                        self.welcome_status,
-                                        self.welcome_onboarding_status(),
-                                    );
+                                    welcome_action = ui::Welcome::show(ui, self.welcome_status);
                                 } else if self.manager.active.is_some() {
                                     // 有连接但没有结果
                                     ui.vertical_centered(|ui| {

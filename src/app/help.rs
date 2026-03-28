@@ -90,6 +90,24 @@ impl DbManagerApp {
                 self.load_er_diagram_data();
                 self.notifications.info("学习示例库的 ER 图已打开");
             }
+            ui::HelpAction::ContinueOnboarding(step) => {
+                let mapped = match step {
+                    ui::HelpOnboardingStep::EnvironmentCheck => {
+                        ui::WelcomeOnboardingStep::EnvironmentCheck
+                    }
+                    ui::HelpOnboardingStep::CreateConnection => {
+                        ui::WelcomeOnboardingStep::CreateConnection
+                    }
+                    ui::HelpOnboardingStep::InitializeDatabase => {
+                        ui::WelcomeOnboardingStep::InitializeDatabase
+                    }
+                    ui::HelpOnboardingStep::CreateUser => ui::WelcomeOnboardingStep::CreateUser,
+                    ui::HelpOnboardingStep::RunFirstQuery => {
+                        ui::WelcomeOnboardingStep::RunFirstQuery
+                    }
+                };
+                self.handle_onboarding_step(mapped);
+            }
         }
     }
 

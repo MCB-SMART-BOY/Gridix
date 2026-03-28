@@ -53,6 +53,21 @@ pub struct HelpContext {
     pub has_result: bool,
     pub show_sql_editor: bool,
     pub show_er_diagram: bool,
+    pub onboarding_environment_checked: bool,
+    pub onboarding_connection_created: bool,
+    pub onboarding_database_initialized: bool,
+    pub onboarding_user_created: bool,
+    pub onboarding_first_query_executed: bool,
+    pub onboarding_require_user_step: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HelpOnboardingStep {
+    EnvironmentCheck,
+    CreateConnection,
+    InitializeDatabase,
+    CreateUser,
+    RunFirstQuery,
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +89,7 @@ pub enum HelpAction {
         success_message: String,
     },
     ShowLearningErDiagram,
+    ContinueOnboarding(HelpOnboardingStep),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

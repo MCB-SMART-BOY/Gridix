@@ -475,8 +475,10 @@ pub struct SqlHighlighter {
 
 impl SqlHighlighter {
     pub fn new(colors: HighlightColors) -> Self {
-        // 检查 syntect 是否可用
-        let use_syntect = SYNTAX_SET.find_syntax_by_extension("sql").is_some();
+        // 为了与应用主题（尤其是 Tokyo Night 系）保持一致，默认使用自定义高亮配色。
+        // syntect 主题作为后续可选增强保留。
+        const ENABLE_SYNTECT_THEME: bool = false;
+        let use_syntect = ENABLE_SYNTECT_THEME && SYNTAX_SET.find_syntax_by_extension("sql").is_some();
 
         Self {
             colors,

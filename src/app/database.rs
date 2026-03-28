@@ -336,6 +336,7 @@ impl DbManagerApp {
         if let Some(tab) = self.tab_manager.get_active_mut() {
             previous_request_id = tab.pending_request_id.take();
             tab.sql = sql.clone();
+            tab.modified = false;
             tab.executing = true;
             tab.pending_request_id = Some(request_id);
             tab.update_title();

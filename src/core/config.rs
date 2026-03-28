@@ -68,7 +68,7 @@ fn default_light_theme() -> ThemePreset {
 }
 
 fn default_dark_theme() -> ThemePreset {
-    ThemePreset::TokyoNight
+    ThemePreset::TokyoNightStorm
 }
 
 fn default_dark_mode() -> bool {

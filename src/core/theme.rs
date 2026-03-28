@@ -36,8 +36,8 @@ pub struct ThemeColors {
 /// 预设主题枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ThemePreset {
-    #[default]
     TokyoNight,
+    #[default]
     TokyoNightStorm,
     TokyoNightLight,
     CatppuccinMocha,

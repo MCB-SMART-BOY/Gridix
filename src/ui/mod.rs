@@ -73,6 +73,7 @@ pub use dialogs::{
     HelpAction,
     HelpContext,
     HelpDialog,
+    HelpOnboardingStep,
     HelpState,
     HelpTab,
     ImportAction,

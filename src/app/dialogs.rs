@@ -141,12 +141,19 @@ impl DbManagerApp {
         );
 
         // 帮助面板
+        let onboarding = self.welcome_onboarding_status();
         let help_context = ui::HelpContext {
             active_connection_name: self.manager.active.clone(),
             selected_table: self.selected_table.clone(),
             has_result: self.result.is_some(),
             show_sql_editor: self.show_sql_editor,
             show_er_diagram: self.show_er_diagram,
+            onboarding_environment_checked: onboarding.environment_checked,
+            onboarding_connection_created: onboarding.connection_created,
+            onboarding_database_initialized: onboarding.database_initialized,
+            onboarding_user_created: onboarding.user_created,
+            onboarding_first_query_executed: onboarding.first_query_executed,
+            onboarding_require_user_step: onboarding.require_user_step,
         };
         results.help_action = ui::HelpDialog::show_with_scroll(
             ctx,
