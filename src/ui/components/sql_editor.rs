@@ -11,7 +11,8 @@
 use crate::core::{AutoComplete, CompletionKind, HighlightColors, highlight_sql};
 use crate::ui::styles::GRAY;
 use egui::{
-    self, Align, Color32, Key, Layout, PopupCloseBehavior, RichText, ScrollArea, TextEdit, Vec2,
+    self, Align, Color32, Key, Layout, Modifiers, PopupCloseBehavior, RichText, ScrollArea,
+    TextEdit, Vec2,
 };
 
 /// 行号区域宽度
@@ -20,8 +21,8 @@ const LINE_NUMBER_WIDTH: f32 = 45.0;
 /// 编辑器模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EditorMode {
-    #[default]
     Normal,
+    #[default]
     Insert,
 }
 
@@ -43,9 +44,34 @@ impl EditorMode {
 
 pub struct SqlEditor;
 
+#[derive(Debug, Default, Clone, Copy)]
+struct CompletionKeyInput {
+    up: bool,
+    down: bool,
+    confirm_tab: bool,
+    confirm_enter: bool,
+}
+
+impl CompletionKeyInput {
+    fn any(self) -> bool {
+        self.up || self.down || self.confirm_tab || self.confirm_enter
+    }
+}
+
+/// 将字符索引（egui 光标）转换为字符串字节索引
+fn char_to_byte_index(text: &str, char_index: usize) -> usize {
+    if char_index == 0 {
+        return 0;
+    }
+    text.char_indices()
+        .nth(char_index)
+        .map(|(idx, _)| idx)
+        .unwrap_or(text.len())
+}
+
 /// 应用自动补全（在光标位置插入）
 fn apply_completion_at_cursor(text: &mut String, cursor_pos: usize, insert_text: &str) -> usize {
-    let pos = cursor_pos.min(text.len());
+    let pos = char_to_byte_index(text, cursor_pos);
     let text_before = &text[..pos];
 
     // 找到当前单词的开始位置
@@ -63,21 +89,9 @@ fn apply_completion_at_cursor(text: &mut String, cursor_pos: usize, insert_text:
     let new_text = format!("{}{} {}", &text[..word_start], insert_text, text_after);
     *text = new_text;
 
-    // 返回新的光标位置
-    word_start + insert_text.len() + 1
-}
-
-/// 获取当前正在输入的单词
-fn get_current_word(text: &str) -> &str {
-    let mut word_start = text.len();
-    for (i, c) in text.char_indices().rev() {
-        if c.is_alphanumeric() || c == '_' {
-            word_start = i;
-        } else {
-            break;
-        }
-    }
-    &text[word_start..]
+    // 返回新的光标位置（字符索引）
+    let new_cursor_byte = (word_start + insert_text.len() + 1).min(text.len());
+    text[..new_cursor_byte].chars().count()
 }
 
 /// 计算文本的行数
@@ -91,7 +105,8 @@ fn count_lines(text: &str) -> usize {
 
 /// 计算光标所在的行和列
 fn get_cursor_position(text: &str, cursor_pos: usize) -> (usize, usize) {
-    let text_before_cursor = &text[..cursor_pos.min(text.len())];
+    let byte_pos = char_to_byte_index(text, cursor_pos);
+    let text_before_cursor = &text[..byte_pos];
     let line = text_before_cursor.matches('\n').count() + 1;
     let last_newline = text_before_cursor.rfind('\n').map(|i| i + 1).unwrap_or(0);
     let column = text_before_cursor[last_newline..].chars().count() + 1;
@@ -100,7 +115,7 @@ fn get_cursor_position(text: &str, cursor_pos: usize) -> (usize, usize) {
 
 /// 获取行的起始和结束位置
 fn get_line_bounds(text: &str, cursor_pos: usize) -> (usize, usize) {
-    let pos = cursor_pos.min(text.len());
+    let pos = char_to_byte_index(text, cursor_pos);
     let start = text[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
     let end = text[pos..]
         .find('\n')
@@ -112,7 +127,7 @@ fn get_line_bounds(text: &str, cursor_pos: usize) -> (usize, usize) {
 /// 移动到下一个单词（预留 Helix w 键）
 #[allow(dead_code)]
 fn next_word_pos(text: &str, cursor_pos: usize) -> usize {
-    let pos = cursor_pos.min(text.len());
+    let pos = cursor_pos.min(text.chars().count());
     let chars: Vec<char> = text.chars().collect();
     let mut i = pos;
 
@@ -130,7 +145,7 @@ fn next_word_pos(text: &str, cursor_pos: usize) -> usize {
 /// 移动到上一个单词（预留 Helix b 键）
 #[allow(dead_code)]
 fn prev_word_pos(text: &str, cursor_pos: usize) -> usize {
-    let pos = cursor_pos.min(text.len());
+    let pos = cursor_pos.min(text.chars().count());
     let chars: Vec<char> = text.chars().collect();
     let mut i = pos;
 
@@ -154,6 +169,7 @@ pub struct SqlEditorActions {
     pub format: bool,
     pub clear: bool,
     pub explain: bool,
+    pub text_changed: bool,
     pub focus_to_grid: bool,
     pub request_focus: bool,
     /// Escape 键已被编辑器消费（用于退出 Insert 模式）
@@ -161,6 +177,16 @@ pub struct SqlEditorActions {
 }
 
 impl SqlEditor {
+    fn set_editor_cursor(
+        ui: &egui::Ui,
+        output: &mut egui::text_edit::TextEditOutput,
+        cursor_char_index: usize,
+    ) {
+        let range = egui::text::CCursorRange::one(egui::text::CCursor::new(cursor_char_index));
+        output.state.cursor.set_char_range(Some(range));
+        output.state.clone().store(ui.ctx(), output.response.id);
+    }
+
     /// 显示 SQL 编辑器
     pub fn show(
         ui: &mut egui::Ui,
@@ -202,6 +228,7 @@ impl SqlEditor {
         // ========== 编辑器主体 ==========
         let line_count = count_lines(sql_input);
         let line_height = 16.0;
+        let mut status_cursor_pos = sql_input.chars().count();
 
         // 共享滚动状态 ID
         let scroll_id = ui.id().with("editor_scroll");
@@ -246,7 +273,7 @@ impl SqlEditor {
                 });
 
             // ===== 编辑器区域 =====
-            let editor_width = available_width - LINE_NUMBER_WIDTH - 8.0;
+            let editor_width = (available_width - LINE_NUMBER_WIDTH - 8.0).max(120.0);
 
             egui::Frame::NONE
                 .fill(ui.style().visuals.extreme_bg_color)
@@ -268,10 +295,30 @@ impl SqlEditor {
                         .show(ui, |ui| {
                             // Insert 模式：可编辑；Normal 模式：只读显示
                             let is_insert_mode = *editor_mode == EditorMode::Insert;
+                            let mut completion_key_input = CompletionKeyInput::default();
+                            if is_insert_mode && is_focused {
+                                ui.input_mut(|i| {
+                                    // Tab 在 Insert 模式下始终由编辑器优先消费，防止焦点循环抢走
+                                    completion_key_input.confirm_tab =
+                                        i.consume_key(Modifiers::NONE, Key::Tab);
+                                    // 仅在补全弹窗打开时，消费上下和回车用于补全导航/确认
+                                    if *show_autocomplete {
+                                        completion_key_input.down =
+                                            i.consume_key(Modifiers::NONE, Key::ArrowDown);
+                                        completion_key_input.up =
+                                            i.consume_key(Modifiers::NONE, Key::ArrowUp);
+                                        completion_key_input.confirm_enter =
+                                            i.consume_key(Modifiers::NONE, Key::Enter);
+                                    }
+                                });
+                            }
 
-                            let output = TextEdit::multiline(sql_input)
+                            let text_edit_id = ui.id().with("sql_text_edit");
+
+                            let mut output = TextEdit::multiline(sql_input)
+                                .id(text_edit_id)
                                 .font(egui::TextStyle::Monospace)
-                                .desired_width(editor_width - 16.0)
+                                .desired_width((editor_width - 16.0).max(80.0))
                                 .desired_rows(((editor_height / line_height) as usize).max(4))
                                 .hint_text(if is_insert_mode {
                                     "输入 SQL... (Esc 退出编辑, Ctrl+Enter 执行)"
@@ -281,13 +328,19 @@ impl SqlEditor {
                                 .frame(false)
                                 .margin(Vec2::new(8.0, 0.0))
                                 .interactive(is_insert_mode)
+                                .lock_focus(is_insert_mode)
                                 .layouter(&mut layouter)
                                 .show(ui);
 
-                            let response = &output.response;
+                            let response = output.response.clone();
 
                             // 双击进入 Insert 模式
                             if response.double_clicked() {
+                                *editor_mode = EditorMode::Insert;
+                                response.request_focus();
+                            }
+                            // 单击也进入 Insert 模式，降低新手上手门槛
+                            if response.clicked() && *editor_mode == EditorMode::Normal {
                                 *editor_mode = EditorMode::Insert;
                                 response.request_focus();
                             }
@@ -306,7 +359,7 @@ impl SqlEditor {
                                         let cursor_pos = output
                                             .cursor_range
                                             .map(|r| r.primary.index)
-                                            .unwrap_or(sql_input.len());
+                                            .unwrap_or(sql_input.chars().count());
                                         let (_, line_end) = get_line_bounds(sql_input, cursor_pos);
                                         sql_input.insert(line_end, '\n');
                                     }
@@ -326,7 +379,8 @@ impl SqlEditor {
                             let cursor_pos = output
                                 .cursor_range
                                 .map(|range| range.primary.index)
-                                .unwrap_or(sql_input.len());
+                                .unwrap_or(sql_input.chars().count());
+                            status_cursor_pos = cursor_pos;
 
                             // Insert 模式下：在检查焦点之前先处理 Escape 键
                             // 因为 egui 会在 Escape 时自动让 TextEdit 失焦
@@ -344,8 +398,9 @@ impl SqlEditor {
                                 }
                             }
 
-                            // Insert 模式下的其他快捷键处理
-                            if response.has_focus() && is_focused && is_insert_mode {
+                            // Insert 模式下的快捷键处理（焦点由应用区块管理，避免 Tab 被全局循环抢走）
+                            if is_focused && is_insert_mode {
+                                let mut completion_cursor_target = None;
                                 Self::handle_insert_mode(
                                     ui,
                                     sql_input,
@@ -357,37 +412,52 @@ impl SqlEditor {
                                     selected_completion,
                                     cursor_pos,
                                     editor_mode,
+                                    completion_key_input,
+                                    &mut completion_cursor_target,
                                 );
+
+                                if let Some(new_cursor) = completion_cursor_target {
+                                    Self::set_editor_cursor(ui, &mut output, new_cursor);
+                                    response.request_focus();
+                                    *request_focus = true;
+                                    actions.request_focus = true;
+                                    status_cursor_pos = new_cursor;
+                                }
+
+                                if *show_autocomplete || completion_key_input.any() {
+                                    response.request_focus();
+                                }
 
                                 // 输入改变时自动触发补全
                                 if response.changed() {
-                                    let text_before_cursor =
-                                        &sql_input[..cursor_pos.min(sql_input.len())];
-                                    let current_word = get_current_word(text_before_cursor);
-                                    if !current_word.is_empty() {
-                                        let completions =
-                                            autocomplete.get_completions(sql_input, cursor_pos);
-                                        if !completions.is_empty() {
-                                            *show_autocomplete = true;
-                                            *selected_completion = 0;
-                                        } else {
-                                            *show_autocomplete = false;
-                                        }
+                                    actions.text_changed = true;
+                                    let completions =
+                                        autocomplete.get_completions(sql_input, cursor_pos);
+                                    if !completions.is_empty() {
+                                        *show_autocomplete = true;
+                                        *selected_completion = 0;
                                     } else {
                                         *show_autocomplete = false;
                                     }
                                 }
 
-                                Self::show_autocomplete_popup(
+                                if let Some(new_cursor) = Self::show_autocomplete_popup(
                                     ui,
-                                    response,
+                                    &response,
                                     sql_input,
                                     autocomplete,
                                     show_autocomplete,
                                     selected_completion,
                                     highlight_colors,
                                     cursor_pos,
-                                );
+                                ) {
+                                    actions.text_changed = true;
+                                    Self::set_editor_cursor(ui, &mut output, new_cursor);
+                                    response.request_focus();
+                                    *request_focus = true;
+                                    actions.request_focus = true;
+                                    status_cursor_pos = new_cursor;
+                                }
                             } else if is_focused && *editor_mode == EditorMode::Normal {
                                 // Normal 模式下的 Helix 风格导航
                                 Self::handle_normal_mode(
@@ -422,6 +492,7 @@ impl SqlEditor {
             highlight_colors,
             command_history.len(),
             *editor_mode,
+            status_cursor_pos,
         );
 
         actions
@@ -506,8 +577,9 @@ impl SqlEditor {
         highlight_colors: &HighlightColors,
         history_count: usize,
         mode: EditorMode,
+        cursor_pos: usize,
     ) {
-        let (line, column) = get_cursor_position(sql_input, sql_input.len());
+        let (line, column) = get_cursor_position(sql_input, cursor_pos);
         let char_count = sql_input.chars().count();
         let line_count = count_lines(sql_input);
 
@@ -606,7 +678,7 @@ impl SqlEditor {
     ) {
         // 检查光标是否在第一行
         let is_at_first_line = {
-            let text_before_cursor = &sql_input[..cursor_pos.min(sql_input.len())];
+            let text_before_cursor = &sql_input[..char_to_byte_index(sql_input, cursor_pos)];
             !text_before_cursor.contains('\n')
         };
 
@@ -655,6 +727,7 @@ impl SqlEditor {
                 if let Some(idx) = new_idx {
                     *history_index = Some(idx);
                     *sql_input = command_history[idx].clone();
+                    actions.text_changed = true;
                 }
             }
 
@@ -663,10 +736,12 @@ impl SqlEditor {
                     Some(0) => {
                         *history_index = None;
                         sql_input.clear();
+                        actions.text_changed = true;
                     }
                     Some(idx) => {
                         *history_index = Some(idx - 1);
                         *sql_input = command_history[idx - 1].clone();
+                        actions.text_changed = true;
                     }
                     None => {}
                 }
@@ -691,11 +766,13 @@ impl SqlEditor {
         selected_completion: &mut usize,
         cursor_pos: usize,
         editor_mode: &mut EditorMode,
+        completion_key_input: CompletionKeyInput,
+        completion_cursor_target: &mut Option<usize>,
     ) {
         let completions = autocomplete.get_completions(sql_input, cursor_pos);
         let has_completions = !completions.is_empty();
 
-        ui.input(|i| {
+        ui.input_mut(|i| {
             // 注意：Escape 键在外层已经处理，这里不再处理
 
             // Ctrl+Enter 执行
@@ -725,25 +802,41 @@ impl SqlEditor {
                 }
             }
 
+            // Tab: 无补全弹窗时优先打开补全，避免触发焦点转移
+            if completion_key_input.confirm_tab && !*show_autocomplete && has_completions {
+                *show_autocomplete = true;
+                *selected_completion = 0;
+            }
+
             // 补全菜单导航
             if *show_autocomplete && has_completions {
-                if i.key_pressed(Key::ArrowDown) {
+                let down_pressed =
+                    completion_key_input.down || i.consume_key(Modifiers::NONE, Key::ArrowDown);
+                if down_pressed {
                     *selected_completion = (*selected_completion + 1) % completions.len();
                 }
-                if i.key_pressed(Key::ArrowUp) {
+                let up_pressed =
+                    completion_key_input.up || i.consume_key(Modifiers::NONE, Key::ArrowUp);
+                if up_pressed {
                     if *selected_completion == 0 {
                         *selected_completion = completions.len().saturating_sub(1);
                     } else {
                         *selected_completion -= 1;
                     }
                 }
-                if i.key_pressed(Key::Tab) || i.key_pressed(Key::Enter) {
+                let tab_confirm = completion_key_input.confirm_tab
+                    || i.consume_key(Modifiers::NONE, Key::Tab);
+                let enter_confirm = completion_key_input.confirm_enter
+                    || i.consume_key(Modifiers::NONE, Key::Enter);
+                if tab_confirm || enter_confirm {
                     if *selected_completion < completions.len() {
-                        apply_completion_at_cursor(
+                        let new_cursor = apply_completion_at_cursor(
                             sql_input,
                             cursor_pos,
                             &completions[*selected_completion].insert_text,
                         );
+                        *completion_cursor_target = Some(new_cursor);
+                        actions.text_changed = true;
                         *show_autocomplete = false;
                     }
                 }
@@ -760,6 +853,7 @@ impl SqlEditor {
                     if let Some(idx) = new_idx {
                         *history_index = Some(idx);
                         *sql_input = command_history[idx].clone();
+                        actions.text_changed = true;
                     }
                 }
                 if i.key_pressed(Key::ArrowDown) {
@@ -767,10 +861,12 @@ impl SqlEditor {
                         Some(0) => {
                             *history_index = None;
                             sql_input.clear();
+                            actions.text_changed = true;
                         }
                         Some(idx) => {
                             *history_index = Some(idx - 1);
                             *sql_input = command_history[idx - 1].clone();
+                            actions.text_changed = true;
                         }
                         None => {}
                     }
@@ -789,7 +885,8 @@ impl SqlEditor {
         selected_completion: &mut usize,
         highlight_colors: &HighlightColors,
         cursor_pos: usize,
-    ) {
+    ) -> Option<usize> {
+        let mut new_cursor = None;
         let completions = autocomplete.get_completions(sql_input, cursor_pos);
 
         if *show_autocomplete && !completions.is_empty() {
@@ -853,12 +950,13 @@ impl SqlEditor {
                                 .interact(egui::Sense::click());
 
                             if frame_response.clicked() {
-                                apply_completion_at_cursor(
+                                let cursor_after = apply_completion_at_cursor(
                                     sql_input,
                                     cursor_pos,
                                     &item.insert_text,
                                 );
                                 *show_autocomplete = false;
+                                new_cursor = Some(cursor_after);
                             }
 
                             if is_selected {
@@ -868,5 +966,6 @@ impl SqlEditor {
                     });
                 });
         }
+        new_cursor
     }
 }

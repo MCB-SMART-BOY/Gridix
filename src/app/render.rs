@@ -105,7 +105,6 @@ impl DbManagerApp {
         if actions.execute && !self.sql.is_empty() {
             let sql = self.sql.clone();
             let _ = self.execute(sql);
-            self.sql.clear();
         }
 
         // EXPLAIN 分析
@@ -135,6 +134,11 @@ impl DbManagerApp {
         // 清空
         if actions.clear {
             self.sql.clear();
+            if let Some(tab) = self.tab_manager.get_active_mut() {
+                tab.sql.clear();
+                tab.modified = false;
+                tab.update_title();
+            }
             self.notifications.dismiss_all();
             self.last_query_time_ms = None;
         }
@@ -150,6 +154,10 @@ impl DbManagerApp {
             self.focus_area = ui::FocusArea::SqlEditor;
             self.grid_state.focused = false;
             self.focus_sql_editor = true;
+        }
+
+        if actions.text_changed {
+            self.sync_sql_to_active_tab();
         }
     }
 
@@ -647,6 +655,9 @@ impl DbManagerApp {
 
     /// 处理 Tab 栏操作
     pub(super) fn handle_tab_actions(&mut self, tab_actions: TabBarActions) {
+        // 在切换/关闭标签前先保存当前草稿，避免 SQL 被覆盖
+        self.sync_sql_to_active_tab();
+
         if tab_actions.new_tab {
             self.tab_manager.new_tab();
             self.sync_from_active_tab();

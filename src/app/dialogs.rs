@@ -37,13 +37,22 @@ impl DbManagerApp {
         let mut results = DialogResults::default();
 
         // 连接对话框
+        let old_show_advanced = self.connection_dialog_show_advanced;
         ui::ConnectionDialog::show(
             ctx,
             &mut self.show_connection_dialog,
+            &mut self.connection_dialog_show_advanced,
             &mut self.new_config,
             &mut results.save_connection,
             self.editing_connection_name.is_some(),
         );
+        if old_show_advanced != self.connection_dialog_show_advanced {
+            self.app_config.connection_dialog_show_advanced = self.connection_dialog_show_advanced;
+            if let Err(e) = self.app_config.save() {
+                self.notifications
+                    .error(format!("保存连接对话框模式失败: {}", e));
+            }
+        }
 
         // 删除确认对话框
         let mut confirm_delete = false;
@@ -132,12 +141,19 @@ impl DbManagerApp {
         );
 
         // 帮助面板
+        let onboarding = self.welcome_onboarding_status();
         let help_context = ui::HelpContext {
             active_connection_name: self.manager.active.clone(),
             selected_table: self.selected_table.clone(),
             has_result: self.result.is_some(),
             show_sql_editor: self.show_sql_editor,
             show_er_diagram: self.show_er_diagram,
+            onboarding_environment_checked: onboarding.environment_checked,
+            onboarding_connection_created: onboarding.connection_created,
+            onboarding_database_initialized: onboarding.database_initialized,
+            onboarding_user_created: onboarding.user_created,
+            onboarding_first_query_executed: onboarding.first_query_executed,
+            onboarding_require_user_step: onboarding.require_user_step,
         };
         results.help_action = ui::HelpDialog::show_with_scroll(
             ctx,
@@ -211,6 +227,7 @@ impl DbManagerApp {
                 self.focus_sql_editor = true;
                 self.notifications.info("SQL 已生成，按 Ctrl+Enter 执行");
             }
+            self.mark_onboarding_database_initialized();
         }
 
         // 处理创建用户
@@ -219,6 +236,7 @@ impl DbManagerApp {
             self.show_sql_editor = true;
             self.focus_sql_editor = true;
             self.notifications.info("SQL 已生成，按 Ctrl+Enter 执行");
+            self.mark_onboarding_user_created();
         }
 
         // 处理历史记录

@@ -13,6 +13,9 @@ impl DbManagerApp {
     pub(super) fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
         // 检查是否有模态对话框打开
         let has_dialog = self.has_modal_dialog_open();
+        let editor_has_priority = self.show_sql_editor
+            && (self.focus_area == ui::FocusArea::SqlEditor || self.focus_sql_editor);
+        let keyboard_captured = ctx.wants_keyboard_input();
         let keybindings = self.keybindings.clone();
 
         ctx.input(|i| {
@@ -103,6 +106,7 @@ impl DbManagerApp {
 
             // F5: 刷新表列表
             if action_triggered(Action::Refresh)
+                && !editor_has_priority
                 && let Some(name) = self.manager.active.clone()
             {
                 self.connect(name);
@@ -175,18 +179,21 @@ impl DbManagerApp {
 
             // 用户可选：新建查询标签页（默认未绑定）
             if action_triggered(Action::NewTab) {
+                self.sync_sql_to_active_tab();
                 self.tab_manager.new_tab();
                 self.sync_from_active_tab();
             }
 
             // Ctrl+Tab: 下一个查询标签页
             if action_triggered(Action::NextTab) {
+                self.sync_sql_to_active_tab();
                 self.tab_manager.next_tab();
                 self.sync_from_active_tab();
             }
 
             // Ctrl+Shift+Tab: 上一个查询标签页
             if action_triggered(Action::PrevTab) {
+                self.sync_sql_to_active_tab();
                 self.tab_manager.prev_tab();
                 self.sync_from_active_tab();
             }
@@ -211,7 +218,14 @@ impl DbManagerApp {
             }
 
             // Tab: 焦点循环导航（侧边栏 -> 数据表格 -> SQL编辑器 -> 侧边栏）
-            if !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::Tab) {
+            if !i.modifiers.ctrl
+                && !i.modifiers.alt
+                && !(self.show_sql_editor && self.editor_mode == ui::EditorMode::Insert)
+                && !editor_has_priority
+                && !keyboard_captured
+                && !self.show_autocomplete
+                && i.key_pressed(egui::Key::Tab)
+            {
                 self.cycle_focus(i.modifiers.shift);
             }
 

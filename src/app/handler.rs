@@ -264,6 +264,7 @@ impl DbManagerApp {
 
         match result {
             Ok(mut res) => {
+                self.mark_onboarding_first_query_executed();
                 // 查询层已执行结果集限流；这里保留兼容兜底（避免旧路径漏限流）
                 let mut original_rows = res.original_row_count.unwrap_or(res.rows.len());
                 let mut was_truncated = res.truncated;

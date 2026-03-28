@@ -7,6 +7,25 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OnboardingProgress {
+    /// 已完成环境检测
+    #[serde(default)]
+    pub environment_checked: bool,
+    /// 已创建至少一个连接
+    #[serde(default)]
+    pub connection_created: bool,
+    /// 已完成数据库初始化（创建数据库）
+    #[serde(default)]
+    pub database_initialized: bool,
+    /// 已完成创建用户（仅 MySQL/PostgreSQL）
+    #[serde(default)]
+    pub user_created: bool,
+    /// 已执行首条查询
+    #[serde(default)]
+    pub first_query_executed: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppConfig {
     pub connections: Vec<ConnectionConfig>,
@@ -32,6 +51,12 @@ pub struct AppConfig {
     /// 自定义快捷键绑定
     #[serde(default)]
     pub keybindings: KeyBindings,
+    /// 首次启动引导进度
+    #[serde(default)]
+    pub onboarding: OnboardingProgress,
+    /// 连接对话框是否展开高级配置
+    #[serde(default = "default_connection_dialog_show_advanced")]
+    pub connection_dialog_show_advanced: bool,
 }
 
 fn default_ui_scale() -> f32 {
@@ -43,11 +68,15 @@ fn default_light_theme() -> ThemePreset {
 }
 
 fn default_dark_theme() -> ThemePreset {
-    ThemePreset::TokyoNight
+    ThemePreset::TokyoNightStorm
 }
 
 fn default_dark_mode() -> bool {
     true
+}
+
+fn default_connection_dialog_show_advanced() -> bool {
+    false
 }
 
 impl Default for AppConfig {
@@ -62,6 +91,8 @@ impl Default for AppConfig {
             command_history: HashMap::new(),
             ui_scale: default_ui_scale(),
             keybindings: KeyBindings::default(),
+            onboarding: OnboardingProgress::default(),
+            connection_dialog_show_advanced: default_connection_dialog_show_advanced(),
         }
     }
 }

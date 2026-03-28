@@ -94,6 +94,7 @@ impl ConnectionDialog {
     pub fn show(
         ctx: &egui::Context,
         open: &mut bool,
+        show_advanced: &mut bool,
         config: &mut ConnectionConfig,
         on_save: &mut bool,
         is_edit_mode: bool,
@@ -202,29 +203,48 @@ impl ConnectionDialog {
                 // 连接表单
                 Self::show_connection_form(ui, config);
 
+                ui.add_space(SPACING_MD);
+
+                // 实时检查清单
+                Self::show_realtime_checklist(ui, config);
+
                 ui.add_space(SPACING_LG);
 
-                // SSL/TLS 配置
-                match config.db_type {
-                    DatabaseType::MySQL => {
-                        Self::show_mysql_ssl_config(ui, config);
+                Self::show_advanced_toggle(ui, show_advanced);
+                ui.add_space(SPACING_MD);
+
+                if *show_advanced {
+                    // SSL/TLS 配置
+                    match config.db_type {
+                        DatabaseType::MySQL => {
+                            Self::show_mysql_ssl_config(ui, config);
+                            ui.add_space(SPACING_LG);
+                        }
+                        DatabaseType::PostgreSQL => {
+                            Self::show_postgres_ssl_config(ui, config);
+                            ui.add_space(SPACING_LG);
+                        }
+                        DatabaseType::SQLite => {}
+                    }
+
+                    // SSH 隧道配置（仅对非 SQLite 显示）
+                    if !matches!(config.db_type, DatabaseType::SQLite) {
+                        Self::show_ssh_tunnel_config(ui, config);
                         ui.add_space(SPACING_LG);
                     }
-                    DatabaseType::PostgreSQL => {
-                        Self::show_postgres_ssl_config(ui, config);
-                        ui.add_space(SPACING_LG);
-                    }
-                    DatabaseType::SQLite => {}
-                }
 
-                // SSH 隧道配置（仅对非 SQLite 显示）
-                if !matches!(config.db_type, DatabaseType::SQLite) {
-                    Self::show_ssh_tunnel_config(ui, config);
-                    ui.add_space(SPACING_LG);
+                    // 连接字符串预览
+                    Self::show_connection_preview(ui, config);
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.add_space(SPACING_MD);
+                        ui.label(
+                            RichText::new("已隐藏 SSL/SSH/连接字符串等高级配置")
+                                .small()
+                                .color(MUTED),
+                        );
+                    });
                 }
-
-                // 连接字符串预览
-                Self::show_connection_preview(ui, config);
 
                 ui.add_space(SPACING_LG);
                 ui.separator();
@@ -240,6 +260,28 @@ impl ConnectionDialog {
             is_open = false;
         }
         *open = is_open;
+    }
+
+    fn show_advanced_toggle(ui: &mut egui::Ui, show_advanced: &mut bool) {
+        egui::Frame::NONE
+            .fill(Color32::from_rgba_unmultiplied(120, 120, 130, 10))
+            .corner_radius(CornerRadius::same(6))
+            .inner_margin(egui::Margin::symmetric(10, 8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(if *show_advanced {
+                            "收起高级配置"
+                        } else {
+                            "显示高级配置（SSL/SSH/连接串）"
+                        })
+                        .clicked()
+                    {
+                        *show_advanced = !*show_advanced;
+                    }
+                    ui.label(RichText::new("默认只保留核心连接字段").small().color(MUTED));
+                });
+            });
     }
 
     /// 数据库类型选择器
@@ -421,7 +463,65 @@ impl ConnectionDialog {
                 DatabaseType::MySQL => "默认端口 3306，连接后可选择数据库",
             };
             ui.label(RichText::new(tip).small().color(MUTED));
+            ui.add_space(SPACING_SM);
+            ui.label(
+                RichText::new("需要 SSL/SSH 时，点击“显示高级配置”即可。")
+                    .small()
+                    .color(MUTED),
+            );
         });
+    }
+
+    fn show_realtime_checklist(ui: &mut egui::Ui, config: &ConnectionConfig) {
+        let mut items: Vec<(&str, bool)> = Vec::new();
+        items.push(("连接名称已填写", !config.name.trim().is_empty()));
+
+        match config.db_type {
+            DatabaseType::SQLite => {
+                items.push(("SQLite 文件路径已填写", !config.database.trim().is_empty()));
+            }
+            DatabaseType::PostgreSQL | DatabaseType::MySQL => {
+                items.push(("主机地址已填写", !config.host.trim().is_empty()));
+                items.push(("端口有效（1-65535）", config.port != 0));
+                items.push(("用户名已填写", !config.username.trim().is_empty()));
+            }
+        }
+
+        egui::Frame::NONE
+            .fill(Color32::from_rgba_unmultiplied(90, 130, 210, 12))
+            .stroke(egui::Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(110, 150, 230, 32),
+            ))
+            .corner_radius(CornerRadius::same(6))
+            .inner_margin(egui::Margin::symmetric(12, 8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("实时检查")
+                            .small()
+                            .strong()
+                            .color(Color32::from_rgb(125, 182, 246)),
+                    );
+                    let passed = items.iter().filter(|(_, ok)| *ok).count();
+                    ui.label(
+                        RichText::new(format!("{}/{} 通过", passed, items.len()))
+                            .small()
+                            .color(MUTED),
+                    );
+                });
+                ui.add_space(4.0);
+
+                for (label, ok) in items {
+                    let color = if ok { SUCCESS } else { DANGER };
+                    let icon = if ok { "✓" } else { "•" };
+                    ui.label(
+                        RichText::new(format!("{} {}", icon, label))
+                            .small()
+                            .color(color),
+                    );
+                }
+            });
     }
 
     /// MySQL SSL 配置

@@ -15,7 +15,9 @@ mod tool_guide;
 #[path = "help_dialog/types.rs"]
 mod types;
 
-pub use self::types::{HelpAction, HelpContext, HelpState, HelpTab, LearningTopic};
+pub use self::types::{
+    HelpAction, HelpContext, HelpOnboardingStep, HelpState, HelpTab, LearningTopic,
+};
 
 use self::types::LearningStage;
 

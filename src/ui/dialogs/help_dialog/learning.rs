@@ -1,6 +1,6 @@
 use super::types::{
-    HelpAction, HelpContext, HelpState, LearningStage, LearningTopic, LearningTopicDefinition,
-    LearningTopicStatus, LearningView, TOPIC_DEFINITIONS,
+    HelpAction, HelpContext, HelpOnboardingStep, HelpState, LearningStage, LearningTopic,
+    LearningTopicDefinition, LearningTopicStatus, LearningView, TOPIC_DEFINITIONS,
 };
 use super::*;
 use egui::Stroke;
@@ -45,6 +45,9 @@ impl HelpDialog {
             .color(text),
         );
         ui.add_space(16.0);
+
+        Self::show_onboarding_flow_card(ui, context, action);
+        ui.add_space(14.0);
 
         Self::learning_status_card(ui, context);
         ui.add_space(16.0);
@@ -900,6 +903,128 @@ impl HelpDialog {
                     Self::step_chip(ui, "4. 自动演示");
                 });
             });
+    }
+
+    fn show_onboarding_flow_card(
+        ui: &mut egui::Ui,
+        context: &HelpContext,
+        action: &mut Option<HelpAction>,
+    ) {
+        let width = ui.available_width();
+        let mut steps = vec![
+            (
+                HelpOnboardingStep::EnvironmentCheck,
+                "1. 环境检测",
+                context.onboarding_environment_checked,
+            ),
+            (
+                HelpOnboardingStep::CreateConnection,
+                "2. 新建连接",
+                context.onboarding_connection_created,
+            ),
+            (
+                HelpOnboardingStep::InitializeDatabase,
+                "3. 初始化数据库",
+                context.onboarding_database_initialized,
+            ),
+        ];
+
+        if context.onboarding_require_user_step {
+            steps.push((
+                HelpOnboardingStep::CreateUser,
+                "4. 创建用户",
+                context.onboarding_user_created,
+            ));
+        }
+
+        steps.push((
+            HelpOnboardingStep::RunFirstQuery,
+            "5. 执行首条查询",
+            context.onboarding_first_query_executed,
+        ));
+
+        let completed = steps.iter().filter(|(_, _, done)| *done).count();
+        let total = steps.len().max(1);
+        let next_step = steps
+            .iter()
+            .find(|(_, _, done)| !*done)
+            .map(|(step, _, _)| *step);
+
+        egui::Frame::NONE
+            .fill(Color32::from_rgba_unmultiplied(84, 124, 210, 14))
+            .stroke(Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(120, 160, 232, 36),
+            ))
+            .corner_radius(egui::CornerRadius::same(10))
+            .inner_margin(egui::Margin::symmetric(16, 14))
+            .show(ui, |ui| {
+                ui.set_min_width((width - 32.0).max(260.0));
+                ui.set_max_width((width - 32.0).max(260.0));
+
+                ui.label(
+                    RichText::new("新手上手闭环流程")
+                        .size(17.0)
+                        .strong()
+                        .color(Color32::from_rgb(220, 225, 235)),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new("这一段原先在欢迎页。为了避免欢迎页拥挤，已迁到学习指南总览。")
+                        .color(Color32::from_rgb(205, 208, 216)),
+                );
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new(format!("已完成 {}/{} 步", completed, total))
+                        .small()
+                        .color(Color32::from_rgb(145, 145, 155)),
+                );
+                ui.add_space(6.0);
+
+                ui.add(
+                    egui::ProgressBar::new(completed as f32 / total as f32)
+                        .desired_width(ui.available_width())
+                        .show_percentage(),
+                );
+                ui.add_space(10.0);
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(8.0, 8.0);
+                    for (_, label, done) in &steps {
+                        let text = if *done {
+                            format!("✓ {}", label)
+                        } else {
+                            format!("○ {}", label)
+                        };
+                        Self::step_chip(ui, &text);
+                    }
+                });
+
+                if let Some(step) = next_step {
+                    ui.add_space(12.0);
+                    if Self::action_button(ui, Self::onboarding_action_label(step), true) {
+                        *action = Some(HelpAction::ContinueOnboarding(step));
+                    }
+                } else {
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new("闭环流程已完成，可以直接进入路线图学习。")
+                            .small()
+                            .strong()
+                            .color(Color32::from_rgb(160, 220, 170)),
+                    );
+                }
+            });
+    }
+
+    fn onboarding_action_label(step: HelpOnboardingStep) -> &'static str {
+        match step {
+            HelpOnboardingStep::EnvironmentCheck => "继续：检测本机环境",
+            HelpOnboardingStep::CreateConnection => "继续：新建连接",
+            HelpOnboardingStep::InitializeDatabase => "继续：初始化数据库",
+            HelpOnboardingStep::CreateUser => "继续：创建用户",
+            HelpOnboardingStep::RunFirstQuery => "继续：执行首条查询",
+        }
     }
 
     fn overview_action_card(

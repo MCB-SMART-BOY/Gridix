@@ -27,6 +27,7 @@ mod keyboard;
 mod message;
 mod render;
 pub mod state;
+mod welcome;
 
 use eframe::egui;
 use parking_lot::Mutex;
@@ -38,7 +39,7 @@ use crate::core::{
     AppConfig, AutoComplete, HighlightColors, KeyBindings, NotificationManager, ProgressManager,
     QueryHistory, ThemeManager, ThemePreset, clear_highlight_cache, constants,
 };
-use crate::database::{ConnectionConfig, ConnectionManager, QueryResult};
+use crate::database::{ConnectionConfig, ConnectionManager, DatabaseType, QueryResult};
 use crate::ui::{
     self, DdlDialogState, ExportConfig, KeyBindingsDialogState, QueryTabManager, SqlEditorActions,
     ToolbarActions,
@@ -72,6 +73,8 @@ pub struct DbManagerApp {
     manager: ConnectionManager,
     /// 是否显示新建/编辑连接对话框
     show_connection_dialog: bool,
+    /// 连接对话框是否展开高级配置
+    connection_dialog_show_advanced: bool,
     /// 当前编辑的连接配置（用于新建/编辑对话框）
     new_config: ConnectionConfig,
     /// 当前正在编辑的连接名（None 表示新建模式）
@@ -208,6 +211,12 @@ pub struct DbManagerApp {
     sidebar_panel_state: ui::SidebarPanelState,
     /// 侧边栏宽度
     sidebar_width: f32,
+    /// 欢迎页数据库环境检测状态
+    welcome_status: ui::WelcomeStatusSummary,
+    /// 是否显示欢迎页安装/初始化引导
+    show_welcome_setup_dialog: bool,
+    /// 当前引导目标数据库
+    welcome_setup_target: DatabaseType,
     /// 是否显示帮助面板
     show_help: bool,
     /// 帮助面板滚动位置
@@ -252,6 +261,7 @@ impl DbManagerApp {
             || self.show_delete_confirm
             || self.show_help
             || self.show_about
+            || self.show_welcome_setup_dialog
             || self.show_history_panel
             || self.ddl_dialog_state.show
             || self.create_db_dialog_state.show
@@ -264,6 +274,17 @@ impl DbManagerApp {
         if let Some(tab) = self.tab_manager.get_active() {
             self.sql = tab.sql.clone();
             self.result = tab.result.clone();
+        }
+    }
+
+    /// 将当前编辑中的 SQL 草稿同步回活动 Tab
+    fn sync_sql_to_active_tab(&mut self) {
+        if let Some(tab) = self.tab_manager.get_active_mut()
+            && tab.sql != self.sql
+        {
+            tab.sql = self.sql.clone();
+            tab.modified = !self.sql.trim().is_empty();
+            tab.update_title();
         }
     }
 
@@ -411,9 +432,10 @@ impl DbManagerApp {
             manager.add(config.clone());
         }
 
-        Self {
+        let mut app = Self {
             manager,
             show_connection_dialog: false,
+            connection_dialog_show_advanced: app_config.connection_dialog_show_advanced,
             new_config: ConnectionConfig::default(),
             editing_connection_name: None,
             selected_table: None,
@@ -474,6 +496,9 @@ impl DbManagerApp {
             sidebar_section: ui::SidebarSection::Connections,
             sidebar_panel_state: ui::SidebarPanelState::default(),
             sidebar_width: 280.0, // 默认侧边栏宽度
+            welcome_status: ui::WelcomeStatusSummary::default(),
+            show_welcome_setup_dialog: false,
+            welcome_setup_target: DatabaseType::SQLite,
             show_help: false,
             help_scroll_offset: 0.0,
             help_state: ui::HelpState::default(),
@@ -490,7 +515,9 @@ impl DbManagerApp {
             er_diagram_state: ui::ERDiagramState::new(),
             sql_editor_height: 200.0, // 默认 SQL 编辑器高度
             pending_toggle_dark_mode: false,
-        }
+        };
+        app.refresh_welcome_environment_status();
+        app
     }
 
     /// 设置 UI 缩放比例
@@ -531,6 +558,7 @@ impl DbManagerApp {
             .map(|c| c.config.clone())
             .collect();
         self.app_config.keybindings = self.keybindings.clone();
+        self.app_config.connection_dialog_show_advanced = self.connection_dialog_show_advanced;
         let _ = self.app_config.save();
     }
 
@@ -694,6 +722,7 @@ impl eframe::App for DbManagerApp {
 
         // SQL 编辑器操作（将在主内容区内部渲染）
         let mut sql_editor_actions = SqlEditorActions::default();
+        let mut welcome_action = None;
 
         // ===== 中心面板 =====
         let central_frame = egui::Frame::NONE
@@ -1165,7 +1194,7 @@ impl eframe::App for DbManagerApp {
                                         });
                                     }
                                 } else if self.manager.connections.is_empty() {
-                                    ui::Welcome::show(ui);
+                                    welcome_action = ui::Welcome::show(ui, self.welcome_status);
                                 } else if self.manager.active.is_some() {
                                     // 有连接但没有结果
                                     ui.vertical_centered(|ui| {
@@ -1201,6 +1230,10 @@ impl eframe::App for DbManagerApp {
         self.handle_toolbar_actions(ctx, toolbar_actions);
         self.handle_sidebar_actions(sidebar_actions);
         self.handle_sql_editor_actions(sql_editor_actions);
+        if let Some(action) = welcome_action {
+            self.handle_welcome_action(action);
+        }
+        self.show_welcome_setup_dialog_window(ctx);
 
         // 保存新连接
         if save_connection {
