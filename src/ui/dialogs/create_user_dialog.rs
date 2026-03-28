@@ -249,6 +249,22 @@ impl CreateUserDialogState {
                     "GRANT ALL PRIVILEGES ON DATABASE \"{}\" TO \"{}\";",
                     self.grant_database, self.username
                 ));
+                statements.push(format!(
+                    "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"{}\";",
+                    self.username
+                ));
+                statements.push(format!(
+                    "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO \"{}\";",
+                    self.username
+                ));
+                statements.push(format!(
+                    "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO \"{}\";",
+                    self.username
+                ));
+                statements.push(format!(
+                    "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO \"{}\";",
+                    self.username
+                ));
             } else {
                 let selected: Vec<&str> = self
                     .privileges
@@ -260,11 +276,35 @@ impl CreateUserDialogState {
                     return Err("请至少选择一个权限".to_string());
                 }
 
-                // PostgreSQL 权限授予比较复杂，这里简化处理
+                let mut database_privileges: Vec<&str> = Vec::new();
+                let mut table_privileges: Vec<&str> = Vec::new();
                 for priv_name in selected {
+                    match priv_name {
+                        "CONNECT" | "CREATE" | "TEMPORARY" => {
+                            database_privileges.push(priv_name);
+                        }
+                        _ => table_privileges.push(priv_name),
+                    }
+                }
+
+                if !database_privileges.is_empty() {
                     statements.push(format!(
                         "GRANT {} ON DATABASE \"{}\" TO \"{}\";",
-                        priv_name, self.grant_database, self.username
+                        database_privileges.join(", "),
+                        self.grant_database,
+                        self.username
+                    ));
+                }
+
+                if !table_privileges.is_empty() {
+                    let table_grants = table_privileges.join(", ");
+                    statements.push(format!(
+                        "GRANT {} ON ALL TABLES IN SCHEMA public TO \"{}\";",
+                        table_grants, self.username
+                    ));
+                    statements.push(format!(
+                        "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT {} ON TABLES TO \"{}\";",
+                        table_grants, self.username
                     ));
                 }
             }
@@ -519,5 +559,44 @@ impl CreateUserDialog {
         }
 
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn postgres_non_all_privileges_use_valid_scope() {
+        let mut state = CreateUserDialogState {
+            db_type: DatabaseType::PostgreSQL,
+            username: "tester".to_string(),
+            password: "secret1".to_string(),
+            confirm_password: "secret1".to_string(),
+            grant_database: "appdb".to_string(),
+            grant_all: false,
+            ..Default::default()
+        };
+        state.privileges = vec![
+            Privilege {
+                name: "SELECT",
+                description: "",
+                selected: true,
+            },
+            Privilege {
+                name: "CONNECT",
+                description: "",
+                selected: true,
+            },
+        ];
+
+        let sql = state.generate_sql().expect("postgres sql should generate");
+        let combined = sql.join("\n").to_ascii_uppercase();
+        assert!(combined.contains("GRANT CONNECT ON DATABASE \"APPDB\" TO \"TESTER\";"));
+        assert!(combined.contains("GRANT SELECT ON ALL TABLES IN SCHEMA PUBLIC TO \"TESTER\";"));
+        assert!(
+            !combined.contains("GRANT SELECT ON DATABASE"),
+            "table privileges must not be granted on DATABASE scope"
+        );
     }
 }

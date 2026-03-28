@@ -15,6 +15,15 @@ Main layers:
 - `core/`: shared modules (config, theme, autocomplete, history, syntax, keybindings).
   `core/`：共享核心模块（配置、主题、补全、历史、语法、快捷键）。
 
+Recent `app/` split highlights:
+`app/` 近期拆分重点：
+- `request_lifecycle.rs`: request id generation, pending task tracking, cancel flow.
+  `request_lifecycle.rs`：请求 ID 生成、任务跟踪、取消流程。
+- `preferences.rs`: UI/theme/config preference update flow.
+  `preferences.rs`：UI/主题/配置偏好更新流程。
+- `metadata.rs`: metadata load request pipeline and stale-response guard.
+  `metadata.rs`：元数据加载请求链路与过期响应保护。
+
 ## 2. Runtime Model | 运行时模型
 
 - UI thread runs egui frame updates.

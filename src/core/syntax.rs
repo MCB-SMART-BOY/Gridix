@@ -15,10 +15,10 @@ use syntect::parsing::SyntaxSet;
 // ============================================================================
 
 /// 全局语法集（包含 SQL 语法定义）
-static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(|| SyntaxSet::load_defaults_newlines());
+static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines);
 
 /// 全局主题集
-static THEME_SET: Lazy<ThemeSet> = Lazy::new(|| ThemeSet::load_defaults());
+static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
 
 /// 高亮缓存（避免重复计算）
 static HIGHLIGHT_CACHE: Lazy<RwLock<HighlightCache>> =
@@ -84,8 +84,8 @@ impl HighlightCache {
         let key = Self::make_key(text, theme_name);
 
         // 如果键已存在，直接更新
-        if self.cache.contains_key(&key) {
-            self.cache.insert(key, job);
+        if let std::collections::hash_map::Entry::Occupied(mut entry) = self.cache.entry(key) {
+            entry.insert(job);
             self.position_counter += 1;
             self.key_positions.insert(key, self.position_counter);
             return;
@@ -478,7 +478,8 @@ impl SqlHighlighter {
         // 为了与应用主题（尤其是 Tokyo Night 系）保持一致，默认使用自定义高亮配色。
         // syntect 主题作为后续可选增强保留。
         const ENABLE_SYNTECT_THEME: bool = false;
-        let use_syntect = ENABLE_SYNTECT_THEME && SYNTAX_SET.find_syntax_by_extension("sql").is_some();
+        let use_syntect =
+            ENABLE_SYNTECT_THEME && SYNTAX_SET.find_syntax_by_extension("sql").is_some();
 
         Self {
             colors,
@@ -527,11 +528,13 @@ impl SqlHighlighter {
             "base16-ocean.light"
         };
 
-        let theme = THEME_SET
+        let Some(theme) = THEME_SET
             .themes
             .get(theme_name)
             .or_else(|| THEME_SET.themes.values().next())
-            .expect("No themes available");
+        else {
+            return self.highlight_fallback(text);
+        };
 
         let mut highlighter = HighlightLines::new(syntax, theme);
         let mut job = LayoutJob::default();

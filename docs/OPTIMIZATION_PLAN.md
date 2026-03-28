@@ -1,7 +1,7 @@
 # Gridix Optimization Roadmap | 优化路线图
 
-> Baseline: `v3.2.x`  
-> 基线版本：`v3.2.x`  
+> Baseline: `v3.3.0`  
+> 基线版本：`v3.3.0`  
 > Status labels: `已完成` / `进行中` / `待开始` / `暂缓`
 
 ## 1. Goal | 目标
@@ -14,12 +14,14 @@
 
 ## 2. Baseline Snapshot | 当前基线
 
-### 2.1 Done in v3.2 | v3.2 已完成
+### 2.1 Done in v3.3 | v3.3 已完成
 - Welcome page onboarding loop and environment checks. `已完成`
 - Help split: tool quick-start + DB learning guide. `已完成`
 - SQL editor completion/focus stability (`Tab` chain fixed). `已完成`
 - GitHub Release + AUR/Homebrew/Nix update flow aligned. `已完成`
 - Core docs rewritten and indexed. `已完成`
+- Direct dependencies upgraded to latest compatible versions (`egui/eframe/rusqlite/russh/rfd/toml`). `已完成`
+- Frame render path migrated to current `eframe` app API (`App::ui` + `show_inside`). `已完成`
 
 ## 3. Priorities | 优先级
 

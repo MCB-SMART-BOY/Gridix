@@ -125,11 +125,9 @@ impl ExportDialog {
             }
 
             // Enter 导出
-            if can_export {
-                if let DialogAction::Confirm = keyboard::handle_dialog_keys(ctx) {
-                    *on_export = Some(config.clone());
-                    return;
-                }
+            if can_export && let DialogAction::Confirm = keyboard::handle_dialog_keys(ctx) {
+                *on_export = Some(config.clone());
+                return;
             }
 
             // 使用统一的列表导航处理 j/k/gg/G

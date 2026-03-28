@@ -7,11 +7,11 @@ use crate::database::QueryResult;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusTransfer {
     /// 转移到侧边栏
-    ToSidebar,
+    Sidebar,
     /// 转移到 SQL 编辑器
-    ToSqlEditor,
+    SqlEditor,
     /// 转移到查询Tab栏
-    ToQueryTabs,
+    QueryTabs,
 }
 
 /// 表格操作返回值

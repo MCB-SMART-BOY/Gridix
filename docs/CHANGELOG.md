@@ -5,9 +5,32 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- No unreleased changes yet.
+  暂无未发布变更。
+
+## [3.3.0]
+
+### Changed
+- Updated full dependency lock graph to the latest Rust 1.94.1-compatible versions via `cargo update`.
+  使用 `cargo update` 将依赖锁文件整体升级到 Rust 1.94.1 可兼容的最新版本。
+- Upgraded direct dependencies to latest compatible versions:
+  `eframe/egui/egui_extras/rfd/rusqlite/russh/toml`.
+  直接依赖升级到当前兼容最新版本：
+  `eframe/egui/egui_extras/rfd/rusqlite/russh/toml`。
+- Refactored app architecture by splitting request lifecycle, preferences/config, and metadata loading logic into dedicated modules.
+  应用架构重构：将请求生命周期、偏好/配置、元数据加载逻辑拆分为独立模块。
+- Slimmed `app/mod.rs` and delegated per-frame orchestration to render flow entry.
+  精简 `app/mod.rs`，每帧编排流程下沉到渲染入口方法。
+- Updated frame rendering entry to current `eframe` API (`App::ui` + `CentralPanel::show_inside`) and resolved related input/style API changes.
+  渲染入口迁移到当前 `eframe` API（`App::ui` + `CentralPanel::show_inside`），并完成输入/样式相关 API 适配。
+
 ### Documentation
-- Reserved for next release updates.
-  预留给下一个版本的更新内容。
+- Updated keyboard guide baseline to `v3.3.x`.
+  键盘文档基线更新为 `v3.3.x`。
+- Added platform distribution guide for AUR/Homebrew/nixpkgs.
+  新增 AUR/Homebrew/nixpkgs 分发指南文档。
+- Refreshed release/process docs and roadmap baseline to `v3.3.0`.
+  发布流程与优化路线图基线同步更新至 `v3.3.0`。
 
 ## [3.2.1]
 

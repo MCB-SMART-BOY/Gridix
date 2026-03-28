@@ -533,17 +533,17 @@ impl QueryTabBar {
 
         ui.input(|i| {
             // h/左箭头: 切换到左边的Tab
-            if i.key_pressed(egui::Key::H) || i.key_pressed(egui::Key::ArrowLeft) {
-                if active_index > 0 {
-                    actions.switch_to = Some(active_index - 1);
-                }
+            if (i.key_pressed(egui::Key::H) || i.key_pressed(egui::Key::ArrowLeft))
+                && active_index > 0
+            {
+                actions.switch_to = Some(active_index - 1);
             }
 
             // l/右箭头: 切换到右边的Tab
-            if i.key_pressed(egui::Key::L) || i.key_pressed(egui::Key::ArrowRight) {
-                if active_index < tab_count - 1 {
-                    actions.switch_to = Some(active_index + 1);
-                }
+            if (i.key_pressed(egui::Key::L) || i.key_pressed(egui::Key::ArrowRight))
+                && active_index < tab_count - 1
+            {
+                actions.switch_to = Some(active_index + 1);
             }
 
             // j/下箭头: 向下进入数据表格

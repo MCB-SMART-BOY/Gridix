@@ -585,7 +585,7 @@ impl ThemeManager {
         ctx.set_visuals(visuals);
 
         // 应用样式
-        let mut style = (*ctx.style()).clone();
+        let mut style = (*ctx.global_style()).clone();
 
         // 间距设置
         style.spacing.item_spacing = egui::vec2(8.0, 6.0);
@@ -611,6 +611,6 @@ impl ThemeManager {
         // 动画设置
         style.animation_time = 0.1;
 
-        ctx.set_style(style);
+        ctx.set_global_style(style);
     }
 }

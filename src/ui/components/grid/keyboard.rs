@@ -100,27 +100,28 @@ pub fn handle_keyboard(
         }
 
         // 数字 + Enter: 切换到指定的查询Tab
-        if i.key_pressed(Key::Enter) && cmd.keys.is_empty() {
-            if let Some(tab_number) = cmd.count {
-                if tab_number > 0 {
-                    actions.switch_to_tab = Some(tab_number - 1);
-                    actions.message = Some(format!("切换到查询 {}", tab_number));
-                }
-                cmd.clear();
-                return;
+        if i.key_pressed(Key::Enter)
+            && cmd.keys.is_empty()
+            && let Some(tab_number) = cmd.count
+        {
+            if tab_number > 0 {
+                actions.switch_to_tab = Some(tab_number - 1);
+                actions.message = Some(format!("切换到查询 {}", tab_number));
             }
+            cmd.clear();
+            return;
         }
 
         // Backspace 回退数字计数
-        if i.key_pressed(Key::Backspace) {
-            if let Some(current) = cmd.count {
-                cmd.count = if current < 10 {
-                    None
-                } else {
-                    Some(current / 10)
-                };
-                return;
-            }
+        if i.key_pressed(Key::Backspace)
+            && let Some(current) = cmd.count
+        {
+            cmd.count = if current < 10 {
+                None
+            } else {
+                Some(current / 10)
+            };
+            return;
         }
 
         match state.mode {
@@ -205,7 +206,7 @@ fn handle_normal_mode(
     // h / 左箭头: 向左
     if (i.key_pressed(Key::H) || i.key_pressed(Key::ArrowLeft)) && cmd.keys.is_empty() {
         if state.cursor.1 == 0 {
-            actions.focus_transfer = Some(super::actions::FocusTransfer::ToSidebar);
+            actions.focus_transfer = Some(super::actions::FocusTransfer::Sidebar);
         } else {
             for _ in 0..repeat {
                 state.move_cursor(0, -1, max_row, max_col);
@@ -218,7 +219,7 @@ fn handle_normal_mode(
     // j / 下箭头: 向下
     if (i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown)) && cmd.keys.is_empty() {
         if state.cursor.0 >= max_row.saturating_sub(1) {
-            actions.focus_transfer = Some(super::actions::FocusTransfer::ToSqlEditor);
+            actions.focus_transfer = Some(super::actions::FocusTransfer::SqlEditor);
         } else {
             for _ in 0..repeat {
                 state.move_cursor(1, 0, max_row, max_col);
@@ -231,7 +232,7 @@ fn handle_normal_mode(
     // k / 上箭头: 向上
     if (i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp)) && cmd.keys.is_empty() {
         if state.cursor.0 == 0 {
-            actions.focus_transfer = Some(super::actions::FocusTransfer::ToQueryTabs);
+            actions.focus_transfer = Some(super::actions::FocusTransfer::QueryTabs);
         } else {
             for _ in 0..repeat {
                 state.move_cursor(-1, 0, max_row, max_col);
@@ -253,7 +254,7 @@ fn handle_normal_mode(
     // w: 向右移动一列（带焦点转移）
     if i.key_pressed(Key::W) && !i.modifiers.ctrl && cmd.keys.is_empty() {
         if state.cursor.1 >= max_col.saturating_sub(1) {
-            actions.focus_transfer = Some(super::actions::FocusTransfer::ToSqlEditor);
+            actions.focus_transfer = Some(super::actions::FocusTransfer::SqlEditor);
         } else {
             state.move_cursor(0, 1, max_row, max_col);
         }
@@ -263,7 +264,7 @@ fn handle_normal_mode(
     // b: 向左移动一列（带焦点转移）
     if i.key_pressed(Key::B) && !i.modifiers.ctrl && cmd.keys.is_empty() {
         if state.cursor.1 == 0 {
-            actions.focus_transfer = Some(super::actions::FocusTransfer::ToSidebar);
+            actions.focus_transfer = Some(super::actions::FocusTransfer::Sidebar);
         } else {
             state.move_cursor(0, -1, max_row, max_col);
         }
@@ -428,17 +429,15 @@ fn handle_normal_mode(
         return;
     }
 
-    if cmd.keys == " " {
-        if i.key_pressed(Key::D) {
-            // Space+d: 标记删除
-            let row_idx = state.cursor.0;
-            if !state.rows_to_delete.contains(&row_idx) {
-                state.rows_to_delete.push(row_idx);
-                actions.message = Some(format!("标记删除第 {} 行 (Space+d)", row_idx + 1));
-            }
-            cmd.clear();
-            return;
+    if cmd.keys == " " && i.key_pressed(Key::D) {
+        // Space+d: 标记删除
+        let row_idx = state.cursor.0;
+        if !state.rows_to_delete.contains(&row_idx) {
+            state.rows_to_delete.push(row_idx);
+            actions.message = Some(format!("标记删除第 {} 行 (Space+d)", row_idx + 1));
         }
+        cmd.clear();
+        return;
     }
 
     // === : 前缀命令 ===
@@ -570,10 +569,10 @@ fn handle_normal_mode(
         state.mode = GridMode::Insert;
         state.editing_cell = Some(state.cursor);
         state.edit_text.clear();
-        if let Some((_, row_data)) = filtered_rows.get(state.cursor.0) {
-            if let Some(cell) = row_data.get(state.cursor.1) {
-                state.original_value = cell.to_string();
-            }
+        if let Some((_, row_data)) = filtered_rows.get(state.cursor.0)
+            && let Some(cell) = row_data.get(state.cursor.1)
+        {
+            state.original_value = cell.to_string();
         }
         actions.message = Some("修改单元格 (c)".to_string());
         return;
@@ -633,11 +632,11 @@ fn handle_normal_mode(
 
     // f: 为当前列添加筛选
     if i.key_pressed(Key::F) && !i.modifiers.ctrl && cmd.keys.is_empty() {
-        if let Some(col_name) = result.columns.get(state.cursor.1) {
-            if !state.filters.iter().any(|f| &f.column == col_name) {
-                state.filters.push(ColumnFilter::new(col_name.clone()));
-                actions.message = Some(format!("为列 {} 添加筛选 (f)", col_name));
-            }
+        if let Some(col_name) = result.columns.get(state.cursor.1)
+            && !state.filters.iter().any(|f| &f.column == col_name)
+        {
+            state.filters.push(ColumnFilter::new(col_name.clone()));
+            actions.message = Some(format!("为列 {} 添加筛选 (f)", col_name));
         }
         return;
     }
@@ -788,14 +787,14 @@ fn enter_insert_mode(state: &mut DataGridState, filtered_rows: &[(usize, &Vec<St
     state.mode = GridMode::Insert;
     state.editing_cell = Some(state.cursor);
 
-    if let Some((_, row_data)) = filtered_rows.get(state.cursor.0) {
-        if let Some(cell) = row_data.get(state.cursor.1) {
-            state.edit_text = state
-                .modified_cells
-                .get(&state.cursor)
-                .cloned()
-                .unwrap_or_else(|| cell.to_string());
-            state.original_value = cell.to_string();
-        }
+    if let Some((_, row_data)) = filtered_rows.get(state.cursor.0)
+        && let Some(cell) = row_data.get(state.cursor.1)
+    {
+        state.edit_text = state
+            .modified_cells
+            .get(&state.cursor)
+            .cloned()
+            .unwrap_or_else(|| cell.to_string());
+        state.original_value = cell.to_string();
     }
 }

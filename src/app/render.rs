@@ -5,11 +5,572 @@
 use eframe::egui;
 
 use crate::core::{constants, format_sql};
+use crate::database::ConnectionConfig;
 use crate::ui::{self, SqlEditorActions, TabBarActions, ToolbarActions};
 
 use super::DbManagerApp;
 
 impl DbManagerApp {
+    /// 每帧主流程：消息处理、快捷键、对话框、中心区域渲染与动作落地。
+    pub(super) fn run_frame(&mut self, root_ui: &mut egui::Ui) {
+        let ctx = root_ui.ctx().clone();
+
+        self.handle_messages(&ctx);
+        self.handle_keyboard_shortcuts(&ctx);
+        self.handle_zoom_shortcuts(&ctx);
+
+        // 清理过期通知，如果有通知被清理则请求重绘
+        if self.notifications.tick() {
+            ctx.request_repaint();
+        }
+
+        let mut toolbar_actions = ToolbarActions::default();
+
+        // 检测焦点切换快捷键
+        self.handle_focus_shortcuts(&ctx, &mut toolbar_actions);
+
+        // ===== 对话框 =====
+        let was_connection_dialog_open = self.show_connection_dialog;
+        let dialog_results = self.render_dialogs(&ctx);
+        let save_connection = dialog_results.save_connection;
+        self.handle_dialog_results(dialog_results);
+
+        if was_connection_dialog_open && !self.show_connection_dialog && !save_connection {
+            self.editing_connection_name = None;
+            self.new_config = ConnectionConfig::default();
+        }
+
+        // SQL 编辑器操作（将在主内容区内部渲染）
+        let mut sql_editor_actions = SqlEditorActions::default();
+        let mut welcome_action = None;
+
+        // ===== 中心面板 =====
+        let central_frame = egui::Frame::NONE
+            .fill(ctx.global_style().visuals.panel_fill)
+            .inner_margin(egui::Margin::same(0));
+
+        // 侧边栏操作结果（在 CentralPanel 外声明）
+        let mut sidebar_actions = ui::SidebarActions::default();
+
+        egui::CentralPanel::default()
+            .frame(central_frame)
+            .show_inside(root_ui, |ui| {
+            // 准备连接、数据库和表列表数据（提前克隆以避免借用冲突）
+            let mut connections: Vec<String> = self.manager.connections.keys().cloned().collect();
+            connections.sort_unstable();
+            let active_connection = self.manager.active.clone();
+            let (databases, selected_database, tables): (Vec<String>, Option<String>, Vec<String>) = self
+                .manager
+                .get_active()
+                .map(|c| {
+                    (
+                        c.databases.clone(),
+                        c.selected_database.clone(),
+                        c.tables.clone(),
+                    )
+                })
+                .unwrap_or_default();
+            let selected_table_for_toolbar = self.selected_table.clone();
+
+            // 使用 horizontal 布局：侧边栏 + 分割条 + 主内容区
+            let available_width = ui.available_width();
+            let available_height = ui.available_height();
+            let divider_width = 8.0;
+
+            // 计算侧边栏和主内容区的宽度
+            let sidebar_width = if self.show_sidebar { self.sidebar_width } else { 0.0 };
+            let main_width = if self.show_sidebar {
+                available_width - sidebar_width - divider_width
+            } else {
+                available_width
+            };
+
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+
+                // ===== 侧边栏区域 =====
+                if self.show_sidebar {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(sidebar_width, available_height),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            ui.set_min_size(egui::vec2(sidebar_width, available_height));
+
+                            // 只有在没有对话框打开时，侧边栏才响应键盘
+                            let is_sidebar_focused = self.focus_area == ui::FocusArea::Sidebar
+                                && !self.has_modal_dialog_open();
+
+                            // 获取当前查询结果的列信息
+                            let columns: Vec<String> = self
+                                .result
+                                .as_ref()
+                                .map(|r| r.columns.clone())
+                                .unwrap_or_default();
+
+                            let (actions, filter_changed) = ui::Sidebar::show_in_ui(
+                                ui,
+                                &mut self.manager,
+                                &mut self.selected_table,
+                                &mut self.show_connection_dialog,
+                                is_sidebar_focused,
+                                self.sidebar_section,
+                                &mut self.sidebar_panel_state,
+                                sidebar_width,
+                                &mut self.grid_state.filters,
+                                &columns,
+                                &mut self.pending_filter_input_focus,
+                            );
+                            sidebar_actions = actions;
+
+                            // 如果筛选条件改变，使缓存失效
+                            if filter_changed {
+                                self.grid_state.filter_cache.invalidate();
+                            }
+                        },
+                    );
+
+                    // 可拖动的垂直分割条（与 ER 图分割条相同风格）
+                    let (divider_rect, divider_response) = ui.allocate_exact_size(
+                        egui::vec2(divider_width, available_height),
+                        egui::Sense::drag(),
+                    );
+
+                    // 绘制分割条
+                    let divider_color = if divider_response.dragged() || divider_response.hovered() {
+                        egui::Color32::from_rgb(100, 150, 255)
+                    } else {
+                        egui::Color32::from_rgba_unmultiplied(128, 128, 128, 80)
+                    };
+
+                    ui.painter().rect_filled(
+                        divider_rect.shrink2(egui::vec2(2.0, 4.0)),
+                        egui::CornerRadius::same(2),
+                        divider_color,
+                    );
+
+                    // 中间的拖动指示器（三个小点）
+                    let center = divider_rect.center();
+                    for offset in [-10.0, 0.0, 10.0] {
+                        ui.painter().circle_filled(
+                            egui::pos2(center.x, center.y + offset),
+                            2.0,
+                            egui::Color32::from_gray(180),
+                        );
+                    }
+
+                    // 处理拖动调整侧边栏宽度
+                    if divider_response.dragged() {
+                        let delta = divider_response.drag_delta().x;
+                        self.sidebar_width = (self.sidebar_width + delta).clamp(
+                            constants::ui::SIDEBAR_MIN_WIDTH_PX,
+                            constants::ui::SIDEBAR_MAX_WIDTH_PX,
+                        );
+                    }
+
+                    // 鼠标光标
+                    if divider_response.hovered() || divider_response.dragged() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                    }
+                }
+
+                // ===== 主内容区 =====
+                ui.allocate_ui_with_layout(
+                    egui::vec2(main_width, available_height),
+                    egui::Layout::top_down(egui::Align::LEFT),
+                    |ui| {
+                        ui.set_min_size(egui::vec2(main_width, available_height));
+
+                        // 添加左边距（仅当侧边栏显示时不需要，否则需要）
+                        let content_margin = if self.show_sidebar { 0 } else { 8 };
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin {
+                                left: content_margin,
+                                right: 8,
+                                top: 8,
+                                bottom: 8,
+                            })
+                            .show(ui, |ui| {
+                                // 工具栏
+                                let is_toolbar_focused = self.focus_area == ui::FocusArea::Toolbar;
+                                let cancel_task_id = ui::Toolbar::show_with_focus(
+                                    ui,
+                                    &self.theme_manager,
+                                    self.result.is_some(),
+                                    self.show_sidebar,
+                                    self.show_sql_editor,
+                                    self.app_config.is_dark_mode,
+                                    &mut toolbar_actions,
+                                    &connections,
+                                    active_connection.as_deref(),
+                                    &databases,
+                                    selected_database.as_deref(),
+                                    &tables,
+                                    selected_table_for_toolbar.as_deref(),
+                                    self.ui_scale,
+                                    &self.progress,
+                                    is_toolbar_focused,
+                                    self.toolbar_index,
+                                );
+
+                                // 处理进度任务取消
+                                if let Some(id) = cancel_task_id {
+                                    self.progress.cancel(id);
+                                }
+
+                                // 如果焦点在工具栏，处理键盘输入
+                                if self.focus_area == ui::FocusArea::Toolbar {
+                                    ui::Toolbar::handle_keyboard(
+                                        ui,
+                                        &mut self.toolbar_index,
+                                        &mut toolbar_actions,
+                                    );
+
+                                    // 显示焦点提示
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui::RichText::new("工具栏焦点").small().color(self.highlight_colors.keyword));
+                                        ui.label(egui::RichText::new(" h/l:移动 j:Tab栏 Enter:选择").small().color(egui::Color32::GRAY));
+                                    });
+
+                                    // 处理焦点转移
+                                    if let Some(transfer) = toolbar_actions.focus_transfer {
+                                        match transfer {
+                                            ui::ToolbarFocusTransfer::ToQueryTabs => {
+                                                self.focus_area = ui::FocusArea::QueryTabs;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                ui.separator();
+
+                                // Tab 栏（多查询窗口）
+                                let mut tab_actions = ui::QueryTabBar::show(
+                                    ui,
+                                    &self.tab_manager.tabs,
+                                    self.tab_manager.active_index,
+                                    &self.highlight_colors,
+                                );
+
+                                // 如果焦点在Tab栏，处理键盘输入
+                                if self.focus_area == ui::FocusArea::QueryTabs {
+                                    ui::QueryTabBar::handle_keyboard(
+                                        ui,
+                                        self.tab_manager.tabs.len(),
+                                        self.tab_manager.active_index,
+                                        &mut tab_actions,
+                                    );
+
+                                    // 显示焦点提示
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui::RichText::new("TAB焦点").small().color(self.highlight_colors.keyword));
+                                        ui.label(egui::RichText::new(" h/l:切换 j:表格 k:工具栏 d:删除").small().color(egui::Color32::GRAY));
+                                    });
+                                }
+
+                                // 处理Tab栏焦点转移
+                                if let Some(transfer) = tab_actions.focus_transfer {
+                                    match transfer {
+                                        ui::TabBarFocusTransfer::ToToolbar => {
+                                            self.focus_area = ui::FocusArea::Toolbar;
+                                        }
+                                        ui::TabBarFocusTransfer::ToDataGrid => {
+                                            self.focus_area = ui::FocusArea::DataGrid;
+                                            self.grid_state.focused = true;
+                                        }
+                                    }
+                                }
+
+                                self.handle_tab_actions(tab_actions);
+
+                                ui.separator();
+
+                                // 计算数据表格和 SQL 编辑器的高度分配
+                                let total_content_height = ui.available_height();
+                                let sql_editor_height = if self.show_sql_editor {
+                                    self.sql_editor_height.clamp(100.0, total_content_height * 0.6)
+                                } else {
+                                    0.0
+                                };
+                                let divider_height = if self.show_sql_editor { 6.0 } else { 0.0 };
+                                let data_grid_height = total_content_height - sql_editor_height - divider_height;
+
+                                // 数据表格区域（支持左右分割显示 ER 图）
+                                ui.allocate_ui_with_layout(
+                                    egui::vec2(ui.available_width(), data_grid_height),
+                                    egui::Layout::top_down(egui::Align::LEFT),
+                                    |ui| {
+                                if self.show_er_diagram {
+                                    // 左右分割布局 - 使用 horizontal 和固定宽度的子区域
+                                    let available_width = ui.available_width();
+                                    let available_height = data_grid_height;
+                                    let divider_width = 8.0;
+                                    let left_width = (available_width - divider_width) * self.central_panel_ratio;
+                                    let right_width = available_width - left_width - divider_width;
+                                    let theme_preset = self.theme_manager.current;
+
+                                    ui.horizontal(|ui| {
+                                        // 左侧：数据表格
+                                        ui.allocate_ui_with_layout(
+                                            egui::vec2(left_width, available_height),
+                                            egui::Layout::top_down(egui::Align::LEFT),
+                                            |ui| {
+                                                ui.set_min_size(egui::vec2(left_width, available_height));
+
+                                                if let Some(result) = &self.result {
+                                                    if !result.columns.is_empty() {
+                                                        self.grid_state.focused = self.focus_area == ui::FocusArea::DataGrid
+                                                            && !self.has_modal_dialog_open();
+
+                                                        let table_name = self.selected_table.as_deref();
+                                                        let (grid_actions, _) = ui::DataGrid::show_editable(
+                                                            ui,
+                                                            result,
+                                                            &self.search_text,
+                                                            &self.search_column,
+                                                            &mut self.selected_row,
+                                                            &mut self.selected_cell,
+                                                            &mut self.grid_state,
+                                                            table_name,
+                                                        );
+
+                                                        // 处理打开筛选面板请求
+                                                        if grid_actions.open_filter_panel {
+                                                            self.show_sidebar = true;
+                                                            self.sidebar_panel_state.show_filters = true;
+                                                            self.sidebar_section = ui::SidebarSection::Filters;
+                                                            self.focus_area = ui::FocusArea::Sidebar;
+                                                        }
+                                                    } else {
+                                                        ui.centered_and_justified(|ui| {
+                                                            ui.label("暂无数据");
+                                                        });
+                                                    }
+                                                } else {
+                                                    ui.centered_and_justified(|ui| {
+                                                        ui.label("请执行查询");
+                                                    });
+                                                }
+                                            },
+                                        );
+
+                                        // 可拖动的垂直分割条
+                                        let (divider_rect, divider_response) = ui.allocate_exact_size(
+                                            egui::vec2(divider_width, available_height),
+                                            egui::Sense::drag(),
+                                        );
+
+                                        // 绘制分割条
+                                        let divider_color = if divider_response.dragged() || divider_response.hovered() {
+                                            egui::Color32::from_rgb(100, 150, 255)
+                                        } else {
+                                            egui::Color32::from_rgba_unmultiplied(128, 128, 128, 80)
+                                        };
+
+                                        ui.painter().rect_filled(
+                                            divider_rect.shrink2(egui::vec2(2.0, 4.0)),
+                                            egui::CornerRadius::same(2),
+                                            divider_color,
+                                        );
+
+                                        // 中间的拖动指示器（三个小点）
+                                        let center = divider_rect.center();
+                                        for offset in [-10.0, 0.0, 10.0] {
+                                            ui.painter().circle_filled(
+                                                egui::pos2(center.x, center.y + offset),
+                                                2.0,
+                                                egui::Color32::from_gray(180),
+                                            );
+                                        }
+
+                                        // 处理拖动
+                                        if divider_response.dragged() {
+                                            let delta = divider_response.drag_delta().x;
+                                            let delta_ratio = delta / available_width;
+                                            self.central_panel_ratio = (self.central_panel_ratio + delta_ratio).clamp(0.2, 0.8);
+                                        }
+
+                                        // 鼠标光标
+                                        if divider_response.hovered() || divider_response.dragged() {
+                                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                                        }
+
+                                        // 右侧：ER 关系图
+                                        ui.allocate_ui_with_layout(
+                                            egui::vec2(right_width, available_height),
+                                            egui::Layout::top_down(egui::Align::LEFT),
+                                            |ui| {
+                                                ui.set_min_size(egui::vec2(right_width, available_height));
+
+                                                let er_response = self.er_diagram_state.show(ui, &theme_preset);
+
+                                                if er_response.refresh_requested {
+                                                    self.load_er_diagram_data();
+                                                }
+                                                if er_response.layout_requested {
+                                                    ui::force_directed_layout(
+                                                        &mut self.er_diagram_state.tables,
+                                                        &self.er_diagram_state.relationships,
+                                                        50,
+                                                    );
+                                                }
+                                                if er_response.fit_view_requested {
+                                                    self.er_diagram_state.fit_to_view(ui.available_size());
+                                                }
+                                            },
+                                        );
+                                    });
+                                } else if let Some(result) = &self.result {
+                                    if !result.columns.is_empty() {
+                                        // 同步焦点状态：只有当全局焦点在 DataGrid 且没有对话框打开时才响应键盘
+                                        self.grid_state.focused = self.focus_area == ui::FocusArea::DataGrid
+                                            && !self.has_modal_dialog_open();
+
+                                        let table_name = self.selected_table.as_deref();
+                                        let (grid_actions, _) = ui::DataGrid::show_editable(
+                                            ui,
+                                            result,
+                                            &self.search_text,
+                                            &self.search_column,
+                                            &mut self.selected_row,
+                                            &mut self.selected_cell,
+                                            &mut self.grid_state,
+                                            table_name,
+                                        );
+
+                                        // 处理表格操作
+                                        if let Some(msg) = grid_actions.message {
+                                            self.notifications.info(msg);
+                                        }
+
+                                        // 执行生成的 SQL
+                                        for sql in grid_actions.sql_to_execute {
+                                            let _ = self.execute(sql);
+                                        }
+
+                                        // 处理刷新请求
+                                        if grid_actions.refresh_requested
+                                            && let Some(table) = &self.selected_table
+                                            && let Ok(quoted_table) = ui::quote_identifier(table, self.is_mysql()) {
+                                                let sql = format!("SELECT * FROM {} LIMIT {};", quoted_table, constants::database::DEFAULT_QUERY_LIMIT);
+                                                let _ = self.execute(sql);
+                                            }
+
+                                        // 处理焦点转移请求
+                                        if let Some(transfer) = grid_actions.focus_transfer {
+                                            match transfer {
+                                                ui::FocusTransfer::Sidebar => {
+                                                    self.show_sidebar = true;
+                                                    self.focus_area = ui::FocusArea::Sidebar;
+                                                    self.grid_state.focused = false;
+                                                }
+                                                ui::FocusTransfer::SqlEditor => {
+                                                    self.show_sql_editor = true;
+                                                    self.focus_area = ui::FocusArea::SqlEditor;
+                                                    self.grid_state.focused = false;
+                                                    self.focus_sql_editor = true;
+                                                }
+                                                ui::FocusTransfer::QueryTabs => {
+                                                    self.focus_area = ui::FocusArea::QueryTabs;
+                                                    self.grid_state.focused = false;
+                                                }
+                                            }
+                                        }
+
+                                        // 处理表格请求焦点（点击表格时）
+                                        if grid_actions.request_focus && self.focus_area != ui::FocusArea::DataGrid {
+                                            self.focus_area = ui::FocusArea::DataGrid;
+                                            self.grid_state.focused = true;
+                                        }
+
+                                        // 处理打开筛选面板请求
+                                        if grid_actions.open_filter_panel {
+                                            self.show_sidebar = true;
+                                            self.sidebar_panel_state.show_filters = true;
+                                            self.sidebar_section = ui::SidebarSection::Filters;
+                                            self.focus_area = ui::FocusArea::Sidebar;
+                                        }
+
+                                        // 处理切换Tab请求 (数字+Enter)
+                                        if let Some(tab_idx) = grid_actions.switch_to_tab
+                                            && tab_idx < self.tab_manager.tabs.len()
+                                        {
+                                            self.tab_manager.set_active(tab_idx);
+                                            self.sync_from_active_tab();
+                                        }
+                                    } else if result.affected_rows > 0 {
+                                        ui.vertical_centered(|ui| {
+                                            ui.add_space(50.0);
+                                            ui.label(
+                                                egui::RichText::new(format!(
+                                                    "执行成功，影响 {} 行",
+                                                    result.affected_rows
+                                                ))
+                                                .color(ui::styles::SUCCESS)
+                                                .size(16.0),
+                                            );
+                                        });
+                                    } else {
+                                        ui.vertical_centered(|ui| {
+                                            ui.add_space(50.0);
+                                            ui.label(egui::RichText::new("暂无数据").color(ui::styles::GRAY));
+                                        });
+                                    }
+                                } else if self.manager.connections.is_empty() {
+                                    welcome_action = ui::Welcome::show(ui, self.welcome_status);
+                                } else if self.manager.active.is_some() {
+                                    // 有连接但没有结果
+                                    ui.vertical_centered(|ui| {
+                                        ui.add_space(50.0);
+                                        ui.label("在底部命令行输入 SQL 查询");
+                                        ui.add_space(8.0);
+
+                                        if let Some(table) = &self.selected_table
+                                            && ui.button(format!("查询表 {} 的数据", table)).clicked()
+                                                && let Ok(quoted_table) = ui::quote_identifier(table, self.is_mysql()) {
+                                                    self.sql = format!("SELECT * FROM {} LIMIT {};", quoted_table, constants::database::DEFAULT_QUERY_LIMIT);
+                                                    sql_editor_actions.execute = true;
+                                                }
+                                    });
+                                } else {
+                                    ui.vertical_centered(|ui| {
+                                        ui.add_space(50.0);
+                                        ui.label("请先在左侧选择或创建数据库连接");
+                                    });
+                                }
+                                    },
+                                ); // allocate_ui_with_layout 数据表格区域结束
+
+                                // ===== SQL 编辑器 =====
+                                sql_editor_actions = self.render_sql_editor_in_ui(ui, total_content_height);
+                            }); // Frame 闭包结束
+                    },
+                ); // allocate_ui_with_layout 主内容区结束
+            }); // horizontal 布局结束
+        }); // CentralPanel 闭包结束
+
+        // ===== 处理各种操作 =====
+        self.handle_toolbar_actions(&ctx, toolbar_actions);
+        self.handle_sidebar_actions(sidebar_actions);
+        self.handle_sql_editor_actions(sql_editor_actions);
+        if let Some(action) = welcome_action {
+            self.handle_welcome_action(action);
+        }
+        self.show_welcome_setup_dialog_window(&ctx);
+
+        // 保存新连接
+        if save_connection {
+            self.save_connection_from_dialog();
+        }
+
+        // 渲染通知 toast
+        ui::NotificationToast::show(&ctx, &self.notifications);
+
+        // 持续刷新（有活动任务或有通知时需要刷新）
+        if self.connecting || self.executing || !self.notifications.is_empty() {
+            ctx.request_repaint();
+        }
+    }
+
     /// 渲染 SQL 编辑器面板（在主内容区内部渲染，不遮挡侧边栏）
     pub(super) fn render_sql_editor_in_ui(
         &mut self,
@@ -171,24 +732,24 @@ impl DbManagerApp {
             self.show_sql_editor = !self.show_sql_editor;
         }
 
-        if actions.refresh_tables {
-            if let Some(name) = self.manager.active.clone() {
-                self.connect(name);
-            }
+        if actions.refresh_tables
+            && let Some(name) = self.manager.active.clone()
+        {
+            self.connect(name);
         }
 
         // 连接切换
-        if let Some(conn_name) = actions.switch_connection {
-            if self.manager.active.as_deref() != Some(&conn_name) {
-                self.connect(conn_name);
-                self.selected_table = None;
-                self.result = None;
-                self.autocomplete.clear();
-                self.sidebar_panel_state.clear_triggers();
-                self.sidebar_panel_state.clear_routines();
-                self.sidebar_panel_state.loading_triggers = false;
-                self.sidebar_panel_state.loading_routines = false;
-            }
+        if let Some(conn_name) = actions.switch_connection
+            && self.manager.active.as_deref() != Some(&conn_name)
+        {
+            self.connect(conn_name);
+            self.selected_table = None;
+            self.result = None;
+            self.autocomplete.clear();
+            self.sidebar_panel_state.clear_triggers();
+            self.sidebar_panel_state.clear_routines();
+            self.sidebar_panel_state.loading_triggers = false;
+            self.sidebar_panel_state.loading_routines = false;
         }
 
         // 数据库切换

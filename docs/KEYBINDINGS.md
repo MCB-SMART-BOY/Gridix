@@ -1,7 +1,7 @@
 # Gridix Keyboard Guide | 键盘指南
 
-> Applies to `v3.2.x` default keymap.  
-> 适用于 `v3.2.x` 默认键位。  
+> Applies to `v3.3.x` default keymap.  
+> 适用于 `v3.3.x` 默认键位。  
 > Some keys are user-configurable in keybinding settings.  
 > 部分快捷键可在“快捷键设置”中自定义。
 

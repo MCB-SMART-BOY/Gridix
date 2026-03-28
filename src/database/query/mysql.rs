@@ -119,157 +119,6 @@ fn quote_mysql_identifier(name: &str) -> String {
         .join(".")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{
-        DbError, await_cancellable_query, build_kill_query_sql, format_cancel_message,
-        query_result, quote_mysql_identifier,
-    };
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::Duration;
-    use tokio::sync::oneshot;
-
-    #[test]
-    fn test_quote_mysql_identifier_schema_table() {
-        let quoted = quote_mysql_identifier("my_db.user-table");
-        assert_eq!(quoted, "`my_db`.`user-table`");
-    }
-
-    #[test]
-    fn test_quote_mysql_identifier_escapes_backticks() {
-        let quoted = quote_mysql_identifier("na`me");
-        assert_eq!(quoted, "`na``me`");
-    }
-
-    #[test]
-    fn test_build_kill_query_sql() {
-        assert_eq!(build_kill_query_sql(123), "KILL QUERY 123");
-    }
-
-    #[test]
-    fn test_format_cancel_message_without_detail() {
-        assert_eq!(format_cancel_message(None), "查询已取消");
-    }
-
-    #[test]
-    fn test_format_cancel_message_with_detail() {
-        let msg = format_cancel_message(Some("权限不足".to_string()));
-        assert_eq!(msg, "查询已取消（权限不足）");
-    }
-
-    #[tokio::test]
-    async fn test_await_cancellable_query_returns_result_when_query_completes_first() {
-        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
-        let (_conn_id_tx, conn_id_rx) = oneshot::channel::<u32>();
-
-        let query_task = tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-            Ok(query_result(
-                vec!["id".to_string()],
-                vec![vec!["1".to_string()]],
-            ))
-        });
-
-        let result = await_cancellable_query(
-            query_task,
-            cancel_rx,
-            conn_id_rx,
-            Duration::from_millis(5),
-            Duration::from_millis(5),
-            Duration::from_millis(10),
-            |_| async { Ok(()) },
-        )
-        .await
-        .expect("query should complete before cancellation");
-
-        assert_eq!(result.columns, vec!["id".to_string()]);
-        assert_eq!(result.rows, vec![vec!["1".to_string()]]);
-
-        drop(cancel_tx);
-    }
-
-    #[tokio::test]
-    async fn test_await_cancellable_query_sends_kill_signal_on_cancel() {
-        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
-        let (conn_id_tx, conn_id_rx) = oneshot::channel::<u32>();
-        let cancelled_conn_id = Arc::new(AtomicU32::new(0));
-        let cancelled_conn_id_clone = Arc::clone(&cancelled_conn_id);
-
-        let query_task = tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            Ok(query_result(Vec::new(), Vec::new()))
-        });
-
-        conn_id_tx.send(88).expect("connection id should be sent");
-        cancel_tx.send(()).expect("cancel signal should be sent");
-
-        let err = await_cancellable_query(
-            query_task,
-            cancel_rx,
-            conn_id_rx,
-            Duration::from_millis(5),
-            Duration::from_millis(5),
-            Duration::from_millis(5),
-            move |conn_id| {
-                let cancelled_conn_id = Arc::clone(&cancelled_conn_id_clone);
-                async move {
-                    cancelled_conn_id.store(conn_id, Ordering::Relaxed);
-                    Ok(())
-                }
-            },
-        )
-        .await
-        .expect_err("query should be cancelled");
-
-        match err {
-            DbError::Query(msg) => assert!(msg.starts_with("查询已取消")),
-            other => panic!("unexpected error type: {}", other),
-        }
-        assert_eq!(cancelled_conn_id.load(Ordering::Relaxed), 88);
-    }
-
-    #[tokio::test]
-    async fn test_await_cancellable_query_skips_kill_when_query_finishes_during_race_window() {
-        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
-        let (conn_id_tx, conn_id_rx) = oneshot::channel::<u32>();
-        let kill_called = Arc::new(AtomicU32::new(0));
-        let kill_called_clone = Arc::clone(&kill_called);
-
-        let query_task = tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-            Ok(query_result(
-                vec!["ok".to_string()],
-                vec![vec!["1".to_string()]],
-            ))
-        });
-
-        conn_id_tx.send(99).expect("connection id should be sent");
-        cancel_tx.send(()).expect("cancel signal should be sent");
-
-        let result = await_cancellable_query(
-            query_task,
-            cancel_rx,
-            conn_id_rx,
-            Duration::from_millis(20),
-            Duration::from_millis(5),
-            Duration::from_millis(5),
-            move |_| {
-                let kill_called = Arc::clone(&kill_called_clone);
-                async move {
-                    kill_called.store(1, Ordering::Relaxed);
-                    Ok(())
-                }
-            },
-        )
-        .await
-        .expect("query should win race window and avoid kill");
-
-        assert_eq!(result.columns, vec!["ok".to_string()]);
-        assert_eq!(kill_called.load(Ordering::Relaxed), 0);
-    }
-}
-
 /// 执行 MySQL 查询
 pub async fn execute(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbError> {
     execute_with_connection_id(config, sql, None).await
@@ -868,4 +717,155 @@ pub async fn get_routines(config: &ConnectionConfig) -> Result<Vec<RoutineInfo>,
         .collect();
 
     Ok(routines)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        DbError, await_cancellable_query, build_kill_query_sql, format_cancel_message,
+        query_result, quote_mysql_identifier,
+    };
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+
+    #[test]
+    fn test_quote_mysql_identifier_schema_table() {
+        let quoted = quote_mysql_identifier("my_db.user-table");
+        assert_eq!(quoted, "`my_db`.`user-table`");
+    }
+
+    #[test]
+    fn test_quote_mysql_identifier_escapes_backticks() {
+        let quoted = quote_mysql_identifier("na`me");
+        assert_eq!(quoted, "`na``me`");
+    }
+
+    #[test]
+    fn test_build_kill_query_sql() {
+        assert_eq!(build_kill_query_sql(123), "KILL QUERY 123");
+    }
+
+    #[test]
+    fn test_format_cancel_message_without_detail() {
+        assert_eq!(format_cancel_message(None), "查询已取消");
+    }
+
+    #[test]
+    fn test_format_cancel_message_with_detail() {
+        let msg = format_cancel_message(Some("权限不足".to_string()));
+        assert_eq!(msg, "查询已取消（权限不足）");
+    }
+
+    #[tokio::test]
+    async fn test_await_cancellable_query_returns_result_when_query_completes_first() {
+        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+        let (_conn_id_tx, conn_id_rx) = oneshot::channel::<u32>();
+
+        let query_task = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            Ok(query_result(
+                vec!["id".to_string()],
+                vec![vec!["1".to_string()]],
+            ))
+        });
+
+        let result = await_cancellable_query(
+            query_task,
+            cancel_rx,
+            conn_id_rx,
+            Duration::from_millis(5),
+            Duration::from_millis(5),
+            Duration::from_millis(10),
+            |_| async { Ok(()) },
+        )
+        .await
+        .expect("query should complete before cancellation");
+
+        assert_eq!(result.columns, vec!["id".to_string()]);
+        assert_eq!(result.rows, vec![vec!["1".to_string()]]);
+
+        drop(cancel_tx);
+    }
+
+    #[tokio::test]
+    async fn test_await_cancellable_query_sends_kill_signal_on_cancel() {
+        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+        let (conn_id_tx, conn_id_rx) = oneshot::channel::<u32>();
+        let cancelled_conn_id = Arc::new(AtomicU32::new(0));
+        let cancelled_conn_id_clone = Arc::clone(&cancelled_conn_id);
+
+        let query_task = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            Ok(query_result(Vec::new(), Vec::new()))
+        });
+
+        conn_id_tx.send(88).expect("connection id should be sent");
+        cancel_tx.send(()).expect("cancel signal should be sent");
+
+        let err = await_cancellable_query(
+            query_task,
+            cancel_rx,
+            conn_id_rx,
+            Duration::from_millis(5),
+            Duration::from_millis(5),
+            Duration::from_millis(5),
+            move |conn_id| {
+                let cancelled_conn_id = Arc::clone(&cancelled_conn_id_clone);
+                async move {
+                    cancelled_conn_id.store(conn_id, Ordering::Relaxed);
+                    Ok(())
+                }
+            },
+        )
+        .await
+        .expect_err("query should be cancelled");
+
+        match err {
+            DbError::Query(msg) => assert!(msg.starts_with("查询已取消")),
+            other => panic!("unexpected error type: {}", other),
+        }
+        assert_eq!(cancelled_conn_id.load(Ordering::Relaxed), 88);
+    }
+
+    #[tokio::test]
+    async fn test_await_cancellable_query_skips_kill_when_query_finishes_during_race_window() {
+        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+        let (conn_id_tx, conn_id_rx) = oneshot::channel::<u32>();
+        let kill_called = Arc::new(AtomicU32::new(0));
+        let kill_called_clone = Arc::clone(&kill_called);
+
+        let query_task = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            Ok(query_result(
+                vec!["ok".to_string()],
+                vec![vec!["1".to_string()]],
+            ))
+        });
+
+        conn_id_tx.send(99).expect("connection id should be sent");
+        cancel_tx.send(()).expect("cancel signal should be sent");
+
+        let result = await_cancellable_query(
+            query_task,
+            cancel_rx,
+            conn_id_rx,
+            Duration::from_millis(20),
+            Duration::from_millis(5),
+            Duration::from_millis(5),
+            move |_| {
+                let kill_called = Arc::clone(&kill_called_clone);
+                async move {
+                    kill_called.store(1, Ordering::Relaxed);
+                    Ok(())
+                }
+            },
+        )
+        .await
+        .expect("query should win race window and avoid kill");
+
+        assert_eq!(result.columns, vec!["ok".to_string()]);
+        assert_eq!(kill_called.load(Ordering::Relaxed), 0);
+    }
 }

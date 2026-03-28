@@ -4,8 +4,9 @@
 
 ```bash
 cargo test
-cargo clippy
-cargo fmt
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --check
+nix --extra-experimental-features 'nix-command flakes' flake check --no-write-lock-file
 python scripts/check_doc_links.py
 ```
 

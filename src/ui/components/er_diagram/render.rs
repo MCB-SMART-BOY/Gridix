@@ -752,7 +752,7 @@ impl ERDiagramState {
     /// 处理交互
     fn handle_interaction(&mut self, ui: &egui::Ui, response: &egui::Response, canvas_rect: Rect) {
         // 滚轮缩放
-        let scroll_delta = ui.input(|i| i.raw_scroll_delta);
+        let scroll_delta = ui.input(|i| i.smooth_scroll_delta);
         if response.hovered() && scroll_delta.y != 0.0 {
             let factor = if scroll_delta.y > 0.0 { 1.1 } else { 0.9 };
             self.zoom_by(factor);

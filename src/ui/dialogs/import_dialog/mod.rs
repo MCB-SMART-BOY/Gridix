@@ -634,10 +634,12 @@ mod tests {
 
     #[test]
     fn test_set_format_resets_hidden_copy_mode_for_non_sql() {
-        let mut state = ImportState::default();
-        state.mode = ImportMode::CopyToEditor;
-        state.preview = Some(ImportPreview::default());
-        state.error = Some("old error".to_string());
+        let mut state = ImportState {
+            mode: ImportMode::CopyToEditor,
+            preview: Some(ImportPreview::default()),
+            error: Some("old error".to_string()),
+            ..Default::default()
+        };
 
         ImportDialog::set_format(&mut state, ImportFormat::Csv);
 
@@ -649,9 +651,11 @@ mod tests {
 
     #[test]
     fn test_effective_mode_for_non_sql_forces_execute() {
-        let mut state = ImportState::default();
-        state.format = ImportFormat::Json;
-        state.mode = ImportMode::CopyToEditor;
+        let state = ImportState {
+            format: ImportFormat::Json,
+            mode: ImportMode::CopyToEditor,
+            ..Default::default()
+        };
 
         let effective = ImportDialog::effective_mode_for_format(&state);
         assert_eq!(effective, ImportMode::Execute);

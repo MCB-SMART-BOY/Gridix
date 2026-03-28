@@ -45,8 +45,8 @@ impl FilterPanel {
                 ui.spacing_mut().item_spacing.x = 2.0;
 
                 // 添加按钮
-                if !columns.is_empty() {
-                    if ui
+                if !columns.is_empty()
+                    && ui
                         .add(
                             egui::Button::new(
                                 RichText::new("+")
@@ -58,17 +58,16 @@ impl FilterPanel {
                         )
                         .on_hover_text("添加筛选条件")
                         .clicked()
-                    {
-                        filters.push(ColumnFilter::new(
-                            columns.first().cloned().unwrap_or_default(),
-                        ));
-                        changed = true;
-                    }
+                {
+                    filters.push(ColumnFilter::new(
+                        columns.first().cloned().unwrap_or_default(),
+                    ));
+                    changed = true;
                 }
 
                 // 清空按钮
-                if !filters.is_empty() {
-                    if ui
+                if !filters.is_empty()
+                    && ui
                         .add(
                             egui::Button::new(
                                 RichText::new("×")
@@ -80,10 +79,9 @@ impl FilterPanel {
                         )
                         .on_hover_text("清空全部")
                         .clicked()
-                    {
-                        filters.clear();
-                        changed = true;
-                    }
+                {
+                    filters.clear();
+                    changed = true;
                 }
             });
         });

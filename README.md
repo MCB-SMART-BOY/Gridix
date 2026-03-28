@@ -5,7 +5,7 @@
 **A keyboard-first database manager for command-style workflow**  
 **面向命令式工作流的键盘优先数据库管理工具**
 
-[![Version](https://img.shields.io/badge/version-3.2.1-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
+[![Version](https://img.shields.io/badge/version-3.3.0-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024_edition-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
@@ -137,6 +137,7 @@ Full guide / 完整指南: [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md)
 - Testing / 测试指南: [docs/TESTING.md](docs/TESTING.md)
 - Security / 安全说明: [docs/SECURITY.md](docs/SECURITY.md)
 - Release process / 发布流程: [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md)
+- Distribution guide / 分发指南: [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)
 - Environment variables / 环境变量: [docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md)
 - Contributing guide / 贡献指南: [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
 

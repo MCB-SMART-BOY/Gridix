@@ -63,21 +63,21 @@ impl HistoryPanel {
                 }
 
                 // Enter 选择当前项（使用统一确认处理）
-                if let DialogAction::Confirm = keyboard::handle_dialog_keys(ctx) {
-                    if let Some(item) = history.items().get(state.selected_index) {
-                        *selected_sql = Some(item.sql.clone());
-                        *show = false;
-                        return;
-                    }
+                if let DialogAction::Confirm = keyboard::handle_dialog_keys(ctx)
+                    && let Some(item) = history.items().get(state.selected_index)
+                {
+                    *selected_sql = Some(item.sql.clone());
+                    *show = false;
+                    return;
                 }
 
                 // l 也可以选择当前项（保持 Helix 风格兼容）
-                if ctx.input(|i| i.key_pressed(Key::L)) {
-                    if let Some(item) = history.items().get(state.selected_index) {
-                        *selected_sql = Some(item.sql.clone());
-                        *show = false;
-                        return;
-                    }
+                if ctx.input(|i| i.key_pressed(Key::L))
+                    && let Some(item) = history.items().get(state.selected_index)
+                {
+                    *selected_sql = Some(item.sql.clone());
+                    *show = false;
+                    return;
                 }
             }
         }

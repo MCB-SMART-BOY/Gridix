@@ -44,6 +44,9 @@ This folder contains user-facing and engineering docs for Gridix.
 - [RELEASE_PROCESS.md](RELEASE_PROCESS.md)
   Release trigger, build matrix, and verification checklist.
   发布触发、构建矩阵与校验清单。
+- [DISTRIBUTION.md](DISTRIBUTION.md)
+  AUR/Homebrew/nixpkgs synchronization workflow.
+  AUR/Homebrew/nixpkgs 分发同步流程。
 - [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md)
   Runtime and integration-test environment variable reference.
   运行与集成测试环境变量说明。

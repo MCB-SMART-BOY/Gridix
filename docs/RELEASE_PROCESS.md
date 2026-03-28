@@ -11,8 +11,8 @@ Trigger:
 
 Example:
 ```bash
-git tag v3.2.1
-git push origin v3.2.1
+git tag v3.3.0
+git push origin v3.3.0
 ```
 
 ## 2. Build Matrix | 构建矩阵
@@ -56,7 +56,29 @@ Workflow also generates:
 4. Sync downstream channels if needed (AUR/Homebrew/nixpkgs).
    按需同步下游通道（AUR/Homebrew/nixpkgs）。
 
-## 5. Common Failure Causes | 常见失败原因
+## 5. Distribution Sync | 分发同步
+
+After `vX.Y.Z` release is published, sync package channels in this order:
+`vX.Y.Z` 发布后，按以下顺序同步包管理器渠道：
+
+1. AUR: `gridix` -> `gridix-bin` -> `gridix-appimage`
+2. Homebrew tap
+3. nixpkgs PR branch
+
+Reference doc:
+- [DISTRIBUTION.md](DISTRIBUTION.md)
+
+Useful commands:
+```bash
+# wait release workflow
+gh run list --workflow release.yml --limit 5
+gh run watch <run-id>
+
+# download checksums
+gh release download vX.Y.Z -p SHA256SUMS.txt -D /tmp/gridix-release
+```
+
+## 6. Common Failure Causes | 常见失败原因
 
 - Tag format incorrect (missing leading `v`).
   tag 格式错误（缺少 `v` 前缀）。
@@ -67,7 +89,7 @@ Workflow also generates:
 - Changelog/docs not synchronized with release content.
   changelog/文档未和发布内容同步。
 
-## 6. Rollback Strategy | 回滚策略
+## 7. Rollback Strategy | 回滚策略
 
 If severe issue is found:
 1. Publish hotfix version with incremented tag.

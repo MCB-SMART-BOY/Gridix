@@ -66,14 +66,16 @@ impl PoolManager {
         }
 
         // 创建新连接池，使用常量配置连接池参数
+        let constraints = mysql_async::PoolConstraints::new(
+            constants::database::pool::MYSQL_POOL_MIN_CONNECTIONS,
+            constants::database::pool::MYSQL_POOL_MAX_CONNECTIONS,
+        )
+        .ok_or_else(|| {
+            DbError::Connection("MySQL 连接池配置无效：最小连接数不能大于最大连接数".to_string())
+        })?;
+
         let pool_opts = mysql_async::PoolOpts::default()
-            .with_constraints(
-                mysql_async::PoolConstraints::new(
-                    constants::database::pool::MYSQL_POOL_MIN_CONNECTIONS,
-                    constants::database::pool::MYSQL_POOL_MAX_CONNECTIONS,
-                )
-                .expect("连接池约束无效"),
-            )
+            .with_constraints(constraints)
             // 空闲连接超时：超过此时间未使用的连接将被关闭
             .with_inactive_connection_ttl(std::time::Duration::from_secs(
                 constants::database::pool::MYSQL_IDLE_TIMEOUT_SECS,

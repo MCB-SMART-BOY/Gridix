@@ -382,7 +382,11 @@ impl AutoComplete {
         }
     }
 
-    fn extend_contextual_suggestions(&self, upper_text: &str, completions: &mut Vec<CompletionItem>) {
+    fn extend_contextual_suggestions(
+        &self,
+        upper_text: &str,
+        completions: &mut Vec<CompletionItem>,
+    ) {
         let trimmed = upper_text.trim_end();
 
         if trimmed.ends_with("SELECT") || trimmed.ends_with("SELECT DISTINCT") {
