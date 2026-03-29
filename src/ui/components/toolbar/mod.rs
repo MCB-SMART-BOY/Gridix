@@ -348,17 +348,17 @@ impl Toolbar {
 
         ui.input(|i| {
             // h/左箭头: 向左移动
-            if i.key_pressed(egui::Key::H) || i.key_pressed(egui::Key::ArrowLeft) {
-                if *toolbar_index > 0 {
-                    *toolbar_index -= 1;
-                }
+            if (i.key_pressed(egui::Key::H) || i.key_pressed(egui::Key::ArrowLeft))
+                && *toolbar_index > 0
+            {
+                *toolbar_index -= 1;
             }
 
             // l/右箭头: 向右移动
-            if i.key_pressed(egui::Key::L) || i.key_pressed(egui::Key::ArrowRight) {
-                if *toolbar_index < TOOLBAR_ITEMS - 1 {
-                    *toolbar_index += 1;
-                }
+            if (i.key_pressed(egui::Key::L) || i.key_pressed(egui::Key::ArrowRight))
+                && *toolbar_index < TOOLBAR_ITEMS - 1
+            {
+                *toolbar_index += 1;
             }
 
             // j/下箭头: 向下进入Tab栏

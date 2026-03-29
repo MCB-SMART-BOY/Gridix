@@ -314,6 +314,8 @@ pub(crate) struct SqlUiHints {
     pub is_update_or_delete: bool,
     pub is_insert: bool,
     pub is_drop_table: bool,
+    pub is_create_database: bool,
+    pub is_create_user_or_role: bool,
 }
 
 /// 分析 SQL 的主动作（忽略前导注释/空白，支持 WITH 主语句）
@@ -339,6 +341,16 @@ pub(crate) fn analyze_sql_for_ui(sql: &str) -> SqlUiHints {
                 && next_keyword == "table"
             {
                 hints.is_drop_table = true;
+            }
+        }
+        "create" => {
+            i = skip_sql_ws_and_comments(sql, i);
+            if let Some(next_keyword) = read_sql_keyword(sql, &mut i) {
+                match next_keyword.as_str() {
+                    "database" | "schema" => hints.is_create_database = true,
+                    "user" | "role" => hints.is_create_user_or_role = true,
+                    _ => {}
+                }
             }
         }
         _ => {}
@@ -755,6 +767,8 @@ mod tests {
         assert!(hints.is_update_or_delete);
         assert!(!hints.is_insert);
         assert!(!hints.is_drop_table);
+        assert!(!hints.is_create_database);
+        assert!(!hints.is_create_user_or_role);
     }
 
     #[test]
@@ -763,6 +777,33 @@ mod tests {
         assert!(!hints.is_update_or_delete);
         assert!(!hints.is_insert);
         assert!(hints.is_drop_table);
+        assert!(!hints.is_create_database);
+        assert!(!hints.is_create_user_or_role);
+    }
+
+    #[test]
+    fn test_analyze_sql_for_ui_create_database() {
+        let hints = analyze_sql_for_ui("/* onboarding */\nCREATE DATABASE \"demo\";");
+        assert!(hints.is_create_database);
+        assert!(!hints.is_create_user_or_role);
+        assert!(!hints.is_drop_table);
+    }
+
+    #[test]
+    fn test_analyze_sql_for_ui_create_user_or_role() {
+        let hints = analyze_sql_for_ui("CREATE USER \"student\" WITH PASSWORD 'secret';");
+        assert!(hints.is_create_user_or_role);
+        assert!(!hints.is_create_database);
+
+        let role_hints = analyze_sql_for_ui("CREATE ROLE readonly LOGIN;");
+        assert!(role_hints.is_create_user_or_role);
+    }
+
+    #[test]
+    fn test_analyze_sql_for_ui_ignore_non_create_targets() {
+        let hints = analyze_sql_for_ui("CREATE TABLE students(id INTEGER);");
+        assert!(!hints.is_create_database);
+        assert!(!hints.is_create_user_or_role);
     }
 }
 

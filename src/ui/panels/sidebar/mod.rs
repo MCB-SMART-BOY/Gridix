@@ -423,11 +423,11 @@ impl Sidebar {
             }
             ListNavigation::Toggle => {
                 // Space：在 Filters section 切换启用状态
-                if focused_section == SidebarSection::Filters {
-                    if let Some(filter) = filters.get_mut(*selected_index) {
-                        filter.enabled = !filter.enabled;
-                        actions.filter_changed = true;
-                    }
+                if focused_section == SidebarSection::Filters
+                    && let Some(filter) = filters.get_mut(*selected_index)
+                {
+                    filter.enabled = !filter.enabled;
+                    actions.filter_changed = true;
                 }
             }
             ListNavigation::Delete => {
@@ -538,12 +538,11 @@ impl Sidebar {
         ctx.input(|i| {
             // gs：查看表结构（需要在 Tables section）
             if i.key_pressed(Key::S) && panel_state.command_buffer == "g" {
-                if let SidebarSection::Tables = focused_section {
-                    if let Some(conn) = connection_manager.get_active()
-                        && let Some(table) = conn.tables.get(*selected_index)
-                    {
-                        actions.show_table_schema = Some(table.clone());
-                    }
+                if let SidebarSection::Tables = focused_section
+                    && let Some(conn) = connection_manager.get_active()
+                    && let Some(table) = conn.tables.get(*selected_index)
+                {
+                    actions.show_table_schema = Some(table.clone());
                 }
                 panel_state.command_buffer.clear();
             }
@@ -629,25 +628,26 @@ impl Sidebar {
             }
 
             // x：在 Filters section 也支持删除（Helix 风格）
-            if i.key_pressed(Key::X) && focused_section == SidebarSection::Filters {
-                if *selected_index < filters.len() {
-                    filters.remove(*selected_index);
-                    if *selected_index >= filters.len() && !filters.is_empty() {
-                        *selected_index = filters.len() - 1;
-                    }
-                    actions.filter_changed = true;
+            if i.key_pressed(Key::X)
+                && focused_section == SidebarSection::Filters
+                && *selected_index < filters.len()
+            {
+                filters.remove(*selected_index);
+                if *selected_index >= filters.len() && !filters.is_empty() {
+                    *selected_index = filters.len() - 1;
                 }
+                actions.filter_changed = true;
             }
 
             // e：编辑选中的连接配置
-            if i.key_pressed(Key::E) && !i.modifiers.ctrl {
-                if let SidebarSection::Connections = focused_section {
-                    let mut names: Vec<_> =
-                        connection_manager.connections.keys().cloned().collect();
-                    names.sort_unstable();
-                    if let Some(name) = names.get(*selected_index) {
-                        actions.edit_connection = Some(name.clone());
-                    }
+            if i.key_pressed(Key::E)
+                && !i.modifiers.ctrl
+                && let SidebarSection::Connections = focused_section
+            {
+                let mut names: Vec<_> = connection_manager.connections.keys().cloned().collect();
+                names.sort_unstable();
+                if let Some(name) = names.get(*selected_index) {
+                    actions.edit_connection = Some(name.clone());
                 }
             }
 
@@ -701,57 +701,52 @@ impl Sidebar {
                 }
 
                 // w：切换筛选对象（列）到下一个（Helix: w = word forward）
-                if i.key_pressed(Key::W) && !i.modifiers.ctrl {
-                    if *selected_index < filters.len() {
-                        actions.cycle_filter_column = Some((*selected_index, true));
-                    }
+                if i.key_pressed(Key::W) && !i.modifiers.ctrl && *selected_index < filters.len() {
+                    actions.cycle_filter_column = Some((*selected_index, true));
                 }
 
                 // b：切换筛选对象（列）到上一个（Helix: b = word backward）
-                if i.key_pressed(Key::B) && !i.modifiers.ctrl {
-                    if *selected_index < filters.len() {
-                        actions.cycle_filter_column = Some((*selected_index, false));
-                    }
+                if i.key_pressed(Key::B) && !i.modifiers.ctrl && *selected_index < filters.len() {
+                    actions.cycle_filter_column = Some((*selected_index, false));
                 }
 
                 // n：切换筛选规则（操作符）到下一个（Helix: n = next search）
-                if i.key_pressed(Key::N) && !i.modifiers.ctrl && !i.modifiers.shift {
-                    if let Some(filter) = filters.get_mut(*selected_index) {
-                        filter.operator = next_operator(&filter.operator);
-                        actions.filter_changed = true;
-                    }
+                if i.key_pressed(Key::N)
+                    && !i.modifiers.ctrl
+                    && !i.modifiers.shift
+                    && let Some(filter) = filters.get_mut(*selected_index)
+                {
+                    filter.operator = next_operator(&filter.operator);
+                    actions.filter_changed = true;
                 }
 
                 // N (Shift+n)：切换筛选规则（操作符）到上一个
-                if i.key_pressed(Key::N) && i.modifiers.shift {
-                    if let Some(filter) = filters.get_mut(*selected_index) {
-                        filter.operator = prev_operator(&filter.operator);
-                        actions.filter_changed = true;
-                    }
+                if i.key_pressed(Key::N)
+                    && i.modifiers.shift
+                    && let Some(filter) = filters.get_mut(*selected_index)
+                {
+                    filter.operator = prev_operator(&filter.operator);
+                    actions.filter_changed = true;
                 }
 
                 // t：切换当前筛选条件的 AND/OR 逻辑
-                if i.key_pressed(Key::T) {
-                    if *selected_index < filters.len() {
-                        actions.toggle_filter_logic = Some(*selected_index);
-                    }
+                if i.key_pressed(Key::T) && *selected_index < filters.len() {
+                    actions.toggle_filter_logic = Some(*selected_index);
                 }
 
                 // i：编辑筛选值（Helix: i = insert mode）
-                if i.key_pressed(Key::I) {
-                    if *selected_index < filters.len() {
-                        actions.focus_filter_input = Some(*selected_index);
-                    }
+                if i.key_pressed(Key::I) && *selected_index < filters.len() {
+                    actions.focus_filter_input = Some(*selected_index);
                 }
 
                 // s：切换大小写敏感（Helix: s = select）
-                if i.key_pressed(Key::S) && panel_state.command_buffer.is_empty() {
-                    if let Some(filter) = filters.get_mut(*selected_index) {
-                        if filter.operator.supports_case_sensitivity() {
-                            filter.case_sensitive = !filter.case_sensitive;
-                            actions.filter_changed = true;
-                        }
-                    }
+                if i.key_pressed(Key::S)
+                    && panel_state.command_buffer.is_empty()
+                    && let Some(filter) = filters.get_mut(*selected_index)
+                    && filter.operator.supports_case_sensitivity()
+                {
+                    filter.case_sensitive = !filter.case_sensitive;
+                    actions.filter_changed = true;
                 }
             }
         });
@@ -779,10 +774,10 @@ impl Sidebar {
                 }
             }
             SidebarSection::Tables => {
-                if let Some(conn) = connection_manager.get_active() {
-                    if let Some(table) = conn.tables.get(selected_index) {
-                        actions.delete = Some(format!("table:{}", table));
-                    }
+                if let Some(conn) = connection_manager.get_active()
+                    && let Some(table) = conn.tables.get(selected_index)
+                {
+                    actions.delete = Some(format!("table:{}", table));
                 }
             }
             SidebarSection::Filters => {

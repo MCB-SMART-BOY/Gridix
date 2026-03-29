@@ -143,6 +143,14 @@ impl WelcomeOnboardingStatus {
 
 pub struct Welcome;
 
+struct DatabaseCardSpec<'a> {
+    db_type: DatabaseType,
+    icon: &'a str,
+    name: &'a str,
+    desc: &'a str,
+    accent_color: Color32,
+}
+
 impl Welcome {
     pub fn show(ui: &mut egui::Ui, status: WelcomeStatusSummary) -> Option<WelcomeAction> {
         let mut action = None;
@@ -275,11 +283,13 @@ impl Welcome {
 
             let sqlite = Self::database_card(
                 ui,
-                DatabaseType::SQLite,
-                "S",
-                "SQLite",
-                "本地文件数据库",
-                Color32::from_rgb(80, 160, 220),
+                DatabaseCardSpec {
+                    db_type: DatabaseType::SQLite,
+                    icon: "S",
+                    name: "SQLite",
+                    desc: "本地文件数据库",
+                    accent_color: Color32::from_rgb(80, 160, 220),
+                },
                 card_width,
                 status.state_for(DatabaseType::SQLite),
                 compact,
@@ -290,11 +300,13 @@ impl Welcome {
 
             let postgres = Self::database_card(
                 ui,
-                DatabaseType::PostgreSQL,
-                "P",
-                "PostgreSQL",
-                "企业级关系数据库",
-                Color32::from_rgb(80, 130, 180),
+                DatabaseCardSpec {
+                    db_type: DatabaseType::PostgreSQL,
+                    icon: "P",
+                    name: "PostgreSQL",
+                    desc: "企业级关系数据库",
+                    accent_color: Color32::from_rgb(80, 130, 180),
+                },
                 card_width,
                 status.state_for(DatabaseType::PostgreSQL),
                 compact,
@@ -305,11 +317,13 @@ impl Welcome {
 
             let mysql = Self::database_card(
                 ui,
-                DatabaseType::MySQL,
-                "M",
-                "MySQL/MariaDB",
-                "流行的开源数据库",
-                Color32::from_rgb(200, 120, 60),
+                DatabaseCardSpec {
+                    db_type: DatabaseType::MySQL,
+                    icon: "M",
+                    name: "MySQL/MariaDB",
+                    desc: "流行的开源数据库",
+                    accent_color: Color32::from_rgb(200, 120, 60),
+                },
                 card_width,
                 status.state_for(DatabaseType::MySQL),
                 compact,
@@ -325,15 +339,18 @@ impl Welcome {
     /// 单个数据库卡片
     fn database_card(
         ui: &mut egui::Ui,
-        db_type: DatabaseType,
-        icon: &str,
-        name: &str,
-        desc: &str,
-        accent_color: Color32,
+        spec: DatabaseCardSpec<'_>,
         width: f32,
         status: WelcomeServiceState,
         compact: bool,
     ) -> Option<WelcomeAction> {
+        let DatabaseCardSpec {
+            db_type,
+            icon,
+            name,
+            desc,
+            accent_color,
+        } = spec;
         let mut setup_clicked = false;
         let frame_response = egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(
@@ -385,11 +402,7 @@ impl Welcome {
                         accent_color,
                     );
 
-                    ui.add_space(if compact {
-                        4.0
-                    } else {
-                        SPACING_SM + 2.0
-                    });
+                    ui.add_space(if compact { 4.0 } else { SPACING_SM + 2.0 });
                     ui.label(
                         RichText::new(name)
                             .size(if compact { 16.5 } else { 18.0 })

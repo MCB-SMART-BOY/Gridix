@@ -325,7 +325,7 @@ impl SqlEditor {
                                 } else {
                                     "双击进入编辑模式, Ctrl+Enter 执行"
                                 })
-                                .frame(false)
+                                .frame(egui::Frame::NONE)
                                 .margin(Vec2::new(8.0, 0.0))
                                 .interactive(is_insert_mode)
                                 .lock_focus(is_insert_mode)
@@ -713,10 +713,10 @@ impl SqlEditor {
             }
 
             // Shift+↑↓ 或 K/J 历史导航
-            let history_up = (i.modifiers.shift && i.key_pressed(Key::ArrowUp))
-                || (i.key_pressed(Key::K) && i.modifiers.shift);
-            let history_down = (i.modifiers.shift && i.key_pressed(Key::ArrowDown))
-                || (i.key_pressed(Key::J) && i.modifiers.shift);
+            let history_up =
+                (i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp)) && i.modifiers.shift;
+            let history_down =
+                (i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown)) && i.modifiers.shift;
 
             if history_up && !command_history.is_empty() {
                 let new_idx = match *history_index {
@@ -793,13 +793,12 @@ impl SqlEditor {
             }
 
             // Ctrl+Space 或 Alt+L 触发补全
-            if (i.modifiers.ctrl && i.key_pressed(Key::Space))
-                || (i.modifiers.alt && i.key_pressed(Key::L))
+            if ((i.modifiers.ctrl && i.key_pressed(Key::Space))
+                || (i.modifiers.alt && i.key_pressed(Key::L)))
+                && has_completions
             {
-                if has_completions {
-                    *show_autocomplete = true;
-                    *selected_completion = 0;
-                }
+                *show_autocomplete = true;
+                *selected_completion = 0;
             }
 
             // Tab: 无补全弹窗时优先打开补全，避免触发焦点转移
@@ -824,21 +823,19 @@ impl SqlEditor {
                         *selected_completion -= 1;
                     }
                 }
-                let tab_confirm = completion_key_input.confirm_tab
-                    || i.consume_key(Modifiers::NONE, Key::Tab);
+                let tab_confirm =
+                    completion_key_input.confirm_tab || i.consume_key(Modifiers::NONE, Key::Tab);
                 let enter_confirm = completion_key_input.confirm_enter
                     || i.consume_key(Modifiers::NONE, Key::Enter);
-                if tab_confirm || enter_confirm {
-                    if *selected_completion < completions.len() {
-                        let new_cursor = apply_completion_at_cursor(
-                            sql_input,
-                            cursor_pos,
-                            &completions[*selected_completion].insert_text,
-                        );
-                        *completion_cursor_target = Some(new_cursor);
-                        actions.text_changed = true;
-                        *show_autocomplete = false;
-                    }
+                if (tab_confirm || enter_confirm) && *selected_completion < completions.len() {
+                    let new_cursor = apply_completion_at_cursor(
+                        sql_input,
+                        cursor_pos,
+                        &completions[*selected_completion].insert_text,
+                    );
+                    *completion_cursor_target = Some(new_cursor);
+                    actions.text_changed = true;
+                    *show_autocomplete = false;
                 }
             }
 

@@ -15,7 +15,7 @@ impl DbManagerApp {
         let has_dialog = self.has_modal_dialog_open();
         let editor_has_priority = self.show_sql_editor
             && (self.focus_area == ui::FocusArea::SqlEditor || self.focus_sql_editor);
-        let keyboard_captured = ctx.wants_keyboard_input();
+        let keyboard_captured = ctx.egui_wants_keyboard_input();
         let keybindings = self.keybindings.clone();
 
         ctx.input(|i| {
@@ -218,13 +218,13 @@ impl DbManagerApp {
             }
 
             // Tab: 焦点循环导航（侧边栏 -> 数据表格 -> SQL编辑器 -> 侧边栏）
-            if !i.modifiers.ctrl
-                && !i.modifiers.alt
-                && !(self.show_sql_editor && self.editor_mode == ui::EditorMode::Insert)
-                && !editor_has_priority
-                && !keyboard_captured
-                && !self.show_autocomplete
-                && i.key_pressed(egui::Key::Tab)
+            if i.key_pressed(egui::Key::Tab)
+                && !(i.modifiers.ctrl
+                    || i.modifiers.alt
+                    || editor_has_priority
+                    || keyboard_captured
+                    || self.show_autocomplete
+                    || (self.show_sql_editor && self.editor_mode == ui::EditorMode::Insert))
             {
                 self.cycle_focus(i.modifiers.shift);
             }
@@ -431,8 +431,8 @@ impl DbManagerApp {
             }
 
             // Ctrl+滚轮缩放
-            if i.modifiers.ctrl && i.raw_scroll_delta.y != 0.0 {
-                delta = i.raw_scroll_delta.y * 0.001;
+            if i.modifiers.ctrl && i.smooth_scroll_delta.y != 0.0 {
+                delta = i.smooth_scroll_delta.y * 0.001;
             }
 
             if delta != 0.0 { Some(delta) } else { None }

@@ -219,9 +219,6 @@ fn filter_rows_internal<'a>(
                     &filter_col_indices,
                 )
             })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .map(|(idx, row)| (idx, row))
             .collect()
     } else {
         result

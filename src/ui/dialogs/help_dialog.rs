@@ -12,6 +12,8 @@ use egui::{self, Color32, Key, RichText, ScrollArea, Vec2};
 mod learning;
 #[path = "help_dialog/tool_guide.rs"]
 mod tool_guide;
+#[path = "help_dialog/topic_content.rs"]
+mod topic_content;
 #[path = "help_dialog/types.rs"]
 mod types;
 

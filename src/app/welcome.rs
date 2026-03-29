@@ -256,52 +256,10 @@ impl DbManagerApp {
                     });
 
                 ui.add_space(10.0);
-
-                egui::Frame::group(ui.style())
-                    .inner_margin(egui::Margin::symmetric(12, 10))
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new("安装步骤").strong());
-                        ui.add_space(6.0);
-                        match db_type {
-                            DatabaseType::SQLite => {
-                                ui.label("SQLite 由 Gridix 内置支持，不需要单独安装服务。");
-                                ui.label("你只需要创建一个本地 .db/.sqlite3 文件即可开始。");
-                            }
-                            DatabaseType::PostgreSQL => {
-                                ui.label("Windows: 可用 winget 安装 PostgreSQL 官方包。");
-                                ui.label("macOS: 可用 brew 安装并启动 postgresql。");
-                                ui.label("Linux: 可用 apt/dnf/pacman 安装 postgresql 服务。");
-                                ui.label(
-                                    "安装后请确认 5432 端口服务已启动，再回到 Gridix 新建连接。",
-                                );
-                            }
-                            DatabaseType::MySQL => {
-                                ui.label("Windows: 可用 winget 安装 MySQL 或 MariaDB。");
-                                ui.label("macOS: 可用 brew 安装 mysql 并启动服务。");
-                                ui.label("Linux: 可用 apt/dnf/pacman 安装 mysql/mariadb 服务。");
-                                ui.label(
-                                    "安装后请确认 3306 端口服务已启动，再回到 Gridix 新建连接。",
-                                );
-                            }
-                        }
-                    });
+                Self::show_setup_section(ui, "安装步骤", Self::installation_steps(db_type));
 
                 ui.add_space(10.0);
-                egui::Frame::group(ui.style())
-                    .inner_margin(egui::Margin::symmetric(12, 10))
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new("初始化与账号").strong());
-                        ui.add_space(6.0);
-                        match db_type {
-                            DatabaseType::SQLite => {
-                                ui.label("SQLite 不需要用户管理。建议先创建一个学习数据库文件。");
-                            }
-                            DatabaseType::PostgreSQL | DatabaseType::MySQL => {
-                                ui.label("安装完成后建议先创建业务数据库，再创建应用用户并授权。");
-                                ui.label("如果你还没连接到数据库，先点击“打开新建连接”。");
-                            }
-                        }
-                    });
+                Self::show_setup_section(ui, "初始化与账号", Self::initialization_steps(db_type));
 
                 ui.add_space(12.0);
                 ui.horizontal_wrapped(|ui| {
@@ -319,12 +277,12 @@ impl DbManagerApp {
                         close_now = true;
                     }
 
-                    if matches!(db_type, DatabaseType::PostgreSQL | DatabaseType::MySQL) {
-                        if ui.button("创建用户").clicked() {
-                            let databases = self.pick_databases_for_user_dialog(db_type);
-                            self.create_user_dialog_state.open(db_type, databases);
-                            close_now = true;
-                        }
+                    if matches!(db_type, DatabaseType::PostgreSQL | DatabaseType::MySQL)
+                        && ui.button("创建用户").clicked()
+                    {
+                        let databases = self.pick_databases_for_user_dialog(db_type);
+                        self.create_user_dialog_state.open(db_type, databases);
+                        close_now = true;
                     }
 
                     if ui.button("执行首条查询").clicked() {
@@ -381,6 +339,49 @@ impl DbManagerApp {
         self.show_connection_dialog = true;
     }
 
+    fn show_setup_section(ui: &mut egui::Ui, title: &str, lines: &[&str]) {
+        egui::Frame::group(ui.style())
+            .inner_margin(egui::Margin::symmetric(12, 10))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new(title).strong());
+                ui.add_space(6.0);
+                for line in lines {
+                    ui.label(*line);
+                }
+            });
+    }
+
+    fn installation_steps(db_type: DatabaseType) -> &'static [&'static str] {
+        match db_type {
+            DatabaseType::SQLite => &[
+                "SQLite 由 Gridix 内置支持，不需要单独安装服务。",
+                "你只需要创建一个本地 .db/.sqlite3 文件即可开始。",
+            ],
+            DatabaseType::PostgreSQL => &[
+                "Windows: 可用 winget 安装 PostgreSQL 官方包。",
+                "macOS: 可用 brew 安装并启动 postgresql。",
+                "Linux: 可用 apt/dnf/pacman 安装 postgresql 服务。",
+                "安装后请确认 5432 端口服务已启动，再回到 Gridix 新建连接。",
+            ],
+            DatabaseType::MySQL => &[
+                "Windows: 可用 winget 安装 MySQL 或 MariaDB。",
+                "macOS: 可用 brew 安装 mysql 并启动服务。",
+                "Linux: 可用 apt/dnf/pacman 安装 mysql/mariadb 服务。",
+                "安装后请确认 3306 端口服务已启动，再回到 Gridix 新建连接。",
+            ],
+        }
+    }
+
+    fn initialization_steps(db_type: DatabaseType) -> &'static [&'static str] {
+        match db_type {
+            DatabaseType::SQLite => &["SQLite 不需要用户管理。建议先创建一个学习数据库文件。"],
+            DatabaseType::PostgreSQL | DatabaseType::MySQL => &[
+                "安装完成后建议先创建业务数据库，再创建应用用户并授权。",
+                "如果你还没连接到数据库，先点击“打开新建连接”。",
+            ],
+        }
+    }
+
     fn pick_databases_for_user_dialog(&self, db_type: DatabaseType) -> Vec<String> {
         if let Some(conn) = self.manager.get_active()
             && conn.config.db_type == db_type
@@ -403,27 +404,19 @@ impl DbManagerApp {
     }
 
     fn detect_postgres_status() -> ui::WelcomeServiceState {
-        let port_open = Self::probe_local_port(5432);
-        let command_found = port_open
-            || Self::command_available("psql", &["--version"])
-            || Self::command_available("postgres", &["--version"])
-            || Self::command_available("pg_ctl", &["--version"]);
-
-        if port_open {
-            ui::WelcomeServiceState::Running
-        } else if command_found {
-            ui::WelcomeServiceState::InstalledNotRunning
-        } else {
-            ui::WelcomeServiceState::NotDetected
-        }
+        Self::detect_service_status(5432, &["psql", "postgres", "pg_ctl"])
     }
 
     fn detect_mysql_status() -> ui::WelcomeServiceState {
-        let port_open = Self::probe_local_port(3306);
+        Self::detect_service_status(3306, &["mysql", "mysqld", "mariadb"])
+    }
+
+    fn detect_service_status(port: u16, commands: &[&str]) -> ui::WelcomeServiceState {
+        let port_open = Self::probe_local_port(port);
         let command_found = port_open
-            || Self::command_available("mysql", &["--version"])
-            || Self::command_available("mysqld", &["--version"])
-            || Self::command_available("mariadb", &["--version"]);
+            || commands
+                .iter()
+                .any(|program| Self::command_available(program, &["--version"]));
 
         if port_open {
             ui::WelcomeServiceState::Running
@@ -442,8 +435,8 @@ impl DbManagerApp {
     fn command_available(program: &str, args: &[&str]) -> bool {
         Command::new(program)
             .args(args)
-            .output()
-            .map(|output| output.status.success())
+            .status()
+            .map(|_| true)
             .unwrap_or(false)
     }
 

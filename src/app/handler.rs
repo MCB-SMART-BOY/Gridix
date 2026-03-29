@@ -7,6 +7,15 @@ use eframe::egui;
 use super::{DbManagerApp, Message};
 use crate::ui;
 
+struct QueryDonePayload {
+    sql: String,
+    conn_name: String,
+    tab_id: String,
+    request_id: u64,
+    result: Result<crate::database::QueryResult, String>,
+    elapsed_ms: u64,
+}
+
 fn is_cancelled_query_error(err: &str) -> bool {
     let trimmed = err.trim();
     if trimmed.starts_with("查询已取消") {
@@ -38,7 +47,15 @@ impl DbManagerApp {
                 }
                 Message::QueryDone(sql, conn_name, tab_id, request_id, result, elapsed_ms) => {
                     self.handle_query_done(
-                        ctx, sql, conn_name, tab_id, request_id, result, elapsed_ms,
+                        ctx,
+                        QueryDonePayload {
+                            sql,
+                            conn_name,
+                            tab_id,
+                            request_id,
+                            result,
+                            elapsed_ms,
+                        },
                     );
                 }
                 Message::ImportDone(result, elapsed_ms) => {
@@ -230,17 +247,16 @@ impl DbManagerApp {
     }
 
     /// 处理查询完成消息
-    fn handle_query_done(
-        &mut self,
-        ctx: &egui::Context,
-        sql: String,
-        conn_name: String,
-        tab_id: String,
-        request_id: u64,
-        result: Result<crate::database::QueryResult, String>,
-        elapsed_ms: u64,
-    ) {
+    fn handle_query_done(&mut self, ctx: &egui::Context, payload: QueryDonePayload) {
         use crate::core::constants;
+        let QueryDonePayload {
+            sql,
+            conn_name,
+            tab_id,
+            request_id,
+            result,
+            elapsed_ms,
+        } = payload;
 
         self.finalize_query_task(request_id);
         self.last_query_time_ms = Some(elapsed_ms);
@@ -264,6 +280,12 @@ impl DbManagerApp {
 
         match result {
             Ok(mut res) => {
+                if sql_hints.is_create_database {
+                    self.mark_onboarding_database_initialized();
+                }
+                if sql_hints.is_create_user_or_role {
+                    self.mark_onboarding_user_created();
+                }
                 self.mark_onboarding_first_query_executed();
                 // 查询层已执行结果集限流；这里保留兼容兜底（避免旧路径漏限流）
                 let mut original_rows = res.original_row_count.unwrap_or(res.rows.len());

@@ -2,6 +2,8 @@
 //!
 //! 将对话框的渲染和事件处理从主 update 循环中分离出来。
 
+use std::path::{Path, PathBuf};
+
 use super::DbManagerApp;
 use crate::core::KeyBindings;
 use crate::ui::{self, ExportConfig, KeyBindingsDialog};
@@ -219,15 +221,23 @@ impl DbManagerApp {
         if let Some(sql) = results.create_db_sql {
             if sql.starts_with("SQLITE_CREATE:") {
                 let path = sql.trim_start_matches("SQLITE_CREATE:");
-                self.notifications
-                    .info(format!("SQLite 数据库将创建于: {}", path));
+                match self.initialize_sqlite_database(path) {
+                    Ok(created_path) => {
+                        self.notifications
+                            .success(format!("SQLite 数据库已初始化: {}", created_path.display()));
+                        self.mark_onboarding_database_initialized();
+                    }
+                    Err(error) => {
+                        self.notifications
+                            .error(format!("SQLite 初始化失败: {}", error));
+                    }
+                }
             } else {
                 self.sql = sql;
                 self.show_sql_editor = true;
                 self.focus_sql_editor = true;
                 self.notifications.info("SQL 已生成，按 Ctrl+Enter 执行");
             }
-            self.mark_onboarding_database_initialized();
         }
 
         // 处理创建用户
@@ -236,7 +246,6 @@ impl DbManagerApp {
             self.show_sql_editor = true;
             self.focus_sql_editor = true;
             self.notifications.info("SQL 已生成，按 Ctrl+Enter 执行");
-            self.mark_onboarding_user_created();
         }
 
         // 处理历史记录
@@ -262,5 +271,25 @@ impl DbManagerApp {
                 self.notifications.success("快捷键设置已保存");
             }
         }
+    }
+
+    fn initialize_sqlite_database(&self, raw_path: &str) -> Result<PathBuf, String> {
+        let normalized = raw_path.trim();
+        if normalized.is_empty() {
+            return Err("路径为空".to_string());
+        }
+
+        let path = PathBuf::from(normalized);
+        if let Some(parent) = path.parent()
+            && parent != Path::new("")
+        {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("创建目录失败 ({}): {}", parent.display(), e))?;
+        }
+
+        rusqlite::Connection::open(&path)
+            .map_err(|e| format!("创建/打开 SQLite 文件失败 ({}): {}", path.display(), e))?;
+
+        Ok(path)
     }
 }

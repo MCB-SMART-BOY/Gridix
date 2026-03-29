@@ -98,29 +98,28 @@ impl CreateDbDialogState {
 
     /// 生成 SQL 语句
     pub fn generate_sql(&self) -> Result<String, String> {
-        // 验证数据库名
-        if self.db_name.is_empty() {
-            return Err("数据库名称不能为空".to_string());
-        }
-
-        // 验证数据库名格式
-        if !self
-            .db_name
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_')
-        {
-            return Err("数据库名只能包含字母、数字和下划线".to_string());
-        }
-
         match self.db_type {
-            DatabaseType::MySQL => self.generate_mysql_sql(),
-            DatabaseType::PostgreSQL => self.generate_postgres_sql(),
             DatabaseType::SQLite => self.generate_sqlite_sql(),
+            DatabaseType::MySQL | DatabaseType::PostgreSQL => {
+                let db_name = self.db_name.trim();
+                if db_name.is_empty() {
+                    return Err("数据库名称不能为空".to_string());
+                }
+                if !db_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    return Err("数据库名只能包含字母、数字和下划线".to_string());
+                }
+
+                match self.db_type {
+                    DatabaseType::MySQL => self.generate_mysql_sql(),
+                    DatabaseType::PostgreSQL => self.generate_postgres_sql(),
+                    DatabaseType::SQLite => unreachable!(),
+                }
+            }
         }
     }
 
     fn generate_mysql_sql(&self) -> Result<String, String> {
-        let mut sql = format!("CREATE DATABASE `{}`", self.db_name);
+        let mut sql = format!("CREATE DATABASE `{}`", self.db_name.trim());
 
         if !self.charset.is_empty() {
             sql.push_str(&format!(" CHARACTER SET {}", self.charset));
@@ -135,7 +134,7 @@ impl CreateDbDialogState {
     }
 
     fn generate_postgres_sql(&self) -> Result<String, String> {
-        let mut sql = format!("CREATE DATABASE \"{}\"", self.db_name);
+        let mut sql = format!("CREATE DATABASE \"{}\"", self.db_name.trim());
 
         if !self.encoding.is_empty() {
             sql.push_str(&format!(" ENCODING '{}'", self.encoding));
@@ -156,15 +155,22 @@ impl CreateDbDialogState {
     fn generate_sqlite_sql(&self) -> Result<String, String> {
         // SQLite 不需要 CREATE DATABASE 语句
         // 只需要连接到新文件即可创建
-        if self.sqlite_path.is_empty() && self.db_name.is_empty() {
+        let sqlite_path = self.sqlite_path.trim();
+        let db_name = self.db_name.trim();
+        if sqlite_path.is_empty() && db_name.is_empty() {
             return Err("请指定数据库文件路径或名称".to_string());
         }
 
         // 返回文件路径作为特殊标记
-        let path = if self.sqlite_path.is_empty() {
-            format!("{}.db", self.db_name)
+        let path = if sqlite_path.is_empty() {
+            let lower = db_name.to_ascii_lowercase();
+            if lower.ends_with(".db") || lower.ends_with(".sqlite") || lower.ends_with(".sqlite3") {
+                db_name.to_string()
+            } else {
+                format!("{db_name}.db")
+            }
         } else {
-            self.sqlite_path.clone()
+            sqlite_path.to_string()
         };
 
         Ok(format!("SQLITE_CREATE:{}", path))
@@ -433,5 +439,47 @@ impl CreateDbDialog {
                     .color(Color32::from_rgb(120, 120, 120)),
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sqlite_accepts_path_without_db_name() {
+        let mut state = CreateDbDialogState {
+            db_type: DatabaseType::SQLite,
+            ..Default::default()
+        };
+        state.sqlite_path = "/tmp/gridix-learning.sqlite3".to_string();
+        let sql = state
+            .generate_sql()
+            .expect("sqlite path should be accepted");
+        assert_eq!(sql, "SQLITE_CREATE:/tmp/gridix-learning.sqlite3");
+    }
+
+    #[test]
+    fn sqlite_keeps_existing_extension() {
+        let state = CreateDbDialogState {
+            db_type: DatabaseType::SQLite,
+            db_name: "demo.sqlite3".to_string(),
+            ..Default::default()
+        };
+        let sql = state
+            .generate_sql()
+            .expect("sqlite db_name with extension should be accepted");
+        assert_eq!(sql, "SQLITE_CREATE:demo.sqlite3");
+    }
+
+    #[test]
+    fn mysql_requires_valid_db_name() {
+        let state = CreateDbDialogState {
+            db_type: DatabaseType::MySQL,
+            db_name: "bad-name".to_string(),
+            ..Default::default()
+        };
+        let err = state.generate_sql().expect_err("invalid name should fail");
+        assert!(err.contains("数据库名只能包含"));
     }
 }
