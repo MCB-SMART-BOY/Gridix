@@ -23,6 +23,7 @@ Current test files in `tests/` include:
 - `database_tests.rs`
 - `ddl_dialog_tests.rs`
 - `ddl_tests.rs`
+- `edge_regression_tests.rs`
 - `export_tests.rs`
 - `formatter_tests.rs`
 - `grid_tests.rs`
@@ -53,6 +54,24 @@ cargo test --test mysql_cancel_integration -- --ignored --nocapture
   - Cross-platform release build checks (Linux/Windows/macOS ARM).
 - `.github/workflows/mysql-integration.yml`
   - Scheduled MySQL cancellation integration validation.
+
+## 4.1 Edge Regression Suite | 边缘回归测试
+
+The `edge_regression_tests.rs` suite focuses on:
+`edge_regression_tests.rs` 重点覆盖：
+
+- Autocomplete boundary behavior (unicode cursor, out-of-range cursor, dedup, result cap).
+  自动补全边界行为（Unicode 光标、越界光标、去重、结果数量上限）。
+- Session/tab boundary behavior (invalid index remove/switch).
+  会话与标签页边界行为（越界索引删除/切换）。
+- Welcome onboarding state machine transitions.
+  欢迎页新手引导状态机流转。
+
+Run only edge regressions:
+仅运行边缘回归测试：
+```bash
+cargo test --test edge_regression_tests
+```
 
 ## 5. High-Risk Areas To Verify | 高风险回归区域
 

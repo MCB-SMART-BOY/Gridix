@@ -42,6 +42,7 @@ paru -S gridix
 
 # Nix
 nix run github:MCB-SMART-BOY/Gridix
+nix profile install github:MCB-SMART-BOY/Gridix
 
 # Homebrew (macOS/Linux)
 brew tap MCB-SMART-BOY/gridix
@@ -138,6 +139,7 @@ Full guide / 完整指南: [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md)
 - Security / 安全说明: [docs/SECURITY.md](docs/SECURITY.md)
 - Release process / 发布流程: [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md)
 - Distribution guide / 分发指南: [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)
+- Nix flake install / Nix Flake 安装: [docs/NIX_FLAKE.md](docs/NIX_FLAKE.md)
 - Environment variables / 环境变量: [docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md)
 - Contributing guide / 贡献指南: [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
 

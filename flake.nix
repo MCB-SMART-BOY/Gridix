@@ -29,9 +29,7 @@
           mesa
         ];
         runtimeLibraryPath = pkgs.lib.makeLibraryPath linuxRuntimeLibs;
-      in
-      {
-        packages.default = pkgs.rustPlatform.buildRustPackage rec {
+        gridixPackage = pkgs.rustPlatform.buildRustPackage rec {
           pname = "gridix";
           version = cargoToml.package.version;
 
@@ -78,6 +76,29 @@
             platforms = platforms.linux ++ platforms.darwin;
           };
         };
+      in
+      {
+        packages = {
+          default = gridixPackage;
+          gridix = gridixPackage;
+        };
+
+        apps = {
+          default = {
+            type = "app";
+            program = "${gridixPackage}/bin/gridix";
+            meta = {
+              description = "Launch Gridix from flake app output";
+            };
+          };
+          gridix = {
+            type = "app";
+            program = "${gridixPackage}/bin/gridix";
+            meta = {
+              description = "Launch Gridix from flake app output";
+            };
+          };
+        };
 
         devShells.default = pkgs.mkShell {
           buildInputs =
@@ -104,5 +125,10 @@
           '';
         };
       }
-    );
+    )
+    // {
+      overlays.default = final: prev: {
+        gridix = self.packages.${prev.stdenv.hostPlatform.system}.default;
+      };
+    };
 }

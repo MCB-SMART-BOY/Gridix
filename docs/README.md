@@ -47,6 +47,9 @@ This folder contains user-facing and engineering docs for Gridix.
 - [DISTRIBUTION.md](DISTRIBUTION.md)
   AUR/Homebrew/nixpkgs synchronization workflow.
   AUR/Homebrew/nixpkgs 分发同步流程。
+- [NIX_FLAKE.md](NIX_FLAKE.md)
+  Nix Flake based run/install/build/overlay usage.
+  Nix Flake 运行、安装、构建与 overlay 使用方式。
 - [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md)
   Runtime and integration-test environment variable reference.
   运行与集成测试环境变量说明。

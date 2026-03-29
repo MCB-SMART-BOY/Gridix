@@ -3,6 +3,17 @@
 > Target users: first-time database tool users.  
 > 适用对象：第一次使用数据库工具的新手。
 
+## 0. Nix Flake Quick Install (Optional) | Nix Flake 快速安装（可选）
+```bash
+# Run directly / 直接运行
+nix run github:MCB-SMART-BOY/Gridix
+
+# Install to profile / 安装到用户环境
+nix profile install github:MCB-SMART-BOY/Gridix
+```
+
+More flake usage / 更多 Flake 用法: [NIX_FLAKE.md](NIX_FLAKE.md)
+
 ## 1. First Launch Checklist | 首次启动检查
 1. Open Gridix and stay on the welcome page.
    打开 Gridix，先停留在欢迎页。
