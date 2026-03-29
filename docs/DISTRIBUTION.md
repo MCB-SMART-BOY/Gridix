@@ -25,7 +25,7 @@ This guide describes how to sync a released Gridix version to AUR, Homebrew, and
 ## 2. Get Checksums | 获取校验和
 
 ```bash
-VERSION=3.3.0
+VERSION=3.3.1
 gh release download "v${VERSION}" -p "SHA256SUMS.txt" -D /tmp/gridix-release
 cat /tmp/gridix-release/SHA256SUMS.txt
 ```
@@ -105,4 +105,3 @@ git push origin master
   nixpkgs 使用新哈希后构建通过。
 - Root README install section links remain valid.
   根 README 的安装链接保持有效。
-

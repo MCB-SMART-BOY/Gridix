@@ -1,7 +1,7 @@
 # Gridix Optimization Roadmap | 优化路线图
 
-> Baseline: `v3.3.0`  
-> 基线版本：`v3.3.0`  
+> Baseline: `v3.3.1`  
+> 基线版本：`v3.3.1`  
 > Status labels: `已完成` / `进行中` / `待开始` / `暂缓`
 
 ## 1. Goal | 目标

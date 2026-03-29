@@ -8,6 +8,20 @@ All notable changes to this project are documented in this file.
 - No unreleased changes yet.
   暂无未发布变更。
 
+## [3.3.1]
+
+### Added
+- Added dedicated Nix Flake installation guide with run/install/build/overlay usage.
+  新增专门的 Nix Flake 安装文档，覆盖运行、安装、构建与 overlay 用法。
+- Added edge regression test suite for autocomplete/session/welcome-onboarding boundaries.
+  新增边缘回归测试套件，覆盖自动补全/会话状态/欢迎页引导状态机边界。
+
+### Changed
+- Extended flake outputs with standard `apps` and `overlay` entries for more reliable Nix integration.
+  Flake 输出增强，补充标准 `apps` 与 `overlay`，提升 Nix 集成稳定性。
+- Updated README and getting-started docs with explicit `nix profile install` path.
+  README 与新手上手文档补充明确的 `nix profile install` 安装路径。
+
 ## [3.3.0]
 
 ### Changed
