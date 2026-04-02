@@ -90,6 +90,9 @@ jobs:
       - name: Install cargo-appimage
         run: cargo install cargo-appimage
 
+      - name: Prepare AppImage icon
+        run: cp assets/branding/gridix-icon.png icon.png
+
       - name: Build AppImage
         run: |
           cargo appimage
