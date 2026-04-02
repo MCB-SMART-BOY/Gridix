@@ -5,6 +5,7 @@
 
 use super::keyboard::{self, DialogAction, ListNavigation};
 use crate::database::DatabaseType;
+use crate::ui::shortcut_tooltip;
 use egui::{self, Color32, Key, RichText, TextEdit};
 
 // ============================================================================
@@ -660,7 +661,7 @@ impl DdlDialog {
                                     if col_count > 1
                                         && ui
                                             .small_button("×")
-                                            .on_hover_text("删除列 [dd]")
+                                            .on_hover_text(shortcut_tooltip("删除列", &["dd"]))
                                             .clicked()
                                     {
                                         col_to_remove = Some(idx);
@@ -722,7 +723,11 @@ impl DdlDialog {
 
                     // 按钮
                     ui.horizontal(|ui| {
-                        if ui.button("创建表 [Enter]").clicked() {
+                        if ui
+                            .button("创建表 [Enter]")
+                            .on_hover_text(shortcut_tooltip("创建当前表结构", &["Enter"]))
+                            .clicked()
+                        {
                             match state.table.validate() {
                                 Ok(()) => {
                                     result = Some(state.table.to_create_sql());
@@ -734,7 +739,11 @@ impl DdlDialog {
                             }
                         }
 
-                        if ui.button("取消 [Esc]").clicked() {
+                        if ui
+                            .button("取消 [Esc]")
+                            .on_hover_text(shortcut_tooltip("取消并关闭", &["Esc", "Q"]))
+                            .clicked()
+                        {
                             should_close = true;
                         }
                     });

@@ -1,6 +1,6 @@
 //! 数据导入处理模块
 //!
-//! 处理 CSV、JSON、SQL 文件的导入逻辑。
+//! 处理 CSV、TSV、JSON、SQL 文件的导入逻辑。
 
 use crate::core::{
     CsvImportConfig, JsonImportConfig, import_csv_to_sql, import_json_to_sql, preview_csv,
@@ -22,7 +22,8 @@ impl DbManagerApp {
     pub(super) fn select_import_file(&mut self) {
         let file_dialog = rfd::FileDialog::new()
             .add_filter("SQL 文件", &["sql"])
-            .add_filter("CSV 文件", &["csv", "tsv"])
+            .add_filter("CSV 文件", &["csv"])
+            .add_filter("TSV 文件", &["tsv", "tab"])
             .add_filter("JSON 文件", &["json"])
             .add_filter("所有文件", &["*"]);
 
@@ -36,6 +37,7 @@ impl DbManagerApp {
         let Some(ref path) = self.import_state.file_path else {
             return;
         };
+        let is_mysql = self.is_mysql();
 
         self.import_state.loading = true;
         self.import_state.error = None;
@@ -54,28 +56,33 @@ impl DbManagerApp {
                     }
                 }
             }
-            ui::ImportFormat::Csv => {
-                // CSV 预览
+            ui::ImportFormat::Csv | ui::ImportFormat::Tsv => {
+                // CSV/TSV 预览
                 let config = CsvImportConfig {
                     delimiter: self.import_state.csv_config.delimiter,
                     skip_rows: self.import_state.csv_config.skip_rows,
                     has_header: self.import_state.csv_config.has_header,
                     quote_char: self.import_state.csv_config.quote_char,
+                    table_name: self.import_state.csv_config.table_name.clone(),
                     ..Default::default()
                 };
 
-                match preview_csv(path, &config) {
-                    Ok(preview) => {
+                match (
+                    preview_csv(path, &config),
+                    import_csv_to_sql(path, &config, is_mysql),
+                ) {
+                    (Ok(preview), Ok(sql_result)) => {
+                        let statement_count = sql_result.sql_statements.len();
                         self.import_state.preview = Some(ui::ImportPreview {
                             columns: preview.columns,
                             preview_rows: preview.preview_rows,
                             total_rows: preview.total_rows,
-                            statement_count: 0,
+                            statement_count,
                             warnings: preview.warnings,
-                            sql_statements: Vec::new(),
+                            sql_statements: sql_result.sql_statements,
                         });
                     }
-                    Err(e) => {
+                    (Err(e), _) | (_, Err(e)) => {
                         self.import_state.error = Some(e);
                     }
                 }
@@ -88,22 +95,27 @@ impl DbManagerApp {
                     } else {
                         Some(self.import_state.json_config.json_path.clone())
                     },
+                    table_name: self.import_state.json_config.table_name.clone(),
                     flatten_nested: self.import_state.json_config.flatten_nested,
                     ..Default::default()
                 };
 
-                match preview_json(path, &config) {
-                    Ok(preview) => {
+                match (
+                    preview_json(path, &config),
+                    import_json_to_sql(path, &config, is_mysql),
+                ) {
+                    (Ok(preview), Ok(sql_result)) => {
+                        let statement_count = sql_result.sql_statements.len();
                         self.import_state.preview = Some(ui::ImportPreview {
                             columns: preview.columns,
                             preview_rows: preview.preview_rows,
                             total_rows: preview.total_rows,
-                            statement_count: 0,
+                            statement_count,
                             warnings: preview.warnings,
-                            sql_statements: Vec::new(),
+                            sql_statements: sql_result.sql_statements,
                         });
                     }
-                    Err(e) => {
+                    (Err(e), _) | (_, Err(e)) => {
                         self.import_state.error = Some(e);
                     }
                 }
@@ -129,7 +141,7 @@ impl DbManagerApp {
                     Vec::new()
                 }
             }
-            ui::ImportFormat::Csv => {
+            ui::ImportFormat::Csv | ui::ImportFormat::Tsv => {
                 let config = CsvImportConfig {
                     delimiter: self.import_state.csv_config.delimiter,
                     skip_rows: self.import_state.csv_config.skip_rows,
@@ -142,7 +154,7 @@ impl DbManagerApp {
                 match import_csv_to_sql(path, &config, is_mysql) {
                     Ok(result) => result.sql_statements,
                     Err(e) => {
-                        self.notifications.error(format!("CSV 转换失败: {}", e));
+                        self.notifications.error(format!("表格文件转换失败: {}", e));
                         return;
                     }
                 }

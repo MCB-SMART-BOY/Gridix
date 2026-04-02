@@ -62,6 +62,15 @@ Design rule:
 - Global `Tab` focus cycle is blocked when SQL editor completion is active.
   当 SQL 编辑器补全激活时，全局 `Tab` 焦点循环会被阻止。
 
+Current limitation:
+- The routing model is still partly global-first and will be redesigned toward scope-based dispatch.
+  当前路由模型仍部分是全局优先，后续将重构为基于作用域的分发模型。
+
+Planning docs:
+- [KEYBOARD_FOCUS_RFC.md](KEYBOARD_FOCUS_RFC.md)
+- [KEYMAP_TOML_SPEC.md](KEYMAP_TOML_SPEC.md)
+- [SIDEBAR_WORKFLOW_PLAN.md](SIDEBAR_WORKFLOW_PLAN.md)
+
 ## 5. State & Persistence | 状态与持久化
 
 Configuration type:

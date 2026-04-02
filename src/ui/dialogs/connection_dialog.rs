@@ -5,6 +5,7 @@ use crate::database::{
     ConnectionConfig, DatabaseType, MySqlSslMode, PostgresSslMode, SshAuthMethod,
 };
 use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_LG, SPACING_MD, SPACING_SM, SUCCESS};
+use crate::ui::{LocalShortcut, local_shortcut_text, local_shortcut_tooltip};
 use egui::{self, Color32, CornerRadius, Key, Modifiers, RichText, TextEdit};
 use std::path::Path;
 
@@ -290,9 +291,12 @@ impl ConnectionDialog {
         ui.horizontal(|ui| {
             ui.add_space(SPACING_SM);
             ui.label(
-                RichText::new("数据库类型 [1/2/3 或 h/l 切换]")
-                    .small()
-                    .color(MUTED),
+                RichText::new(format!(
+                    "数据库类型 [{} 切换]",
+                    local_shortcut_text(LocalShortcut::FormatSelectionCycle)
+                ))
+                .small()
+                .color(MUTED),
             );
         });
         ui.add_space(4.0);
@@ -341,7 +345,11 @@ impl ConnectionDialog {
                         });
                     })
                     .response
-                    .interact(egui::Sense::click());
+                    .interact(egui::Sense::click())
+                    .on_hover_text(local_shortcut_tooltip(
+                        &format!("切换到 {} 连接类型", name),
+                        LocalShortcut::FormatSelectionCycle,
+                    ));
 
                 if response.clicked() {
                     config.db_type = *db_type;
@@ -435,9 +443,16 @@ impl ConnectionDialog {
 
                                 if ui
                                     .add(
-                                        egui::Button::new("浏览 [Ctrl+O]")
-                                            .corner_radius(CornerRadius::same(4)),
+                                        egui::Button::new(format!(
+                                            "浏览 [{}]",
+                                            local_shortcut_text(LocalShortcut::SqliteBrowseFile)
+                                        ))
+                                        .corner_radius(CornerRadius::same(4)),
                                     )
+                                    .on_hover_text(local_shortcut_tooltip(
+                                        "浏览并选择 SQLite 数据库文件",
+                                        LocalShortcut::SqliteBrowseFile,
+                                    ))
                                     .clicked()
                                     && let Some(path) = rfd::FileDialog::new()
                                         .add_filter("SQLite 数据库", &["db", "sqlite", "sqlite3"])
@@ -863,9 +878,13 @@ impl ConnectionDialog {
         ui.horizontal(|ui| {
             ui.add_space(SPACING_SM);
             ui.label(
-                RichText::new("快捷键: Esc/q 关闭 | Enter 保存")
-                    .small()
-                    .color(MUTED),
+                RichText::new(format!(
+                    "快捷键: {} 关闭 | {} 保存",
+                    local_shortcut_text(LocalShortcut::Dismiss),
+                    local_shortcut_text(LocalShortcut::Confirm)
+                ))
+                .small()
+                .color(MUTED),
             );
         });
         ui.add_space(SPACING_SM);
@@ -873,7 +892,17 @@ impl ConnectionDialog {
         ui.horizontal(|ui| {
             // 取消按钮
             if ui
-                .add(egui::Button::new("取消 [Esc]").corner_radius(CornerRadius::same(6)))
+                .add(
+                    egui::Button::new(format!(
+                        "取消 [{}]",
+                        local_shortcut_text(LocalShortcut::Dismiss)
+                    ))
+                    .corner_radius(CornerRadius::same(6)),
+                )
+                .on_hover_text(local_shortcut_tooltip(
+                    "关闭连接对话框",
+                    LocalShortcut::Dismiss,
+                ))
                 .clicked()
             {
                 *should_close = true;
@@ -881,10 +910,11 @@ impl ConnectionDialog {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // 保存按钮
+                let confirm_shortcut = local_shortcut_text(LocalShortcut::Confirm);
                 let save_label = if is_edit_mode {
-                    "保存并重连 [Enter]"
+                    format!("保存并重连 [{confirm_shortcut}]")
                 } else {
-                    "保存并连接 [Enter]"
+                    format!("保存并连接 [{confirm_shortcut}]")
                 };
                 let save_btn =
                     egui::Button::new(RichText::new(save_label).color(if validation.is_valid {
@@ -899,7 +929,14 @@ impl ConnectionDialog {
                     })
                     .corner_radius(CornerRadius::same(6));
 
-                if ui.add_enabled(validation.is_valid, save_btn).clicked() {
+                if ui
+                    .add_enabled(validation.is_valid, save_btn)
+                    .on_hover_text(local_shortcut_tooltip(
+                        "保存并创建连接",
+                        LocalShortcut::Confirm,
+                    ))
+                    .clicked()
+                {
                     *on_save = true;
                     *should_close = true;
                 }

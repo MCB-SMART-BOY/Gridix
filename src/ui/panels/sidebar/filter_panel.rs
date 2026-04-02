@@ -2,8 +2,12 @@
 //!
 //! 显示在左侧栏的筛选条件管理面板
 
+use crate::core::{Action, KeyBindings};
 use crate::ui::styles::{GRAY, MUTED, SUCCESS};
-use crate::ui::{ColumnFilter, FilterLogic, FilterOperator, SidebarSection};
+use crate::ui::{
+    ColumnFilter, FilterLogic, FilterOperator, SidebarSection, action_tooltip_with_extras,
+    shortcut_tooltip,
+};
 use egui::{self, Color32, CornerRadius, RichText, TextEdit, Vec2};
 
 /// 筛选面板
@@ -13,8 +17,10 @@ impl FilterPanel {
     /// 显示筛选面板
     ///
     /// 返回是否有修改（用于使缓存失效）
+    #[allow(clippy::too_many_arguments)]
     pub fn show(
         ui: &mut egui::Ui,
+        keybindings: &KeyBindings,
         is_focused: bool,
         focused_section: SidebarSection,
         filters: &mut Vec<ColumnFilter>,
@@ -56,7 +62,12 @@ impl FilterPanel {
                             .frame(false)
                             .min_size(Vec2::new(18.0, 18.0)),
                         )
-                        .on_hover_text("添加筛选条件")
+                        .on_hover_text(action_tooltip_with_extras(
+                            keybindings,
+                            Action::AddFilter,
+                            "添加筛选条件",
+                            &["a", "o"],
+                        ))
                         .clicked()
                 {
                     filters.push(ColumnFilter::new(
@@ -77,7 +88,12 @@ impl FilterPanel {
                             .frame(false)
                             .min_size(Vec2::new(18.0, 18.0)),
                         )
-                        .on_hover_text("清空全部")
+                        .on_hover_text(action_tooltip_with_extras(
+                            keybindings,
+                            Action::ClearFilters,
+                            "清空所有筛选条件",
+                            &["c"],
+                        ))
                         .clicked()
                 {
                     filters.clear();
@@ -252,7 +268,10 @@ impl FilterPanel {
                                                         .frame(false)
                                                         .min_size(Vec2::new(16.0, 16.0)),
                                                     )
-                                                    .on_hover_text("删除")
+                                                    .on_hover_text(shortcut_tooltip(
+                                                        "删除当前筛选条件",
+                                                        &["d", "x"],
+                                                    ))
                                                     .clicked()
                                                 {
                                                     filter_to_remove = Some(idx);
@@ -301,11 +320,14 @@ impl FilterPanel {
                                                             .frame(false)
                                                             .min_size(Vec2::new(16.0, 16.0)),
                                                         )
-                                                        .on_hover_text(if filter.case_sensitive {
-                                                            "区分大小写"
-                                                        } else {
-                                                            "忽略大小写"
-                                                        })
+                                                        .on_hover_text(shortcut_tooltip(
+                                                            if filter.case_sensitive {
+                                                                "当前为区分大小写"
+                                                            } else {
+                                                                "当前为忽略大小写"
+                                                            },
+                                                            &["s"],
+                                                        ))
                                                         .clicked()
                                                     {
                                                         filter.case_sensitive =
@@ -335,7 +357,10 @@ impl FilterPanel {
                                             )
                                             .frame(false),
                                         )
-                                        .on_hover_text("点击切换")
+                                        .on_hover_text(shortcut_tooltip(
+                                            "切换 AND / OR 逻辑",
+                                            &["t"],
+                                        ))
                                         .clicked()
                                     {
                                         filter.logic.toggle();

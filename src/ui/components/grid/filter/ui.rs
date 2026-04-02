@@ -4,6 +4,7 @@
 
 use super::condition::ColumnFilter;
 use crate::database::QueryResult;
+use crate::ui::shortcut_tooltip;
 use crate::ui::styles::GRAY;
 use egui::{self, Color32, RichText};
 
@@ -47,7 +48,7 @@ pub fn show_filter_bar(
                 egui::Label::new(RichText::new("清空").size(11.0).color(GRAY))
                     .sense(egui::Sense::click()),
             )
-            .on_hover_text("清空所有筛选条件")
+            .on_hover_text(shortcut_tooltip("清空所有筛选条件", &["Ctrl+Shift+F"]))
             .on_hover_cursor(egui::CursorIcon::PointingHand)
             .clicked()
         {

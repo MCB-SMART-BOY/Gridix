@@ -5,7 +5,7 @@
 **A keyboard-first database manager for command-style workflow**  
 **面向命令式工作流的键盘优先数据库管理工具**
 
-[![Version](https://img.shields.io/badge/version-3.3.1-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
+[![Version](https://img.shields.io/badge/version-3.4.0-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024_edition-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
@@ -135,6 +135,10 @@ Full guide / 完整指南: [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md)
 - Configuration / 配置说明: [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 - Optimization roadmap / 优化路线图: [docs/OPTIMIZATION_PLAN.md](docs/OPTIMIZATION_PLAN.md)
 - Architecture / 架构说明: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Keyboard focus RFC / 键盘焦点 RFC: [docs/KEYBOARD_FOCUS_RFC.md](docs/KEYBOARD_FOCUS_RFC.md)
+- Keymap spec / 快捷键配置规范: [docs/KEYMAP_TOML_SPEC.md](docs/KEYMAP_TOML_SPEC.md)
+- Sidebar workflow plan / 侧边栏工作流方案: [docs/SIDEBAR_WORKFLOW_PLAN.md](docs/SIDEBAR_WORKFLOW_PLAN.md)
+- Import/export unification / 导入导出统一化: [docs/IMPORT_EXPORT_UNIFICATION_PLAN.md](docs/IMPORT_EXPORT_UNIFICATION_PLAN.md)
 - Testing / 测试指南: [docs/TESTING.md](docs/TESTING.md)
 - Security / 安全说明: [docs/SECURITY.md](docs/SECURITY.md)
 - Release process / 发布流程: [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md)

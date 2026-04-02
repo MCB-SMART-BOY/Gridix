@@ -6,6 +6,7 @@
 //! - `Ctrl+d` / `Ctrl+u` - 快速滚动
 
 use super::keyboard::{self, ListNavigation};
+use crate::core::Action;
 use egui::{self, Color32, Key, RichText, ScrollArea, Vec2};
 
 #[path = "help_dialog/learning.rs"]
@@ -91,9 +92,18 @@ impl HelpDialog {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(12.0, 0.0);
+                    let help_binding = context.keybindings.display(Action::ShowHelp);
                     Self::hint(ui, "j/k", "滚动");
                     Self::hint(ui, "q/Esc", "关闭");
-                    Self::hint(ui, "F1", "切换帮助");
+                    Self::hint(
+                        ui,
+                        if help_binding.is_empty() {
+                            "F1"
+                        } else {
+                            help_binding.as_str()
+                        },
+                        "切换帮助",
+                    );
                 });
                 ui.add_space(10.0);
 
@@ -146,7 +156,9 @@ impl HelpDialog {
                                     ui.set_max_width(content_width);
 
                                     match state.active_tab {
-                                        HelpTab::ToolQuickStart => Self::show_tool_guide(ui),
+                                        HelpTab::ToolQuickStart => {
+                                            Self::show_tool_guide(ui, &context.keybindings)
+                                        }
                                         HelpTab::DatabaseLearning => Self::show_learning_guide(
                                             ui,
                                             state,

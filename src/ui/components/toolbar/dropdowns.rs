@@ -1,10 +1,17 @@
+use crate::core::{Action, KeyBindings};
+use crate::ui::{action_tooltip, shortcut_tooltip};
 use egui::{Color32, CornerRadius, Id, Key, RichText, Vec2};
 
 use super::actions::{DropdownState, ToolbarActions};
 use super::utils::render_menu_item;
 
 /// 操作下拉菜单
-pub fn show_actions_dropdown(ui: &mut egui::Ui, has_result: bool, actions: &mut ToolbarActions) {
+pub fn show_actions_dropdown(
+    ui: &mut egui::Ui,
+    keybindings: &KeyBindings,
+    has_result: bool,
+    actions: &mut ToolbarActions,
+) {
     let id = Id::new("actions_dropdown");
     let popup_id = id.with("popup");
 
@@ -18,7 +25,7 @@ pub fn show_actions_dropdown(ui: &mut egui::Ui, has_result: bool, actions: &mut 
                 .frame(false)
                 .min_size(Vec2::new(24.0, 24.0)),
         )
-        .on_hover_text("操作菜单");
+        .on_hover_text(shortcut_tooltip("打开操作菜单（工具栏焦点下）", &["Enter"]));
 
     if response.clicked() {
         state.is_open = !state.is_open;
@@ -27,10 +34,10 @@ pub fn show_actions_dropdown(ui: &mut egui::Ui, has_result: bool, actions: &mut 
 
     if state.is_open {
         let menu_items = [
-            ("导出", "Ctrl+E", has_result),
-            ("导入", "Ctrl+I", true),
-            ("ER图", "Ctrl+R", true),
-            ("历史", "Ctrl+H", true),
+            ("导出", Action::Export, has_result),
+            ("导入", Action::Import, true),
+            ("ER图", Action::ToggleErDiagram, true),
+            ("历史", Action::ShowHistory, true),
         ];
 
         egui::Area::new(popup_id)
@@ -89,10 +96,16 @@ pub fn show_actions_dropdown(ui: &mut egui::Ui, has_result: bool, actions: &mut 
 
                         ui.add_space(4.0);
 
-                        for (idx, (label, shortcut, enabled)) in menu_items.iter().enumerate() {
+                        for (idx, (label, action, enabled)) in menu_items.iter().enumerate() {
                             let is_selected = idx == state.selected_index;
-                            let item_response =
-                                render_menu_item(ui, label, shortcut, is_selected, *enabled);
+                            let item_response = render_menu_item(
+                                ui,
+                                label,
+                                &keybindings.display(*action),
+                                is_selected,
+                                *enabled,
+                            )
+                            .on_hover_text(action_tooltip(keybindings, *action));
 
                             if is_selected {
                                 item_response.scroll_to_me(Some(egui::Align::Center));
@@ -145,7 +158,11 @@ pub fn show_actions_dropdown(ui: &mut egui::Ui, has_result: bool, actions: &mut 
 }
 
 /// 新建下拉菜单
-pub fn show_create_dropdown(ui: &mut egui::Ui, actions: &mut ToolbarActions) {
+pub fn show_create_dropdown(
+    ui: &mut egui::Ui,
+    keybindings: &KeyBindings,
+    actions: &mut ToolbarActions,
+) {
     let id = Id::new("create_dropdown");
     let popup_id = id.with("popup");
 
@@ -159,7 +176,7 @@ pub fn show_create_dropdown(ui: &mut egui::Ui, actions: &mut ToolbarActions) {
                 .frame(false)
                 .min_size(Vec2::new(24.0, 24.0)),
         )
-        .on_hover_text("新建菜单");
+        .on_hover_text(shortcut_tooltip("打开新建菜单（工具栏焦点下）", &["Enter"]));
 
     if response.clicked() {
         state.is_open = !state.is_open;
@@ -168,9 +185,9 @@ pub fn show_create_dropdown(ui: &mut egui::Ui, actions: &mut ToolbarActions) {
 
     if state.is_open {
         let menu_items = [
-            ("新建表", "Ctrl+Shift+N"),
-            ("新建库", "Ctrl+Shift+D"),
-            ("新建用户", "Ctrl+Shift+U"),
+            ("新建表", Action::NewTable),
+            ("新建库", Action::NewDatabase),
+            ("新建用户", Action::NewUser),
         ];
 
         egui::Area::new(popup_id)
@@ -229,10 +246,16 @@ pub fn show_create_dropdown(ui: &mut egui::Ui, actions: &mut ToolbarActions) {
 
                         ui.add_space(4.0);
 
-                        for (idx, (label, shortcut)) in menu_items.iter().enumerate() {
+                        for (idx, (label, action)) in menu_items.iter().enumerate() {
                             let is_selected = idx == state.selected_index;
-                            let item_response =
-                                render_menu_item(ui, label, shortcut, is_selected, true);
+                            let item_response = render_menu_item(
+                                ui,
+                                label,
+                                &keybindings.display(*action),
+                                is_selected,
+                                true,
+                            )
+                            .on_hover_text(action_tooltip(keybindings, *action));
 
                             if is_selected {
                                 item_response.scroll_to_me(Some(egui::Align::Center));

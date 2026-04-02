@@ -23,6 +23,7 @@ mod export;
 mod handler;
 mod help;
 mod import;
+mod input_router;
 mod keyboard;
 mod message;
 mod metadata;
@@ -269,7 +270,7 @@ impl DbManagerApp {
 
         // 加载配置
         let app_config = AppConfig::load();
-        let keybindings = app_config.keybindings.clone();
+        let keybindings = KeyBindings::load_or_init(&app_config.keybindings);
         let theme_manager = ThemeManager::new(app_config.theme_preset);
         let highlight_colors = HighlightColors::from_theme(&theme_manager.colors);
         let query_history = QueryHistory::new(100);

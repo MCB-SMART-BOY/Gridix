@@ -1,11 +1,12 @@
 //! 连接列表渲染
 
 use super::{DatabaseList, SidebarActions, SidebarPanelState, SidebarSelectionState, TableList};
+use crate::core::{Action, KeyBindings};
 use crate::database::ConnectionManager;
-use crate::ui::SidebarSection;
 use crate::ui::styles::{
     DANGER, GRAY, MARGIN_MD, MARGIN_SM, MUTED, SPACING_LG, SPACING_MD, SPACING_SM, SUCCESS,
 };
+use crate::ui::{SidebarSection, action_tooltip};
 use egui::{self, Color32, CornerRadius, RichText, Vec2};
 
 /// 连接项数据（用于避免借用冲突）
@@ -31,6 +32,7 @@ impl ConnectionList {
         connection_manager: &mut ConnectionManager,
         selected_table: &mut Option<String>,
         show_connection_dialog: &mut bool,
+        keybindings: &KeyBindings,
         is_focused: bool,
         focused_section: SidebarSection,
         panel_state: &mut SidebarPanelState,
@@ -39,7 +41,13 @@ impl ConnectionList {
     ) {
         // 上部标题栏
         ui.horizontal(|ui| {
-            Self::show_header(ui, show_connection_dialog, is_focused, focused_section);
+            Self::show_header(
+                ui,
+                show_connection_dialog,
+                keybindings,
+                is_focused,
+                focused_section,
+            );
         });
 
         // 连接列表区域 - 使用固定宽度防止内容扩展面板
@@ -57,7 +65,7 @@ impl ConnectionList {
                 connection_names.sort_unstable();
 
                 if connection_names.is_empty() {
-                    Self::show_empty_state(ui, show_connection_dialog);
+                    Self::show_empty_state(ui, show_connection_dialog, keybindings);
                 } else {
                     // 快捷键提示（在第一个连接上方）
                     Self::show_shortcuts_hint(ui);
@@ -89,6 +97,7 @@ impl ConnectionList {
     fn show_header(
         ui: &mut egui::Ui,
         show_connection_dialog: &mut bool,
+        keybindings: &KeyBindings,
         is_focused: bool,
         focused_section: SidebarSection,
     ) {
@@ -137,7 +146,7 @@ impl ConnectionList {
                                 .frame(false)
                                 .min_size(Vec2::new(24.0, 24.0)),
                             )
-                            .on_hover_text("新建连接 (Ctrl+N)")
+                            .on_hover_text(action_tooltip(keybindings, Action::NewConnection))
                             .clicked()
                         {
                             *show_connection_dialog = true;
@@ -151,7 +160,11 @@ impl ConnectionList {
     }
 
     /// 显示空状态
-    fn show_empty_state(ui: &mut egui::Ui, show_connection_dialog: &mut bool) {
+    fn show_empty_state(
+        ui: &mut egui::Ui,
+        show_connection_dialog: &mut bool,
+        keybindings: &KeyBindings,
+    ) {
         ui.vertical_centered(|ui| {
             ui.add_space(60.0);
 
@@ -182,7 +195,7 @@ impl ConnectionList {
                     .frame(false)
                     .min_size(Vec2::new(0.0, 24.0)),
                 )
-                .on_hover_text("新建连接 (Ctrl+N)")
+                .on_hover_text(action_tooltip(keybindings, Action::NewConnection))
                 .clicked()
             {
                 *show_connection_dialog = true;

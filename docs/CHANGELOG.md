@@ -8,6 +8,34 @@ All notable changes to this project are documented in this file.
 - No unreleased changes yet.
   暂无未发布变更。
 
+## [3.4.0]
+
+### Added
+- Added focus-scoped input routing foundation and keyboard architecture RFC/spec docs.
+  新增按焦点作用域分发输入的基础设施，并补充键盘架构 RFC/规范文档。
+- Added external `keymap.toml` loading, generation, merge-backfill, and validation path.
+  新增外置 `keymap.toml` 的加载、初始化生成、补齐合并与校验链路。
+- Added unified local-shortcut tooltip/label helpers and wired them into toolbar, dialogs, sidebar, grid, help, and welcome UI.
+  新增统一的局部快捷键提示/标签工具，并接入工具栏、对话框、侧边栏、表格、帮助和欢迎页。
+- Added dedicated TSV import/export support with tests.
+  新增正式的 TSV 导入/导出支持，并补充相应测试。
+
+### Changed
+- Reworked sidebar defaults and workflow toward beginner-friendly connections + filters layout.
+  侧边栏默认布局和工作流重构为更适合新手的“连接 + 筛选”优先模式。
+- Moved more workspace actions behind scoped helpers instead of global shortcut grabs.
+  更多工作区动作改为走作用域化 helper，而不是被全局快捷键直接抢占。
+- Help, welcome, learning guide, and configuration docs now reflect real runtime key bindings instead of hard-coded shortcuts.
+  帮助、欢迎页、学习指南和配置文档现在会反映运行时真实键位，而不是硬编码快捷键。
+- CSV/TSV/JSON import preview now also prepares generated SQL, enabling copy-to-editor flow before execution.
+  CSV/TSV/JSON 导入预览现在会同步生成 SQL，可先复制到编辑器检查后再执行。
+
+### Fixed
+- Fixed several text-input vs global-shortcut conflicts in editor/sidebar-related paths.
+  修复编辑器与侧边栏多处“文本输入被全局快捷键抢占”的冲突。
+- Fixed import/export format model inconsistency where TSV existed only as hidden CSV behavior.
+  修复导入导出格式模型不一致的问题，TSV 不再只是隐藏在 CSV 行为里的别名。
+
 ## [3.3.1]
 
 ### Added

@@ -28,9 +28,10 @@ pub use filter::{
 pub use mode::GridMode;
 pub use state::DataGridState;
 
-use crate::core::constants;
+use crate::core::{Action, KeyBindings, constants};
 use crate::database::QueryResult;
 use crate::ui::styles::GRAY;
+use crate::ui::{action_tooltip_with_extras, shortcut_tooltip};
 use egui::{self, RichText, Vec2};
 use egui_extras::{Column, TableBuilder};
 
@@ -64,6 +65,7 @@ impl DataGrid {
         selected_cell: &mut Option<(usize, usize)>,
         state: &mut DataGridState,
         table_name: Option<&str>,
+        keybindings: &KeyBindings,
     ) -> (DataGridActions, (usize, usize)) {
         let mut actions = DataGridActions::default();
 
@@ -73,7 +75,7 @@ impl DataGrid {
         }
 
         // 显示模式状态栏和操作按钮
-        Self::show_mode_bar(ui, state, result, table_name, &mut actions);
+        Self::show_mode_bar(ui, state, result, table_name, keybindings, &mut actions);
 
         ui.add_space(2.0);
 
@@ -331,6 +333,7 @@ impl DataGrid {
         state: &mut DataGridState,
         result: &QueryResult,
         table_name: Option<&str>,
+        keybindings: &KeyBindings,
         actions: &mut DataGridActions,
     ) {
         ui.horizontal(|ui| {
@@ -407,7 +410,12 @@ impl DataGrid {
                     )
                     .sense(egui::Sense::click()),
                 )
-                .on_hover_text("打开筛选面板 [/]")
+                .on_hover_text(action_tooltip_with_extras(
+                    keybindings,
+                    Action::AddFilter,
+                    "打开筛选面板",
+                    &["/"],
+                ))
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .clicked()
             {
@@ -429,7 +437,7 @@ impl DataGrid {
                         )
                         .sense(egui::Sense::click()),
                     )
-                    .on_hover_text("添加新行 [o]")
+                    .on_hover_text(shortcut_tooltip("添加新行", &["o"]))
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .clicked()
                 {
@@ -456,7 +464,12 @@ impl DataGrid {
                             .frame(false)
                             .min_size(Vec2::new(24.0, 24.0)),
                     )
-                    .on_hover_text("保存所有修改到数据库 [w / Ctrl+S]")
+                    .on_hover_text(action_tooltip_with_extras(
+                        keybindings,
+                        Action::Save,
+                        "保存所有修改到数据库",
+                        &["w"],
+                    ))
                     .clicked()
                     && let Some(table) = table_name
                 {
@@ -475,7 +488,7 @@ impl DataGrid {
                             .frame(false)
                             .min_size(Vec2::new(24.0, 24.0)),
                     )
-                    .on_hover_text("放弃所有未保存的修改 [q]")
+                    .on_hover_text(shortcut_tooltip("放弃所有未保存的修改", &["q"]))
                     .clicked()
                 {
                     state.clear_edits();
@@ -672,7 +685,7 @@ impl DataGrid {
                             .frame(false)
                             .min_size(Vec2::new(0.0, 24.0)),
                         )
-                        .on_hover_text("跳转到指定行 [Enter]")
+                        .on_hover_text(shortcut_tooltip("跳转到指定行", &["Enter"]))
                         .clicked()
                     {
                         if let Ok(line) = state.goto_input.trim().parse::<usize>()
@@ -695,7 +708,7 @@ impl DataGrid {
                             .frame(false)
                             .min_size(Vec2::new(0.0, 24.0)),
                         )
-                        .on_hover_text("取消 [Esc]")
+                        .on_hover_text(shortcut_tooltip("取消", &["Esc"]))
                         .clicked()
                         || ui.input(|i| i.key_pressed(egui::Key::Escape))
                     {
@@ -773,7 +786,7 @@ impl DataGrid {
                                 .frame(false)
                                 .min_size(Vec2::new(0.0, 24.0)),
                             )
-                            .on_hover_text("确认执行 SQL 操作 [Enter]")
+                            .on_hover_text(shortcut_tooltip("确认执行 SQL 操作", &["Enter"]))
                             .clicked()
                         {
                             actions::confirm_pending_sql(state, actions);
@@ -791,7 +804,7 @@ impl DataGrid {
                                 .frame(false)
                                 .min_size(Vec2::new(0.0, 24.0)),
                             )
-                            .on_hover_text("取消 [Esc]")
+                            .on_hover_text(shortcut_tooltip("取消", &["Esc"]))
                             .clicked()
                             || ui.input(|i| i.key_pressed(egui::Key::Escape))
                         {

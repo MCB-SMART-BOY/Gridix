@@ -5,6 +5,7 @@
 
 use super::keyboard::{self, DialogAction};
 use crate::database::DatabaseType;
+use crate::ui::shortcut_tooltip;
 use egui::{self, Color32, RichText, TextEdit};
 
 // ============================================================================
@@ -291,7 +292,11 @@ impl CreateDbDialog {
 
                     // 按钮
                     ui.horizontal(|ui| {
-                        if ui.button("创建 [Enter]").clicked() {
+                        if ui
+                            .button("创建 [Enter]")
+                            .on_hover_text(shortcut_tooltip("创建数据库", &["Enter"]))
+                            .clicked()
+                        {
                             match state.generate_sql() {
                                 Ok(sql) => {
                                     result = CreateDbDialogResult::Create(sql);
@@ -303,7 +308,11 @@ impl CreateDbDialog {
                             }
                         }
 
-                        if ui.button("取消 [Esc]").clicked() {
+                        if ui
+                            .button("取消 [Esc]")
+                            .on_hover_text(shortcut_tooltip("取消并关闭", &["Esc", "Q"]))
+                            .clicked()
+                        {
                             result = CreateDbDialogResult::Cancelled;
                             should_close = true;
                         }

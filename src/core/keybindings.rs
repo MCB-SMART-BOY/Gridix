@@ -6,8 +6,10 @@
 
 use egui::{Key, Modifiers};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 /// 快捷键绑定
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -752,6 +754,68 @@ impl Action {
             Action::ZoomIn | Action::ZoomOut | Action::ZoomReset => "缩放",
         }
     }
+
+    /// keymap.toml 中使用的稳定键名
+    pub fn keymap_name(&self) -> &'static str {
+        match self {
+            Action::NewConnection => "new_connection",
+            Action::ToggleSidebar => "toggle_sidebar",
+            Action::ToggleEditor => "toggle_editor",
+            Action::ToggleErDiagram => "toggle_er_diagram",
+            Action::ShowHelp => "show_help",
+            Action::ShowHistory => "show_history",
+            Action::Export => "export",
+            Action::Import => "import",
+            Action::Refresh => "refresh",
+            Action::ClearCommandLine => "clear_command_line",
+            Action::ClearSearch => "clear_search",
+            Action::NewTable => "new_table",
+            Action::NewDatabase => "new_database",
+            Action::NewUser => "new_user",
+            Action::NewTab => "new_tab",
+            Action::CloseTab => "close_tab",
+            Action::NextTab => "next_tab",
+            Action::PrevTab => "prev_tab",
+            Action::Save => "save",
+            Action::AddFilter => "add_filter",
+            Action::ClearFilters => "clear_filters",
+            Action::GotoLine => "goto_line",
+            Action::ZoomIn => "zoom_in",
+            Action::ZoomOut => "zoom_out",
+            Action::ZoomReset => "zoom_reset",
+        }
+    }
+
+    pub fn from_keymap_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "new_connection" => Action::NewConnection,
+            "toggle_sidebar" => Action::ToggleSidebar,
+            "toggle_editor" => Action::ToggleEditor,
+            "toggle_er_diagram" => Action::ToggleErDiagram,
+            "show_help" => Action::ShowHelp,
+            "show_history" => Action::ShowHistory,
+            "export" => Action::Export,
+            "import" => Action::Import,
+            "refresh" => Action::Refresh,
+            "clear_command_line" => Action::ClearCommandLine,
+            "clear_search" => Action::ClearSearch,
+            "new_table" => Action::NewTable,
+            "new_database" => Action::NewDatabase,
+            "new_user" => Action::NewUser,
+            "new_tab" => Action::NewTab,
+            "close_tab" => Action::CloseTab,
+            "next_tab" => Action::NextTab,
+            "prev_tab" => Action::PrevTab,
+            "save" => Action::Save,
+            "add_filter" => Action::AddFilter,
+            "clear_filters" => Action::ClearFilters,
+            "goto_line" => Action::GotoLine,
+            "zoom_in" => Action::ZoomIn,
+            "zoom_out" => Action::ZoomOut,
+            "zoom_reset" => Action::ZoomReset,
+            _ => return None,
+        })
+    }
 }
 
 /// 快捷键绑定管理器
@@ -811,9 +875,36 @@ impl Default for KeyBindings {
 }
 
 impl KeyBindings {
+    pub fn keymap_dir() -> Option<PathBuf> {
+        dirs::config_dir().map(|p| p.join("gridix"))
+    }
+
+    pub fn keymap_path() -> Option<PathBuf> {
+        Self::keymap_dir().map(|p| p.join("keymap.toml"))
+    }
+
     /// 创建新的快捷键管理器
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn load_or_init(legacy: &KeyBindings) -> Self {
+        let Some(path) = Self::keymap_path() else {
+            tracing::warn!("无法找到 keymap.toml 路径，回退到内置快捷键");
+            let mut bindings = legacy.clone();
+            bindings.fill_missing_defaults();
+            return bindings;
+        };
+
+        match Self::load_or_init_from_path(&path, legacy) {
+            Ok(bindings) => bindings,
+            Err(error) => {
+                tracing::warn!(error = %error, path = ?path, "加载 keymap.toml 失败，回退到默认/迁移键位");
+                let mut bindings = legacy.clone();
+                bindings.fill_missing_defaults();
+                bindings
+            }
+        }
     }
 
     /// 获取操作的快捷键
@@ -889,6 +980,11 @@ impl KeyBindings {
         *self = Self::default();
     }
 
+    pub fn save_to_disk(&self) -> Result<(), String> {
+        let path = Self::keymap_path().ok_or("无法找到 keymap.toml 路径")?;
+        self.save_to_path(&path)
+    }
+
     /// 检查是否有冲突的快捷键
     pub fn find_conflicts(&self) -> Vec<(Action, Action, KeyBinding)> {
         let mut conflicts = Vec::new();
@@ -905,5 +1001,147 @@ impl KeyBindings {
         }
 
         conflicts
+    }
+
+    fn fill_missing_defaults(&mut self) {
+        let defaults = Self::default();
+        for action in Action::all() {
+            if !self.bindings.contains_key(action)
+                && let Some(default_binding) = defaults.get(*action)
+            {
+                self.bindings.insert(*action, default_binding.clone());
+            }
+        }
+    }
+
+    fn load_or_init_from_path(path: &Path, legacy: &KeyBindings) -> Result<Self, String> {
+        if !path.exists() {
+            let mut initial = legacy.clone();
+            initial.fill_missing_defaults();
+            initial.save_to_path(path)?;
+            return Ok(initial);
+        }
+
+        let content =
+            fs::read_to_string(path).map_err(|e| format!("读取 keymap.toml 失败: {}", e))?;
+        Self::parse_keymap(&content)
+    }
+
+    fn parse_keymap(content: &str) -> Result<Self, String> {
+        let value: toml::Value =
+            toml::from_str(content).map_err(|e| format!("解析 keymap.toml 失败: {}", e))?;
+        let table = value
+            .as_table()
+            .ok_or("keymap.toml 必须是顶层 TOML 表".to_string())?;
+
+        let mut bindings = Self::default();
+
+        for (raw_key, raw_value) in table {
+            let Some(action) = Action::from_keymap_name(raw_key) else {
+                tracing::warn!(entry = raw_key, "忽略未知快捷键动作");
+                continue;
+            };
+
+            let Some(binding_text) = raw_value.as_str() else {
+                tracing::warn!(entry = raw_key, "忽略非字符串快捷键配置");
+                continue;
+            };
+
+            let Some(binding) = KeyBinding::parse(binding_text) else {
+                tracing::warn!(
+                    entry = raw_key,
+                    value = binding_text,
+                    "忽略无法解析的快捷键配置"
+                );
+                continue;
+            };
+
+            bindings.set(action, binding);
+        }
+
+        bindings.fill_missing_defaults();
+
+        for (left, right, binding) in bindings.find_conflicts() {
+            tracing::warn!(
+                left = left.keymap_name(),
+                right = right.keymap_name(),
+                binding = %binding,
+                "检测到快捷键冲突"
+            );
+        }
+
+        Ok(bindings)
+    }
+
+    fn save_to_path(&self, path: &Path) -> Result<(), String> {
+        let dir = path.parent().ok_or("无法找到 keymap.toml 目录")?;
+        fs::create_dir_all(dir).map_err(|e| format!("创建 keymap 目录失败: {}", e))?;
+
+        let mut serialized = BTreeMap::new();
+        for action in Action::all() {
+            if let Some(binding) = self.get(*action) {
+                serialized.insert(action.keymap_name().to_string(), binding.display());
+            }
+        }
+
+        let content = toml::to_string_pretty(&serialized)
+            .map_err(|e| format!("序列化 keymap.toml 失败: {}", e))?;
+
+        let temp_path = path.with_extension("toml.tmp");
+        fs::write(&temp_path, &content).map_err(|e| format!("写入 keymap 临时文件失败: {}", e))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = fs::Permissions::from_mode(0o600);
+            fs::set_permissions(&temp_path, permissions)
+                .map_err(|e| format!("设置 keymap 权限失败: {}", e))?;
+        }
+
+        fs::rename(&temp_path, path).map_err(|e| format!("写入 keymap.toml 失败: {}", e))?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Action, KeyBinding, KeyBindings, KeyCode};
+    use tempfile::tempdir;
+
+    #[test]
+    fn missing_keymap_is_initialized_from_legacy_bindings() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("keymap.toml");
+        let mut legacy = KeyBindings::default();
+        legacy.set(Action::NewConnection, KeyBinding::ctrl(KeyCode::P));
+
+        let loaded = KeyBindings::load_or_init_from_path(&path, &legacy).unwrap();
+
+        assert_eq!(loaded.display(Action::NewConnection), "Ctrl+P");
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn partial_keymap_keeps_custom_values_and_fills_defaults() {
+        let content = "new_connection = \"Alt+N\"\n";
+
+        let loaded = KeyBindings::parse_keymap(content).unwrap();
+
+        assert_eq!(loaded.display(Action::NewConnection), "Alt+N");
+        assert_eq!(loaded.display(Action::ShowHelp), "F1");
+    }
+
+    #[test]
+    fn invalid_entries_are_ignored_without_losing_defaults() {
+        let content = r#"
+unknown_action = "Ctrl+P"
+new_connection = "NotAKey"
+show_help = "F2"
+"#;
+
+        let loaded = KeyBindings::parse_keymap(content).unwrap();
+
+        assert_eq!(loaded.display(Action::NewConnection), "Ctrl+N");
+        assert_eq!(loaded.display(Action::ShowHelp), "F2");
     }
 }

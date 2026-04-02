@@ -3,7 +3,9 @@
 //! 支持多个独立的 SQL 查询 Tab，每个 Tab 有自己的 SQL 编辑器和结果显示区域。
 
 use crate::core::HighlightColors;
+use crate::core::{Action, KeyBindings};
 use crate::database::QueryResult;
+use crate::ui::action_tooltip;
 use egui::{self, Color32, RichText, Ui, Vec2};
 use uuid::Uuid;
 
@@ -390,6 +392,7 @@ impl QueryTabBar {
         tabs: &[QueryTab],
         active_index: usize,
         highlight_colors: &HighlightColors,
+        keybindings: &KeyBindings,
     ) -> TabBarActions {
         let mut actions = TabBarActions::default();
 
@@ -481,7 +484,7 @@ impl QueryTabBar {
                                     .frame(false)
                                     .min_size(Vec2::new(18.0, 18.0)),
                                 )
-                                .on_hover_text("关闭标签");
+                                .on_hover_text(action_tooltip(keybindings, Action::CloseTab));
 
                             if close_response.clicked() {
                                 actions.close_tab = Some(idx);
@@ -504,7 +507,7 @@ impl QueryTabBar {
                         .frame(false)
                         .min_size(Vec2::new(22.0, 22.0)),
                 )
-                .on_hover_text("新建查询 (Ctrl+T)")
+                .on_hover_text(action_tooltip(keybindings, Action::NewTab))
                 .clicked()
             {
                 actions.new_tab = true;

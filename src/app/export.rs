@@ -1,6 +1,6 @@
 //! 数据导出功能
 //!
-//! 提供 CSV、SQL、JSON 格式的数据导出功能。
+//! 提供 CSV、TSV、SQL、JSON 格式的数据导出功能。
 
 use crate::core::ExportFormat;
 use crate::database::QueryResult;
@@ -44,18 +44,22 @@ pub fn filter_result_for_export(result: &QueryResult, config: &ExportConfig) -> 
     }
 }
 
-/// 导出为 CSV 格式
-pub fn export_csv(result: &QueryResult, path: &Path, config: &ExportConfig) -> Result<(), String> {
+fn export_delimited(
+    result: &QueryResult,
+    path: &Path,
+    config: &ExportConfig,
+    delimiter: char,
+) -> Result<(), String> {
     use std::fs::File;
     use std::io::Write;
 
     let mut file = File::create(path).map_err(|e| e.to_string())?;
-    let delimiter = config.csv_delimiter.to_string();
+    let delimiter = delimiter.to_string();
     let quote = config.csv_quote_char;
 
-    // 转义 CSV 字段
+    // 转义分隔文本字段
     let escape_field = |field: &str| -> String {
-        if field.contains(config.csv_delimiter) || field.contains(quote) || field.contains('\n') {
+        if field.contains(delimiter.as_str()) || field.contains(quote) || field.contains('\n') {
             format!(
                 "{}{}{}",
                 quote,
@@ -89,6 +93,16 @@ pub fn export_csv(result: &QueryResult, path: &Path, config: &ExportConfig) -> R
     }
 
     Ok(())
+}
+
+/// 导出为 CSV 格式
+pub fn export_csv(result: &QueryResult, path: &Path, config: &ExportConfig) -> Result<(), String> {
+    export_delimited(result, path, config, config.csv_delimiter)
+}
+
+/// 导出为 TSV 格式
+pub fn export_tsv(result: &QueryResult, path: &Path, config: &ExportConfig) -> Result<(), String> {
+    export_delimited(result, path, config, '\t')
 }
 
 /// 导出为 SQL 格式
@@ -247,6 +261,7 @@ pub fn execute_export(
 
     let export_result = match config.format {
         ExportFormat::Csv => export_csv(&filtered_result, path, config),
+        ExportFormat::Tsv => export_tsv(&filtered_result, path, config),
         ExportFormat::Sql => export_sql(&filtered_result, table_name, path, config),
         ExportFormat::Json => export_json(&filtered_result, path, config),
     };
@@ -258,4 +273,52 @@ pub fn execute_export(
             path.display()
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{export_tsv, filter_result_for_export};
+    use crate::database::QueryResult;
+    use crate::ui::ExportConfig;
+    use std::fs;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn export_tsv_writes_tab_delimited_content() {
+        let result = QueryResult {
+            columns: vec!["id".to_string(), "name".to_string()],
+            rows: vec![vec!["1".to_string(), "alice".to_string()]],
+            affected_rows: 0,
+            truncated: false,
+            original_row_count: None,
+        };
+        let config = ExportConfig::default();
+        let file = NamedTempFile::new().expect("create temp file");
+
+        export_tsv(&result, file.path(), &config).expect("export tsv");
+
+        let content = fs::read_to_string(file.path()).expect("read tsv");
+        assert!(content.starts_with("id\tname\n"));
+        assert!(content.contains("1\talice"));
+    }
+
+    #[test]
+    fn filter_result_for_export_respects_column_selection() {
+        let result = QueryResult {
+            columns: vec!["id".to_string(), "name".to_string()],
+            rows: vec![vec!["1".to_string(), "alice".to_string()]],
+            affected_rows: 0,
+            truncated: false,
+            original_row_count: None,
+        };
+        let config = ExportConfig {
+            selected_columns: vec![true, false],
+            ..Default::default()
+        };
+
+        let filtered = filter_result_for_export(&result, &config);
+
+        assert_eq!(filtered.columns, vec!["id".to_string()]);
+        assert_eq!(filtered.rows, vec![vec!["1".to_string()]]);
+    }
 }

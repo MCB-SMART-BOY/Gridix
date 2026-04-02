@@ -4,6 +4,7 @@
 //! - `Esc` / `q` / `Enter` - 关闭对话框
 
 use super::keyboard::{self, DialogAction};
+use crate::ui::shortcut_tooltip;
 use egui::{self, Color32, RichText, Vec2};
 
 pub struct AboutDialog;
@@ -112,6 +113,7 @@ impl AboutDialog {
                     // 关闭按钮
                     if ui
                         .button(RichText::new("知道啦~ [Enter]").size(14.0))
+                        .on_hover_text(shortcut_tooltip("关闭关于对话框", &["Enter", "Esc", "Q"]))
                         .clicked()
                     {
                         *show = false;

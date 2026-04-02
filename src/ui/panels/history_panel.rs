@@ -1,6 +1,7 @@
 use crate::core::QueryHistory;
 use crate::ui::dialogs::keyboard::{self, DialogAction, ListNavigation};
 use crate::ui::styles::{DANGER, GRAY, SUCCESS};
+use crate::ui::{LocalShortcut, local_shortcut_text, local_shortcut_tooltip, shortcut_tooltip};
 use egui::{self, Key, RichText};
 
 #[derive(Default)]
@@ -90,11 +91,31 @@ impl HistoryPanel {
                 ui.horizontal(|ui| {
                     ui.label(format!("{} 条记录", history.len()));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("关闭 [Esc]").clicked() {
+                        if ui
+                            .button(format!(
+                                "关闭 [{}]",
+                                local_shortcut_text(LocalShortcut::Dismiss)
+                            ))
+                            .on_hover_text(local_shortcut_tooltip(
+                                "关闭历史面板",
+                                LocalShortcut::Dismiss,
+                            ))
+                            .clicked()
+                        {
                             *show = false;
                         }
                         if ui
-                            .add_enabled(!history.is_empty(), egui::Button::new("清空 [Ctrl+Del]"))
+                            .add_enabled(
+                                !history.is_empty(),
+                                egui::Button::new(format!(
+                                    "清空 [{}]",
+                                    local_shortcut_text(LocalShortcut::HistoryClear)
+                                )),
+                            )
+                            .on_hover_text(local_shortcut_tooltip(
+                                "清空查询历史",
+                                LocalShortcut::HistoryClear,
+                            ))
                             .clicked()
                         {
                             *clear_history = true;
@@ -180,7 +201,10 @@ impl HistoryPanel {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
 
-                            response.on_hover_text("点击使用此查询");
+                            response.on_hover_text(shortcut_tooltip(
+                                "使用这条查询",
+                                &["Enter", "L", "双击"],
+                            ));
                         });
 
                         // 点击整个条目也可以选择

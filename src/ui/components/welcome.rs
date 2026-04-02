@@ -1,7 +1,9 @@
 //! 欢迎页面组件 - 应用启动时的欢迎界面
 
+use crate::core::{Action, KeyBindings};
 use crate::database::DatabaseType;
 use crate::ui::styles::{GRAY, MUTED, SPACING_LG, SPACING_MD, SPACING_SM};
+use crate::ui::{LocalShortcut, local_shortcut_text};
 use egui::{self, Color32, CornerRadius, RichText, Stroke, Vec2};
 
 /// 欢迎页数据库运行状态
@@ -152,7 +154,11 @@ struct DatabaseCardSpec<'a> {
 }
 
 impl Welcome {
-    pub fn show(ui: &mut egui::Ui, status: WelcomeStatusSummary) -> Option<WelcomeAction> {
+    pub fn show(
+        ui: &mut egui::Ui,
+        status: WelcomeStatusSummary,
+        keybindings: &KeyBindings,
+    ) -> Option<WelcomeAction> {
         let mut action = None;
         let available_height = ui.available_height();
         let compact = available_height < 900.0;
@@ -191,17 +197,17 @@ impl Welcome {
                             ui.add_space(section_gap);
 
                             if action.is_none() {
-                                action = Self::show_quick_start(ui, compact);
+                                action = Self::show_quick_start(ui, compact, keybindings);
                             } else {
-                                Self::show_quick_start(ui, compact);
+                                Self::show_quick_start(ui, compact, keybindings);
                             }
 
                             if dense {
                                 ui.add_space(SPACING_SM);
-                                Self::show_shortcuts_hint(ui);
+                                Self::show_shortcuts_hint(ui, keybindings);
                             } else {
                                 ui.add_space(if compact { SPACING_SM } else { SPACING_MD });
-                                Self::show_shortcuts(ui, content_width, compact);
+                                Self::show_shortcuts(ui, content_width, compact, keybindings);
                             }
                         },
                     );
@@ -497,8 +503,15 @@ impl Welcome {
     }
 
     /// 显示快速开始提示
-    fn show_quick_start(ui: &mut egui::Ui, compact: bool) -> Option<WelcomeAction> {
+    fn show_quick_start(
+        ui: &mut egui::Ui,
+        compact: bool,
+        keybindings: &KeyBindings,
+    ) -> Option<WelcomeAction> {
         let mut action = None;
+        let new_connection = Self::binding_or(keybindings, Action::NewConnection, "Ctrl+N");
+        let show_help = Self::binding_or(keybindings, Action::ShowHelp, "F1");
+        let execute_sql = local_shortcut_text(LocalShortcut::SqlExecute);
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(92, 180, 118, 22))
             .stroke(egui::Stroke::new(
@@ -519,23 +532,28 @@ impl Welcome {
                     ui.add_space(2.0);
                     ui.label(
                         RichText::new(if compact {
-                            "点击「+ 新建」创建连接，或按 Ctrl+N"
+                            format!("点击「+ 新建」创建连接，或按 {new_connection}")
                         } else {
-                            "点击侧边栏的 「+ 新建」 创建数据库连接，或按 Ctrl+N"
+                            format!(
+                                "点击侧边栏的 「+ 新建」 创建数据库连接，或按 {new_connection}"
+                            )
                         })
                         .color(GRAY),
                     );
 
                     ui.add_space(if compact { 4.0 } else { 6.0 });
                     ui.label(
-                        RichText::new("连接后可直接使用 Ctrl+Enter 执行 SQL 查询").color(GRAY),
+                        RichText::new(format!("连接后可直接使用 {execute_sql} 执行 SQL 查询"))
+                            .color(GRAY),
                     );
 
                     if !compact {
                         ui.add_space(6.0);
                         ui.label(
                             RichText::new(
-                                "如果是想要入门操作和学习数据库相关概念，请点击左上角小问号",
+                                format!(
+                                    "如果是想要入门操作和学习数据库相关概念，请点击左上角小问号或按 {show_help}"
+                                ),
                             )
                             .color(GRAY),
                         );
@@ -607,7 +625,10 @@ impl Welcome {
         action
     }
 
-    fn show_shortcuts_hint(ui: &mut egui::Ui) {
+    fn show_shortcuts_hint(ui: &mut egui::Ui, keybindings: &KeyBindings) {
+        let new_connection = Self::binding_or(keybindings, Action::NewConnection, "Ctrl+N");
+        let show_help = Self::binding_or(keybindings, Action::ShowHelp, "F1");
+        let execute_sql = local_shortcut_text(LocalShortcut::SqlExecute);
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(120, 120, 130, 10))
             .corner_radius(CornerRadius::same(6))
@@ -615,7 +636,9 @@ impl Welcome {
             .show(ui, |ui| {
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     ui.label(
-                        RichText::new("\u{2328} 快捷键：Ctrl+N 新建 | Ctrl+Enter 执行 | F1 帮助")
+                        RichText::new(format!(
+                            "\u{2328} 快捷键：{new_connection} 新建 | {execute_sql} 执行 | {show_help} 帮助"
+                        ))
                             .small()
                             .color(MUTED),
                     );
@@ -624,8 +647,39 @@ impl Welcome {
     }
 
     /// 显示快捷键列表
-    fn show_shortcuts(ui: &mut egui::Ui, width: f32, compact: bool) {
+    fn show_shortcuts(ui: &mut egui::Ui, width: f32, compact: bool, keybindings: &KeyBindings) {
         ui.set_width(width);
+        let shortcuts = [
+            (
+                Self::binding_or(keybindings, Action::NewConnection, "Ctrl+N"),
+                "新建连接",
+            ),
+            (local_shortcut_text(LocalShortcut::SqlExecute), "执行查询"),
+            (
+                Self::binding_or(keybindings, Action::ToggleEditor, "Ctrl+J"),
+                "切换编辑器",
+            ),
+            (
+                Self::binding_or(keybindings, Action::ShowHistory, "Ctrl+H"),
+                "查询历史",
+            ),
+            (
+                Self::binding_or(keybindings, Action::Export, "Ctrl+E"),
+                "导出结果",
+            ),
+            (
+                Self::binding_or(keybindings, Action::Import, "Ctrl+I"),
+                "导入 SQL",
+            ),
+            (
+                Self::binding_or(keybindings, Action::Refresh, "F5"),
+                "刷新表",
+            ),
+            (
+                Self::binding_or(keybindings, Action::ShowHelp, "F1"),
+                "帮助",
+            ),
+        ];
 
         ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
             ui.label(
@@ -651,24 +705,14 @@ impl Welcome {
                 let column_gap = if compact { 14.0 } else { 18.0 };
                 let row_gap = if compact { 5.0 } else { 8.0 };
                 let pair_width = (inner_width - column_gap).max(0.0) / 2.0;
-                let shortcuts = [
-                    ("Ctrl+N", "新建连接"),
-                    ("Ctrl+Enter", "执行查询"),
-                    ("Ctrl+J", "切换编辑器"),
-                    ("Ctrl+H", "查询历史"),
-                    ("Ctrl+E", "导出结果"),
-                    ("Ctrl+I", "导入 SQL"),
-                    ("F5", "刷新表"),
-                    ("F1", "帮助"),
-                ];
 
                 let total_rows = shortcuts.chunks(2).len();
                 for (row_idx, row) in shortcuts.chunks(2).enumerate() {
                     ui.horizontal(|ui| {
-                        Self::shortcut_item(ui, row[0].0, row[0].1, pair_width, compact);
+                        Self::shortcut_item(ui, row[0].0.as_str(), row[0].1, pair_width, compact);
                         if let Some((key, desc)) = row.get(1) {
                             ui.add_space(column_gap);
-                            Self::shortcut_item(ui, key, desc, pair_width, compact);
+                            Self::shortcut_item(ui, key.as_str(), desc, pair_width, compact);
                         }
                     });
 
@@ -721,5 +765,14 @@ impl Welcome {
                 );
             },
         );
+    }
+
+    fn binding_or(keybindings: &KeyBindings, action: Action, fallback: &str) -> String {
+        let binding = keybindings.display(action);
+        if binding.is_empty() {
+            fallback.to_owned()
+        } else {
+            binding
+        }
     }
 }

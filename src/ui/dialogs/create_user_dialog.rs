@@ -6,6 +6,7 @@
 
 use super::keyboard::{self, DialogAction};
 use crate::database::DatabaseType;
+use crate::ui::shortcut_tooltip;
 use egui::{self, Color32, RichText, TextEdit};
 
 // ============================================================================
@@ -534,7 +535,11 @@ impl CreateUserDialog {
 
                     // 按钮
                     ui.horizontal(|ui| {
-                        if ui.button("创建 [Enter]").clicked() {
+                        if ui
+                            .button("创建 [Enter]")
+                            .on_hover_text(shortcut_tooltip("创建数据库用户", &["Enter"]))
+                            .clicked()
+                        {
                             match state.generate_sql() {
                                 Ok(statements) => {
                                     result = CreateUserDialogResult::Create(statements);
@@ -546,7 +551,11 @@ impl CreateUserDialog {
                             }
                         }
 
-                        if ui.button("取消 [Esc]").clicked() {
+                        if ui
+                            .button("取消 [Esc]")
+                            .on_hover_text(shortcut_tooltip("取消并关闭", &["Esc", "Q"]))
+                            .clicked()
+                        {
                             result = CreateUserDialogResult::Cancelled;
                             should_close = true;
                         }

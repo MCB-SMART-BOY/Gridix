@@ -87,27 +87,27 @@ pub struct SidebarPanelState {
 impl Default for SidebarPanelState {
     fn default() -> Self {
         Self {
-            // 连接面板 - 默认显示，占 40%
+            // 连接面板 - 默认显示，占主要空间
             show_connections: true,
-            connections_ratio: 0.4,
+            connections_ratio: 0.65,
 
-            // 触发器面板 - 默认显示，占 20%
-            show_triggers: true,
+            // 触发器面板 - 默认关闭，按需展开
+            show_triggers: false,
             triggers_ratio: 0.2,
             triggers: Vec::new(),
             trigger_selected_index: 0,
             loading_triggers: false,
 
-            // 存储过程面板 - 默认显示，占 20%
-            show_routines: true,
+            // 存储过程面板 - 默认关闭，按需展开
+            show_routines: false,
             routines_ratio: 0.2,
             routines: Vec::new(),
             routine_selected_index: 0,
             loading_routines: false,
 
-            // 筛选面板 - 默认显示，占 20%
+            // 筛选面板 - 默认显示，和连接面板形成新手默认布局
             show_filters: true,
-            filters_ratio: 0.2,
+            filters_ratio: 0.35,
 
             selection: SidebarSelectionState::default(),
             dragging_divider: None,
@@ -145,5 +145,21 @@ impl SidebarPanelState {
         self.routine_selected_index = 0;
         self.selection.routines = 0;
         self.loading_routines = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SidebarPanelState;
+
+    #[test]
+    fn default_sidebar_layout_prioritizes_connections_and_filters() {
+        let state = SidebarPanelState::default();
+
+        assert!(state.show_connections);
+        assert!(state.show_filters);
+        assert!(!state.show_triggers);
+        assert!(!state.show_routines);
+        assert!(state.connections_ratio > state.filters_ratio);
     }
 }
