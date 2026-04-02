@@ -4,13 +4,31 @@
 //! - `Enter` / `y` - 确认操作
 //! - `Esc` / `n` - 取消操作
 
-use super::keyboard;
-use crate::ui::styles::{DANGER, GRAY, SPACING_LG, SPACING_MD};
+use crate::ui::{
+    LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
+    local_shortcuts_text,
+    styles::{DANGER, GRAY, SPACING_LG, SPACING_MD},
+};
 use egui::{self, Color32, CornerRadius, RichText};
 
 pub struct ConfirmDialog;
 
 impl ConfirmDialog {
+    fn handle_shortcuts(ctx: &egui::Context, show: &mut bool, on_confirm: &mut bool) -> bool {
+        ctx.input_mut(|i| {
+            if consume_local_shortcut(i, LocalShortcut::DangerConfirm) {
+                *on_confirm = true;
+                *show = false;
+                return true;
+            }
+            if consume_local_shortcut(i, LocalShortcut::DangerCancel) {
+                *show = false;
+                return true;
+            }
+            false
+        })
+    }
+
     pub fn show(
         ctx: &egui::Context,
         show: &mut bool,
@@ -23,18 +41,8 @@ impl ConfirmDialog {
             return;
         }
 
-        // 处理键盘快捷键
-        match keyboard::handle_confirm_keys(ctx) {
-            keyboard::DialogAction::Confirm => {
-                *on_confirm = true;
-                *show = false;
-                return;
-            }
-            keyboard::DialogAction::Cancel => {
-                *show = false;
-                return;
-            }
-            keyboard::DialogAction::None => {}
+        if Self::handle_shortcuts(ctx, show, on_confirm) {
+            return;
         }
 
         egui::Window::new(title)
@@ -72,7 +80,15 @@ impl ConfirmDialog {
                 // 快捷键提示
                 ui.horizontal(|ui| {
                     ui.add_space(SPACING_MD);
-                    ui.label(RichText::new("按 y 确认，n 取消").small().color(GRAY));
+                    ui.label(
+                        RichText::new(format!(
+                            "快捷键: {} 确认 | {} 取消",
+                            local_shortcuts_text(&[LocalShortcut::DangerConfirm]),
+                            local_shortcuts_text(&[LocalShortcut::DangerCancel]),
+                        ))
+                        .small()
+                        .color(GRAY),
+                    );
                 });
 
                 ui.add_space(SPACING_MD);
@@ -82,12 +98,24 @@ impl ConfirmDialog {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // 确认按钮（危险样式）
                         let confirm_btn = egui::Button::new(
-                            RichText::new(format!("{} [y]", confirm_text)).color(Color32::WHITE),
+                            RichText::new(format!(
+                                "{} [{}]",
+                                confirm_text,
+                                local_shortcut_text(LocalShortcut::DangerConfirm)
+                            ))
+                            .color(Color32::WHITE),
                         )
                         .fill(DANGER)
                         .corner_radius(CornerRadius::same(6));
 
-                        if ui.add(confirm_btn).clicked() {
+                        if ui
+                            .add(confirm_btn)
+                            .on_hover_text(local_shortcut_tooltip(
+                                "确认当前危险操作",
+                                LocalShortcut::DangerConfirm,
+                            ))
+                            .clicked()
+                        {
                             *on_confirm = true;
                             *show = false;
                         }
@@ -95,10 +123,20 @@ impl ConfirmDialog {
                         ui.add_space(SPACING_MD);
 
                         // 取消按钮
-                        let cancel_btn =
-                            egui::Button::new("取消 [n]").corner_radius(CornerRadius::same(6));
+                        let cancel_btn = egui::Button::new(format!(
+                            "取消 [{}]",
+                            local_shortcut_text(LocalShortcut::DangerCancel)
+                        ))
+                        .corner_radius(CornerRadius::same(6));
 
-                        if ui.add(cancel_btn).clicked() {
+                        if ui
+                            .add(cancel_btn)
+                            .on_hover_text(local_shortcut_tooltip(
+                                "取消并关闭确认对话框",
+                                LocalShortcut::DangerCancel,
+                            ))
+                            .clicked()
+                        {
                             *show = false;
                         }
                     });

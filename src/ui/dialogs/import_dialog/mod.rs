@@ -13,7 +13,6 @@ mod import_types;
 pub use import_parser::parse_sql_file;
 pub use import_types::*;
 
-use super::keyboard;
 use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_SM};
 use crate::ui::{
     LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
@@ -103,7 +102,7 @@ impl ImportDialog {
         let can_import = has_file && has_preview && state.error.is_none();
 
         // 处理键盘快捷键（仅当没有文本输入焦点时）
-        if !keyboard::has_text_focus(ctx)
+        if !ctx.memory(|mem| mem.focused().is_some())
             && let Some(key_action) = Self::detect_key_action(ctx, has_file, can_import)
         {
             match key_action {

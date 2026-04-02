@@ -8,6 +8,40 @@ All notable changes to this project are documented in this file.
 - No unreleased changes yet.
   暂无未发布变更。
 
+## [3.6.0]
+
+### Added
+- Added original Gridix brand assets under `assets/branding`, including a square app icon and a horizontal wordmark.
+  新增原创 Gridix 品牌资产，统一放入 `assets/branding`，包括方形应用图标和横版字标。
+- Added native window icon loading from the packaged branding icon.
+  新增原生窗口图标加载，直接使用正式品牌图标。
+- Added structured local keymap sections and runtime local-shortcut overrides on top of external `keymap.toml`.
+  在外置 `keymap.toml` 之上新增结构化局部键位 section 与运行时局部快捷键覆盖能力。
+- Added high-level Grid keyboard regression tests covering prefixes, counts, selection, save/quit commands, and filter entry.
+  新增表格键盘高层回归测试，覆盖前缀命令、计数、选择模式、保存/退出命令以及筛选入口。
+
+### Changed
+- Moved packaging and runtime icon references from the repository root into `assets/branding`.
+  将打包与运行时图标引用从仓库根目录迁移到 `assets/branding`。
+- Updated README branding display to use the dedicated logo asset instead of the old root image path.
+  README 的品牌展示改为使用专门的 logo 资产，不再使用旧的根目录图片路径。
+- Updated desktop metadata to better reflect Gridix as a database tool.
+  更新桌面文件元数据，使其更准确反映 Gridix 的数据库工具定位。
+- Reworked dialogs, help/history panels, sidebar, and DataGrid around a shared local action/shortcut layer.
+  对话框、帮助/历史面板、侧边栏与数据表格进一步重构为共享的局部动作/快捷键层。
+- Expanded shortcut discoverability so hover hints and learning/help content increasingly reflect the current runtime keymap.
+  扩展快捷键可发现性，悬停提示与学习/帮助内容开始更多地反映当前运行时真实键位。
+
+### Fixed
+- Fixed a branding/resource inconsistency where the root `gridix.png` had become an ad-hoc distribution asset.
+  修复品牌资源不一致问题，根目录 `gridix.png` 不再作为临时发行资产继续扩散。
+- Fixed several legacy keyboard paths that still relied on deprecated dialog-level handlers.
+  修复多处仍依赖旧式对话框级键盘处理器的遗留路径。
+- Fixed DataGrid command-buffer edge cases, including stuck prefixes, leaked counts, and incorrect `2gg` / `2G` row jumps.
+  修复数据表格命令缓冲区边界问题，包括前缀卡死、计数泄漏以及 `2gg` / `2G` 跳行错误。
+- Fixed sidebar command-prefix behavior so `gg` and `gs` work reliably inside the workflow list.
+  修复侧边栏命令前缀行为，使 `gg` 与 `gs` 能在工作流列表中可靠工作。
+
 ## [3.4.0]
 
 ### Added

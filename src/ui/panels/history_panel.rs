@@ -1,8 +1,10 @@
 use crate::core::QueryHistory;
-use crate::ui::dialogs::keyboard::{self, DialogAction, ListNavigation};
 use crate::ui::styles::{DANGER, GRAY, SUCCESS};
-use crate::ui::{LocalShortcut, local_shortcut_text, local_shortcut_tooltip, shortcut_tooltip};
-use egui::{self, Key, RichText};
+use crate::ui::{
+    LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
+    local_shortcuts_text, local_shortcuts_tooltip,
+};
+use egui::{self, RichText};
 
 #[derive(Default)]
 pub struct HistoryPanelState {
@@ -11,7 +13,53 @@ pub struct HistoryPanelState {
 
 pub struct HistoryPanel;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HistoryKeyAction {
+    Close,
+    Clear,
+    Prev,
+    Next,
+    Start,
+    End,
+    PageUp,
+    PageDown,
+    UseSelected,
+}
+
 impl HistoryPanel {
+    fn detect_key_action(ctx: &egui::Context) -> Option<HistoryKeyAction> {
+        ctx.input_mut(|i| {
+            if consume_local_shortcut(i, LocalShortcut::Dismiss) {
+                return Some(HistoryKeyAction::Close);
+            }
+            if consume_local_shortcut(i, LocalShortcut::HistoryClear) {
+                return Some(HistoryKeyAction::Clear);
+            }
+            if consume_local_shortcut(i, LocalShortcut::HistoryPrev) {
+                return Some(HistoryKeyAction::Prev);
+            }
+            if consume_local_shortcut(i, LocalShortcut::HistoryNext) {
+                return Some(HistoryKeyAction::Next);
+            }
+            if consume_local_shortcut(i, LocalShortcut::HistoryStart) {
+                return Some(HistoryKeyAction::Start);
+            }
+            if consume_local_shortcut(i, LocalShortcut::HistoryEnd) {
+                return Some(HistoryKeyAction::End);
+            }
+            if consume_local_shortcut(i, LocalShortcut::HistoryPageUp) {
+                return Some(HistoryKeyAction::PageUp);
+            }
+            if consume_local_shortcut(i, LocalShortcut::HistoryPageDown) {
+                return Some(HistoryKeyAction::PageDown);
+            }
+            if consume_local_shortcut(i, LocalShortcut::HistoryUse) {
+                return Some(HistoryKeyAction::UseSelected);
+            }
+            None
+        })
+    }
+
     pub fn show(
         ctx: &egui::Context,
         show: &mut bool,
@@ -24,72 +72,69 @@ impl HistoryPanel {
             return;
         }
 
-        // Helix 键盘导航（使用统一键盘模块）
-        if !keyboard::has_text_focus(ctx) {
-            let len = history.len();
+        let len = history.len();
+        if len == 0 {
+            state.selected_index = 0;
+        } else if state.selected_index >= len {
+            state.selected_index = len - 1;
+        }
 
-            // Esc/q 关闭
-            if keyboard::handle_close_keys(ctx) {
+        match Self::detect_key_action(ctx) {
+            Some(HistoryKeyAction::Close) => {
                 *show = false;
                 return;
             }
-
-            // Ctrl+Delete 清空历史
-            if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(Key::Delete)) {
+            Some(HistoryKeyAction::Clear) => {
                 *clear_history = true;
             }
-
-            if len > 0 {
-                // 使用统一的列表导航处理 j/k/gg/G
-                match keyboard::handle_list_navigation(ctx) {
-                    ListNavigation::Down => {
-                        state.selected_index = (state.selected_index + 1).min(len - 1);
-                    }
-                    ListNavigation::Up => {
-                        state.selected_index = state.selected_index.saturating_sub(1);
-                    }
-                    ListNavigation::Start => {
-                        state.selected_index = 0;
-                    }
-                    ListNavigation::End => {
-                        state.selected_index = len - 1;
-                    }
-                    ListNavigation::PageUp => {
-                        state.selected_index = state.selected_index.saturating_sub(10);
-                    }
-                    ListNavigation::PageDown => {
-                        state.selected_index = (state.selected_index + 10).min(len - 1);
-                    }
-                    _ => {}
-                }
-
-                // Enter 选择当前项（使用统一确认处理）
-                if let DialogAction::Confirm = keyboard::handle_dialog_keys(ctx)
-                    && let Some(item) = history.items().get(state.selected_index)
-                {
-                    *selected_sql = Some(item.sql.clone());
-                    *show = false;
-                    return;
-                }
-
-                // l 也可以选择当前项（保持 Helix 风格兼容）
-                if ctx.input(|i| i.key_pressed(Key::L))
-                    && let Some(item) = history.items().get(state.selected_index)
-                {
+            Some(HistoryKeyAction::Prev) if len > 0 => {
+                state.selected_index = state.selected_index.saturating_sub(1);
+            }
+            Some(HistoryKeyAction::Next) if len > 0 => {
+                state.selected_index = (state.selected_index + 1).min(len - 1);
+            }
+            Some(HistoryKeyAction::Start) if len > 0 => {
+                state.selected_index = 0;
+            }
+            Some(HistoryKeyAction::End) if len > 0 => {
+                state.selected_index = len - 1;
+            }
+            Some(HistoryKeyAction::PageUp) if len > 0 => {
+                state.selected_index = state.selected_index.saturating_sub(10);
+            }
+            Some(HistoryKeyAction::PageDown) if len > 0 => {
+                state.selected_index = (state.selected_index + 10).min(len - 1);
+            }
+            Some(HistoryKeyAction::UseSelected) if len > 0 => {
+                if let Some(item) = history.items().get(state.selected_index) {
                     *selected_sql = Some(item.sql.clone());
                     *show = false;
                     return;
                 }
             }
+            _ => {}
         }
 
-        egui::Window::new("查询历史 [j/k 导航, Enter 选择, Esc 关闭]")
+        egui::Window::new("查询历史")
             .collapsible(true)
             .resizable(true)
             .default_size([500.0, 400.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(format!("{} 条记录", history.len()));
+                    ui.label(
+                        RichText::new(format!(
+                            "{} 导航 | {} 使用 | {} 关闭",
+                            local_shortcuts_text(&[
+                                LocalShortcut::HistoryPrev,
+                                LocalShortcut::HistoryNext,
+                            ]),
+                            local_shortcuts_text(&[LocalShortcut::HistoryUse]),
+                            local_shortcuts_text(&[LocalShortcut::Dismiss]),
+                        ))
+                        .small()
+                        .color(GRAY),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .button(format!(
@@ -201,9 +246,9 @@ impl HistoryPanel {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
 
-                            response.on_hover_text(shortcut_tooltip(
+                            response.on_hover_text(local_shortcuts_tooltip(
                                 "使用这条查询",
-                                &["Enter", "L", "双击"],
+                                &[LocalShortcut::HistoryUse],
                             ));
                         });
 

@@ -1,12 +1,13 @@
 //! 数据库连接对话框
-
-use super::keyboard::{self, DialogAction};
 use crate::database::{
     ConnectionConfig, DatabaseType, MySqlSslMode, PostgresSslMode, SshAuthMethod,
 };
 use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_LG, SPACING_MD, SPACING_SM, SUCCESS};
-use crate::ui::{LocalShortcut, local_shortcut_text, local_shortcut_tooltip};
-use egui::{self, Color32, CornerRadius, Key, Modifiers, RichText, TextEdit};
+use crate::ui::{
+    LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
+    local_shortcuts_text,
+};
+use egui::{self, Color32, CornerRadius, RichText, TextEdit};
 use std::path::Path;
 
 /// 输入验证结果
@@ -91,7 +92,64 @@ fn validate_config(config: &ConnectionConfig) -> ValidationResult {
 
 pub struct ConnectionDialog;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConnectionKeyAction {
+    Close,
+    Confirm,
+    SetDatabaseType(DatabaseType),
+    CycleDatabaseTypePrev,
+    CycleDatabaseTypeNext,
+    BrowseSqliteFile,
+}
+
 impl ConnectionDialog {
+    #[inline]
+    fn apply_database_type(config: &mut ConnectionConfig, db_type: DatabaseType) {
+        config.db_type = db_type;
+        config.port = db_type.default_port();
+        if config.host.is_empty() && !matches!(db_type, DatabaseType::SQLite) {
+            config.host = "localhost".to_string();
+        }
+    }
+
+    fn detect_key_action(
+        ctx: &egui::Context,
+        config: &ConnectionConfig,
+        can_confirm: bool,
+    ) -> Option<ConnectionKeyAction> {
+        ctx.input_mut(|i| {
+            if consume_local_shortcut(i, LocalShortcut::Dismiss) {
+                return Some(ConnectionKeyAction::Close);
+            }
+            if can_confirm && consume_local_shortcut(i, LocalShortcut::Confirm) {
+                return Some(ConnectionKeyAction::Confirm);
+            }
+            if consume_local_shortcut(i, LocalShortcut::ConnectionTypeSqlite) {
+                return Some(ConnectionKeyAction::SetDatabaseType(DatabaseType::SQLite));
+            }
+            if consume_local_shortcut(i, LocalShortcut::ConnectionTypePostgres) {
+                return Some(ConnectionKeyAction::SetDatabaseType(
+                    DatabaseType::PostgreSQL,
+                ));
+            }
+            if consume_local_shortcut(i, LocalShortcut::ConnectionTypeMySql) {
+                return Some(ConnectionKeyAction::SetDatabaseType(DatabaseType::MySQL));
+            }
+            if consume_local_shortcut(i, LocalShortcut::ConnectionTypePrev) {
+                return Some(ConnectionKeyAction::CycleDatabaseTypePrev);
+            }
+            if consume_local_shortcut(i, LocalShortcut::ConnectionTypeNext) {
+                return Some(ConnectionKeyAction::CycleDatabaseTypeNext);
+            }
+            if matches!(config.db_type, DatabaseType::SQLite)
+                && consume_local_shortcut(i, LocalShortcut::SqliteBrowseFile)
+            {
+                return Some(ConnectionKeyAction::BrowseSqliteFile);
+            }
+            None
+        })
+    }
+
     pub fn show(
         ctx: &egui::Context,
         open: &mut bool,
@@ -104,82 +162,52 @@ impl ConnectionDialog {
         let mut should_close = false;
 
         // 键盘快捷键处理（仅在没有文本框焦点时）
-        if !keyboard::has_text_focus(ctx) {
-            // Esc/q 关闭
-            if keyboard::handle_close_keys(ctx) {
-                *open = false;
-                return;
-            }
-
-            // Enter 保存（如果验证通过）
+        if !ctx.memory(|mem| mem.focused().is_some()) {
             let validation = validate_config(config);
-            if validation.is_valid
-                && let DialogAction::Confirm = keyboard::handle_dialog_keys(ctx)
-            {
-                *on_save = true;
-                *open = false;
-                return;
-            }
-
-            // 数据库类型快捷键
             let db_types = DatabaseType::all();
-            ctx.input(|i| {
-                // 数字键 1/2/3 选择数据库类型
-                for (idx, key) in [Key::Num1, Key::Num2, Key::Num3].iter().enumerate() {
-                    if i.key_pressed(*key)
-                        && i.modifiers.is_none()
-                        && let Some(db_type) = db_types.get(idx)
-                    {
-                        config.db_type = *db_type;
-                        config.port = db_type.default_port();
-                        if config.host.is_empty() && !matches!(db_type, DatabaseType::SQLite) {
-                            config.host = "localhost".to_string();
+            if let Some(key_action) = Self::detect_key_action(ctx, config, validation.is_valid) {
+                match key_action {
+                    ConnectionKeyAction::Close => {
+                        *open = false;
+                        return;
+                    }
+                    ConnectionKeyAction::Confirm => {
+                        *on_save = true;
+                        *open = false;
+                        return;
+                    }
+                    ConnectionKeyAction::SetDatabaseType(db_type) => {
+                        Self::apply_database_type(config, db_type);
+                    }
+                    ConnectionKeyAction::CycleDatabaseTypePrev => {
+                        let current_idx = db_types
+                            .iter()
+                            .position(|t| *t == config.db_type)
+                            .unwrap_or(0);
+                        if current_idx > 0 {
+                            Self::apply_database_type(config, db_types[current_idx - 1]);
+                        }
+                    }
+                    ConnectionKeyAction::CycleDatabaseTypeNext => {
+                        let current_idx = db_types
+                            .iter()
+                            .position(|t| *t == config.db_type)
+                            .unwrap_or(0);
+                        if current_idx < db_types.len() - 1 {
+                            Self::apply_database_type(config, db_types[current_idx + 1]);
+                        }
+                    }
+                    ConnectionKeyAction::BrowseSqliteFile => {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("SQLite 数据库", &["db", "sqlite", "sqlite3"])
+                            .add_filter("所有文件", &["*"])
+                            .pick_file()
+                        {
+                            config.database = path.display().to_string();
                         }
                     }
                 }
-
-                // h/l 切换数据库类型
-                if i.key_pressed(Key::H) && i.modifiers.is_none() {
-                    let current_idx = db_types
-                        .iter()
-                        .position(|t| *t == config.db_type)
-                        .unwrap_or(0);
-                    if current_idx > 0 {
-                        let new_type = db_types[current_idx - 1];
-                        config.db_type = new_type;
-                        config.port = new_type.default_port();
-                        if config.host.is_empty() && !matches!(new_type, DatabaseType::SQLite) {
-                            config.host = "localhost".to_string();
-                        }
-                    }
-                }
-                if i.key_pressed(Key::L) && i.modifiers.is_none() {
-                    let current_idx = db_types
-                        .iter()
-                        .position(|t| *t == config.db_type)
-                        .unwrap_or(0);
-                    if current_idx < db_types.len() - 1 {
-                        let new_type = db_types[current_idx + 1];
-                        config.db_type = new_type;
-                        config.port = new_type.default_port();
-                        if config.host.is_empty() && !matches!(new_type, DatabaseType::SQLite) {
-                            config.host = "localhost".to_string();
-                        }
-                    }
-                }
-
-                // Ctrl+O 打开文件（仅 SQLite）
-                if matches!(config.db_type, DatabaseType::SQLite)
-                    && i.key_pressed(Key::O)
-                    && i.modifiers == Modifiers::CTRL
-                    && let Some(path) = rfd::FileDialog::new()
-                        .add_filter("SQLite 数据库", &["db", "sqlite", "sqlite3"])
-                        .add_filter("所有文件", &["*"])
-                        .pick_file()
-                {
-                    config.database = path.display().to_string();
-                }
-            });
+            }
         }
 
         let dialog_title = if is_edit_mode {
@@ -287,16 +315,21 @@ impl ConnectionDialog {
 
     /// 数据库类型选择器
     fn show_db_type_selector(ui: &mut egui::Ui, config: &mut ConnectionConfig) {
+        let db_type_shortcuts = local_shortcuts_text(&[
+            LocalShortcut::ConnectionTypeSqlite,
+            LocalShortcut::ConnectionTypePostgres,
+            LocalShortcut::ConnectionTypeMySql,
+            LocalShortcut::ConnectionTypePrev,
+            LocalShortcut::ConnectionTypeNext,
+        ]);
+
         // 快捷键提示
         ui.horizontal(|ui| {
             ui.add_space(SPACING_SM);
             ui.label(
-                RichText::new(format!(
-                    "数据库类型 [{} 切换]",
-                    local_shortcut_text(LocalShortcut::FormatSelectionCycle)
-                ))
-                .small()
-                .color(MUTED),
+                RichText::new(format!("数据库类型 [{}]", db_type_shortcuts))
+                    .small()
+                    .color(MUTED),
             );
         });
         ui.add_space(4.0);
@@ -327,6 +360,12 @@ impl ConnectionDialog {
                     egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(150, 150, 160, 50))
                 };
 
+                let shortcut = match db_type {
+                    DatabaseType::SQLite => LocalShortcut::ConnectionTypeSqlite,
+                    DatabaseType::PostgreSQL => LocalShortcut::ConnectionTypePostgres,
+                    DatabaseType::MySQL => LocalShortcut::ConnectionTypeMySql,
+                };
+
                 let response = egui::Frame::NONE
                     .fill(fill)
                     .stroke(stroke)
@@ -348,15 +387,11 @@ impl ConnectionDialog {
                     .interact(egui::Sense::click())
                     .on_hover_text(local_shortcut_tooltip(
                         &format!("切换到 {} 连接类型", name),
-                        LocalShortcut::FormatSelectionCycle,
+                        shortcut,
                     ));
 
                 if response.clicked() {
-                    config.db_type = *db_type;
-                    config.port = db_type.default_port();
-                    if config.host.is_empty() && !matches!(db_type, DatabaseType::SQLite) {
-                        config.host = "localhost".to_string();
-                    }
+                    Self::apply_database_type(config, *db_type);
                 }
 
                 ui.add_space(SPACING_SM);

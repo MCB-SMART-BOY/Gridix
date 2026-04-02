@@ -1,10 +1,8 @@
 //! 关于对话框 - 显示项目信息
-//!
-//! 支持的快捷键：
-//! - `Esc` / `q` / `Enter` - 关闭对话框
 
-use super::keyboard::{self, DialogAction};
-use crate::ui::shortcut_tooltip;
+use crate::ui::{
+    LocalShortcut, consume_local_shortcut, local_shortcuts_text, local_shortcuts_tooltip,
+};
 use egui::{self, Color32, RichText, Vec2};
 
 pub struct AboutDialog;
@@ -15,111 +13,110 @@ impl AboutDialog {
             return;
         }
 
-        // 使用统一的键盘模块处理：Esc/q 关闭
-        if keyboard::handle_close_keys(ctx) {
+        let close_shortcuts = [LocalShortcut::Dismiss, LocalShortcut::Confirm];
+        if ctx.input_mut(|i| {
+            consume_local_shortcut(i, LocalShortcut::Dismiss)
+                || consume_local_shortcut(i, LocalShortcut::Confirm)
+        }) {
             *show = false;
             return;
         }
 
-        // Enter 也关闭（确认动作）
-        if let DialogAction::Confirm = keyboard::handle_dialog_keys(ctx) {
-            *show = false;
-            return;
-        }
-
-        egui::Window::new("关于")
+        egui::Window::new("关于 Gridix")
             .collapsible(false)
             .resizable(false)
-            .fixed_size(Vec2::new(420.0, 340.0))
+            .fixed_size(Vec2::new(460.0, 360.0))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
-                    ui.add_space(16.0);
+                    ui.add_space(18.0);
 
-                    // 大笑脸
-                    ui.label(RichText::new("😄").size(42.0));
-
-                    ui.add_space(12.0);
-
-                    // 主标题
                     ui.label(
-                        RichText::new("不是吧哥们")
-                            .size(24.0)
+                        RichText::new("GRIDIX")
+                            .size(30.0)
                             .strong()
-                            .color(Color32::from_rgb(255, 193, 7)),
+                            .color(Color32::from_rgb(122, 162, 247)),
                     );
-
                     ui.add_space(6.0);
-
-                    // 副标题
                     ui.label(
-                        RichText::new("真当我们 Navicat 了？")
-                            .size(18.0)
-                            .color(Color32::from_rgb(100, 149, 237)),
+                        RichText::new("Grid-first database manager")
+                            .size(17.0)
+                            .color(Color32::from_rgb(192, 202, 245)),
                     );
-
-                    ui.add_space(12.0);
-
-                    // 说明文字
-                    ui.label(RichText::new("我们可是开源项目嘿嘿，不收费哈！").size(16.0));
-
-                    ui.add_space(16.0);
-
-                    ui.separator();
-
-                    ui.add_space(12.0);
-
-                    // GitHub 信息
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("👤").size(14.0));
-                        ui.label(RichText::new("作者: MCB-SMART-BOY").size(14.0).strong());
-                    });
-
-                    ui.add_space(6.0);
-
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("🔗").size(14.0));
-                        ui.label(
-                            RichText::new("github.com/MCB-SMART-BOY/gridix")
-                                .size(13.0)
-                                .color(Color32::from_rgb(100, 149, 237)),
-                        );
-                    });
-
-                    ui.add_space(12.0);
-
-                    // GitHub 链接提示
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("🌟").size(14.0));
-                        ui.label(
-                            RichText::new("欢迎 Star & 贡献代码")
-                                .size(14.0)
-                                .color(Color32::GRAY),
-                        );
-                        ui.label(RichText::new("🌟").size(14.0));
-                    });
-
-                    ui.add_space(16.0);
-
-                    // 快捷键提示
+                    ui.add_space(4.0);
                     ui.label(
-                        RichText::new("[Esc/q/Enter 关闭]")
+                        RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
                             .small()
-                            .color(Color32::GRAY),
+                            .color(Color32::from_rgb(146, 156, 197)),
                     );
 
-                    ui.add_space(6.0);
+                    ui.add_space(16.0);
+                    ui.separator();
+                    ui.add_space(14.0);
 
-                    // 关闭按钮
+                    egui::Frame::NONE
+                        .fill(Color32::from_rgba_unmultiplied(90, 130, 210, 14))
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            Color32::from_rgba_unmultiplied(110, 150, 230, 28),
+                        ))
+                        .corner_radius(egui::CornerRadius::same(8))
+                        .inner_margin(egui::Margin::symmetric(14, 12))
+                        .show(ui, |ui| {
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    RichText::new("开源、键盘优先、面向数据库学习与日常使用")
+                                        .strong(),
+                                );
+                                ui.add_space(6.0);
+                                ui.label(
+                                    RichText::new(
+                                        "支持 SQLite / PostgreSQL / MySQL(MariaDB)，\
+                                         并提供帮助与学习体系、导入导出、ER 图与筛选工作流。",
+                                    )
+                                    .color(Color32::LIGHT_GRAY),
+                                );
+                            });
+                        });
+
+                    ui.add_space(14.0);
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("仓库").strong());
+                        ui.label(
+                            RichText::new("github.com/MCB-SMART-BOY/Gridix")
+                                .monospace()
+                                .color(Color32::from_rgb(125, 207, 255)),
+                        );
+                    });
+
+                    ui.add_space(8.0);
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("作者").strong());
+                        ui.label(RichText::new("MCB-SMART-BOY").color(Color32::LIGHT_GRAY));
+                    });
+
+                    ui.add_space(18.0);
+
+                    ui.label(
+                        RichText::new(format!(
+                            "快捷键: {} 关闭",
+                            local_shortcuts_text(&close_shortcuts)
+                        ))
+                        .small()
+                        .color(Color32::from_rgb(120, 120, 120)),
+                    );
+
+                    ui.add_space(8.0);
+
                     if ui
-                        .button(RichText::new("知道啦~ [Enter]").size(14.0))
-                        .on_hover_text(shortcut_tooltip("关闭关于对话框", &["Enter", "Esc", "Q"]))
+                        .button(format!("关闭 [{}]", local_shortcuts_text(&close_shortcuts)))
+                        .on_hover_text(local_shortcuts_tooltip("关闭关于对话框", &close_shortcuts))
                         .clicked()
                     {
                         *show = false;
                     }
-
-                    ui.add_space(10.0);
                 });
             });
     }

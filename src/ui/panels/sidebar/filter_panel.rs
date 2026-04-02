@@ -5,8 +5,8 @@
 use crate::core::{Action, KeyBindings};
 use crate::ui::styles::{GRAY, MUTED, SUCCESS};
 use crate::ui::{
-    ColumnFilter, FilterLogic, FilterOperator, SidebarSection, action_tooltip_with_extras,
-    shortcut_tooltip,
+    ColumnFilter, FilterLogic, FilterOperator, LocalShortcut, SidebarSection,
+    action_tooltip_with_extras, local_shortcuts_text, local_shortcuts_tooltip,
 };
 use egui::{self, Color32, CornerRadius, RichText, TextEdit, Vec2};
 
@@ -33,6 +33,8 @@ impl FilterPanel {
 
         // 标题栏
         ui.horizontal(|ui| {
+            let add_filter_shortcuts = local_shortcuts_text(&[LocalShortcut::FilterAdd]);
+            let clear_filter_shortcuts = local_shortcuts_text(&[LocalShortcut::FilterClearAll]);
             let filter_count = filters.iter().filter(|f| f.enabled).count();
             let title = if filter_count > 0 {
                 format!("筛选 ({})", filter_count)
@@ -66,7 +68,7 @@ impl FilterPanel {
                             keybindings,
                             Action::AddFilter,
                             "添加筛选条件",
-                            &["a", "o"],
+                            &[add_filter_shortcuts.as_str()],
                         ))
                         .clicked()
                 {
@@ -92,7 +94,7 @@ impl FilterPanel {
                             keybindings,
                             Action::ClearFilters,
                             "清空所有筛选条件",
-                            &["c"],
+                            &[clear_filter_shortcuts.as_str()],
                         ))
                         .clicked()
                 {
@@ -268,9 +270,12 @@ impl FilterPanel {
                                                         .frame(false)
                                                         .min_size(Vec2::new(16.0, 16.0)),
                                                     )
-                                                    .on_hover_text(shortcut_tooltip(
+                                                    .on_hover_text(local_shortcuts_tooltip(
                                                         "删除当前筛选条件",
-                                                        &["d", "x"],
+                                                        &[
+                                                            LocalShortcut::SidebarDelete,
+                                                            LocalShortcut::FilterDelete,
+                                                        ],
                                                     ))
                                                     .clicked()
                                                 {
@@ -320,13 +325,13 @@ impl FilterPanel {
                                                             .frame(false)
                                                             .min_size(Vec2::new(16.0, 16.0)),
                                                         )
-                                                        .on_hover_text(shortcut_tooltip(
+                                                        .on_hover_text(local_shortcuts_tooltip(
                                                             if filter.case_sensitive {
                                                                 "当前为区分大小写"
                                                             } else {
                                                                 "当前为忽略大小写"
                                                             },
-                                                            &["s"],
+                                                            &[LocalShortcut::FilterCaseToggle],
                                                         ))
                                                         .clicked()
                                                     {
@@ -357,9 +362,9 @@ impl FilterPanel {
                                             )
                                             .frame(false),
                                         )
-                                        .on_hover_text(shortcut_tooltip(
+                                        .on_hover_text(local_shortcuts_tooltip(
                                             "切换 AND / OR 逻辑",
-                                            &["t"],
+                                            &[LocalShortcut::FilterLogicToggle],
                                         ))
                                         .clicked()
                                     {

@@ -271,6 +271,7 @@ impl DbManagerApp {
         // 处理快捷键更新
         if let Some(keybindings) = results.updated_keybindings {
             self.keybindings = keybindings;
+            ui::sync_runtime_local_shortcuts(&self.keybindings);
             if let Err(e) = self.keybindings.save_to_disk() {
                 self.notifications.error(format!("快捷键保存失败: {}", e));
             } else {

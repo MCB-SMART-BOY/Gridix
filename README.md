@@ -5,7 +5,7 @@
 **A keyboard-first database manager for command-style workflow**  
 **面向命令式工作流的键盘优先数据库管理工具**
 
-[![Version](https://img.shields.io/badge/version-3.4.0-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
+[![Version](https://img.shields.io/badge/version-3.6.0-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024_edition-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
@@ -19,7 +19,7 @@ Gridix = Grid + Helix.
 Navigate with `hjkl`, run SQL quickly, and keep onboarding available in-app (`F1`).  
 用 `hjkl` 导航、快速执行 SQL，并在应用内通过 `F1` 完成新手上手与数据库学习。
 
-![Screenshot](gridix.png)
+![Gridix Logo](assets/branding/gridix-logo.png)
 
 ## At A Glance | 快速了解
 - **Keyboard-first focus flow**: sidebar, grid, SQL editor, toolbar.
@@ -41,8 +41,13 @@ paru -S gridix-appimage
 paru -S gridix
 
 # Nix
+# latest from default branch
 nix run github:MCB-SMART-BOY/Gridix
 nix profile install github:MCB-SMART-BOY/Gridix
+
+# pinned release
+nix run github:MCB-SMART-BOY/Gridix/v3.6.0
+nix profile install github:MCB-SMART-BOY/Gridix/v3.6.0
 
 # Homebrew (macOS/Linux)
 brew tap MCB-SMART-BOY/gridix

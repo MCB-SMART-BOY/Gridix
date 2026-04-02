@@ -271,6 +271,7 @@ impl DbManagerApp {
         // 加载配置
         let app_config = AppConfig::load();
         let keybindings = KeyBindings::load_or_init(&app_config.keybindings);
+        ui::sync_runtime_local_shortcuts(&keybindings);
         let theme_manager = ThemeManager::new(app_config.theme_preset);
         let highlight_colors = HighlightColors::from_theme(&theme_manager.colors);
         let query_history = QueryHistory::new(100);

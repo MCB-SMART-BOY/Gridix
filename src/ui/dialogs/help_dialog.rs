@@ -5,9 +5,9 @@
 //! - `j` / `k` - 滚动内容
 //! - `Ctrl+d` / `Ctrl+u` - 快速滚动
 
-use super::keyboard::{self, ListNavigation};
 use crate::core::Action;
-use egui::{self, Color32, Key, RichText, ScrollArea, Vec2};
+use crate::ui::{LocalShortcut, consume_local_shortcut, local_shortcuts_text};
+use egui::{self, Color32, RichText, ScrollArea, Vec2};
 
 #[path = "help_dialog/learning.rs"]
 mod learning;
@@ -63,6 +63,25 @@ impl HelpDialog {
     ];
 
     /// 显示帮助对话框
+    fn consume_scroll_delta(ctx: &egui::Context) -> f32 {
+        ctx.input_mut(|i| {
+            let mut delta = 0.0f32;
+            if consume_local_shortcut(i, LocalShortcut::HelpScrollUp) {
+                delta -= 50.0;
+            }
+            if consume_local_shortcut(i, LocalShortcut::HelpScrollDown) {
+                delta += 50.0;
+            }
+            if consume_local_shortcut(i, LocalShortcut::HelpPageUp) {
+                delta -= 300.0;
+            }
+            if consume_local_shortcut(i, LocalShortcut::HelpPageDown) {
+                delta += 300.0;
+            }
+            delta
+        })
+    }
+
     pub fn show_with_scroll(
         ctx: &egui::Context,
         open: &mut bool,
@@ -74,7 +93,7 @@ impl HelpDialog {
             return None;
         }
 
-        if keyboard::handle_close_keys(ctx) {
+        if ctx.input_mut(|i| consume_local_shortcut(i, LocalShortcut::Dismiss)) {
             *open = false;
             return None;
         }
@@ -93,8 +112,29 @@ impl HelpDialog {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(12.0, 0.0);
                     let help_binding = context.keybindings.display(Action::ShowHelp);
-                    Self::hint(ui, "j/k", "滚动");
-                    Self::hint(ui, "q/Esc", "关闭");
+                    Self::hint(
+                        ui,
+                        local_shortcuts_text(&[
+                            LocalShortcut::HelpScrollUp,
+                            LocalShortcut::HelpScrollDown,
+                        ])
+                        .as_str(),
+                        "滚动",
+                    );
+                    Self::hint(
+                        ui,
+                        local_shortcuts_text(&[LocalShortcut::Dismiss]).as_str(),
+                        "关闭",
+                    );
+                    Self::hint(
+                        ui,
+                        local_shortcuts_text(&[
+                            LocalShortcut::HelpPageUp,
+                            LocalShortcut::HelpPageDown,
+                        ])
+                        .as_str(),
+                        "快速滚动",
+                    );
                     Self::hint(
                         ui,
                         if help_binding.is_empty() {
@@ -117,27 +157,7 @@ impl HelpDialog {
                     .auto_shrink([true, false])
                     .show(ui, |ui| {
                         let content_width = Self::CONTENT_WIDTH.min(ui.available_width());
-
-                        let scroll_delta = match keyboard::handle_list_navigation(ctx) {
-                            ListNavigation::Up => -50.0,
-                            ListNavigation::Down => 50.0,
-                            ListNavigation::PageUp => -300.0,
-                            ListNavigation::PageDown => 300.0,
-                            _ => 0.0,
-                        };
-
-                        let extra_delta = ctx.input(|i| {
-                            let mut delta = 0.0f32;
-                            if i.modifiers.ctrl && i.key_pressed(Key::D) {
-                                delta += 300.0;
-                            }
-                            if i.modifiers.ctrl && i.key_pressed(Key::U) {
-                                delta -= 300.0;
-                            }
-                            delta
-                        });
-
-                        let total_delta = scroll_delta + extra_delta;
+                        let total_delta = Self::consume_scroll_delta(ctx);
                         if total_delta != 0.0 {
                             ui.scroll_with_delta(Vec2::new(0.0, -total_delta));
                         }

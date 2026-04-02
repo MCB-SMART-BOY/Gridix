@@ -3,10 +3,12 @@
 //! 提供创建表、修改表结构等 DDL 操作的 UI。
 //! 支持 Helix 风格的键盘导航。
 
-use super::keyboard::{self, DialogAction, ListNavigation};
 use crate::database::DatabaseType;
-use crate::ui::shortcut_tooltip;
-use egui::{self, Color32, Key, RichText, TextEdit};
+use crate::ui::{
+    LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
+    local_shortcuts_text,
+};
+use egui::{self, Color32, RichText, TextEdit};
 
 // ============================================================================
 // 列定义
@@ -415,7 +417,86 @@ impl DdlDialogState {
 /// DDL 对话框
 pub struct DdlDialog;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DdlKeyAction {
+    Confirm,
+    Close,
+    ColumnPrev,
+    ColumnNext,
+    ColumnStart,
+    ColumnEnd,
+    ColumnDelete,
+    ColumnAddBelow,
+    ColumnAddAbove,
+    ColumnTogglePrimaryKey,
+}
+
 impl DdlDialog {
+    fn try_create_table(state: &mut DdlDialogState) -> Result<String, String> {
+        match state.table.validate() {
+            Ok(()) => {
+                let sql = state.table.to_create_sql();
+                state.error = None;
+                Ok(sql)
+            }
+            Err(error) => {
+                state.error = Some(error.clone());
+                Err(error)
+            }
+        }
+    }
+
+    fn toggle_primary_key(state: &mut DdlDialogState) {
+        if let Some(col) = state.table.columns.get_mut(state.selected_column) {
+            let new_primary_key = !col.primary_key;
+            col.primary_key = new_primary_key;
+            if new_primary_key {
+                col.nullable = false;
+                for (idx, other_col) in state.table.columns.iter_mut().enumerate() {
+                    if idx != state.selected_column {
+                        other_col.primary_key = false;
+                    }
+                }
+            }
+        }
+    }
+
+    fn detect_key_action(ctx: &egui::Context) -> Option<DdlKeyAction> {
+        ctx.input_mut(|i| {
+            if consume_local_shortcut(i, LocalShortcut::Dismiss) {
+                return Some(DdlKeyAction::Close);
+            }
+            if consume_local_shortcut(i, LocalShortcut::Confirm) {
+                return Some(DdlKeyAction::Confirm);
+            }
+            if consume_local_shortcut(i, LocalShortcut::DdlColumnPrev) {
+                return Some(DdlKeyAction::ColumnPrev);
+            }
+            if consume_local_shortcut(i, LocalShortcut::DdlColumnNext) {
+                return Some(DdlKeyAction::ColumnNext);
+            }
+            if consume_local_shortcut(i, LocalShortcut::DdlColumnStart) {
+                return Some(DdlKeyAction::ColumnStart);
+            }
+            if consume_local_shortcut(i, LocalShortcut::DdlColumnEnd) {
+                return Some(DdlKeyAction::ColumnEnd);
+            }
+            if consume_local_shortcut(i, LocalShortcut::DdlColumnDelete) {
+                return Some(DdlKeyAction::ColumnDelete);
+            }
+            if consume_local_shortcut(i, LocalShortcut::DdlColumnAddBelow) {
+                return Some(DdlKeyAction::ColumnAddBelow);
+            }
+            if consume_local_shortcut(i, LocalShortcut::DdlColumnAddAbove) {
+                return Some(DdlKeyAction::ColumnAddAbove);
+            }
+            if consume_local_shortcut(i, LocalShortcut::DdlColumnTogglePrimaryKey) {
+                return Some(DdlKeyAction::ColumnTogglePrimaryKey);
+            }
+            None
+        })
+    }
+
     /// 显示创建表对话框
     pub fn show_create_table(ctx: &egui::Context, state: &mut DdlDialogState) -> Option<String> {
         if !state.show {
@@ -426,48 +507,37 @@ impl DdlDialog {
         let mut should_close = false;
 
         // 键盘快捷键处理（仅在没有文本框焦点时）
-        if !keyboard::has_text_focus(ctx) {
-            // Esc/q 关闭
-            if keyboard::handle_close_keys(ctx) {
-                state.close();
-                return None;
-            }
-
-            // Enter 创建表
-            if let DialogAction::Confirm = keyboard::handle_dialog_keys(ctx) {
-                match state.table.validate() {
-                    Ok(()) => {
-                        result = Some(state.table.to_create_sql());
+        if !ctx.memory(|mem| mem.focused().is_some()) {
+            let col_count = state.table.columns.len();
+            match Self::detect_key_action(ctx) {
+                Some(DdlKeyAction::Close) => {
+                    state.close();
+                    return None;
+                }
+                Some(DdlKeyAction::Confirm) => {
+                    if let Ok(sql) = Self::try_create_table(state) {
+                        result = Some(sql);
                         state.close();
                         return result;
                     }
-                    Err(e) => {
-                        state.error = Some(e);
-                    }
                 }
-            }
-
-            // 列导航
-            let col_count = state.table.columns.len();
-            match keyboard::handle_list_navigation(ctx) {
-                ListNavigation::Up => {
+                Some(DdlKeyAction::ColumnPrev) => {
                     if state.selected_column > 0 {
                         state.selected_column -= 1;
                     }
                 }
-                ListNavigation::Down => {
+                Some(DdlKeyAction::ColumnNext) => {
                     if state.selected_column < col_count.saturating_sub(1) {
                         state.selected_column += 1;
                     }
                 }
-                ListNavigation::Start => {
+                Some(DdlKeyAction::ColumnStart) => {
                     state.selected_column = 0;
                 }
-                ListNavigation::End => {
+                Some(DdlKeyAction::ColumnEnd) => {
                     state.selected_column = col_count.saturating_sub(1);
                 }
-                ListNavigation::Delete => {
-                    // dd 删除当前列
+                Some(DdlKeyAction::ColumnDelete) => {
                     if col_count > 1 {
                         state.table.columns.remove(state.selected_column);
                         if state.selected_column >= state.table.columns.len() {
@@ -475,8 +545,7 @@ impl DdlDialog {
                         }
                     }
                 }
-                ListNavigation::AddBelow => {
-                    // o 在下方添加列
+                Some(DdlKeyAction::ColumnAddBelow) => {
                     let insert_pos = (state.selected_column + 1).min(col_count);
                     state
                         .table
@@ -484,35 +553,15 @@ impl DdlDialog {
                         .insert(insert_pos, ColumnDefinition::default());
                     state.selected_column = insert_pos;
                 }
-                ListNavigation::AddAbove => {
-                    // O 在上方添加列
+                Some(DdlKeyAction::ColumnAddAbove) => {
                     state
                         .table
                         .columns
                         .insert(state.selected_column, ColumnDefinition::default());
                 }
-                _ => {}
+                Some(DdlKeyAction::ColumnTogglePrimaryKey) => Self::toggle_primary_key(state),
+                None => {}
             }
-
-            // 空格切换主键
-            ctx.input(|i| {
-                if i.key_pressed(Key::Space)
-                    && i.modifiers.is_none()
-                    && let Some(col) = state.table.columns.get_mut(state.selected_column)
-                {
-                    let new_pk = !col.primary_key;
-                    col.primary_key = new_pk;
-                    if new_pk {
-                        col.nullable = false;
-                        // 取消其他列的主键
-                        for (idx, other_col) in state.table.columns.iter_mut().enumerate() {
-                            if idx != state.selected_column {
-                                other_col.primary_key = false;
-                            }
-                        }
-                    }
-                }
-            });
         }
 
         egui::Window::new("创建表")
@@ -549,14 +598,40 @@ impl DdlDialog {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("列定义").strong());
                         ui.label(
-                            RichText::new("[j/k 移动 | o/O 添加 | dd 删除 | Space 切换主键]")
-                                .small()
-                                .color(Color32::from_rgb(120, 120, 120)),
+                            RichText::new(format!(
+                                "[{} 移动 | {} / {} 添加 | {} 删除 | {} 切换主键]",
+                                local_shortcuts_text(&[
+                                    LocalShortcut::DdlColumnPrev,
+                                    LocalShortcut::DdlColumnNext,
+                                ]),
+                                local_shortcut_text(LocalShortcut::DdlColumnAddBelow),
+                                local_shortcut_text(LocalShortcut::DdlColumnAddAbove),
+                                local_shortcut_text(LocalShortcut::DdlColumnDelete),
+                                local_shortcut_text(LocalShortcut::DdlColumnTogglePrimaryKey),
+                            ))
+                            .small()
+                            .color(Color32::from_rgb(120, 120, 120)),
                         );
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("+ 添加列 [o]").clicked() {
-                                state.table.columns.push(ColumnDefinition::default());
+                            if ui
+                                .button(format!(
+                                    "+ 添加列 [{}]",
+                                    local_shortcut_text(LocalShortcut::DdlColumnAddBelow)
+                                ))
+                                .on_hover_text(local_shortcut_tooltip(
+                                    "在当前列下方添加新列",
+                                    LocalShortcut::DdlColumnAddBelow,
+                                ))
+                                .clicked()
+                            {
+                                let insert_pos =
+                                    (state.selected_column + 1).min(state.table.columns.len());
+                                state
+                                    .table
+                                    .columns
+                                    .insert(insert_pos, ColumnDefinition::default());
+                                state.selected_column = insert_pos;
                             }
                         });
                     });
@@ -661,7 +736,10 @@ impl DdlDialog {
                                     if col_count > 1
                                         && ui
                                             .small_button("×")
-                                            .on_hover_text(shortcut_tooltip("删除列", &["dd"]))
+                                            .on_hover_text(local_shortcut_tooltip(
+                                                "删除当前列",
+                                                LocalShortcut::DdlColumnDelete,
+                                            ))
                                             .clicked()
                                     {
                                         col_to_remove = Some(idx);
@@ -712,10 +790,16 @@ impl DdlDialog {
 
                     // 快捷键提示
                     ui.horizontal(|ui| {
+                        let close_shortcuts = [LocalShortcut::Dismiss];
+                        let create_shortcuts = [LocalShortcut::Confirm];
                         ui.label(
-                            RichText::new("快捷键: Esc/q 关闭 | Enter 创建")
-                                .small()
-                                .color(Color32::from_rgb(120, 120, 120)),
+                            RichText::new(format!(
+                                "快捷键: {} 关闭 | {} 创建",
+                                local_shortcuts_text(&close_shortcuts),
+                                local_shortcuts_text(&create_shortcuts),
+                            ))
+                            .small()
+                            .color(Color32::from_rgb(120, 120, 120)),
                         );
                     });
 
@@ -724,24 +808,30 @@ impl DdlDialog {
                     // 按钮
                     ui.horizontal(|ui| {
                         if ui
-                            .button("创建表 [Enter]")
-                            .on_hover_text(shortcut_tooltip("创建当前表结构", &["Enter"]))
+                            .button(format!(
+                                "创建表 [{}]",
+                                local_shortcut_text(LocalShortcut::Confirm)
+                            ))
+                            .on_hover_text(local_shortcut_tooltip(
+                                "创建当前表结构",
+                                LocalShortcut::Confirm,
+                            ))
                             .clicked()
+                            && let Ok(sql) = Self::try_create_table(state)
                         {
-                            match state.table.validate() {
-                                Ok(()) => {
-                                    result = Some(state.table.to_create_sql());
-                                    should_close = true;
-                                }
-                                Err(e) => {
-                                    state.error = Some(e);
-                                }
-                            }
+                            result = Some(sql);
+                            should_close = true;
                         }
 
                         if ui
-                            .button("取消 [Esc]")
-                            .on_hover_text(shortcut_tooltip("取消并关闭", &["Esc", "Q"]))
+                            .button(format!(
+                                "取消 [{}]",
+                                local_shortcut_text(LocalShortcut::Dismiss)
+                            ))
+                            .on_hover_text(local_shortcut_tooltip(
+                                "取消并关闭",
+                                LocalShortcut::Dismiss,
+                            ))
                             .clicked()
                         {
                             should_close = true;

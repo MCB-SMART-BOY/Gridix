@@ -1,7 +1,7 @@
 # Gridix Optimization Roadmap | 优化路线图
 
-> Baseline: `v3.4.0`  
-> 基线版本：`v3.4.0`  
+> Baseline: `v3.6.0`  
+> 基线版本：`v3.6.0`  
 > Status labels: `已完成` / `进行中` / `待开始` / `暂缓`
 
 ## 1. Goal | 目标
@@ -90,7 +90,7 @@
 - Acceptance:
   - Import and export share one staged workflow.
   - Preview and validation semantics remain consistent across formats.
-- Status: `待开始`
+- Status: `进行中`
 
 ### P2: Power User Efficiency | 进阶效率
 

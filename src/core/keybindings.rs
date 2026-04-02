@@ -823,6 +823,9 @@ impl Action {
 pub struct KeyBindings {
     /// 操作到快捷键的映射
     bindings: HashMap<Action, KeyBinding>,
+    /// 局部作用域快捷键覆盖（如 dialog.help.scroll_up）
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    local_bindings: HashMap<String, Vec<KeyBinding>>,
 }
 
 impl Default for KeyBindings {
@@ -870,7 +873,10 @@ impl Default for KeyBindings {
         bindings.insert(Action::ZoomOut, KeyBinding::ctrl(KeyCode::Minus));
         bindings.insert(Action::ZoomReset, KeyBinding::ctrl(KeyCode::Num0));
 
-        Self { bindings }
+        Self {
+            bindings,
+            local_bindings: HashMap::new(),
+        }
     }
 }
 
@@ -951,6 +957,21 @@ impl KeyBindings {
     /// 获取所有绑定
     pub fn all_bindings(&self) -> &HashMap<Action, KeyBinding> {
         &self.bindings
+    }
+
+    /// 获取局部作用域快捷键覆盖
+    pub fn local_bindings_for(&self, key: &str) -> Option<&[KeyBinding]> {
+        self.local_bindings.get(key).map(Vec::as_slice)
+    }
+
+    /// 获取所有局部作用域快捷键覆盖
+    pub fn all_local_bindings(&self) -> &HashMap<String, Vec<KeyBinding>> {
+        &self.local_bindings
+    }
+
+    /// 设置局部作用域快捷键覆盖
+    pub fn set_local_bindings(&mut self, key: impl Into<String>, bindings: Vec<KeyBinding>) {
+        self.local_bindings.insert(key.into(), bindings);
     }
 
     /// 按分类获取所有绑定
@@ -1035,28 +1056,31 @@ impl KeyBindings {
             .ok_or("keymap.toml 必须是顶层 TOML 表".to_string())?;
 
         let mut bindings = Self::default();
+        bindings.local_bindings.clear();
 
         for (raw_key, raw_value) in table {
-            let Some(action) = Action::from_keymap_name(raw_key) else {
-                tracing::warn!(entry = raw_key, "忽略未知快捷键动作");
+            if raw_key == "global" {
+                let Some(global_table) = raw_value.as_table() else {
+                    tracing::warn!(entry = raw_key, "忽略非表结构的 global 配置");
+                    continue;
+                };
+                for (action_key, action_value) in global_table {
+                    Self::parse_global_binding_entry(&mut bindings, action_key, action_value);
+                }
+                continue;
+            }
+
+            if Action::from_keymap_name(raw_key).is_some() {
+                Self::parse_global_binding_entry(&mut bindings, raw_key, raw_value);
+                continue;
+            }
+
+            let Some(section_table) = raw_value.as_table() else {
+                tracing::warn!(entry = raw_key, "忽略未知或非表结构的快捷键配置");
                 continue;
             };
 
-            let Some(binding_text) = raw_value.as_str() else {
-                tracing::warn!(entry = raw_key, "忽略非字符串快捷键配置");
-                continue;
-            };
-
-            let Some(binding) = KeyBinding::parse(binding_text) else {
-                tracing::warn!(
-                    entry = raw_key,
-                    value = binding_text,
-                    "忽略无法解析的快捷键配置"
-                );
-                continue;
-            };
-
-            bindings.set(action, binding);
+            Self::parse_local_binding_section(raw_key, section_table, &mut bindings.local_bindings);
         }
 
         bindings.fill_missing_defaults();
@@ -1077,14 +1101,33 @@ impl KeyBindings {
         let dir = path.parent().ok_or("无法找到 keymap.toml 目录")?;
         fs::create_dir_all(dir).map_err(|e| format!("创建 keymap 目录失败: {}", e))?;
 
-        let mut serialized = BTreeMap::new();
+        let mut root = toml::map::Map::new();
+        let mut global = BTreeMap::new();
         for action in Action::all() {
             if let Some(binding) = self.get(*action) {
-                serialized.insert(action.keymap_name().to_string(), binding.display());
+                global.insert(
+                    action.keymap_name().to_string(),
+                    toml::Value::String(binding.display()),
+                );
             }
         }
 
-        let content = toml::to_string_pretty(&serialized)
+        root.insert(
+            "global".to_string(),
+            toml::Value::Table(global.into_iter().collect()),
+        );
+
+        let mut local_entries: Vec<_> = self.local_bindings.iter().collect();
+        local_entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+        for (path_key, bindings) in local_entries {
+            Self::insert_nested_local_binding(
+                &mut root,
+                path_key,
+                Self::serialize_binding_list(bindings),
+            );
+        }
+
+        let content = toml::to_string_pretty(&toml::Value::Table(root))
             .map_err(|e| format!("序列化 keymap.toml 失败: {}", e))?;
 
         let temp_path = path.with_extension("toml.tmp");
@@ -1101,11 +1144,140 @@ impl KeyBindings {
         fs::rename(&temp_path, path).map_err(|e| format!("写入 keymap.toml 失败: {}", e))?;
         Ok(())
     }
+
+    fn parse_global_binding_entry(bindings: &mut Self, raw_key: &str, raw_value: &toml::Value) {
+        let Some(action) = Action::from_keymap_name(raw_key) else {
+            tracing::warn!(entry = raw_key, "忽略未知快捷键动作");
+            return;
+        };
+
+        let Some(binding_text) = raw_value.as_str() else {
+            tracing::warn!(entry = raw_key, "忽略非字符串快捷键配置");
+            return;
+        };
+
+        let Some(binding) = KeyBinding::parse(binding_text) else {
+            tracing::warn!(
+                entry = raw_key,
+                value = binding_text,
+                "忽略无法解析的快捷键配置"
+            );
+            return;
+        };
+
+        bindings.set(action, binding);
+    }
+
+    fn parse_local_binding_section(
+        prefix: &str,
+        table: &toml::map::Map<String, toml::Value>,
+        local_bindings: &mut HashMap<String, Vec<KeyBinding>>,
+    ) {
+        for (raw_key, raw_value) in table {
+            let path = format!("{prefix}.{raw_key}");
+            if let Some(child_table) = raw_value.as_table() {
+                Self::parse_local_binding_section(&path, child_table, local_bindings);
+                continue;
+            }
+
+            let Some(bindings) = Self::parse_local_binding_value(&path, raw_value) else {
+                continue;
+            };
+
+            local_bindings.insert(path, bindings);
+        }
+    }
+
+    fn parse_local_binding_value(path: &str, raw_value: &toml::Value) -> Option<Vec<KeyBinding>> {
+        match raw_value {
+            toml::Value::String(binding_text) => {
+                let Some(binding) = KeyBinding::parse(binding_text) else {
+                    tracing::warn!(
+                        entry = path,
+                        value = binding_text,
+                        "忽略无法解析的局部快捷键配置"
+                    );
+                    return None;
+                };
+                Some(vec![binding])
+            }
+            toml::Value::Array(values) => {
+                let mut bindings = Vec::new();
+                for value in values {
+                    let Some(binding_text) = value.as_str() else {
+                        tracing::warn!(entry = path, "忽略包含非字符串项的局部快捷键数组");
+                        return None;
+                    };
+                    let Some(binding) = KeyBinding::parse(binding_text) else {
+                        tracing::warn!(
+                            entry = path,
+                            value = binding_text,
+                            "忽略无法解析的局部快捷键配置"
+                        );
+                        return None;
+                    };
+                    if !bindings.iter().any(|existing| existing == &binding) {
+                        bindings.push(binding);
+                    }
+                }
+                if bindings.is_empty() {
+                    tracing::warn!(entry = path, "忽略空的局部快捷键数组");
+                    None
+                } else {
+                    Some(bindings)
+                }
+            }
+            _ => {
+                tracing::warn!(entry = path, "忽略非法类型的局部快捷键配置");
+                None
+            }
+        }
+    }
+
+    fn serialize_binding_list(bindings: &[KeyBinding]) -> toml::Value {
+        if bindings.len() == 1 {
+            toml::Value::String(bindings[0].display())
+        } else {
+            toml::Value::Array(
+                bindings
+                    .iter()
+                    .map(|binding| toml::Value::String(binding.display()))
+                    .collect(),
+            )
+        }
+    }
+
+    fn insert_nested_local_binding(
+        root: &mut toml::map::Map<String, toml::Value>,
+        path_key: &str,
+        value: toml::Value,
+    ) {
+        let mut parts = path_key.split('.').peekable();
+        let mut current = root;
+
+        while let Some(part) = parts.next() {
+            if parts.peek().is_none() {
+                current.insert(part.to_string(), value);
+                break;
+            }
+
+            let entry = current
+                .entry(part.to_string())
+                .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+            if !entry.is_table() {
+                *entry = toml::Value::Table(toml::map::Map::new());
+            }
+            current = entry
+                .as_table_mut()
+                .expect("entry was just normalized to a TOML table");
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Action, KeyBinding, KeyBindings, KeyCode};
+    use std::fs;
     use tempfile::tempdir;
 
     #[test]
@@ -1143,5 +1315,60 @@ show_help = "F2"
 
         assert_eq!(loaded.display(Action::NewConnection), "Ctrl+N");
         assert_eq!(loaded.display(Action::ShowHelp), "F2");
+    }
+
+    #[test]
+    fn structured_keymap_parses_global_and_local_sections() {
+        let content = r#"
+[global]
+show_help = "F2"
+
+[dialog.help]
+scroll_up = ["K", "Up"]
+
+[dialog.common]
+dismiss = ["Esc", "Q"]
+"#;
+
+        let loaded = KeyBindings::parse_keymap(content).unwrap();
+
+        assert_eq!(loaded.display(Action::ShowHelp), "F2");
+        let help_scroll = loaded.local_bindings_for("dialog.help.scroll_up").unwrap();
+        assert_eq!(help_scroll.len(), 2);
+        assert_eq!(help_scroll[0].display(), "K");
+        assert_eq!(help_scroll[1].display(), "Up");
+        let dismiss = loaded.local_bindings_for("dialog.common.dismiss").unwrap();
+        assert_eq!(dismiss.len(), 2);
+        assert_eq!(dismiss[0].display(), "Esc");
+        assert_eq!(dismiss[1].display(), "Q");
+    }
+
+    #[test]
+    fn save_to_path_writes_structured_keymap_sections() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("keymap.toml");
+        let mut bindings = KeyBindings::default();
+        bindings.local_bindings.insert(
+            "dialog.common.dismiss".to_string(),
+            vec![
+                KeyBinding::key_only(KeyCode::Escape),
+                KeyBinding::key_only(KeyCode::Q),
+            ],
+        );
+        bindings.local_bindings.insert(
+            "dialog.help.scroll_up".to_string(),
+            vec![KeyBinding::key_only(KeyCode::K)],
+        );
+
+        bindings.save_to_path(&path).unwrap();
+        let content = fs::read_to_string(&path).unwrap();
+
+        assert!(content.contains("[global]"));
+        assert!(content.contains("[dialog.common]"));
+        assert!(content.contains("dismiss = ["));
+        assert!(content.contains("\"Esc\""));
+        assert!(content.contains("\"Q\""));
+        assert!(content.contains("[dialog.help]"));
+        assert!(content.contains("scroll_up = \"K\""));
     }
 }

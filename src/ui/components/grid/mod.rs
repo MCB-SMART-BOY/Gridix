@@ -25,13 +25,17 @@ pub use actions::{
 pub use filter::{
     ColumnFilter, FilterCache, FilterLogic, FilterOperator, check_filter_match, filter_rows_cached,
 };
+#[allow(unused_imports)] // 公开 API，供外部使用
 pub use mode::GridMode;
 pub use state::DataGridState;
 
 use crate::core::{Action, KeyBindings, constants};
 use crate::database::QueryResult;
 use crate::ui::styles::GRAY;
-use crate::ui::{action_tooltip_with_extras, shortcut_tooltip};
+use crate::ui::{
+    LocalShortcut, action_tooltip_with_extras, local_shortcut_pressed, local_shortcut_tooltip,
+    shortcut_tooltip,
+};
 use egui::{self, RichText, Vec2};
 use egui_extras::{Column, TableBuilder};
 
@@ -414,7 +418,7 @@ impl DataGrid {
                     keybindings,
                     Action::AddFilter,
                     "打开筛选面板",
-                    &["/"],
+                    keyboard::OPEN_FILTER_SHORTCUTS,
                 ))
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .clicked()
@@ -437,7 +441,7 @@ impl DataGrid {
                         )
                         .sense(egui::Sense::click()),
                     )
-                    .on_hover_text(shortcut_tooltip("添加新行", &["o"]))
+                    .on_hover_text(shortcut_tooltip("添加新行", keyboard::ADD_ROW_SHORTCUTS))
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .clicked()
                 {
@@ -468,7 +472,7 @@ impl DataGrid {
                         keybindings,
                         Action::Save,
                         "保存所有修改到数据库",
-                        &["w"],
+                        keyboard::SAVE_SHORTCUTS,
                     ))
                     .clicked()
                     && let Some(table) = table_name
@@ -488,7 +492,10 @@ impl DataGrid {
                             .frame(false)
                             .min_size(Vec2::new(24.0, 24.0)),
                     )
-                    .on_hover_text(shortcut_tooltip("放弃所有未保存的修改", &["q"]))
+                    .on_hover_text(shortcut_tooltip(
+                        "放弃所有未保存的修改",
+                        keyboard::DISCARD_SHORTCUTS,
+                    ))
                     .clicked()
                 {
                     state.clear_edits();
@@ -517,13 +524,7 @@ impl DataGrid {
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let help = match state.mode {
-                    GridMode::Normal => {
-                        "hjkl:移动 i:编辑 v:选择 d:删除 y:复制 p:粘贴 gg:顶部 G:底部"
-                    }
-                    GridMode::Insert => "Esc:退出 Enter:确认",
-                    GridMode::Select => "hjkl:扩展 d:删除 y:复制 Esc:取消",
-                };
+                let help = keyboard::mode_help_text(state.mode);
                 ui.label(RichText::new(help).small().color(GRAY));
             });
         });
@@ -659,23 +660,13 @@ impl DataGrid {
                     if response.gained_focus() || state.goto_input.is_empty() {
                         response.request_focus();
                     }
-
-                    // 回车确认
-                    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(line) = state.goto_input.trim().parse::<usize>()
-                            && line >= 1
-                            && line <= max_row
-                        {
-                            state.cursor.0 = line - 1;
-                            state.scroll_to_row = Some(state.cursor.0);
-                        }
-                        state.show_goto_dialog = false;
-                        state.goto_input.clear();
-                    }
                 });
 
+                let confirm = local_shortcut_pressed(ctx, LocalShortcut::Confirm);
+                let cancel = local_shortcut_pressed(ctx, LocalShortcut::Cancel);
+
                 ui.horizontal(|ui| {
-                    if ui
+                    let jump_clicked = ui
                         .add(
                             egui::Button::new(
                                 RichText::new("↵ 跳转")
@@ -685,20 +676,17 @@ impl DataGrid {
                             .frame(false)
                             .min_size(Vec2::new(0.0, 24.0)),
                         )
-                        .on_hover_text(shortcut_tooltip("跳转到指定行", &["Enter"]))
-                        .clicked()
-                    {
-                        if let Ok(line) = state.goto_input.trim().parse::<usize>()
-                            && line >= 1
-                            && line <= max_row
-                        {
-                            state.cursor.0 = line - 1;
-                            state.scroll_to_row = Some(state.cursor.0);
-                        }
-                        state.show_goto_dialog = false;
-                        state.goto_input.clear();
+                        .on_hover_text(local_shortcut_tooltip(
+                            "跳转到指定行",
+                            LocalShortcut::Confirm,
+                        ))
+                        .clicked();
+
+                    if jump_clicked || confirm {
+                        Self::apply_goto_line(state, max_row);
                     }
-                    if ui
+
+                    let cancel_clicked = ui
                         .add(
                             egui::Button::new(
                                 RichText::new("✕ 取消")
@@ -708,12 +696,11 @@ impl DataGrid {
                             .frame(false)
                             .min_size(Vec2::new(0.0, 24.0)),
                         )
-                        .on_hover_text(shortcut_tooltip("取消", &["Esc"]))
-                        .clicked()
-                        || ui.input(|i| i.key_pressed(egui::Key::Escape))
-                    {
-                        state.show_goto_dialog = false;
-                        state.goto_input.clear();
+                        .on_hover_text(local_shortcut_tooltip("取消", LocalShortcut::Cancel))
+                        .clicked();
+
+                    if cancel_clicked || cancel {
+                        Self::close_goto_dialog(state);
                     }
                 });
             });
@@ -737,6 +724,9 @@ impl DataGrid {
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
+                let confirm = local_shortcut_pressed(ctx, LocalShortcut::DangerConfirm);
+                let cancel = local_shortcut_pressed(ctx, LocalShortcut::DangerCancel);
+
                 ui.vertical(|ui| {
                     ui.label(RichText::new("此操作包含危险操作，请确认：").strong());
                     ui.add_space(8.0);
@@ -776,7 +766,7 @@ impl DataGrid {
 
                     ui.horizontal(|ui| {
                         // 确认按钮（红色警告文字）
-                        if ui
+                        let confirm_clicked = ui
                             .add(
                                 egui::Button::new(
                                     RichText::new("⚠ 确认执行")
@@ -786,15 +776,19 @@ impl DataGrid {
                                 .frame(false)
                                 .min_size(Vec2::new(0.0, 24.0)),
                             )
-                            .on_hover_text(shortcut_tooltip("确认执行 SQL 操作", &["Enter"]))
-                            .clicked()
-                        {
+                            .on_hover_text(local_shortcut_tooltip(
+                                "确认执行 SQL 操作",
+                                LocalShortcut::DangerConfirm,
+                            ))
+                            .clicked();
+
+                        if confirm_clicked || confirm {
                             actions::confirm_pending_sql(state, actions);
                         }
 
                         ui.add_space(16.0);
 
-                        if ui
+                        let cancel_clicked = ui
                             .add(
                                 egui::Button::new(
                                     RichText::new("✕ 取消")
@@ -804,14 +798,33 @@ impl DataGrid {
                                 .frame(false)
                                 .min_size(Vec2::new(0.0, 24.0)),
                             )
-                            .on_hover_text(shortcut_tooltip("取消", &["Esc"]))
-                            .clicked()
-                            || ui.input(|i| i.key_pressed(egui::Key::Escape))
-                        {
+                            .on_hover_text(local_shortcut_tooltip(
+                                "取消保存并返回表格",
+                                LocalShortcut::DangerCancel,
+                            ))
+                            .clicked();
+
+                        if cancel_clicked || cancel {
                             actions::cancel_pending_sql(state);
                         }
                     });
                 });
             });
+    }
+
+    fn apply_goto_line(state: &mut DataGridState, max_row: usize) {
+        if let Ok(line) = state.goto_input.trim().parse::<usize>()
+            && line >= 1
+            && line <= max_row
+        {
+            state.cursor.0 = line - 1;
+            state.scroll_to_row = Some(state.cursor.0);
+        }
+        Self::close_goto_dialog(state);
+    }
+
+    fn close_goto_dialog(state: &mut DataGridState) {
+        state.show_goto_dialog = false;
+        state.goto_input.clear();
     }
 }
