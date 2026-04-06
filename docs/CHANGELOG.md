@@ -8,6 +8,20 @@ All notable changes to this project are documented in this file.
 - No unreleased changes yet.
   暂无未发布变更。
 
+## [3.8.0]
+
+### Added
+- Added DataGrid command-sequence editing to the keybinding settings dialog, so `yy` / `dd` / `:w` / `gg` and related table commands can now be customized from the UI instead of only through `keymap.toml`.
+  为快捷键设置界面新增数据表格命令序列编辑能力，使 `yy` / `dd` / `:w` / `gg` 等表格命令可以直接在 UI 中自定义，而不再只能手改 `keymap.toml`。
+
+### Changed
+- Extended the keybinding scope tree with a dedicated DataGrid section and sequence-management workflow for grid commands.
+  扩展快捷键作用域树，新增独立的数据表格分区和命令序列管理流程。
+
+### Fixed
+- Added DataGrid prefix-conflict diagnostics so exact collisions and prefix-shadowing cases like `g` vs `gg` or `:` vs `:w` are surfaced before they break command chains.
+  新增数据表格前缀冲突诊断，可在 `g` 与 `gg`、`:` 与 `:w` 这类命令链被吞掉之前，提前识别完全冲突和前缀遮蔽问题。
+
 ## [3.7.1]
 
 ### Changed

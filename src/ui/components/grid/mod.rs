@@ -14,7 +14,7 @@
 
 mod actions;
 pub mod filter;
-mod keyboard;
+pub(crate) mod keyboard;
 mod mode;
 mod render;
 mod state;
@@ -24,6 +24,10 @@ pub use actions::{
 };
 pub use filter::{
     ColumnFilter, FilterCache, FilterLogic, FilterOperator, check_filter_match, filter_rows_cached,
+};
+pub(crate) use keyboard::{
+    GridCommandShortcut, GridSequenceConflictKind, grid_command_sequence_conflict,
+    grid_command_shortcuts, normalize_grid_command_sequence,
 };
 #[allow(unused_imports)] // 公开 API，供外部使用
 pub use mode::GridMode;
