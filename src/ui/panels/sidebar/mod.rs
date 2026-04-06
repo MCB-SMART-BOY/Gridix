@@ -13,7 +13,8 @@
 //! 键盘操作（统一使用侧边栏局部 action 层）：
 //! - `j/k` - 上下导航
 //! - `gg/G` - 跳转到首/末项
-//! - `h/l` - 层级切换（Tree 上下文）
+//! - `h` - 返回左侧层级 / 上一个分区
+//! - `l` - 进入更深层级或离开侧边栏进入结果表格
 //! - `Enter` - 激活/选择
 //! - `Space` - 切换状态
 //! - `d` - 删除
@@ -88,6 +89,12 @@ enum SidebarKeyAction {
     FilterLogicToggle,
     FilterFocusInput,
     FilterCaseToggle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SidebarMoveRightTarget {
+    Section(SidebarSection),
+    DataGrid,
 }
 
 impl Sidebar {
@@ -166,17 +173,22 @@ impl Sidebar {
 
         // ====== 筛选面板（第二个位置）======
         if panel_state.show_filters {
-            if FilterPanel::show(
+            let filter_panel_result = FilterPanel::show(
                 ui,
                 keybindings,
                 is_focused,
                 focused_section,
+                panel_state,
                 filters,
                 columns,
                 heights.filters,
                 pending_focus_filter_input,
-            ) {
+            );
+            if filter_panel_result.changed {
                 filter_changed = true;
+            }
+            if filter_panel_result.clicked {
+                actions.section_change = Some(SidebarSection::Filters);
             }
 
             // 分割条：筛选 <-> 触发器/存储过程
@@ -440,7 +452,7 @@ impl Sidebar {
         let flow_state = Self::sidebar_flow_state(panel_state, connection_manager);
 
         // 文本输入焦点优先于侧边栏导航，避免筛选值输入时被 j/k/h/l 等快捷键抢占。
-        if ctx.memory(|mem| mem.focused().is_some()) {
+        if focused_section == SidebarSection::Filters && panel_state.filter_input_has_focus {
             panel_state.command_buffer.clear();
             return;
         }
@@ -525,13 +537,13 @@ impl Sidebar {
                 }
             }
             Some(SidebarKeyAction::MoveRight) => {
-                // l：向下层级导航
-                let new_section = next_section_in_flow(focused_section, flow_state);
-
-                if let Some(section) = new_section {
-                    actions.section_change = Some(section);
-                } else {
-                    actions.focus_transfer = Some(SidebarFocusTransfer::ToDataGrid);
+                match move_right_target(focused_section, flow_state) {
+                    SidebarMoveRightTarget::Section(section) => {
+                        actions.section_change = Some(section);
+                    }
+                    SidebarMoveRightTarget::DataGrid => {
+                        actions.focus_transfer = Some(SidebarFocusTransfer::ToDataGrid);
+                    }
                 }
             }
             Some(SidebarKeyAction::InspectSchema) => {
@@ -1008,6 +1020,31 @@ fn next_section_in_flow(current: SidebarSection, flow: SidebarFlowState) -> Opti
     }
 }
 
+fn move_right_target(current: SidebarSection, flow: SidebarFlowState) -> SidebarMoveRightTarget {
+    match current {
+        SidebarSection::Connections => {
+            if flow.show_connections && flow.has_databases {
+                SidebarMoveRightTarget::Section(SidebarSection::Databases)
+            } else if flow.show_connections && flow.has_tables {
+                SidebarMoveRightTarget::Section(SidebarSection::Tables)
+            } else {
+                SidebarMoveRightTarget::DataGrid
+            }
+        }
+        SidebarSection::Databases => {
+            if flow.show_connections && flow.has_tables {
+                SidebarMoveRightTarget::Section(SidebarSection::Tables)
+            } else {
+                SidebarMoveRightTarget::DataGrid
+            }
+        }
+        SidebarSection::Tables
+        | SidebarSection::Filters
+        | SidebarSection::Triggers
+        | SidebarSection::Routines => SidebarMoveRightTarget::DataGrid,
+    }
+}
+
 fn previous_section_in_flow(
     current: SidebarSection,
     flow: SidebarFlowState,
@@ -1074,7 +1111,10 @@ fn previous_section_in_flow(
 
 #[cfg(test)]
 mod tests {
-    use super::{SidebarFlowState, next_section_in_flow, previous_section_in_flow};
+    use super::{
+        SidebarFlowState, SidebarMoveRightTarget, move_right_target, next_section_in_flow,
+        previous_section_in_flow,
+    };
     use crate::ui::SidebarSection;
 
     #[test]
@@ -1091,6 +1131,57 @@ mod tests {
         assert_eq!(
             next_section_in_flow(SidebarSection::Tables, flow),
             Some(SidebarSection::Filters)
+        );
+    }
+
+    #[test]
+    fn tables_move_right_enters_data_grid_instead_of_next_sidebar_panel() {
+        let flow = SidebarFlowState {
+            show_connections: true,
+            show_filters: true,
+            show_triggers: true,
+            show_routines: false,
+            has_databases: true,
+            has_tables: true,
+        };
+
+        assert_eq!(
+            move_right_target(SidebarSection::Tables, flow),
+            SidebarMoveRightTarget::DataGrid
+        );
+    }
+
+    #[test]
+    fn filters_move_right_enters_data_grid() {
+        let flow = SidebarFlowState {
+            show_connections: true,
+            show_filters: true,
+            show_triggers: true,
+            show_routines: true,
+            has_databases: true,
+            has_tables: true,
+        };
+
+        assert_eq!(
+            move_right_target(SidebarSection::Filters, flow),
+            SidebarMoveRightTarget::DataGrid
+        );
+    }
+
+    #[test]
+    fn connections_move_right_prefers_database_hierarchy_before_grid() {
+        let flow = SidebarFlowState {
+            show_connections: true,
+            show_filters: true,
+            show_triggers: false,
+            show_routines: false,
+            has_databases: true,
+            has_tables: true,
+        };
+
+        assert_eq!(
+            move_right_target(SidebarSection::Connections, flow),
+            SidebarMoveRightTarget::Section(SidebarSection::Databases)
         );
     }
 

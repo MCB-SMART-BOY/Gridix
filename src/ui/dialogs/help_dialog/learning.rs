@@ -63,6 +63,17 @@ impl HelpDialog {
             None,
         );
         ui.add_space(12.0);
+        Self::overview_card(
+            ui,
+            "这套学习示例库能学什么",
+            &[
+                "内置 SQLite 教学数据集包含 8 张主表，每张表至少 100 行、15 列以上。",
+                "关系覆盖客户、地址、供应商、分类、商品、订单、订单明细、支付，适合练 JOIN、GROUP BY、NULL、事务。",
+                "数据里既有一对多，也有层级分类、级联删除和多跳外键，不是只有几条演示记录的空壳样例。",
+            ],
+            None,
+        );
+        ui.add_space(12.0);
         Self::learning_overview_flow(ui);
         ui.add_space(14.0);
 
@@ -81,8 +92,13 @@ impl HelpDialog {
         if Self::overview_action_card(
             ui,
             "从学习示例开始第一课",
-            "如果你想直接动手，Gridix 会自动创建本地 SQLite 学习示例库，并带你进入第一课。",
-            &["不会改动真实连接", "适合第一次使用", "可随时重置示例库"],
+            "如果你想直接动手，Gridix 会自动创建本地 SQLite 学习示例库：8 张主表、每表 100+ 行，并直接带你进入第一课。",
+            &[
+                "不会改动真实连接",
+                "适合第一次使用",
+                "8 张主表 / 每表 100+ 行",
+                "可随时重置示例库",
+            ],
             "打开示例并开始第一课",
         ) {
             state.learning_topic = LearningTopic::Foundations;

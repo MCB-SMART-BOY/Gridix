@@ -5,13 +5,18 @@
 use crate::core::{Action, KeyBindings};
 use crate::ui::styles::{GRAY, MUTED, SUCCESS};
 use crate::ui::{
-    ColumnFilter, FilterLogic, FilterOperator, LocalShortcut, SidebarSection,
+    ColumnFilter, FilterLogic, FilterOperator, LocalShortcut, SidebarPanelState, SidebarSection,
     action_tooltip_with_extras, local_shortcuts_text, local_shortcuts_tooltip,
 };
 use egui::{self, Color32, CornerRadius, RichText, TextEdit, Vec2};
 
 /// 筛选面板
 pub struct FilterPanel;
+
+pub struct FilterPanelResult {
+    pub changed: bool,
+    pub clicked: bool,
+}
 
 impl FilterPanel {
     /// 显示筛选面板
@@ -23,13 +28,16 @@ impl FilterPanel {
         keybindings: &KeyBindings,
         is_focused: bool,
         focused_section: SidebarSection,
+        panel_state: &mut SidebarPanelState,
         filters: &mut Vec<ColumnFilter>,
         columns: &[String],
         height: f32,
         pending_focus_filter_input: &mut Option<usize>,
-    ) -> bool {
+    ) -> FilterPanelResult {
         let mut changed = false;
+        let mut clicked = false;
         let mut filter_to_remove: Option<usize> = None;
+        panel_state.filter_input_has_focus = false;
 
         // 标题栏
         ui.horizontal(|ui| {
@@ -124,6 +132,10 @@ impl FilterPanel {
             .max_height(scroll_height)
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                if ui.ui_contains_pointer() && ui.input(|input| input.pointer.primary_clicked()) {
+                    clicked = true;
+                }
+
                 if filters.is_empty() {
                     ui.vertical_centered(|ui| {
                         ui.add_space(16.0);
@@ -308,6 +320,10 @@ impl FilterPanel {
                                                     changed = true;
                                                 }
 
+                                                if response.has_focus() {
+                                                    panel_state.filter_input_has_focus = true;
+                                                }
+
                                                 // 大小写切换
                                                 if filter.operator.supports_case_sensitivity() {
                                                     let case_color = if filter.case_sensitive {
@@ -380,12 +396,16 @@ impl FilterPanel {
                 }
             });
 
+        if ui.ui_contains_pointer() && ui.input(|input| input.pointer.primary_clicked()) {
+            clicked = true;
+        }
+
         if let Some(idx) = filter_to_remove {
             filters.remove(idx);
             changed = true;
         }
 
-        changed
+        FilterPanelResult { changed, clicked }
     }
 }
 

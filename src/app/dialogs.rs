@@ -200,7 +200,7 @@ impl DbManagerApp {
             ui::ImportAction::CopyToEditor(sql) => {
                 self.sql = sql;
                 self.show_sql_editor = true;
-                self.focus_sql_editor = true;
+                self.set_focus_area(ui::FocusArea::SqlEditor);
                 self.show_import_dialog = false;
                 self.import_state.clear();
                 self.notifications.success("SQL 已复制到编辑器");
@@ -215,7 +215,7 @@ impl DbManagerApp {
         if let Some(create_sql) = results.ddl_sql {
             self.sql = create_sql;
             self.show_sql_editor = true;
-            self.focus_sql_editor = true;
+            self.set_focus_area(ui::FocusArea::SqlEditor);
         }
 
         // 处理创建数据库
@@ -236,7 +236,7 @@ impl DbManagerApp {
             } else {
                 self.sql = sql;
                 self.show_sql_editor = true;
-                self.focus_sql_editor = true;
+                self.set_focus_area(ui::FocusArea::SqlEditor);
                 self.notifications.info(format!(
                     "SQL 已生成，按 {} 执行",
                     local_shortcut_text(LocalShortcut::SqlExecute)
@@ -248,7 +248,7 @@ impl DbManagerApp {
         if let Some(statements) = results.create_user_sql {
             self.sql = statements.join("\n");
             self.show_sql_editor = true;
-            self.focus_sql_editor = true;
+            self.set_focus_area(ui::FocusArea::SqlEditor);
             self.notifications.info(format!(
                 "SQL 已生成，按 {} 执行",
                 local_shortcut_text(LocalShortcut::SqlExecute)

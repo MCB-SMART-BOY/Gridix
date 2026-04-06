@@ -184,9 +184,7 @@ impl DbManagerApp {
         let sql = "SELECT 1 AS hello;";
         self.sql = sql.to_string();
         self.show_sql_editor = true;
-        self.focus_sql_editor = false;
-        self.focus_area = ui::FocusArea::DataGrid;
-        self.grid_state.focused = true;
+        self.set_focus_area(ui::FocusArea::DataGrid);
         let _ = self.execute(sql.to_string());
         self.notifications.info("已执行首条查询示例");
     }

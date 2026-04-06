@@ -34,11 +34,13 @@ More flake usage / 更多 Flake 用法: [NIX_FLAKE.md](NIX_FLAKE.md)
 ## 2. Fastest Path (Recommended) | 最快上手路径（推荐）
 1. Click `一键打开 SQLite 学习示例库`.
    点击 `一键打开 SQLite 学习示例库`。
-2. Press `F1` and open learning guide.
+2. The sample database is not a toy table: it contains 8 main tables, 100+ rows per table, and multi-hop relationships for JOIN / GROUP BY / transaction practice.
+   这个学习库不是只有几条记录的空样例：它包含 8 张主表、每表 100+ 行，并带有可用于 JOIN / GROUP BY / 事务练习的多跳关系。
+3. Press `F1` and open learning guide.
    按 `F1` 打开帮助与学习。
-3. Start from: `数据库、表、行、列` -> `SELECT 基础`.
+4. Start from: `数据库、表、行、列` -> `SELECT 基础`.
    从 `数据库、表、行、列` -> `SELECT 基础` 开始学习。
-4. Return to main UI and run your first SQL:
+5. Return to main UI and run your first SQL:
    回到主界面执行第一条 SQL：
    ```sql
    SELECT 1 AS hello_gridix;

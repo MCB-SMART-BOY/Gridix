@@ -34,8 +34,8 @@ gridix
 ## 4. Use Specific Version | 安装指定版本
 
 ```bash
-nix run github:MCB-SMART-BOY/Gridix/v3.7.0
-nix profile install github:MCB-SMART-BOY/Gridix/v3.7.0
+nix run github:MCB-SMART-BOY/Gridix/v3.7.1
+nix profile install github:MCB-SMART-BOY/Gridix/v3.7.1
 ```
 
 ## 5. Build Locally | 本地构建

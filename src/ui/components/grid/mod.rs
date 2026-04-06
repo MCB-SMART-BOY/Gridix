@@ -141,6 +141,7 @@ impl DataGrid {
         // 获取每列的最佳宽度（使用缓存优化）
         let col_widths =
             Self::get_column_widths(result, &filtered_rows, &mut state.column_width_cache);
+        let was_focused = state.focused;
 
         // 收集需要添加筛选的列
         let mut columns_to_filter: Vec<String> = Vec::new();
@@ -325,6 +326,10 @@ impl DataGrid {
         // 点击表格区域聚焦
         if table_response.response.clicked() {
             state.focused = true;
+            actions.request_focus = true;
+        }
+
+        if !was_focused && state.focused {
             actions.request_focus = true;
         }
 

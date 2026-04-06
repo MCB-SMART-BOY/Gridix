@@ -322,6 +322,10 @@ impl ConnectionList {
                         }
                     });
 
+                if header_response.header_response.clicked() {
+                    actions.section_change = Some(SidebarSection::Connections);
+                }
+
                 // 右键菜单
                 let is_active_for_menu = conn_data.is_active;
                 header_response.header_response.context_menu(|ui| {

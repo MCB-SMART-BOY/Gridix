@@ -87,6 +87,7 @@ impl DbManagerApp {
 
                 // ===== 侧边栏区域 =====
                 if self.show_sidebar {
+                    let mut sidebar_clicked = false;
                     ui.allocate_ui_with_layout(
                         egui::vec2(sidebar_width, available_height),
                         egui::Layout::top_down(egui::Align::LEFT),
@@ -124,8 +125,18 @@ impl DbManagerApp {
                             if filter_changed {
                                 self.grid_state.filter_cache.invalidate();
                             }
+
+                            if ui.ui_contains_pointer()
+                                && ui.input(|input| input.pointer.primary_clicked())
+                            {
+                                sidebar_clicked = true;
+                            }
                         },
                     );
+
+                    if sidebar_clicked {
+                        self.set_focus_area(ui::FocusArea::Sidebar);
+                    }
 
                     // 可拖动的垂直分割条（与 ER 图分割条相同风格）
                     let (divider_rect, divider_response) = ui.allocate_exact_size(
@@ -190,26 +201,41 @@ impl DbManagerApp {
                             .show(ui, |ui| {
                                 // 工具栏
                                 let is_toolbar_focused = self.focus_area == ui::FocusArea::Toolbar;
-                                let cancel_task_id = ui::Toolbar::show_with_focus(
-                                    ui,
-                                    &self.theme_manager,
-                                    &self.keybindings,
-                                    self.result.is_some(),
-                                    self.show_sidebar,
-                                    self.show_sql_editor,
-                                    self.app_config.is_dark_mode,
-                                    &mut toolbar_actions,
-                                    &connections,
-                                    active_connection.as_deref(),
-                                    &databases,
-                                    selected_database.as_deref(),
-                                    &tables,
-                                    selected_table_for_toolbar.as_deref(),
-                                    self.ui_scale,
-                                    &self.progress,
-                                    is_toolbar_focused,
-                                    self.toolbar_index,
-                                );
+                                let mut toolbar_clicked = false;
+                                let cancel_task_id = ui
+                                    .scope(|ui| {
+                                        let cancel_task_id = ui::Toolbar::show_with_focus(
+                                            ui,
+                                            &self.theme_manager,
+                                            &self.keybindings,
+                                            self.result.is_some(),
+                                            self.show_sidebar,
+                                            self.show_sql_editor,
+                                            self.app_config.is_dark_mode,
+                                            &mut toolbar_actions,
+                                            &connections,
+                                            active_connection.as_deref(),
+                                            &databases,
+                                            selected_database.as_deref(),
+                                            &tables,
+                                            selected_table_for_toolbar.as_deref(),
+                                            self.ui_scale,
+                                            &self.progress,
+                                            is_toolbar_focused,
+                                            self.toolbar_index,
+                                        );
+                                        if ui.ui_contains_pointer()
+                                            && ui.input(|input| input.pointer.primary_clicked())
+                                        {
+                                            toolbar_clicked = true;
+                                        }
+                                        cancel_task_id
+                                    })
+                                    .inner;
+
+                                if toolbar_clicked {
+                                    self.set_focus_area(ui::FocusArea::Toolbar);
+                                }
 
                                 // 处理进度任务取消
                                 if let Some(id) = cancel_task_id {
@@ -234,7 +260,7 @@ impl DbManagerApp {
                                     if let Some(transfer) = toolbar_actions.focus_transfer {
                                         match transfer {
                                             ui::ToolbarFocusTransfer::ToQueryTabs => {
-                                                self.focus_area = ui::FocusArea::QueryTabs;
+                                                self.set_focus_area(ui::FocusArea::QueryTabs);
                                             }
                                         }
                                     }
@@ -243,13 +269,28 @@ impl DbManagerApp {
                                 ui.separator();
 
                                 // Tab 栏（多查询窗口）
-                                let mut tab_actions = ui::QueryTabBar::show(
-                                    ui,
-                                    &self.tab_manager.tabs,
-                                    self.tab_manager.active_index,
-                                    &self.highlight_colors,
-                                    &self.keybindings,
-                                );
+                                let mut tab_clicked = false;
+                                let mut tab_actions = ui
+                                    .scope(|ui| {
+                                        let actions = ui::QueryTabBar::show(
+                                            ui,
+                                            &self.tab_manager.tabs,
+                                            self.tab_manager.active_index,
+                                            &self.highlight_colors,
+                                            &self.keybindings,
+                                        );
+                                        if ui.ui_contains_pointer()
+                                            && ui.input(|input| input.pointer.primary_clicked())
+                                        {
+                                            tab_clicked = true;
+                                        }
+                                        actions
+                                    })
+                                    .inner;
+
+                                if tab_clicked {
+                                    self.set_focus_area(ui::FocusArea::QueryTabs);
+                                }
 
                                 // 如果焦点在Tab栏，处理键盘输入
                                 if self.focus_area == ui::FocusArea::QueryTabs {
@@ -271,11 +312,10 @@ impl DbManagerApp {
                                 if let Some(transfer) = tab_actions.focus_transfer {
                                     match transfer {
                                         ui::TabBarFocusTransfer::ToToolbar => {
-                                            self.focus_area = ui::FocusArea::Toolbar;
+                                            self.set_focus_area(ui::FocusArea::Toolbar);
                                         }
                                         ui::TabBarFocusTransfer::ToDataGrid => {
-                                            self.focus_area = ui::FocusArea::DataGrid;
-                                            self.grid_state.focused = true;
+                                            self.set_focus_area(ui::FocusArea::DataGrid);
                                         }
                                     }
                                 }
@@ -339,7 +379,7 @@ impl DbManagerApp {
                                                             self.show_sidebar = true;
                                                             self.sidebar_panel_state.show_filters = true;
                                                             self.sidebar_section = ui::SidebarSection::Filters;
-                                                            self.focus_area = ui::FocusArea::Sidebar;
+                                                            self.set_focus_area(ui::FocusArea::Sidebar);
                                                         }
                                                     } else {
                                                         ui.centered_and_justified(|ui| {
@@ -462,26 +502,21 @@ impl DbManagerApp {
                                             match transfer {
                                                 ui::FocusTransfer::Sidebar => {
                                                     self.show_sidebar = true;
-                                                    self.focus_area = ui::FocusArea::Sidebar;
-                                                    self.grid_state.focused = false;
+                                                    self.set_focus_area(ui::FocusArea::Sidebar);
                                                 }
                                                 ui::FocusTransfer::SqlEditor => {
                                                     self.show_sql_editor = true;
-                                                    self.focus_area = ui::FocusArea::SqlEditor;
-                                                    self.grid_state.focused = false;
-                                                    self.focus_sql_editor = true;
+                                                    self.set_focus_area(ui::FocusArea::SqlEditor);
                                                 }
                                                 ui::FocusTransfer::QueryTabs => {
-                                                    self.focus_area = ui::FocusArea::QueryTabs;
-                                                    self.grid_state.focused = false;
+                                                    self.set_focus_area(ui::FocusArea::QueryTabs);
                                                 }
                                             }
                                         }
 
                                         // 处理表格请求焦点（点击表格时）
-                                        if grid_actions.request_focus && self.focus_area != ui::FocusArea::DataGrid {
-                                            self.focus_area = ui::FocusArea::DataGrid;
-                                            self.grid_state.focused = true;
+                                        if grid_actions.request_focus {
+                                            self.set_focus_area(ui::FocusArea::DataGrid);
                                         }
 
                                         // 处理打开筛选面板请求
@@ -489,7 +524,7 @@ impl DbManagerApp {
                                             self.show_sidebar = true;
                                             self.sidebar_panel_state.show_filters = true;
                                             self.sidebar_section = ui::SidebarSection::Filters;
-                                            self.focus_area = ui::FocusArea::Sidebar;
+                                            self.set_focus_area(ui::FocusArea::Sidebar);
                                         }
 
                                         // 处理切换Tab请求 (数字+Enter)
@@ -641,6 +676,8 @@ impl DbManagerApp {
             |ui| {
                 // 获取最新通知消息用于状态栏显示
                 let latest_msg = self.notifications.latest_message().map(|s| s.to_string());
+                let mut request_editor_widget_focus =
+                    is_editor_focused && self.editor_mode == ui::EditorMode::Insert;
                 sql_editor_actions = ui::SqlEditor::show(
                     ui,
                     &mut self.sql,
@@ -653,7 +690,7 @@ impl DbManagerApp {
                     &self.autocomplete,
                     &mut self.show_autocomplete,
                     &mut self.selected_completion,
-                    &mut self.focus_sql_editor,
+                    &mut request_editor_widget_focus,
                     is_editor_focused,
                     &mut self.editor_mode,
                 );
@@ -709,15 +746,12 @@ impl DbManagerApp {
 
         // 焦点转移到表格
         if actions.focus_to_grid {
-            self.focus_area = ui::FocusArea::DataGrid;
-            self.grid_state.focused = true;
+            self.set_focus_area(ui::FocusArea::DataGrid);
         }
 
         // 编辑器请求焦点
-        if actions.request_focus && self.focus_area != ui::FocusArea::SqlEditor {
-            self.focus_area = ui::FocusArea::SqlEditor;
-            self.grid_state.focused = false;
-            self.focus_sql_editor = true;
+        if actions.request_focus {
+            self.set_focus_area(ui::FocusArea::SqlEditor);
         }
 
         if actions.text_changed {
@@ -874,8 +908,7 @@ impl DbManagerApp {
         if let Some(transfer) = actions.focus_transfer {
             match transfer {
                 ui::SidebarFocusTransfer::ToDataGrid => {
-                    self.focus_area = ui::FocusArea::DataGrid;
-                    self.grid_state.focused = true;
+                    self.set_focus_area(ui::FocusArea::DataGrid);
                 }
             }
         }
@@ -963,7 +996,7 @@ impl DbManagerApp {
         if let Some(definition) = actions.show_trigger_definition {
             self.sql = definition;
             self.show_sql_editor = true;
-            self.focus_sql_editor = true;
+            self.set_focus_area(ui::FocusArea::SqlEditor);
             self.notifications.info("触发器定义已加载到编辑器");
         }
 
@@ -971,7 +1004,7 @@ impl DbManagerApp {
         if let Some(definition) = actions.show_routine_definition {
             self.sql = definition;
             self.show_sql_editor = true;
-            self.focus_sql_editor = true;
+            self.set_focus_area(ui::FocusArea::SqlEditor);
             self.notifications.info("存储过程/函数定义已加载到编辑器");
         }
     }
@@ -1090,7 +1123,7 @@ impl DbManagerApp {
         self.show_sidebar = true;
         self.sidebar_panel_state.show_filters = true;
         self.sidebar_section = ui::SidebarSection::Filters;
-        self.focus_area = ui::FocusArea::Sidebar;
+        self.set_focus_area(ui::FocusArea::Sidebar);
         self.pending_filter_input_focus = Some(new_index);
     }
 
@@ -1158,7 +1191,7 @@ impl DbManagerApp {
         self.show_sidebar = true;
         self.sidebar_panel_state.show_filters = true;
         self.sidebar_section = ui::SidebarSection::Filters;
-        self.focus_area = ui::FocusArea::Sidebar;
+        self.set_focus_area(ui::FocusArea::Sidebar);
     }
 
     /// 为表重命名生成 SQL 模板
@@ -1195,7 +1228,7 @@ impl DbManagerApp {
             }
         };
         self.show_sql_editor = true;
-        self.focus_sql_editor = true;
+        self.set_focus_area(ui::FocusArea::SqlEditor);
         self.notifications
             .info("已生成重命名 SQL，请修改目标表名后执行");
     }

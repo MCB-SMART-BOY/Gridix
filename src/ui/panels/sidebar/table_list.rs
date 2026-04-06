@@ -81,6 +81,7 @@ impl TableList {
 
                     // 左键点击 - 查询表数据
                     if response.clicked() {
+                        actions.section_change = Some(SidebarSection::Tables);
                         *selected_table = Some(table.clone());
                         connection_manager.active = Some(conn_name.to_string());
                         actions.query_table = Some(table.clone());
@@ -158,6 +159,7 @@ impl TableList {
 
                     // 左键点击 - 查询表数据
                     if response.clicked() {
+                        actions.section_change = Some(SidebarSection::Tables);
                         *selected_table = Some(table.clone());
                         connection_manager.active = Some(conn_name.to_string());
                         actions.query_table = Some(table.clone());

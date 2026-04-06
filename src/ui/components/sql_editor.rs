@@ -61,6 +61,14 @@ impl CompletionKeyInput {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct InsertCancelOutcome {
+    next_mode: EditorMode,
+    show_autocomplete: bool,
+    keep_editor_focus: bool,
+    escape_consumed: bool,
+}
+
 /// 将字符索引（egui 光标）转换为字符串字节索引
 fn char_to_byte_index(text: &str, char_index: usize) -> usize {
     if char_index == 0 {
@@ -180,6 +188,31 @@ pub struct SqlEditorActions {
 }
 
 impl SqlEditor {
+    fn text_edit_id() -> egui::Id {
+        egui::Id::new("gridix.sql_editor.text_edit")
+    }
+
+    fn apply_insert_mode_cancel(
+        show_autocomplete: bool,
+        editor_mode: EditorMode,
+    ) -> InsertCancelOutcome {
+        if show_autocomplete {
+            InsertCancelOutcome {
+                next_mode: editor_mode,
+                show_autocomplete: false,
+                keep_editor_focus: true,
+                escape_consumed: true,
+            }
+        } else {
+            InsertCancelOutcome {
+                next_mode: EditorMode::Normal,
+                show_autocomplete,
+                keep_editor_focus: true,
+                escape_consumed: true,
+            }
+        }
+    }
+
     fn set_editor_cursor(
         ui: &egui::Ui,
         output: &mut egui::text_edit::TextEditOutput,
@@ -234,6 +267,13 @@ impl SqlEditor {
         let line_count = count_lines(sql_input);
         let line_height = 16.0;
         let mut status_cursor_pos = sql_input.chars().count();
+        let text_edit_id = Self::text_edit_id();
+
+        if !is_focused {
+            ui.memory_mut(|mem| mem.surrender_focus(text_edit_id));
+            *request_focus = false;
+            *show_autocomplete = false;
+        }
 
         // 共享滚动状态 ID
         let scroll_id = ui.id().with("editor_scroll");
@@ -299,7 +339,24 @@ impl SqlEditor {
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             // Insert 模式：可编辑；Normal 模式：只读显示
-                            let is_insert_mode = *editor_mode == EditorMode::Insert;
+                            let mut is_insert_mode = *editor_mode == EditorMode::Insert;
+
+                            if is_focused && is_insert_mode {
+                                let cancel_pressed = ui.input_mut(|i| {
+                                    consume_local_shortcut(i, LocalShortcut::Cancel)
+                                });
+                                if cancel_pressed {
+                                    let outcome =
+                                        Self::apply_insert_mode_cancel(*show_autocomplete, *editor_mode);
+                                    *show_autocomplete = outcome.show_autocomplete;
+                                    *editor_mode = outcome.next_mode;
+                                    is_insert_mode = *editor_mode == EditorMode::Insert;
+                                    actions.escape_consumed = outcome.escape_consumed;
+                                    actions.request_focus = outcome.keep_editor_focus;
+                                    *request_focus = outcome.keep_editor_focus;
+                                }
+                            }
+
                             let mut completion_key_input = CompletionKeyInput::default();
                             if is_insert_mode && is_focused {
                                 ui.input_mut(|i| {
@@ -318,8 +375,6 @@ impl SqlEditor {
                                 });
                             }
 
-                            let text_edit_id = ui.id().with("sql_text_edit");
-
                             let mut output = TextEdit::multiline(sql_input)
                                 .id(text_edit_id)
                                 .font(egui::TextStyle::Monospace)
@@ -334,22 +389,40 @@ impl SqlEditor {
                                 })
                                 .frame(egui::Frame::NONE)
                                 .margin(Vec2::new(8.0, 0.0))
-                                .interactive(is_insert_mode)
-                                .lock_focus(is_insert_mode)
+                                .interactive(is_insert_mode && is_focused)
+                                .lock_focus(is_insert_mode && is_focused)
                                 .layouter(&mut layouter)
                                 .show(ui);
 
                             let response = output.response.clone();
+                            let click_response = if !is_insert_mode || !is_focused {
+                                Some(ui.interact(
+                                    response.rect,
+                                    text_edit_id.with("click_layer"),
+                                    egui::Sense::click(),
+                                ))
+                            } else {
+                                None
+                            };
 
                             // 双击进入 Insert 模式
-                            if response.double_clicked() {
+                            if response.double_clicked()
+                                || click_response
+                                    .as_ref()
+                                    .is_some_and(egui::Response::double_clicked)
+                            {
                                 *editor_mode = EditorMode::Insert;
-                                response.request_focus();
+                                actions.request_focus = true;
+                                *request_focus = true;
                             }
                             // 单击也进入 Insert 模式，降低新手上手门槛
-                            if response.clicked() && *editor_mode == EditorMode::Normal {
+                            if (response.clicked()
+                                || click_response.as_ref().is_some_and(egui::Response::clicked))
+                                && *editor_mode == EditorMode::Normal
+                            {
                                 *editor_mode = EditorMode::Insert;
-                                response.request_focus();
+                                actions.request_focus = true;
+                                *request_focus = true;
                             }
 
                             // i 键也可进入 Insert 模式（在 Normal 模式下）
@@ -378,7 +451,9 @@ impl SqlEditor {
                                 *request_focus = false;
                             }
 
-                            if response.clicked() || response.has_focus() {
+                            if response.clicked()
+                                || click_response.as_ref().is_some_and(egui::Response::clicked)
+                            {
                                 actions.request_focus = true;
                             }
 
@@ -388,22 +463,6 @@ impl SqlEditor {
                                 .map(|range| range.primary.index)
                                 .unwrap_or(sql_input.chars().count());
                             status_cursor_pos = cursor_pos;
-
-                            // Insert 模式下：在检查焦点之前先处理 Escape 键
-                            // 因为 egui 会在 Escape 时自动让 TextEdit 失焦
-                            if is_focused && is_insert_mode {
-                                let esc_pressed = ui.input(|i| i.key_pressed(Key::Escape));
-                                if esc_pressed {
-                                    if *show_autocomplete {
-                                        *show_autocomplete = false;
-                                    } else {
-                                        *editor_mode = EditorMode::Normal;
-                                    }
-                                    actions.escape_consumed = true;
-                                    // 保持焦点在编辑器上
-                                    response.request_focus();
-                                }
-                            }
 
                             // Insert 模式下的快捷键处理（焦点由应用区块管理，避免 Tab 被全局循环抢走）
                             if is_focused && is_insert_mode {
@@ -999,5 +1058,30 @@ impl SqlEditor {
                 });
         }
         new_cursor
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EditorMode, SqlEditor};
+
+    #[test]
+    fn insert_mode_cancel_closes_autocomplete_without_leaving_insert_mode() {
+        let outcome = SqlEditor::apply_insert_mode_cancel(true, EditorMode::Insert);
+
+        assert_eq!(outcome.next_mode, EditorMode::Insert);
+        assert!(!outcome.show_autocomplete);
+        assert!(outcome.keep_editor_focus);
+        assert!(outcome.escape_consumed);
+    }
+
+    #[test]
+    fn insert_mode_cancel_without_autocomplete_returns_to_normal_mode() {
+        let outcome = SqlEditor::apply_insert_mode_cancel(false, EditorMode::Insert);
+
+        assert_eq!(outcome.next_mode, EditorMode::Normal);
+        assert!(!outcome.show_autocomplete);
+        assert!(outcome.keep_editor_focus);
+        assert!(outcome.escape_consumed);
     }
 }
