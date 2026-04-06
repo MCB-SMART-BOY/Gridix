@@ -308,6 +308,24 @@ impl LocalShortcut {
         self.default_bindings()
     }
 
+    pub fn default_keybindings(self) -> Vec<KeyBinding> {
+        self.default_bindings()
+            .into_iter()
+            .map(LocalBinding::key_binding)
+            .collect()
+    }
+
+    pub fn bindings_for(self, keybindings: &KeyBindings) -> Vec<KeyBinding> {
+        keybindings
+            .local_bindings_for(self.config_key())
+            .map(|bindings| bindings.to_vec())
+            .unwrap_or_else(|| self.default_keybindings())
+    }
+
+    pub fn is_overridden(self, keybindings: &KeyBindings) -> bool {
+        keybindings.local_bindings_for(self.config_key()).is_some()
+    }
+
     fn default_bindings(self) -> Vec<LocalBinding> {
         match self {
             LocalShortcut::Confirm => vec![LocalBinding::new(KeyCode::Enter, KeyModifiers::NONE)],

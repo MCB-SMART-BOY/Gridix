@@ -111,7 +111,7 @@ impl DataGrid {
         let total_count = result.rows.len() + new_rows_count;
 
         // 处理键盘输入
-        keyboard::handle_keyboard(ui, state, result, &filtered_rows, &mut actions);
+        keyboard::handle_keyboard(ui, state, result, &filtered_rows, keybindings, &mut actions);
 
         // 处理新增行的编辑
         if let Some((virtual_idx, col_idx, new_value)) = state.pending_new_row_edit.take() {
@@ -418,7 +418,10 @@ impl DataGrid {
                     keybindings,
                     Action::AddFilter,
                     "打开筛选面板",
-                    keyboard::OPEN_FILTER_SHORTCUTS,
+                    &shortcut_refs(&keyboard::grid_command_shortcuts(
+                        keybindings,
+                        keyboard::GridCommandShortcut::OpenFilter,
+                    )),
                 ))
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .clicked()
@@ -441,7 +444,24 @@ impl DataGrid {
                         )
                         .sense(egui::Sense::click()),
                     )
-                    .on_hover_text(shortcut_tooltip("添加新行", keyboard::ADD_ROW_SHORTCUTS))
+                    .on_hover_text(shortcut_tooltip(
+                        "添加新行",
+                        &shortcut_refs(
+                            &[
+                                keyboard::grid_command_shortcuts(
+                                    keybindings,
+                                    keyboard::GridCommandShortcut::AddRowBelow,
+                                ),
+                                keyboard::grid_command_shortcuts(
+                                    keybindings,
+                                    keyboard::GridCommandShortcut::AddRowAbove,
+                                ),
+                            ]
+                            .into_iter()
+                            .flatten()
+                            .collect::<Vec<_>>(),
+                        ),
+                    ))
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .clicked()
                 {
@@ -472,7 +492,10 @@ impl DataGrid {
                         keybindings,
                         Action::Save,
                         "保存所有修改到数据库",
-                        keyboard::SAVE_SHORTCUTS,
+                        &shortcut_refs(&keyboard::grid_command_shortcuts(
+                            keybindings,
+                            keyboard::GridCommandShortcut::Save,
+                        )),
                     ))
                     .clicked()
                     && let Some(table) = table_name
@@ -494,7 +517,10 @@ impl DataGrid {
                     )
                     .on_hover_text(shortcut_tooltip(
                         "放弃所有未保存的修改",
-                        keyboard::DISCARD_SHORTCUTS,
+                        &shortcut_refs(&keyboard::grid_command_shortcuts(
+                            keybindings,
+                            keyboard::GridCommandShortcut::Discard,
+                        )),
                     ))
                     .clicked()
                 {
@@ -524,7 +550,7 @@ impl DataGrid {
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let help = keyboard::mode_help_text(state.mode);
+                let help = keyboard::mode_help_text(state.mode, keybindings);
                 ui.label(RichText::new(help).small().color(GRAY));
             });
         });
@@ -827,4 +853,8 @@ impl DataGrid {
         state.show_goto_dialog = false;
         state.goto_input.clear();
     }
+}
+
+fn shortcut_refs(shortcuts: &[String]) -> Vec<&str> {
+    shortcuts.iter().map(String::as_str).collect()
 }

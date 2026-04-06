@@ -8,6 +8,28 @@ All notable changes to this project are documented in this file.
 - No unreleased changes yet.
   暂无未发布变更。
 
+## [3.7.0]
+
+### Added
+- Added scope-tree navigation, issue-only filtering, and conflict-summary jumping to the keybinding settings dialog.
+  为快捷键设置对话框新增作用域树导航、仅看问题项过滤以及冲突摘要跳转。
+- Added structured `grid.normal.*` command-sequence support to `keymap.toml` for DataGrid command chains.
+  为 `keymap.toml` 新增结构化 `grid.normal.*` 命令序列支持，用于配置数据表格命令链。
+- Added regression coverage for scope-tree filtering, issue summaries, and custom Grid command-sequence overrides.
+  新增作用域树筛选、冲突摘要以及数据表格自定义命令序列覆盖的回归测试。
+
+### Changed
+- Reworked the keybinding settings dialog from flat filters into a scope-tree driven workflow with richer issue analysis.
+  将快捷键设置界面从平铺筛选重构为作用域树驱动流程，并增强问题分析能力。
+- DataGrid mode help and high-frequency action tooltips now reflect the current runtime command sequences instead of fixed literals.
+  数据表格模式帮助和高频操作提示改为反映当前运行时命令序列，不再写死固定字面量。
+
+### Fixed
+- Fixed a regression where configurable Grid command prefixes could break counted `gg` jumps.
+  修复数据表格可配置命令前缀引入后可能破坏带计数 `gg` 跳转的回归问题。
+- Fixed another gap between configurable shortcut infrastructure and DataGrid’s hard-coded command chains.
+  修复快捷键可配置基础设施与数据表格硬编码命令链之间的又一处断层。
+
 ## [3.6.0]
 
 ### Added

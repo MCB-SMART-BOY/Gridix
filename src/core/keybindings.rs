@@ -826,6 +826,9 @@ pub struct KeyBindings {
     /// 局部作用域快捷键覆盖（如 dialog.help.scroll_up）
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     local_bindings: HashMap<String, Vec<KeyBinding>>,
+    /// 局部命令序列覆盖（如 grid.normal.copy_row）
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    local_sequences: HashMap<String, Vec<String>>,
 }
 
 impl Default for KeyBindings {
@@ -876,6 +879,7 @@ impl Default for KeyBindings {
         Self {
             bindings,
             local_bindings: HashMap::new(),
+            local_sequences: HashMap::new(),
         }
     }
 }
@@ -969,9 +973,34 @@ impl KeyBindings {
         &self.local_bindings
     }
 
+    /// 获取局部命令序列覆盖
+    pub fn local_sequences_for(&self, key: &str) -> Option<&[String]> {
+        self.local_sequences.get(key).map(Vec::as_slice)
+    }
+
+    /// 获取所有局部命令序列覆盖
+    pub fn all_local_sequences(&self) -> &HashMap<String, Vec<String>> {
+        &self.local_sequences
+    }
+
     /// 设置局部作用域快捷键覆盖
     pub fn set_local_bindings(&mut self, key: impl Into<String>, bindings: Vec<KeyBinding>) {
         self.local_bindings.insert(key.into(), bindings);
+    }
+
+    /// 设置局部命令序列覆盖
+    pub fn set_local_sequences(&mut self, key: impl Into<String>, sequences: Vec<String>) {
+        self.local_sequences.insert(key.into(), sequences);
+    }
+
+    /// 移除局部作用域快捷键覆盖，恢复默认行为
+    pub fn remove_local_bindings(&mut self, key: &str) {
+        self.local_bindings.remove(key);
+    }
+
+    /// 移除局部命令序列覆盖，恢复默认行为
+    pub fn remove_local_sequences(&mut self, key: &str) {
+        self.local_sequences.remove(key);
     }
 
     /// 按分类获取所有绑定
@@ -1057,6 +1086,7 @@ impl KeyBindings {
 
         let mut bindings = Self::default();
         bindings.local_bindings.clear();
+        bindings.local_sequences.clear();
 
         for (raw_key, raw_value) in table {
             if raw_key == "global" {
@@ -1080,7 +1110,12 @@ impl KeyBindings {
                 continue;
             };
 
-            Self::parse_local_binding_section(raw_key, section_table, &mut bindings.local_bindings);
+            Self::parse_local_binding_section(
+                raw_key,
+                section_table,
+                &mut bindings.local_bindings,
+                &mut bindings.local_sequences,
+            );
         }
 
         bindings.fill_missing_defaults();
@@ -1124,6 +1159,16 @@ impl KeyBindings {
                 &mut root,
                 path_key,
                 Self::serialize_binding_list(bindings),
+            );
+        }
+
+        let mut sequence_entries: Vec<_> = self.local_sequences.iter().collect();
+        sequence_entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+        for (path_key, sequences) in sequence_entries {
+            Self::insert_nested_local_binding(
+                &mut root,
+                path_key,
+                Self::serialize_string_list(sequences),
             );
         }
 
@@ -1172,11 +1217,26 @@ impl KeyBindings {
         prefix: &str,
         table: &toml::map::Map<String, toml::Value>,
         local_bindings: &mut HashMap<String, Vec<KeyBinding>>,
+        local_sequences: &mut HashMap<String, Vec<String>>,
     ) {
         for (raw_key, raw_value) in table {
             let path = format!("{prefix}.{raw_key}");
             if let Some(child_table) = raw_value.as_table() {
-                Self::parse_local_binding_section(&path, child_table, local_bindings);
+                Self::parse_local_binding_section(
+                    &path,
+                    child_table,
+                    local_bindings,
+                    local_sequences,
+                );
+                continue;
+            }
+
+            if Self::is_local_sequence_key(&path) {
+                let Some(sequences) = Self::parse_local_sequence_value(&path, raw_value) else {
+                    continue;
+                };
+
+                local_sequences.insert(path, sequences);
                 continue;
             }
 
@@ -1186,6 +1246,10 @@ impl KeyBindings {
 
             local_bindings.insert(path, bindings);
         }
+    }
+
+    fn is_local_sequence_key(path: &str) -> bool {
+        path.starts_with("grid.")
     }
 
     fn parse_local_binding_value(path: &str, raw_value: &toml::Value) -> Option<Vec<KeyBinding>> {
@@ -1242,6 +1306,59 @@ impl KeyBindings {
                 bindings
                     .iter()
                     .map(|binding| toml::Value::String(binding.display()))
+                    .collect(),
+            )
+        }
+    }
+
+    fn parse_local_sequence_value(path: &str, raw_value: &toml::Value) -> Option<Vec<String>> {
+        match raw_value {
+            toml::Value::String(sequence) => {
+                let sequence = sequence.trim();
+                if sequence.is_empty() {
+                    tracing::warn!(entry = path, "忽略空的局部命令序列");
+                    return None;
+                }
+                Some(vec![sequence.to_string()])
+            }
+            toml::Value::Array(values) => {
+                let mut sequences = Vec::new();
+                for value in values {
+                    let Some(sequence) = value.as_str() else {
+                        tracing::warn!(entry = path, "忽略包含非字符串项的局部命令序列数组");
+                        return None;
+                    };
+                    let sequence = sequence.trim();
+                    if sequence.is_empty() {
+                        tracing::warn!(entry = path, "忽略空白局部命令序列");
+                        return None;
+                    }
+                    if !sequences.iter().any(|existing| existing == sequence) {
+                        sequences.push(sequence.to_string());
+                    }
+                }
+                if sequences.is_empty() {
+                    tracing::warn!(entry = path, "忽略空的局部命令序列数组");
+                    None
+                } else {
+                    Some(sequences)
+                }
+            }
+            _ => {
+                tracing::warn!(entry = path, "忽略非法类型的局部命令序列配置");
+                None
+            }
+        }
+    }
+
+    fn serialize_string_list(values: &[String]) -> toml::Value {
+        if values.len() == 1 {
+            toml::Value::String(values[0].clone())
+        } else {
+            toml::Value::Array(
+                values
+                    .iter()
+                    .map(|value| toml::Value::String(value.clone()))
                     .collect(),
             )
         }
@@ -1328,6 +1445,9 @@ scroll_up = ["K", "Up"]
 
 [dialog.common]
 dismiss = ["Esc", "Q"]
+
+[grid.normal]
+copy_row = ["yy", "Y"]
 "#;
 
         let loaded = KeyBindings::parse_keymap(content).unwrap();
@@ -1341,6 +1461,8 @@ dismiss = ["Esc", "Q"]
         assert_eq!(dismiss.len(), 2);
         assert_eq!(dismiss[0].display(), "Esc");
         assert_eq!(dismiss[1].display(), "Q");
+        let copy_row = loaded.local_sequences_for("grid.normal.copy_row").unwrap();
+        assert_eq!(copy_row, ["yy", "Y"]);
     }
 
     #[test]
@@ -1359,6 +1481,10 @@ dismiss = ["Esc", "Q"]
             "dialog.help.scroll_up".to_string(),
             vec![KeyBinding::key_only(KeyCode::K)],
         );
+        bindings.local_sequences.insert(
+            "grid.normal.copy_row".to_string(),
+            vec!["yy".to_string(), "Y".to_string()],
+        );
 
         bindings.save_to_path(&path).unwrap();
         let content = fs::read_to_string(&path).unwrap();
@@ -1370,5 +1496,9 @@ dismiss = ["Esc", "Q"]
         assert!(content.contains("\"Q\""));
         assert!(content.contains("[dialog.help]"));
         assert!(content.contains("scroll_up = \"K\""));
+        assert!(content.contains("[grid.normal]"));
+        assert!(content.contains("copy_row = ["));
+        assert!(content.contains("\"yy\""));
+        assert!(content.contains("\"Y\""));
     }
 }
