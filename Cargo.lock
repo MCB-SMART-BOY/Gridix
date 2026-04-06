@@ -1834,7 +1834,7 @@ dependencies = [
 
 [[package]]
 name = "gridix"
-version = "3.3.1"
+version = "3.7.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1846,6 +1846,7 @@ dependencies = [
  "egui_extras",
  "futures-util",
  "hostname",
+ "image",
  "lazy_static",
  "mysql_async",
  "native-tls",

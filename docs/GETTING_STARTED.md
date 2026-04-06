@@ -2,6 +2,11 @@
 
 > Target users: first-time database tool users.  
 > 适用对象：第一次使用数据库工具的新手。
+>
+> Shortcut examples below assume the default keymap.  
+> 下文中的快捷键示例默认基于内置默认键位。
+> If you customized shortcuts, use the in-app hover tooltip or Help panel as the source of truth.  
+> 如果你改过快捷键，请以应用内悬停提示或帮助面板显示的实际键位为准。
 
 ## 0. Nix Flake Quick Install (Optional) | Nix Flake 快速安装（可选）
 ```bash

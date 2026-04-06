@@ -2,13 +2,16 @@
 
 ## 1. Config File Location | 配置文件位置
 
-Gridix stores user config in `config.toml` under app config directory.  
-Gridix 将用户配置保存在应用配置目录下的 `config.toml`。
+Gridix stores app settings in `config.toml` and keyboard shortcuts in `keymap.toml`.  
+Gridix 将应用设置保存在 `config.toml`，将快捷键保存在独立的 `keymap.toml`。
 
 Typical paths / 常见路径：
 - Linux: `~/.config/gridix/config.toml`
+- Linux keymap: `~/.config/gridix/keymap.toml`
 - macOS: `~/Library/Application Support/gridix/config.toml`
+- macOS keymap: `~/Library/Application Support/gridix/keymap.toml`
 - Windows: `%APPDATA%\\gridix\\config.toml`
+- Windows keymap: `%APPDATA%\\gridix\\keymap.toml`
 
 ## 2. Main Config Fields | 核心配置字段
 
@@ -21,9 +24,11 @@ Typical paths / 常见路径：
 | `ui_scale` | UI zoom ratio (`0.5` to `2.0`) / UI 缩放比例（`0.5` 到 `2.0`） |
 | `query_history` | Query history metadata / 查询历史元信息 |
 | `command_history` | Per-connection SQL command history / 按连接保存的 SQL 命令历史 |
-| `keybindings` | Custom keyboard shortcuts / 自定义快捷键 |
 | `onboarding` | Beginner onboarding progress / 新手引导进度 |
 | `connection_dialog_show_advanced` | Connection dialog advanced section state / 连接对话框高级配置展开状态 |
+
+`keybindings` used to live inside `config.toml`. It is now treated as a legacy migration field and new changes are written to `keymap.toml` instead.  
+`keybindings` 过去存放在 `config.toml` 内。现在它只作为兼容迁移字段使用，新的快捷键修改统一写入 `keymap.toml`。
 
 ## 3. Onboarding Progress Fields | 新手引导字段
 
@@ -50,8 +55,8 @@ These fields are used by welcome/help onboarding flow.
    先关闭 Gridix。
 2. Backup current config directory.
    备份当前配置目录。
-3. Remove or rename `config.toml`.
-   删除或重命名 `config.toml`。
+3. Remove or rename `config.toml` and `keymap.toml`.
+   删除或重命名 `config.toml` 与 `keymap.toml`。
 4. Relaunch Gridix to regenerate defaults.
    重新启动 Gridix 自动生成默认配置。
 

@@ -1,5 +1,10 @@
 # FAQ | 常见问题
 
+> Shortcut names below use the default keymap unless otherwise stated.  
+> 下文提到的快捷键名称默认基于内置默认键位。
+> If your `keymap.toml` differs, trust the in-app tooltip and Help panel first.  
+> 如果你的 `keymap.toml` 已修改，请优先以应用内悬停提示和帮助面板为准。
+
 ## 1. Is Gridix suitable for complete beginners? | 完全零基础能用吗？
 Yes. Start from welcome page and press `F1` for guided learning topics.  
 可以。先看欢迎页，再按 `F1` 进入学习指南。

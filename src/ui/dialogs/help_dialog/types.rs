@@ -1,3 +1,5 @@
+use crate::core::KeyBindings;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HelpTab {
     #[default]
@@ -48,6 +50,7 @@ pub struct HelpState {
 
 #[derive(Debug, Clone, Default)]
 pub struct HelpContext {
+    pub keybindings: KeyBindings,
     pub active_connection_name: Option<String>,
     pub selected_table: Option<String>,
     pub has_result: bool,

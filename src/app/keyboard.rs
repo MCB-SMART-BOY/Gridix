@@ -12,10 +12,8 @@ impl DbManagerApp {
     /// 处理键盘快捷键
     pub(super) fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
         // 检查是否有模态对话框打开
-        let has_dialog = self.has_modal_dialog_open();
-        let editor_has_priority = self.show_sql_editor
-            && (self.focus_area == ui::FocusArea::SqlEditor || self.focus_sql_editor);
-        let keyboard_captured = ctx.egui_wants_keyboard_input();
+        let input_context = self.capture_input_context(ctx);
+        let has_dialog = input_context.has_modal_dialog;
         let keybindings = self.keybindings.clone();
 
         ctx.input(|i| {
@@ -26,305 +24,136 @@ impl DbManagerApp {
                 })
             };
 
-            // ===== 始终可用的快捷键（即使对话框打开） =====
-
-            // F1: 帮助（切换）
-            if action_triggered(Action::ShowHelp) {
-                self.show_help = !self.show_help;
-            }
-
             // ===== 对话框打开时跳过以下快捷键 =====
             if has_dialog {
                 return;
             }
 
-            // Ctrl+N: 新建连接
-            if action_triggered(Action::NewConnection) {
-                self.show_connection_dialog = true;
-            }
-
             // Ctrl+Shift+N: 新建表
             if action_triggered(Action::NewTable)
-                && let Some(conn) = self.manager.get_active()
-                && conn.selected_database.is_some()
+                && input_context.allows_workspace_creation_shortcuts()
             {
-                let db_type = conn.config.db_type;
-                self.ddl_dialog_state.open_create_table(db_type);
+                self.open_create_table_dialog();
             }
 
             // Ctrl+Shift+D: 新建数据库
-            if action_triggered(Action::NewDatabase) {
-                let db_type = self
-                    .manager
-                    .get_active()
-                    .map(|c| c.config.db_type)
-                    .unwrap_or_default();
-                self.create_db_dialog_state.open(db_type);
+            if action_triggered(Action::NewDatabase)
+                && input_context.allows_workspace_creation_shortcuts()
+            {
+                self.open_create_database_dialog();
             }
 
             // Ctrl+Shift+U: 新建用户
-            if action_triggered(Action::NewUser) {
-                if let Some(conn) = self.manager.get_active() {
-                    let db_type = conn.config.db_type;
-                    if matches!(db_type, crate::database::DatabaseType::SQLite) {
-                        self.notifications.warning("SQLite 不支持用户管理");
-                    } else {
-                        let databases = conn.databases.clone();
-                        self.create_user_dialog_state.open(db_type, databases);
-                    }
-                } else {
-                    self.notifications.warning("请先连接数据库");
-                }
+            if action_triggered(Action::NewUser)
+                && input_context.allows_workspace_creation_shortcuts()
+            {
+                self.open_create_user_dialog();
             }
 
             // Ctrl+E: 导出
-            if action_triggered(Action::Export) && self.result.is_some() {
-                self.show_export_dialog = true;
-                self.export_status = None;
+            if action_triggered(Action::Export) && input_context.allows_import_export_shortcuts() {
+                self.open_export_dialog();
             }
 
             // Ctrl+I: 导入
-            if action_triggered(Action::Import) {
-                self.handle_import();
+            if action_triggered(Action::Import) && input_context.allows_import_export_shortcuts() {
+                self.open_import_dialog();
             }
 
             // Ctrl+H: 历史记录
-            if action_triggered(Action::ShowHistory) {
-                self.show_history_panel = !self.show_history_panel;
+            if action_triggered(Action::ShowHistory)
+                && input_context.allows_workspace_overlay_shortcuts()
+            {
+                self.toggle_history_panel();
             }
 
             // Ctrl+R: 切换 ER 关系图
-            if action_triggered(Action::ToggleErDiagram) {
-                self.show_er_diagram = !self.show_er_diagram;
-                if self.show_er_diagram {
-                    self.load_er_diagram_data();
-                    self.notifications.info("ER 关系图已打开");
-                } else {
-                    self.notifications.info("ER 关系图已关闭");
-                }
+            if action_triggered(Action::ToggleErDiagram)
+                && input_context.allows_workspace_overlay_shortcuts()
+            {
+                self.toggle_er_diagram_visibility();
             }
 
             // F5: 刷新表列表
             if action_triggered(Action::Refresh)
-                && !editor_has_priority
+                && input_context.allows_refresh()
                 && let Some(name) = self.manager.active.clone()
             {
                 self.connect(name);
             }
 
             // Ctrl+L: 清空命令行
-            if action_triggered(Action::ClearCommandLine) {
+            if action_triggered(Action::ClearCommandLine)
+                && input_context.allows_clear_command_line()
+            {
                 self.sql.clear();
                 self.notifications.dismiss_all();
             }
 
             // Ctrl+J: 切换 SQL 编辑器显示
-            if action_triggered(Action::ToggleEditor) {
-                self.show_sql_editor = !self.show_sql_editor;
-                if self.show_sql_editor {
-                    // 打开时自动聚焦到编辑器
-                    self.focus_area = ui::FocusArea::SqlEditor;
-                    self.focus_sql_editor = true;
-                    self.grid_state.focused = false;
-                } else {
-                    // 关闭时将焦点还给数据表格
-                    self.focus_area = ui::FocusArea::DataGrid;
-                    self.grid_state.focused = true;
-                }
+            if action_triggered(Action::ToggleEditor)
+                && input_context.allows_panel_visibility_toggle()
+            {
+                self.toggle_sql_editor_visibility();
             }
 
             // Ctrl+B: 切换侧边栏显示
-            if action_triggered(Action::ToggleSidebar) {
-                self.show_sidebar = !self.show_sidebar;
-                if self.show_sidebar {
-                    // 打开侧边栏时聚焦到侧边栏
-                    self.focus_area = ui::FocusArea::Sidebar;
-                    self.grid_state.focused = false;
-                } else if self.focus_area == ui::FocusArea::Sidebar {
-                    // 关闭侧边栏时，如果焦点在侧边栏，则转移到数据表格
-                    self.focus_area = ui::FocusArea::DataGrid;
-                    self.grid_state.focused = true;
-                }
+            if action_triggered(Action::ToggleSidebar)
+                && input_context.allows_panel_visibility_toggle()
+            {
+                self.toggle_sidebar_visibility();
             }
 
             // Ctrl+K: 清空搜索
-            if action_triggered(Action::ClearSearch) {
+            if action_triggered(Action::ClearSearch) && input_context.allows_search_shortcuts() {
                 self.search_text.clear();
             }
 
             // Ctrl+F: 添加筛选条件
-            if action_triggered(Action::AddFilter)
-                && let Some(result) = &self.result
-                && let Some(col) = result.columns.first()
-            {
-                self.grid_state
-                    .filters
-                    .push(ui::components::ColumnFilter::new(col.clone()));
+            if action_triggered(Action::AddFilter) && input_context.allows_filter_shortcuts() {
+                self.add_sidebar_filter();
             }
 
             // Ctrl+Shift+F: 清空筛选条件
-            if action_triggered(Action::ClearFilters) {
-                self.grid_state.filters.clear();
+            if action_triggered(Action::ClearFilters) && input_context.allows_filter_shortcuts() {
+                self.clear_sidebar_filters();
             }
 
             // Ctrl+S: 触发保存表格修改
-            if action_triggered(Action::Save) {
+            if action_triggered(Action::Save) && input_context.allows_data_grid_shortcuts() {
                 self.grid_state.pending_save = true;
             }
 
             // Ctrl+G: 跳转到行
-            if action_triggered(Action::GotoLine) {
+            if action_triggered(Action::GotoLine) && input_context.allows_data_grid_shortcuts() {
                 self.grid_state.show_goto_dialog = true;
             }
 
             // 用户可选：新建查询标签页（默认未绑定）
-            if action_triggered(Action::NewTab) {
-                self.sync_sql_to_active_tab();
-                self.tab_manager.new_tab();
-                self.sync_from_active_tab();
+            if action_triggered(Action::NewTab) && input_context.allows_tab_management_shortcuts() {
+                self.open_new_query_tab();
             }
 
             // Ctrl+Tab: 下一个查询标签页
-            if action_triggered(Action::NextTab) {
-                self.sync_sql_to_active_tab();
-                self.tab_manager.next_tab();
-                self.sync_from_active_tab();
+            if action_triggered(Action::NextTab) && input_context.allows_tab_management_shortcuts()
+            {
+                self.select_next_query_tab();
             }
 
             // Ctrl+Shift+Tab: 上一个查询标签页
-            if action_triggered(Action::PrevTab) {
-                self.sync_sql_to_active_tab();
-                self.tab_manager.prev_tab();
-                self.sync_from_active_tab();
+            if action_triggered(Action::PrevTab) && input_context.allows_tab_management_shortcuts()
+            {
+                self.select_previous_query_tab();
             }
 
             // Ctrl+W: 关闭当前查询标签页
-            if action_triggered(Action::CloseTab) {
-                if self.tab_manager.tabs.len() > 1
-                    && let Some(request_id) = self
-                        .tab_manager
-                        .get_active()
-                        .and_then(|tab| tab.pending_request_id)
-                {
-                    self.cancel_query_request(request_id);
-                }
-                self.tab_manager.close_active_tab();
-                self.sync_from_active_tab();
-            }
-
-            // Ctrl+D: 切换日/夜模式
-            if i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::D) {
-                self.pending_toggle_dark_mode = true;
-            }
-
-            // Tab: 焦点循环导航（侧边栏 -> 数据表格 -> SQL编辑器 -> 侧边栏）
-            if i.key_pressed(egui::Key::Tab)
-                && !(i.modifiers.ctrl
-                    || i.modifiers.alt
-                    || editor_has_priority
-                    || keyboard_captured
-                    || self.show_autocomplete
-                    || (self.show_sql_editor && self.editor_mode == ui::EditorMode::Insert))
+            if action_triggered(Action::CloseTab) && input_context.allows_tab_management_shortcuts()
             {
-                self.cycle_focus(i.modifiers.shift);
-            }
-
-            // Ctrl+1-6: 快速切换到侧边栏不同区域（再按一次关闭）
-            if i.modifiers.ctrl && !i.modifiers.shift {
-                let section = if i.key_pressed(egui::Key::Num1) {
-                    Some(ui::SidebarSection::Connections) // 1: 连接
-                } else if i.key_pressed(egui::Key::Num2) {
-                    Some(ui::SidebarSection::Databases) // 2: 数据库
-                } else if i.key_pressed(egui::Key::Num3) {
-                    Some(ui::SidebarSection::Tables) // 3: 表
-                } else if i.key_pressed(egui::Key::Num4) {
-                    Some(ui::SidebarSection::Filters) // 4: 筛选
-                } else if i.key_pressed(egui::Key::Num5) {
-                    Some(ui::SidebarSection::Triggers) // 5: 触发器
-                } else if i.key_pressed(egui::Key::Num6) {
-                    Some(ui::SidebarSection::Routines) // 6: 存储过程
-                } else {
-                    None
-                };
-
-                if let Some(s) = section {
-                    // Ctrl+2/3 (数据库/表) 只做导航，不切换面板显示
-                    // Ctrl+1/4/5/6 切换对应面板的显示状态
-                    let is_toggle_panel = matches!(
-                        s,
-                        ui::SidebarSection::Connections
-                            | ui::SidebarSection::Filters
-                            | ui::SidebarSection::Triggers
-                            | ui::SidebarSection::Routines
-                    );
-
-                    let panel_visible = match s {
-                        ui::SidebarSection::Connections => {
-                            self.sidebar_panel_state.show_connections
-                        }
-                        ui::SidebarSection::Databases | ui::SidebarSection::Tables => {
-                            self.sidebar_panel_state.show_connections
-                        }
-                        ui::SidebarSection::Filters => self.sidebar_panel_state.show_filters,
-                        ui::SidebarSection::Triggers => self.sidebar_panel_state.show_triggers,
-                        ui::SidebarSection::Routines => self.sidebar_panel_state.show_routines,
-                    };
-
-                    if is_toggle_panel
-                        && self.show_sidebar
-                        && self.sidebar_section == s
-                        && panel_visible
-                    {
-                        // 当前已在该面板，切换关闭（仅对 Ctrl+1/4/5/6）
-                        match s {
-                            ui::SidebarSection::Connections => {
-                                self.sidebar_panel_state.show_connections = false;
-                            }
-                            ui::SidebarSection::Filters => {
-                                self.sidebar_panel_state.show_filters = false;
-                            }
-                            ui::SidebarSection::Triggers => {
-                                self.sidebar_panel_state.show_triggers = false;
-                            }
-                            ui::SidebarSection::Routines => {
-                                self.sidebar_panel_state.show_routines = false;
-                            }
-                            _ => {}
-                        }
-                    } else {
-                        // 打开侧边栏并显示对应面板
-                        self.show_sidebar = true;
-                        self.focus_area = ui::FocusArea::Sidebar;
-                        self.sidebar_section = s;
-                        self.grid_state.focused = false;
-                        // 确保对应面板可见
-                        match s {
-                            ui::SidebarSection::Connections
-                            | ui::SidebarSection::Databases
-                            | ui::SidebarSection::Tables => {
-                                self.sidebar_panel_state.show_connections = true;
-                            }
-                            ui::SidebarSection::Filters => {
-                                self.sidebar_panel_state.show_filters = true;
-                            }
-                            ui::SidebarSection::Triggers => {
-                                self.sidebar_panel_state.show_triggers = true;
-                            }
-                            ui::SidebarSection::Routines => {
-                                self.sidebar_panel_state.show_routines = true;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Alt+K: 打开快捷键设置对话框
-            if i.modifiers.alt && !i.modifiers.ctrl && i.key_pressed(egui::Key::K) {
-                self.keybindings_dialog_state.open(&self.keybindings);
+                self.close_active_query_tab();
             }
 
             // Escape: 取消当前操作/关闭面板
-            if i.key_pressed(egui::Key::Escape) {
+            if i.key_pressed(egui::Key::Escape) && !input_context.is_text_entry_scope() {
                 // 优先关闭帮助面板
                 if self.show_help {
                     self.show_help = false;
@@ -338,7 +167,7 @@ impl DbManagerApp {
     }
 
     /// 焦点循环导航
-    fn cycle_focus(&mut self, reverse: bool) {
+    pub(super) fn cycle_focus(&mut self, reverse: bool) {
         // 焦点循环顺序: Sidebar -> DataGrid -> SqlEditor -> Sidebar
         let areas = if self.show_sidebar && self.show_sql_editor {
             vec![

@@ -1,12 +1,52 @@
 use super::*;
+use crate::core::{Action, KeyBindings};
+use crate::ui::{LocalShortcut, local_shortcut_text};
 
 impl HelpDialog {
-    pub(super) fn show_tool_guide(ui: &mut egui::Ui) {
+    pub(super) fn show_tool_guide(ui: &mut egui::Ui, keybindings: &KeyBindings) {
         let accent = Color32::from_rgb(130, 180, 255);
         let highlight = Color32::from_rgb(180, 230, 140);
         let key_color = Color32::from_rgb(255, 200, 100);
         let text = Color32::from_rgb(220, 220, 220);
         let muted = Color32::from_rgb(150, 150, 160);
+        let new_connection = Self::binding_or(keybindings, Action::NewConnection, "Ctrl+N");
+        let toggle_sidebar = Self::binding_or(keybindings, Action::ToggleSidebar, "Ctrl+B");
+        let toggle_editor = Self::binding_or(keybindings, Action::ToggleEditor, "Ctrl+J");
+        let toggle_er_diagram = Self::binding_or(keybindings, Action::ToggleErDiagram, "Ctrl+R");
+        let show_help = Self::binding_or(keybindings, Action::ShowHelp, "F1");
+        let show_history = Self::binding_or(keybindings, Action::ShowHistory, "Ctrl+H");
+        let export = Self::binding_or(keybindings, Action::Export, "Ctrl+E");
+        let import = Self::binding_or(keybindings, Action::Import, "Ctrl+I");
+        let refresh = Self::binding_or(keybindings, Action::Refresh, "F5");
+        let clear_command_line = Self::binding_or(keybindings, Action::ClearCommandLine, "Ctrl+L");
+        let clear_search = Self::binding_or(keybindings, Action::ClearSearch, "Ctrl+K");
+        let new_tab = Self::binding_or(keybindings, Action::NewTab, "Ctrl+T");
+        let close_tab = Self::binding_or(keybindings, Action::CloseTab, "Ctrl+W");
+        let next_tab = Self::binding_or(keybindings, Action::NextTab, "Ctrl+Tab");
+        let prev_tab = Self::binding_or(keybindings, Action::PrevTab, "Ctrl+Shift+Tab");
+        let save = Self::binding_or(keybindings, Action::Save, "Ctrl+S");
+        let add_filter = Self::binding_or(keybindings, Action::AddFilter, "Ctrl+F");
+        let clear_filters = Self::binding_or(keybindings, Action::ClearFilters, "Ctrl+Shift+F");
+        let goto_line = Self::binding_or(keybindings, Action::GotoLine, "Ctrl+G");
+        let zoom_in = Self::binding_or(keybindings, Action::ZoomIn, "Ctrl++");
+        let zoom_out = Self::binding_or(keybindings, Action::ZoomOut, "Ctrl+-");
+        let zoom_reset = Self::binding_or(keybindings, Action::ZoomReset, "Ctrl+0");
+        let sql_execute = local_shortcut_text(LocalShortcut::SqlExecute);
+        let sql_explain = local_shortcut_text(LocalShortcut::SqlExplain);
+        let sql_autocomplete = local_shortcut_text(LocalShortcut::SqlAutocompleteTrigger);
+        let sql_history = local_shortcut_text(LocalShortcut::SqlHistoryBrowse);
+        let first_connection_step = format!(
+            "按 {} 创建连接。SQLite 最适合快速验证，PostgreSQL / MySQL 适合连真实数据库。",
+            new_connection
+        );
+        let first_query_step = format!(
+            "按 {} 打开编辑器，按 i 或双击进入输入模式，输入 SQL 后用 {} 执行。",
+            toggle_editor, sql_execute
+        );
+        let edit_data_step = format!(
+            "先用 SELECT 确认范围，再回到表格按 i 编辑，最后用 {} 保存。不要一上来直接改。",
+            save
+        );
 
         ui.label(
             RichText::new("Gridix 工具快速使用指南")
@@ -41,15 +81,15 @@ impl HelpDialog {
         Self::keys(
             ui,
             &[
-                ("Ctrl+N", "新建连接"),
+                (new_connection.clone(), "新建连接"),
                 (
-                    "Tab / Shift+Tab",
+                    "Tab / Shift+Tab".into(),
                     "在侧边栏、结果表格、SQL 编辑器之间切换焦点",
                 ),
-                ("Ctrl+J", "显示 / 隐藏 SQL 编辑器"),
-                ("Ctrl+Enter / F5", "在 SQL 编辑器中执行当前 SQL"),
-                ("i", "在表格或编辑器里进入编辑模式"),
-                ("Ctrl+S", "保存表格里的修改"),
+                (toggle_editor.clone(), "显示 / 隐藏 SQL 编辑器"),
+                (sql_execute.clone(), "在 SQL 编辑器中执行当前 SQL"),
+                ("i".into(), "在表格或编辑器里进入编辑模式"),
+                (save.clone(), "保存表格里的修改"),
             ],
             key_color,
             text,
@@ -62,7 +102,7 @@ impl HelpDialog {
             ui,
             "1",
             "先建立连接",
-            "按 Ctrl+N 创建连接。SQLite 最适合快速验证，PostgreSQL / MySQL 适合连真实数据库。",
+            &first_connection_step,
             accent,
             text,
             muted,
@@ -80,7 +120,7 @@ impl HelpDialog {
             ui,
             "3",
             "切到 SQL 编辑器执行第一条查询",
-            "按 Ctrl+J 打开编辑器，按 i 或双击进入输入模式，输入 SQL 后用 Ctrl+Enter 或 F5 执行。",
+            &first_query_step,
             accent,
             text,
             muted,
@@ -89,7 +129,7 @@ impl HelpDialog {
             ui,
             "4",
             "需要改数据时再进入表格编辑",
-            "先用 SELECT 确认范围，再回到表格按 i 编辑，最后用 Ctrl+S 保存。不要一上来直接改。",
+            &edit_data_step,
             accent,
             text,
             muted,
@@ -124,13 +164,13 @@ impl HelpDialog {
             ui,
             &[
                 (
-                    "Tab / Shift+Tab",
+                    "Tab / Shift+Tab".into(),
                     "在侧边栏、结果表格、SQL 编辑器之间循环切换焦点",
                 ),
-                ("h / j / k / l", "在当前区域内导航，或在区域之间转移"),
-                ("Ctrl+B", "显示 / 隐藏侧边栏"),
-                ("Ctrl+J", "显示 / 隐藏 SQL 编辑器"),
-                ("Ctrl+R", "显示 / 隐藏 ER 关系图"),
+                ("h / j / k / l".into(), "在当前区域内导航，或在区域之间转移"),
+                (toggle_sidebar.clone(), "显示 / 隐藏侧边栏"),
+                (toggle_editor.clone(), "显示 / 隐藏 SQL 编辑器"),
+                (toggle_er_diagram.clone(), "显示 / 隐藏 ER 关系图"),
             ],
             key_color,
             text,
@@ -143,12 +183,15 @@ impl HelpDialog {
         Self::keys(
             ui,
             &[
-                ("j / k", "上下移动选择"),
-                ("Enter / l", "展开 / 连接 / 打开表"),
-                ("h", "折叠 / 返回上级"),
-                ("Ctrl+1", "连接面板"),
-                ("Ctrl+2 / Ctrl+3", "快速转到数据库 / 表区域"),
-                ("Ctrl+4 / Ctrl+5 / Ctrl+6", "筛选 / 触发器 / 存储过程面板"),
+                ("j / k".into(), "上下移动选择"),
+                ("Enter / l".into(), "展开 / 连接 / 打开表"),
+                ("h".into(), "折叠 / 返回上级"),
+                ("Ctrl+1".into(), "连接面板"),
+                ("Ctrl+2 / Ctrl+3".into(), "快速转到数据库 / 表区域"),
+                (
+                    "Ctrl+4 / Ctrl+5 / Ctrl+6".into(),
+                    "筛选 / 触发器 / 存储过程面板",
+                ),
             ],
             key_color,
             text,
@@ -160,14 +203,14 @@ impl HelpDialog {
         Self::keys(
             ui,
             &[
-                ("hjkl / 方向键", "移动光标"),
-                ("i / a / c", "进入编辑模式 / 追加 / 清空后编辑"),
-                ("v / x", "进入选择模式 / 选择整行"),
-                ("/ / f", "打开筛选 / 为当前列添加筛选"),
-                ("o / O", "在下方 / 上方插入新行"),
-                ("dd / yy / p", "删除标记当前行 / 复制整行 / 粘贴"),
-                ("u / U", "撤销修改 / 取消删除标记"),
-                ("Ctrl+S", "保存修改"),
+                ("hjkl / 方向键".into(), "移动光标"),
+                ("i / a / c".into(), "进入编辑模式 / 追加 / 清空后编辑"),
+                ("v / x".into(), "进入选择模式 / 选择整行"),
+                ("/ / f".into(), "打开筛选 / 为当前列添加筛选"),
+                ("o / O".into(), "在下方 / 上方插入新行"),
+                ("dd / yy / p".into(), "删除标记当前行 / 复制整行 / 粘贴"),
+                ("u / U".into(), "撤销修改 / 取消删除标记"),
+                (save.clone(), "保存修改"),
             ],
             key_color,
             text,
@@ -179,12 +222,12 @@ impl HelpDialog {
         Self::keys(
             ui,
             &[
-                ("i / 双击", "进入输入模式"),
-                ("Esc", "退出输入模式"),
-                ("Ctrl+Enter / F5", "执行 SQL"),
-                ("F6", "分析执行计划 (EXPLAIN)"),
-                ("Ctrl+Space / Alt+L", "触发自动补全"),
-                ("Shift+J / Shift+K", "浏览历史命令"),
+                ("i / 双击".into(), "进入输入模式"),
+                ("Esc".into(), "退出输入模式"),
+                (sql_execute, "执行 SQL"),
+                (sql_explain, "分析执行计划 (EXPLAIN)"),
+                (sql_autocomplete, "触发自动补全"),
+                (sql_history, "浏览历史命令"),
             ],
             key_color,
             text,
@@ -196,12 +239,12 @@ impl HelpDialog {
         Self::keys(
             ui,
             &[
-                ("Ctrl+T", "新建查询标签页"),
-                ("Ctrl+W", "关闭当前标签页"),
-                ("Ctrl+Tab", "下一个查询标签"),
-                ("Ctrl+Shift+Tab", "上一个查询标签"),
-                ("Ctrl+H", "显示 / 隐藏查询历史"),
-                ("F1", "打开帮助与学习"),
+                (new_tab.clone(), "新建查询标签页"),
+                (close_tab.clone(), "关闭当前标签页"),
+                (next_tab.clone(), "下一个查询标签"),
+                (prev_tab.clone(), "上一个查询标签"),
+                (show_history.clone(), "显示 / 隐藏查询历史"),
+                (show_help.clone(), "打开帮助与学习"),
             ],
             key_color,
             text,
@@ -213,14 +256,17 @@ impl HelpDialog {
         Self::keys(
             ui,
             &[
-                ("Ctrl+N", "新建连接"),
-                ("Ctrl+B", "切换侧边栏"),
-                ("Ctrl+J", "切换 SQL 编辑器"),
-                ("Ctrl+R", "切换 ER 关系图"),
-                ("Ctrl+H", "切换查询历史"),
-                ("F1", "帮助与学习"),
-                ("Ctrl+D", "切换日间 / 夜间模式"),
-                ("Ctrl++ / Ctrl+- / Ctrl+0", "放大 / 缩小 / 重置缩放"),
+                (new_connection, "新建连接"),
+                (toggle_sidebar, "切换侧边栏"),
+                (toggle_editor, "切换 SQL 编辑器"),
+                (toggle_er_diagram, "切换 ER 关系图"),
+                (show_history, "切换查询历史"),
+                (show_help, "帮助与学习"),
+                ("Ctrl+D".into(), "切换日间 / 夜间模式"),
+                (
+                    format!("{zoom_in} / {zoom_out} / {zoom_reset}"),
+                    "放大 / 缩小 / 重置缩放",
+                ),
             ],
             key_color,
             text,
@@ -231,13 +277,14 @@ impl HelpDialog {
         Self::keys(
             ui,
             &[
-                ("Ctrl+F", "添加筛选条件"),
-                ("Ctrl+Shift+F", "清空筛选条件"),
-                ("Ctrl+E", "导出结果"),
-                ("Ctrl+I", "导入数据"),
-                ("Ctrl+L", "清空 SQL 命令行"),
-                ("Ctrl+K", "清空搜索"),
-                ("Ctrl+G", "跳转到指定行"),
+                (add_filter, "添加筛选条件"),
+                (clear_filters, "清空筛选条件"),
+                (export, "导出结果"),
+                (import, "导入数据"),
+                (refresh, "刷新当前结果或工作区"),
+                (clear_command_line, "清空 SQL 命令行"),
+                (clear_search, "清空搜索"),
+                (goto_line, "跳转到指定行"),
             ],
             key_color,
             text,
@@ -254,11 +301,11 @@ impl HelpDialog {
         Self::keys(
             ui,
             &[
-                ("~john", "包含 john"),
-                ("=admin", "精确等于 admin"),
-                ("!=guest", "排除 guest"),
-                (">100 / <100", "数值比较"),
-                ("为空 / 不为空", "判断 NULL"),
+                ("~john".into(), "包含 john"),
+                ("=admin".into(), "精确等于 admin"),
+                ("!=guest".into(), "排除 guest"),
+                (">100 / <100".into(), "数值比较"),
+                ("为空 / 不为空".into(), "判断 NULL"),
             ],
             key_color,
             text,
@@ -269,9 +316,9 @@ impl HelpDialog {
         Self::keys(
             ui,
             &[
-                ("SQLite", "本地文件数据库，最适合快速验证与学习"),
-                ("PostgreSQL", "默认端口 5432，支持真实服务端连接"),
-                ("MySQL", "默认端口 3306，支持真实服务端连接"),
+                ("SQLite".into(), "本地文件数据库，最适合快速验证与学习"),
+                ("PostgreSQL".into(), "默认端口 5432，支持真实服务端连接"),
+                ("MySQL".into(), "默认端口 3306，支持真实服务端连接"),
             ],
             key_color,
             text,
@@ -425,7 +472,7 @@ impl HelpDialog {
         ui.add_space(2.0);
     }
 
-    fn keys(ui: &mut egui::Ui, items: &[(&str, &str)], key_color: Color32, desc_color: Color32) {
+    fn keys(ui: &mut egui::Ui, items: &[(String, &str)], key_color: Color32, desc_color: Color32) {
         let width = ui.available_width();
         let key_width = 220.0f32.min(width * 0.34).max(140.0);
         let desc_width = (width - key_width - 16.0).max(160.0);
@@ -435,7 +482,7 @@ impl HelpDialog {
                 ui.spacing_mut().item_spacing = Vec2::new(16.0, 4.0);
                 ui.add_sized(
                     [key_width, 0.0],
-                    egui::Label::new(RichText::new(*key).monospace().color(key_color)),
+                    egui::Label::new(RichText::new(key.as_str()).monospace().color(key_color)),
                 );
                 ui.add_sized(
                     [desc_width, 0.0],
@@ -448,5 +495,14 @@ impl HelpDialog {
 
     fn wrapped_text(ui: &mut egui::Ui, text: &str, color: Color32) {
         ui.add(egui::Label::new(RichText::new(text).color(color)).wrap());
+    }
+
+    fn binding_or(keybindings: &KeyBindings, action: Action, fallback: &str) -> String {
+        let binding = keybindings.display(action);
+        if binding.is_empty() {
+            fallback.to_owned()
+        } else {
+            binding
+        }
     }
 }

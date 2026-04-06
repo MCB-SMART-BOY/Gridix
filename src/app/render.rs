@@ -14,8 +14,10 @@ impl DbManagerApp {
     /// 每帧主流程：消息处理、快捷键、对话框、中心区域渲染与动作落地。
     pub(super) fn run_frame(&mut self, root_ui: &mut egui::Ui) {
         let ctx = root_ui.ctx().clone();
+        let mut toolbar_actions = ToolbarActions::default();
 
         self.handle_messages(&ctx);
+        self.handle_input_router(&ctx, &mut toolbar_actions);
         self.handle_keyboard_shortcuts(&ctx);
         self.handle_zoom_shortcuts(&ctx);
 
@@ -23,11 +25,6 @@ impl DbManagerApp {
         if self.notifications.tick() {
             ctx.request_repaint();
         }
-
-        let mut toolbar_actions = ToolbarActions::default();
-
-        // 检测焦点切换快捷键
-        self.handle_focus_shortcuts(&ctx, &mut toolbar_actions);
 
         // ===== 对话框 =====
         let was_connection_dialog_open = self.show_connection_dialog;
@@ -116,6 +113,7 @@ impl DbManagerApp {
                                 self.sidebar_section,
                                 &mut self.sidebar_panel_state,
                                 sidebar_width,
+                                &self.keybindings,
                                 &mut self.grid_state.filters,
                                 &columns,
                                 &mut self.pending_filter_input_focus,
@@ -195,6 +193,7 @@ impl DbManagerApp {
                                 let cancel_task_id = ui::Toolbar::show_with_focus(
                                     ui,
                                     &self.theme_manager,
+                                    &self.keybindings,
                                     self.result.is_some(),
                                     self.show_sidebar,
                                     self.show_sql_editor,
@@ -249,6 +248,7 @@ impl DbManagerApp {
                                     &self.tab_manager.tabs,
                                     self.tab_manager.active_index,
                                     &self.highlight_colors,
+                                    &self.keybindings,
                                 );
 
                                 // 如果焦点在Tab栏，处理键盘输入
@@ -331,6 +331,7 @@ impl DbManagerApp {
                                                             &mut self.selected_cell,
                                                             &mut self.grid_state,
                                                             table_name,
+                                                            &self.keybindings,
                                                         );
 
                                                         // 处理打开筛选面板请求
@@ -435,6 +436,7 @@ impl DbManagerApp {
                                             &mut self.selected_cell,
                                             &mut self.grid_state,
                                             table_name,
+                                            &self.keybindings,
                                         );
 
                                         // 处理表格操作
@@ -516,7 +518,8 @@ impl DbManagerApp {
                                         });
                                     }
                                 } else if self.manager.connections.is_empty() {
-                                    welcome_action = ui::Welcome::show(ui, self.welcome_status);
+                                    welcome_action =
+                                        ui::Welcome::show(ui, self.welcome_status, &self.keybindings);
                                 } else if self.manager.active.is_some() {
                                     // 有连接但没有结果
                                     ui.vertical_centered(|ui| {
@@ -725,11 +728,11 @@ impl DbManagerApp {
     /// 处理工具栏操作
     pub(super) fn handle_toolbar_actions(&mut self, ctx: &egui::Context, actions: ToolbarActions) {
         if actions.toggle_sidebar {
-            self.show_sidebar = !self.show_sidebar;
+            self.toggle_sidebar_visibility();
         }
 
         if actions.toggle_editor {
-            self.show_sql_editor = !self.show_sql_editor;
+            self.toggle_sql_editor_visibility();
         }
 
         if actions.refresh_tables
@@ -774,44 +777,27 @@ impl DbManagerApp {
         }
 
         if actions.export {
-            self.show_export_dialog = true;
-            self.export_status = None;
+            self.open_export_dialog();
         }
 
         if actions.import {
-            self.handle_import();
+            self.open_import_dialog();
         }
 
         if actions.create_table {
-            let db_type = self
-                .manager
-                .get_active()
-                .map(|c| c.config.db_type)
-                .unwrap_or_default();
-            self.ddl_dialog_state.open_create_table(db_type);
+            self.open_create_table_dialog();
         }
 
         if actions.create_database {
-            let db_type = self
-                .manager
-                .get_active()
-                .map(|c| c.config.db_type)
-                .unwrap_or_default();
-            self.create_db_dialog_state.open(db_type);
+            self.open_create_database_dialog();
         }
 
         if actions.create_user {
-            self.handle_create_user_action();
+            self.open_create_user_dialog();
         }
 
         if actions.toggle_er_diagram {
-            self.show_er_diagram = !self.show_er_diagram;
-            if self.show_er_diagram {
-                self.load_er_diagram_data();
-                self.notifications.info("ER 关系图已打开");
-            } else {
-                self.notifications.info("ER 关系图已关闭");
-            }
+            self.toggle_er_diagram_visibility();
         }
 
         if let Some(preset) = actions.theme_changed {
@@ -847,7 +833,7 @@ impl DbManagerApp {
         }
 
         if actions.show_history {
-            self.show_history_panel = true;
+            self.set_history_panel_visible(true);
         }
 
         if actions.show_help {
@@ -864,7 +850,7 @@ impl DbManagerApp {
     }
 
     /// 处理创建用户操作
-    fn handle_create_user_action(&mut self) {
+    pub(super) fn handle_create_user_action(&mut self) {
         if let Some(conn) = self.manager.get_active() {
             let db_type = conn.config.db_type;
             if matches!(db_type, crate::database::DatabaseType::SQLite) {
@@ -1078,7 +1064,7 @@ impl DbManagerApp {
     }
 
     /// 侧边栏添加筛选条件
-    fn add_sidebar_filter(&mut self) {
+    pub(super) fn add_sidebar_filter(&mut self) {
         let Some(result) = &self.result else {
             self.notifications
                 .warning("当前结果集为空，无法添加筛选条件");
@@ -1109,7 +1095,7 @@ impl DbManagerApp {
     }
 
     /// 侧边栏清空筛选条件
-    fn clear_sidebar_filters(&mut self) {
+    pub(super) fn clear_sidebar_filters(&mut self) {
         if self.grid_state.filters.is_empty() {
             return;
         }
@@ -1220,8 +1206,7 @@ impl DbManagerApp {
         self.sync_sql_to_active_tab();
 
         if tab_actions.new_tab {
-            self.tab_manager.new_tab();
-            self.sync_from_active_tab();
+            self.open_new_query_tab();
         }
 
         if let Some(idx) = tab_actions.switch_to {
@@ -1285,63 +1270,6 @@ impl DbManagerApp {
             }
             self.tab_manager.close_tabs_to_right();
             self.sync_from_active_tab();
-        }
-    }
-
-    /// 检测并处理焦点切换快捷键
-    pub(super) fn handle_focus_shortcuts(
-        &mut self,
-        ctx: &egui::Context,
-        toolbar_actions: &mut ToolbarActions,
-    ) {
-        let has_dialog = self.has_modal_dialog_open();
-
-        ctx.input(|i| {
-            // Ctrl+Shift+T: 打开主题选择器
-            if i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::T) {
-                toolbar_actions.open_theme_selector = true;
-            }
-
-            if has_dialog {
-                return;
-            }
-
-            // Ctrl+1~4: 聚焦侧边栏不同区域
-            self.handle_sidebar_focus_shortcuts(i);
-
-            // Ctrl+D: 切换日/夜模式
-            if i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::D) {
-                toolbar_actions.toggle_dark_mode = true;
-            }
-        });
-    }
-
-    /// 处理侧边栏焦点快捷键
-    fn handle_sidebar_focus_shortcuts(&mut self, input: &egui::InputState) {
-        // 顺序：1连接 2数据库 3表 4筛选 5触发器 6存储过程
-        let shortcuts = [
-            (egui::Key::Num1, ui::SidebarSection::Connections, "连接列表"),
-            (egui::Key::Num2, ui::SidebarSection::Databases, "数据库列表"),
-            (egui::Key::Num3, ui::SidebarSection::Tables, "表列表"),
-            (egui::Key::Num4, ui::SidebarSection::Filters, "筛选面板"),
-            (egui::Key::Num5, ui::SidebarSection::Triggers, "触发器列表"),
-            (
-                egui::Key::Num6,
-                ui::SidebarSection::Routines,
-                "存储过程列表",
-            ),
-        ];
-
-        for (key, section, name) in shortcuts {
-            if input.modifiers.ctrl && input.key_pressed(key) {
-                self.show_sidebar = true;
-                self.focus_area = ui::FocusArea::Sidebar;
-                self.sidebar_section = section;
-                self.grid_state.focused = false;
-                self.focus_sql_editor = false;
-                self.notifications.info(format!("切换到: {}", name));
-                break;
-            }
         }
     }
 }

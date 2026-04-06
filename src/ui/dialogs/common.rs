@@ -5,6 +5,7 @@
 #![allow(dead_code)] // 公开 API，供未来使用
 
 use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_MD, SPACING_SM, SUCCESS};
+use crate::ui::{LocalShortcut, local_shortcut_tooltip};
 use egui::{self, Color32, CornerRadius, RichText, Vec2};
 
 /// 对话框样式预设
@@ -112,7 +113,7 @@ impl DialogHeader {
                             .frame(false)
                             .min_size(Vec2::new(24.0, 24.0)),
                     )
-                    .on_hover_text("关闭")
+                    .on_hover_text(local_shortcut_tooltip("关闭", LocalShortcut::Cancel))
                     .clicked()
                 {
                     close_clicked = true;
@@ -191,7 +192,7 @@ impl DialogFooter {
                     .frame(false)
                     .min_size(Vec2::new(0.0, 24.0)),
                 )
-                .on_hover_text("取消 (Esc)")
+                .on_hover_text(local_shortcut_tooltip("取消", LocalShortcut::Cancel))
                 .clicked()
             {
                 result.cancelled = true;
@@ -211,7 +212,7 @@ impl DialogFooter {
                             .frame(false)
                             .min_size(Vec2::new(0.0, 24.0)),
                     )
-                    .on_hover_text("确认 (Enter)")
+                    .on_hover_text(local_shortcut_tooltip("确认", LocalShortcut::Confirm))
                     .clicked()
                 {
                     result.confirmed = true;
@@ -247,7 +248,7 @@ impl DialogFooter {
                     .frame(false)
                     .min_size(Vec2::new(0.0, 24.0)),
                 )
-                .on_hover_text("取消 (Esc)")
+                .on_hover_text(local_shortcut_tooltip("取消", LocalShortcut::Cancel))
                 .clicked()
             {
                 result.cancelled = true;
@@ -261,7 +262,7 @@ impl DialogFooter {
                             .frame(false)
                             .min_size(Vec2::new(0.0, 24.0)),
                     )
-                    .on_hover_text("确认操作")
+                    .on_hover_text(local_shortcut_tooltip("确认操作", LocalShortcut::Confirm))
                     .clicked()
                 {
                     result.confirmed = true;
@@ -291,7 +292,7 @@ impl DialogFooter {
                         .frame(false)
                         .min_size(Vec2::new(0.0, 24.0)),
                     )
-                    .on_hover_text("关闭 (Esc)")
+                    .on_hover_text(local_shortcut_tooltip("关闭", LocalShortcut::Cancel))
                     .clicked()
                 {
                     clicked = true;

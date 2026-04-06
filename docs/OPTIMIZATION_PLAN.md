@@ -1,7 +1,7 @@
 # Gridix Optimization Roadmap | 优化路线图
 
-> Baseline: `v3.3.1`  
-> 基线版本：`v3.3.1`  
+> Baseline: `v3.7.0`  
+> 基线版本：`v3.7.0`  
 > Status labels: `已完成` / `进行中` / `待开始` / `暂缓`
 
 ## 1. Goal | 目标
@@ -27,36 +27,41 @@
 
 ### P0: Correctness & Stability | 正确性与稳定性
 
-#### P0-1 Editor focus/completion regression suite
-- Why: avoid regressions in `Tab` completion and cursor/focus behavior.
-  目的：防止 `Tab` 补全、光标与焦点行为回归。
+#### P0-1 Focus-scoped input router
+- Why: current global-first keyboard handling causes text-input theft and inconsistent local behavior.
+  目的：当前全局优先键盘处理会造成文本输入被抢占，以及局部行为不一致。
 - Deliverables:
-  - Define critical scenarios (manual + CI checklist).
-  - Cover: completion accept, cursor relocation, tab switch draft sync, `F5` semantics.
+  - Introduce `InputRouter` and scoped dispatch order.
+  - Split sidebar/grid/editor/dialog routing by focus scope.
+  - Keep only a minimal global shortcut set.
 - Acceptance:
-  - >= 8 critical paths pass.
-  - Same-class regressions stay at zero for 3 releases.
-- Status: `待开始`
+  - Typing in any text field never triggers non-text commands.
+  - Focus movement can be described by one stable graph.
+- Status: `进行中`
 
-#### P0-2 Unified query status/error surface
-- Why: execution state must be consistent across toolbar/status/notifications.
-  目的：执行状态在工具栏、状态栏、通知里保持一致。
+#### P0-2 External `keymap.toml` and scoped bindings
+- Why: bindings must be editable after release and cannot stay hard-coded in app logic.
+  目的：快捷键必须支持发布后修改，不能继续硬编码在应用逻辑中。
 - Deliverables:
-  - Unified state copy: running/success/failure/canceled.
-  - Error format: DB raw message + user-friendly hint.
+  - Add `~/.config/gridix/keymap.toml`.
+  - Add default generation, merge, diagnostics, and conflict detection.
+  - Move keybinding UI from flat action list to scope-oriented editor.
 - Acceptance:
-  - SQLite/PostgreSQL/MySQL errors each can be located by SQL and stage.
-- Status: `待开始`
+  - Missing keymap is auto-initialized.
+  - Missing actions are auto-filled from defaults in memory.
+- Status: `进行中`
 
-#### P0-3 Release verification automation
-- Why: prevent package version/hash drift after release.
-  目的：避免发布后各平台版本/哈希不一致。
+#### P0-3 Sidebar workflow rebuild
+- Why: current sidebar flow is list-centric, not workflow-centric.
+  目的：当前侧边栏以列表为中心，而不是以工作流为中心。
 - Deliverables:
-  - Add post-release verification script for artifacts + templates.
-  - Release completion depends on script pass.
+  - Default layout: connections + filters only.
+  - Add panel focus graph and optional edge-transfer behavior.
+  - Promote filter panel to first-class keyboard workspace.
 - Acceptance:
-  - One command outputs clear diff report.
-- Status: `待开始`
+  - User can go from table list to filter editing without mouse.
+  - Trigger/routine panels stay hidden unless needed.
+- Status: `进行中`
 
 ### P1: Beginner End-to-End Path | 新手闭环
 
@@ -77,13 +82,15 @@
   - At least 6 core topics form one coherent path.
 - Status: `进行中`
 
-#### P1-3 Beginner/advanced information layering
+#### P1-3 Unified import/export pipeline
 - Deliverables:
-  - Keep connection dialog simple by default.
-  - Show advanced options on demand with terminology hints.
+  - Introduce shared transfer schema, preview, mapping, and execution plan.
+  - Make CSV/TSV/JSON/SQL import/export use one option vocabulary.
+  - Add dialect-aware SQL export.
 - Acceptance:
-  - First-screen required fields <= 8.
-- Status: `待开始`
+  - Import and export share one staged workflow.
+  - Preview and validation semantics remain consistent across formats.
+- Status: `进行中`
 
 ### P2: Power User Efficiency | 进阶效率
 
@@ -91,12 +98,17 @@
 - `Ctrl+P`, fuzzy action search, >= 20 high-frequency commands.
 - 状态：`待开始`
 
-#### P2-2 SQL editor capabilities
-- Find/replace, line jump, comment toggle, snippets.
-- Must not break existing completion/focus flow.
+#### P2-2 Editor focus/completion regression suite
+- Define critical scenarios for completion accept, cursor relocation, focus transitions, and `F5` semantics.
+- Must cover new scope-based routing after P0-1.
 - 状态：`待开始`
 
-#### P2-3 ER keyboard navigation
+#### P2-3 SQL editor capabilities
+- Find/replace, line jump, comment toggle, snippets.
+- Must not break scoped input routing.
+- 状态：`待开始`
+
+#### P2-4 ER keyboard navigation
 - Node focus/move/arrange via keyboard.
 - Complete basic ER browsing without mouse.
 - 状态：`待开始`
@@ -105,9 +117,9 @@
 
 | Milestone | Timebox | Scope |
 |---|---|---|
-| `M1` | 1-2 weeks | P0-1 + P0-2 first implementation |
-| `M2` | 2-4 weeks | P1-1 usable loop + P1-2 core topics |
-| `M3` | 4-6 weeks | P2-1 MVP + P2-2 MVP |
+| `M1` | 1-2 weeks | P0-1 router skeleton + P0-2 keymap file loading |
+| `M2` | 2-4 weeks | P0-3 sidebar workflow + filter keyboard workspace |
+| `M3` | 4-6 weeks | P1-3 import/export unified MVP + P2-1 command palette |
 
 ## 5. Metrics | 验收指标
 - Focus/completion regression issues trend down.

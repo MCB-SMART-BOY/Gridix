@@ -46,7 +46,6 @@ impl DbManagerApp {
             .values()
             .map(|c| c.config.clone())
             .collect();
-        self.app_config.keybindings = self.keybindings.clone();
         self.app_config.connection_dialog_show_advanced = self.connection_dialog_show_advanced;
         let _ = self.app_config.save();
     }

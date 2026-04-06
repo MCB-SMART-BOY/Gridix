@@ -1,4 +1,5 @@
 use crate::core::ThemePreset;
+use crate::ui::shortcut_tooltip;
 use crate::ui::styles::MUTED;
 use egui::{Color32, CornerRadius, Id, Key, RichText, Vec2};
 
@@ -73,7 +74,7 @@ pub fn helix_theme_combo_simple(
             .frame(false)
             .min_size(Vec2::new(0.0, 24.0)),
         )
-        .on_hover_text("选择主题 (Ctrl+Shift+T)");
+        .on_hover_text(shortcut_tooltip("选择主题", &["Ctrl+Shift+T"]));
 
     if response.clicked() {
         state.is_open = !state.is_open;

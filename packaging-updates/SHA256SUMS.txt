@@ -1,0 +1,16 @@
+# Gridix v3.7.0 SHA256 Checksums
+
+gridix-linux-x86_64.tar.gz:
+2bb3ac1c8fc67ace583eae5133669abd02601b232749f497029395ee0ccb0b17
+
+gridix-macos-arm64.tar.gz:
+e9af7034577ee9e004caaf716a8cdbb4a8dd2fb0e3fbacddcc7043077e345635
+
+gridix-windows-x86_64.zip:
+b566d16a59cfd9628cf76bb30ff69e8477b4326085f564b1b6573009deb77262
+
+gridix.AppImage:
+ed00b03b182a63a36968517cffd6e84d898b35531a18941f46a08588ae4da3cf
+
+Gridix-v3.7.0-source.tar.gz:
+dfb15c8e0236083d6499a8179b9f4e1cbb6cfa1ef4f01b8fa66bada42c631957

@@ -3,6 +3,7 @@
 pub mod components;
 pub mod dialogs;
 pub mod panels;
+mod shortcut_tooltip;
 pub mod styles;
 
 // 重新导出常用组件
@@ -92,6 +93,12 @@ pub use dialogs::{
 pub use panels::{
     HistoryPanel, HistoryPanelState, Sidebar, SidebarActions, SidebarFocusTransfer,
     SidebarPanelState,
+};
+#[allow(unused_imports)] // 公开 API，供外部使用
+pub use shortcut_tooltip::{
+    LocalShortcut, action_tooltip, action_tooltip_with_extras, consume_local_shortcut,
+    local_shortcut_pressed, local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text,
+    local_shortcuts_tooltip, shortcut_tooltip, sync_runtime_local_shortcuts,
 };
 
 /// 全局焦点区域

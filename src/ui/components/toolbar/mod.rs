@@ -7,8 +7,9 @@ mod utils;
 
 pub use actions::{ToolbarActions, ToolbarFocusTransfer};
 
-use crate::core::{ProgressManager, ThemeManager};
+use crate::core::{Action, KeyBindings, ProgressManager, ThemeManager};
 use crate::ui::styles::{MARGIN_MD, MARGIN_SM};
+use crate::ui::{action_tooltip, action_tooltip_with_extras, shortcut_tooltip};
 use egui::{Color32, Vec2};
 
 use super::ProgressIndicator;
@@ -25,6 +26,7 @@ impl Toolbar {
     pub fn show(
         ui: &mut egui::Ui,
         theme_manager: &ThemeManager,
+        keybindings: &KeyBindings,
         has_result: bool,
         show_sidebar: bool,
         show_editor: bool,
@@ -42,6 +44,7 @@ impl Toolbar {
         Self::show_with_focus(
             ui,
             theme_manager,
+            keybindings,
             has_result,
             show_sidebar,
             show_editor,
@@ -65,6 +68,7 @@ impl Toolbar {
     pub fn show_with_focus(
         ui: &mut egui::Ui,
         theme_manager: &ThemeManager,
+        keybindings: &KeyBindings,
         has_result: bool,
         show_sidebar: bool,
         show_editor: bool,
@@ -94,6 +98,7 @@ impl Toolbar {
                     // 左侧按钮组
                     Self::show_left_buttons(
                         ui,
+                        keybindings,
                         show_sidebar,
                         show_editor,
                         actions,
@@ -106,7 +111,14 @@ impl Toolbar {
                     ui.add_space(8.0);
 
                     // 操作按钮（移除了连接/库/表选择器，这些在左侧栏中已有）
-                    Self::show_action_buttons(ui, has_result, actions, is_focused, selected_index);
+                    Self::show_action_buttons(
+                        ui,
+                        keybindings,
+                        has_result,
+                        actions,
+                        is_focused,
+                        selected_index,
+                    );
 
                     // 保留快捷键功能但不显示选择器
                     // 快捷键 Ctrl+1/2/3 仍可在 app 中触发侧边栏操作
@@ -160,7 +172,7 @@ impl Toolbar {
                         ui.add_space(8.0);
 
                         // 缩放控制
-                        Self::show_zoom_controls(ui, ui_scale, actions);
+                        Self::show_zoom_controls(ui, keybindings, ui_scale, actions);
 
                         ui.add_space(4.0);
                         separator(ui);
@@ -196,12 +208,12 @@ impl Toolbar {
                         // 日/夜模式切换按钮
                         let mode_icon = if is_dark_mode { "🌙" } else { "☀" };
                         let mode_tooltip = if is_dark_mode {
-                            "切换到日间模式 (Ctrl+D)"
+                            shortcut_tooltip("切换到日间模式", &["Ctrl+D"])
                         } else {
-                            "切换到夜间模式 (Ctrl+D)"
+                            shortcut_tooltip("切换到夜间模式", &["Ctrl+D"])
                         };
 
-                        if icon_button(ui, mode_icon, mode_tooltip, true) {
+                        if icon_button(ui, mode_icon, &mode_tooltip, true) {
                             actions.toggle_dark_mode = true;
                         }
 
@@ -225,6 +237,7 @@ impl Toolbar {
     /// 显示左侧按钮
     fn show_left_buttons(
         ui: &mut egui::Ui,
+        keybindings: &KeyBindings,
         show_sidebar: bool,
         show_editor: bool,
         actions: &mut ToolbarActions,
@@ -236,7 +249,7 @@ impl Toolbar {
         if icon_button_with_focus(
             ui,
             sidebar_icon,
-            "侧边栏 (Ctrl+B)",
+            &action_tooltip_with_extras(keybindings, Action::ToggleSidebar, "切换侧边栏", &[]),
             true,
             is_focused && selected_index == 0,
         ) {
@@ -248,7 +261,7 @@ impl Toolbar {
         if icon_button_with_focus(
             ui,
             editor_icon,
-            "编辑器 (Ctrl+J)",
+            &action_tooltip_with_extras(keybindings, Action::ToggleEditor, "切换 SQL 编辑器", &[]),
             true,
             is_focused && selected_index == 1,
         ) {
@@ -257,20 +270,40 @@ impl Toolbar {
     }
 
     /// 显示缩放控制
-    fn show_zoom_controls(ui: &mut egui::Ui, ui_scale: f32, actions: &mut ToolbarActions) {
+    fn show_zoom_controls(
+        ui: &mut egui::Ui,
+        keybindings: &KeyBindings,
+        ui_scale: f32,
+        actions: &mut ToolbarActions,
+    ) {
         // 缩小按钮
-        if icon_button(ui, "−", "缩小 (Ctrl+-)", true) {
+        if icon_button(
+            ui,
+            "−",
+            &action_tooltip_with_extras(keybindings, Action::ZoomOut, "缩小界面", &[]),
+            true,
+        ) {
             actions.zoom_out = true;
         }
 
         // 缩放比例显示（可点击重置）
         let scale_text = format!("{}%", (ui_scale * 100.0).round() as i32);
-        if text_button(ui, &scale_text, "重置缩放 (Ctrl+0)", true) {
+        if text_button(
+            ui,
+            &scale_text,
+            &action_tooltip_with_extras(keybindings, Action::ZoomReset, "重置界面缩放", &[]),
+            true,
+        ) {
             actions.zoom_reset = true;
         }
 
         // 放大按钮
-        if icon_button(ui, "+", "放大 (Ctrl++)", true) {
+        if icon_button(
+            ui,
+            "+",
+            &action_tooltip_with_extras(keybindings, Action::ZoomIn, "放大界面", &[]),
+            true,
+        ) {
             actions.zoom_in = true;
         }
     }
@@ -278,6 +311,7 @@ impl Toolbar {
     /// 显示操作按钮
     fn show_action_buttons(
         ui: &mut egui::Ui,
+        keybindings: &KeyBindings,
         has_result: bool,
         actions: &mut ToolbarActions,
         is_focused: bool,
@@ -287,7 +321,7 @@ impl Toolbar {
         if icon_button_with_focus(
             ui,
             "🔄",
-            "刷新 (F5)",
+            &action_tooltip(keybindings, Action::Refresh),
             true,
             is_focused && selected_index == 2,
         ) {
@@ -299,12 +333,12 @@ impl Toolbar {
         ui.add_space(4.0);
 
         // 操作下拉菜单 (索引 3)
-        show_actions_dropdown(ui, has_result, actions);
+        show_actions_dropdown(ui, keybindings, has_result, actions);
 
         ui.add_space(4.0);
 
         // 新建下拉菜单 (索引 4)
-        show_create_dropdown(ui, actions);
+        show_create_dropdown(ui, keybindings, actions);
 
         ui.add_space(4.0);
         separator(ui);
@@ -314,7 +348,7 @@ impl Toolbar {
         if icon_button_with_focus(
             ui,
             "⌨",
-            "快捷键设置",
+            &shortcut_tooltip("打开快捷键设置", &["Alt+K"]),
             true,
             is_focused && selected_index == 5,
         ) {
@@ -325,7 +359,7 @@ impl Toolbar {
         if icon_button_with_focus(
             ui,
             "?",
-            "帮助 (F1)",
+            &action_tooltip(keybindings, Action::ShowHelp),
             true,
             is_focused && selected_index == 6,
         ) {

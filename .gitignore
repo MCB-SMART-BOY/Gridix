@@ -21,7 +21,6 @@ libs/
 result
 *.tar.gz
 
-packaging-updates/
 flake.nix
 flake.lock
 *.log

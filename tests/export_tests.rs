@@ -127,6 +127,28 @@ fn test_csv_multiline_quoted_field_preview_and_import() {
 }
 
 #[test]
+fn test_tsv_preview_and_import_uses_tab_delimiter() {
+    let mut file = NamedTempFile::new().expect("create temp file");
+    write!(file, "id\tname\n1\talice\n2\tbob\n").expect("write tsv");
+
+    let config = CsvImportConfig {
+        delimiter: '\t',
+        has_header: true,
+        table_name: "users".to_string(),
+        ..Default::default()
+    };
+
+    let preview = preview_csv(file.path(), &config).expect("preview tsv");
+    assert_eq!(preview.columns, vec!["id", "name"]);
+    assert_eq!(preview.preview_rows[0], vec!["1", "alice"]);
+
+    let result = import_csv_to_sql(file.path(), &config, false).expect("import tsv");
+    assert_eq!(result.sql_statements.len(), 2);
+    assert!(result.sql_statements[0].contains("\"users\""));
+    assert!(result.sql_statements[0].contains("(1, 'alice')"));
+}
+
+#[test]
 fn test_json_flatten_nested_preview_and_import() {
     let mut file = NamedTempFile::new().expect("create temp file");
     write!(

@@ -3,13 +3,16 @@
 //! 特性：
 //! - Normal 模式：hjkl 移动，w/b 词跳转，Helix 风格导航
 //! - Insert 模式：双击进入，正常输入
-//! - Ctrl+Enter 执行 SQL
+//! - Ctrl+Enter / F5 执行 SQL
 //! - 语法高亮 + 自动补全
 
 #![allow(clippy::too_many_arguments)]
 
 use crate::core::{AutoComplete, CompletionKind, HighlightColors, highlight_sql};
 use crate::ui::styles::GRAY;
+use crate::ui::{
+    LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
+};
 use egui::{
     self, Align, Color32, Key, Layout, Modifiers, PopupCloseBehavior, RichText, ScrollArea,
     TextEdit, Vec2,
@@ -205,6 +208,8 @@ impl SqlEditor {
         editor_mode: &mut EditorMode,
     ) -> SqlEditorActions {
         let mut actions = SqlEditorActions::default();
+        let execute_shortcut = local_shortcut_text(LocalShortcut::SqlExecute);
+        let cancel_shortcut = local_shortcut_text(LocalShortcut::Cancel);
 
         let available_height = ui.available_height();
         let available_width = ui.available_width();
@@ -321,9 +326,11 @@ impl SqlEditor {
                                 .desired_width((editor_width - 16.0).max(80.0))
                                 .desired_rows(((editor_height / line_height) as usize).max(4))
                                 .hint_text(if is_insert_mode {
-                                    "输入 SQL... (Esc 退出编辑, Ctrl+Enter 执行)"
+                                    format!(
+                                        "输入 SQL... ({cancel_shortcut} 退出编辑, {execute_shortcut} 执行)"
+                                    )
                                 } else {
-                                    "双击进入编辑模式, Ctrl+Enter 执行"
+                                    format!("双击进入编辑模式, {execute_shortcut} 执行")
                                 })
                                 .frame(egui::Frame::NONE)
                                 .margin(Vec2::new(8.0, 0.0))
@@ -533,7 +540,12 @@ impl SqlEditor {
 
             if is_executing {
                 ui.spinner();
-            } else if icon_btn(ui, "▶", !sql_input.trim().is_empty(), "执行 (Ctrl+Enter)") {
+            } else if icon_btn(
+                ui,
+                "▶",
+                !sql_input.trim().is_empty(),
+                &local_shortcut_tooltip("执行当前 SQL", LocalShortcut::SqlExecute),
+            ) {
                 actions.execute = true;
             }
 
@@ -541,12 +553,17 @@ impl SqlEditor {
                 ui,
                 "📊",
                 !is_executing && !sql_input.trim().is_empty(),
-                "分析 (F6)",
+                &local_shortcut_tooltip("分析执行计划", LocalShortcut::SqlExplain),
             ) {
                 actions.explain = true;
             }
 
-            if icon_btn(ui, "🗑", !sql_input.is_empty(), "清空") {
+            if icon_btn(
+                ui,
+                "🗑",
+                !sql_input.is_empty(),
+                &local_shortcut_tooltip("清空 SQL", LocalShortcut::SqlClear),
+            ) {
                 actions.clear = true;
             }
 
@@ -559,10 +576,31 @@ impl SqlEditor {
                     ui.label(RichText::new("双击/i 编辑").small().color(GRAY));
                     ui.label(RichText::new("hjkl 移动").small().color(GRAY));
                 } else {
-                    ui.label(RichText::new("Esc 退出编辑").small().color(GRAY));
-                    ui.label(RichText::new("Tab 补全").small().color(GRAY));
+                    ui.label(
+                        RichText::new(format!(
+                            "{} 退出编辑",
+                            local_shortcut_text(LocalShortcut::Cancel)
+                        ))
+                        .small()
+                        .color(GRAY),
+                    );
+                    ui.label(
+                        RichText::new(format!(
+                            "{} 触发补全",
+                            local_shortcut_text(LocalShortcut::SqlAutocompleteTrigger)
+                        ))
+                        .small()
+                        .color(GRAY),
+                    );
                 }
-                ui.label(RichText::new("Ctrl+Enter 执行").small().color(GRAY));
+                ui.label(
+                    RichText::new(format!(
+                        "{} 执行",
+                        local_shortcut_text(LocalShortcut::SqlExecute)
+                    ))
+                    .small()
+                    .color(GRAY),
+                );
             });
         });
     }
@@ -711,14 +749,22 @@ impl SqlEditor {
             if i.key_pressed(Key::Escape) {
                 actions.focus_to_grid = true;
             }
+        });
 
-            // Shift+↑↓ 或 K/J 历史导航
-            let history_up =
-                (i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp)) && i.modifiers.shift;
-            let history_down =
-                (i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown)) && i.modifiers.shift;
+        ui.input_mut(|i| {
+            if !sql_input.trim().is_empty() && consume_local_shortcut(i, LocalShortcut::SqlExecute)
+            {
+                actions.execute = true;
+            }
 
-            if history_up && !command_history.is_empty() {
+            if !sql_input.trim().is_empty() && consume_local_shortcut(i, LocalShortcut::SqlExplain)
+            {
+                actions.explain = true;
+            }
+
+            if consume_local_shortcut(i, LocalShortcut::SqlHistoryPrev)
+                && !command_history.is_empty()
+            {
                 let new_idx = match *history_index {
                     None => Some(0),
                     Some(idx) if idx + 1 < command_history.len() => Some(idx + 1),
@@ -731,7 +777,7 @@ impl SqlEditor {
                 }
             }
 
-            if history_down {
+            if consume_local_shortcut(i, LocalShortcut::SqlHistoryNext) {
                 match *history_index {
                     Some(0) => {
                         *history_index = None;
@@ -747,8 +793,7 @@ impl SqlEditor {
                 }
             }
 
-            // dd 清空（模拟 Helix 删除行）
-            if i.key_pressed(Key::D) && i.modifiers.shift {
+            if consume_local_shortcut(i, LocalShortcut::SqlClear) {
                 actions.clear = true;
             }
         });
@@ -775,28 +820,18 @@ impl SqlEditor {
         ui.input_mut(|i| {
             // 注意：Escape 键在外层已经处理，这里不再处理
 
-            // Ctrl+Enter 执行
-            if i.modifiers.ctrl && i.key_pressed(Key::Enter) && !sql_input.trim().is_empty() {
+            if !sql_input.trim().is_empty() && consume_local_shortcut(i, LocalShortcut::SqlExecute)
+            {
                 actions.execute = true;
                 *editor_mode = EditorMode::Normal;
             }
 
-            // F5 执行
-            if i.key_pressed(Key::F5) && !sql_input.trim().is_empty() {
-                actions.execute = true;
-                *editor_mode = EditorMode::Normal;
-            }
-
-            // F6 EXPLAIN
-            if i.key_pressed(Key::F6) && !sql_input.trim().is_empty() {
+            if !sql_input.trim().is_empty() && consume_local_shortcut(i, LocalShortcut::SqlExplain)
+            {
                 actions.explain = true;
             }
 
-            // Ctrl+Space 或 Alt+L 触发补全
-            if ((i.modifiers.ctrl && i.key_pressed(Key::Space))
-                || (i.modifiers.alt && i.key_pressed(Key::L)))
-                && has_completions
-            {
+            if consume_local_shortcut(i, LocalShortcut::SqlAutocompleteTrigger) && has_completions {
                 *show_autocomplete = true;
                 *selected_completion = 0;
             }
@@ -839,34 +874,34 @@ impl SqlEditor {
                 }
             }
 
-            // Shift+↑↓ 历史
-            if i.modifiers.shift && !*show_autocomplete {
-                if i.key_pressed(Key::ArrowUp) && !command_history.is_empty() {
-                    let new_idx = match *history_index {
-                        None => Some(0),
-                        Some(idx) if idx + 1 < command_history.len() => Some(idx + 1),
-                        Some(idx) => Some(idx),
-                    };
-                    if let Some(idx) = new_idx {
-                        *history_index = Some(idx);
-                        *sql_input = command_history[idx].clone();
+            if !*show_autocomplete
+                && consume_local_shortcut(i, LocalShortcut::SqlHistoryPrev)
+                && !command_history.is_empty()
+            {
+                let new_idx = match *history_index {
+                    None => Some(0),
+                    Some(idx) if idx + 1 < command_history.len() => Some(idx + 1),
+                    Some(idx) => Some(idx),
+                };
+                if let Some(idx) = new_idx {
+                    *history_index = Some(idx);
+                    *sql_input = command_history[idx].clone();
+                    actions.text_changed = true;
+                }
+            }
+            if !*show_autocomplete && consume_local_shortcut(i, LocalShortcut::SqlHistoryNext) {
+                match *history_index {
+                    Some(0) => {
+                        *history_index = None;
+                        sql_input.clear();
                         actions.text_changed = true;
                     }
-                }
-                if i.key_pressed(Key::ArrowDown) {
-                    match *history_index {
-                        Some(0) => {
-                            *history_index = None;
-                            sql_input.clear();
-                            actions.text_changed = true;
-                        }
-                        Some(idx) => {
-                            *history_index = Some(idx - 1);
-                            *sql_input = command_history[idx - 1].clone();
-                            actions.text_changed = true;
-                        }
-                        None => {}
+                    Some(idx) => {
+                        *history_index = Some(idx - 1);
+                        *sql_input = command_history[idx - 1].clone();
+                        actions.text_changed = true;
                     }
+                    None => {}
                 }
             }
         });

@@ -2,6 +2,7 @@
 
 use super::state::{ERDiagramState, ERTable, RelationType};
 use crate::core::ThemePreset;
+use crate::ui::shortcut_tooltip;
 use egui::{self, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 
 /// ER 图渲染响应
@@ -90,7 +91,7 @@ impl ERDiagramState {
                         .frame(false)
                         .min_size(Vec2::new(26.0, 26.0)),
                 )
-                .on_hover_text("刷新数据 [R]")
+                .on_hover_text(shortcut_tooltip("刷新数据", &["R"]))
                 .clicked()
             {
                 response.refresh_requested = true;
@@ -103,7 +104,7 @@ impl ERDiagramState {
                         .frame(false)
                         .min_size(Vec2::new(26.0, 26.0)),
                 )
-                .on_hover_text("重新布局 [L]")
+                .on_hover_text(shortcut_tooltip("重新布局", &["L"]))
                 .clicked()
             {
                 response.layout_requested = true;
@@ -116,7 +117,7 @@ impl ERDiagramState {
                         .frame(false)
                         .min_size(Vec2::new(26.0, 26.0)),
                 )
-                .on_hover_text("适应视图 [F]")
+                .on_hover_text(shortcut_tooltip("适应视图", &["F"]))
                 .clicked()
             {
                 response.fit_view_requested = true;
@@ -131,7 +132,7 @@ impl ERDiagramState {
                         .frame(false)
                         .min_size(Vec2::new(22.0, 22.0)),
                 )
-                .on_hover_text("放大 [+]")
+                .on_hover_text(shortcut_tooltip("放大视图", &["+"]))
                 .clicked()
             {
                 self.zoom_by(1.2);
@@ -149,7 +150,7 @@ impl ERDiagramState {
                         .frame(false)
                         .min_size(Vec2::new(22.0, 22.0)),
                 )
-                .on_hover_text("缩小 [-]")
+                .on_hover_text(shortcut_tooltip("缩小视图", &["-"]))
                 .clicked()
             {
                 self.zoom_by(0.8);

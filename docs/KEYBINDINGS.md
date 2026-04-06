@@ -4,6 +4,11 @@
 > 适用于 `v3.3.x` 默认键位。  
 > Some keys are user-configurable in keybinding settings.  
 > 部分快捷键可在“快捷键设置”中自定义。
+>
+> Actual runtime bindings come from `~/.config/gridix/keymap.toml`.  
+> 运行时实际生效的键位以 `~/.config/gridix/keymap.toml` 为准。
+> If you changed them, prefer the in-app hover tooltip and Help panel.  
+> 如果你改过键位，请优先以应用内悬停提示和帮助面板为准。
 
 ## 1. Focus First | 先看焦点
 - `Tab / Shift+Tab`: cycle major focus areas (Sidebar -> DataGrid -> SQL Editor).

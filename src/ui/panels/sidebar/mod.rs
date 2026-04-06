@@ -10,7 +10,7 @@
 //! - 独立折叠/展开（通过面板标题栏的折叠按钮）
 //! - 通过拖动分割条调整大小
 //!
-//! 键盘操作（统一使用 dialogs/keyboard 模块）：
+//! 键盘操作（统一使用侧边栏局部 action 层）：
 //! - `j/k` - 上下导航
 //! - `gg/G` - 跳转到首/末项
 //! - `h/l` - 层级切换（Tree 上下文）
@@ -40,9 +40,10 @@ use routine_panel::RoutinePanel;
 use table_list::TableList;
 use trigger_panel::TriggerPanel;
 
+use crate::core::KeyBindings;
 use crate::database::ConnectionManager;
 use crate::ui::SidebarSection;
-use crate::ui::dialogs::keyboard::{self, HorizontalNavigation, ListNavigation};
+use crate::ui::{LocalShortcut, consume_local_shortcut, shortcut_tooltip};
 use egui::{self, Color32, CornerRadius, Key, Vec2};
 
 /// 分割条高度
@@ -51,6 +52,43 @@ const DIVIDER_HEIGHT: f32 = 6.0;
 pub struct Sidebar;
 
 use crate::ui::ColumnFilter;
+
+#[derive(Debug, Clone, Copy)]
+struct SidebarFlowState {
+    show_connections: bool,
+    show_filters: bool,
+    show_triggers: bool,
+    show_routines: bool,
+    has_databases: bool,
+    has_tables: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SidebarKeyAction {
+    ItemPrev,
+    ItemNext,
+    ItemStart,
+    ItemEnd,
+    MoveLeft,
+    MoveRight,
+    Toggle,
+    Delete,
+    Activate,
+    Edit,
+    Rename,
+    Refresh,
+    InspectSchema,
+    AddFilter,
+    DeleteFilterAlternative,
+    ClearFilters,
+    FilterColumnNext,
+    FilterColumnPrev,
+    FilterOperatorNext,
+    FilterOperatorPrev,
+    FilterLogicToggle,
+    FilterFocusInput,
+    FilterCaseToggle,
+}
 
 impl Sidebar {
     /// 在给定的 UI 区域内显示侧边栏内容
@@ -64,6 +102,7 @@ impl Sidebar {
         focused_section: SidebarSection,
         panel_state: &mut SidebarPanelState,
         width: f32,
+        keybindings: &KeyBindings,
         filters: &mut Vec<ColumnFilter>,
         columns: &[String],
         pending_focus_filter_input: &mut Option<usize>,
@@ -78,10 +117,12 @@ impl Sidebar {
         // 处理键盘导航
         let (item_count, selected_index) =
             Self::get_section_info(focused_section, connection_manager, panel_state, filters);
-        if item_count > 0 && *selected_index >= item_count {
+        if item_count == 0 {
+            *selected_index = 0;
+        } else if *selected_index >= item_count {
             *selected_index = item_count.saturating_sub(1);
         }
-        if is_focused && item_count > 0 {
+        if is_focused {
             Self::handle_keyboard_navigation(
                 &ctx,
                 focused_section,
@@ -109,6 +150,7 @@ impl Sidebar {
                 connection_manager,
                 selected_table,
                 show_connection_dialog,
+                keybindings,
                 is_focused,
                 focused_section,
                 panel_state,
@@ -126,6 +168,7 @@ impl Sidebar {
         if panel_state.show_filters {
             if FilterPanel::show(
                 ui,
+                keybindings,
                 is_focused,
                 focused_section,
                 filters,
@@ -394,6 +437,15 @@ impl Sidebar {
         filters: &mut Vec<crate::ui::ColumnFilter>,
         actions: &mut SidebarActions,
     ) {
+        let flow_state = Self::sidebar_flow_state(panel_state, connection_manager);
+
+        // 文本输入焦点优先于侧边栏导航，避免筛选值输入时被 j/k/h/l 等快捷键抢占。
+        if ctx.memory(|mem| mem.focused().is_some()) {
+            panel_state.command_buffer.clear();
+            return;
+        }
+
+        let key_action = Self::detect_key_action(ctx, panel_state);
         let selected_index = match focused_section {
             SidebarSection::Connections => &mut panel_state.selection.connections,
             SidebarSection::Databases => &mut panel_state.selection.databases,
@@ -403,25 +455,34 @@ impl Sidebar {
             SidebarSection::Filters => &mut panel_state.selection.filters,
         };
 
-        // === 使用统一键盘模块处理列表导航 ===
-        match keyboard::handle_list_navigation(ctx) {
-            ListNavigation::Down => {
-                *selected_index = (*selected_index + 1).min(item_count.saturating_sub(1));
-                panel_state.command_buffer.clear();
+        match key_action {
+            Some(SidebarKeyAction::ItemNext) => {
+                if item_count == 0 || *selected_index >= item_count.saturating_sub(1) {
+                    if let Some(next_section) = next_section_in_flow(focused_section, flow_state) {
+                        actions.section_change = Some(next_section);
+                    }
+                } else {
+                    *selected_index = (*selected_index + 1).min(item_count.saturating_sub(1));
+                }
             }
-            ListNavigation::Up => {
-                *selected_index = selected_index.saturating_sub(1);
-                panel_state.command_buffer.clear();
+            Some(SidebarKeyAction::ItemPrev) => {
+                if item_count == 0 || *selected_index == 0 {
+                    if let Some(previous_section) =
+                        previous_section_in_flow(focused_section, flow_state)
+                    {
+                        actions.section_change = Some(previous_section);
+                    }
+                } else {
+                    *selected_index = selected_index.saturating_sub(1);
+                }
             }
-            ListNavigation::Start => {
+            Some(SidebarKeyAction::ItemStart) => {
                 *selected_index = 0;
-                panel_state.command_buffer.clear();
             }
-            ListNavigation::End => {
+            Some(SidebarKeyAction::ItemEnd) => {
                 *selected_index = item_count.saturating_sub(1);
-                panel_state.command_buffer.clear();
             }
-            ListNavigation::Toggle => {
+            Some(SidebarKeyAction::Toggle) => {
                 // Space：在 Filters section 切换启用状态
                 if focused_section == SidebarSection::Filters
                     && let Some(filter) = filters.get_mut(*selected_index)
@@ -430,8 +491,7 @@ impl Sidebar {
                     actions.filter_changed = true;
                 }
             }
-            ListNavigation::Delete => {
-                // dd：删除选中项
+            Some(SidebarKeyAction::Delete) => {
                 Self::handle_delete_action(
                     focused_section,
                     *selected_index,
@@ -440,12 +500,7 @@ impl Sidebar {
                     actions,
                 );
             }
-            _ => {}
-        }
-
-        // === 使用统一键盘模块处理水平导航（层级切换）===
-        match keyboard::handle_horizontal_navigation(ctx) {
-            HorizontalNavigation::Left => {
+            Some(SidebarKeyAction::MoveLeft) => {
                 // h：向上层级导航
                 let new_section = match focused_section {
                     SidebarSection::Routines => Some(SidebarSection::Triggers),
@@ -469,61 +524,9 @@ impl Sidebar {
                     actions.section_change = Some(section);
                 }
             }
-            HorizontalNavigation::Right => {
+            Some(SidebarKeyAction::MoveRight) => {
                 // l：向下层级导航
-                let conn = connection_manager.get_active();
-                let has_databases = conn.map(|c| !c.databases.is_empty()).unwrap_or(false);
-                let has_tables = conn.map(|c| !c.tables.is_empty()).unwrap_or(false);
-                let has_filters = !filters.is_empty();
-                let has_triggers = !panel_state.triggers.is_empty();
-                let has_routines = !panel_state.routines.is_empty();
-
-                let new_section = match focused_section {
-                    SidebarSection::Connections => {
-                        if has_databases {
-                            Some(SidebarSection::Databases)
-                        } else if has_tables {
-                            Some(SidebarSection::Tables)
-                        } else {
-                            None
-                        }
-                    }
-                    SidebarSection::Databases => {
-                        if has_tables {
-                            Some(SidebarSection::Tables)
-                        } else {
-                            None
-                        }
-                    }
-                    SidebarSection::Tables => {
-                        if has_filters {
-                            Some(SidebarSection::Filters)
-                        } else if has_triggers {
-                            Some(SidebarSection::Triggers)
-                        } else if has_routines {
-                            Some(SidebarSection::Routines)
-                        } else {
-                            None
-                        }
-                    }
-                    SidebarSection::Filters => {
-                        if has_triggers {
-                            Some(SidebarSection::Triggers)
-                        } else if has_routines {
-                            Some(SidebarSection::Routines)
-                        } else {
-                            None
-                        }
-                    }
-                    SidebarSection::Triggers => {
-                        if has_routines {
-                            Some(SidebarSection::Routines)
-                        } else {
-                            None
-                        }
-                    }
-                    SidebarSection::Routines => None,
-                };
+                let new_section = next_section_in_flow(focused_section, flow_state);
 
                 if let Some(section) = new_section {
                     actions.section_change = Some(section);
@@ -531,24 +534,15 @@ impl Sidebar {
                     actions.focus_transfer = Some(SidebarFocusTransfer::ToDataGrid);
                 }
             }
-            HorizontalNavigation::None => {}
-        }
-
-        // === 其他快捷键处理（保持 ctx.input 方式）===
-        ctx.input(|i| {
-            // gs：查看表结构（需要在 Tables section）
-            if i.key_pressed(Key::S) && panel_state.command_buffer == "g" {
+            Some(SidebarKeyAction::InspectSchema) => {
                 if let SidebarSection::Tables = focused_section
                     && let Some(conn) = connection_manager.get_active()
                     && let Some(table) = conn.tables.get(*selected_index)
                 {
                     actions.show_table_schema = Some(table.clone());
                 }
-                panel_state.command_buffer.clear();
             }
-
-            // Enter：选择/激活当前项
-            if i.key_pressed(Key::Enter) {
+            Some(SidebarKeyAction::Activate) => {
                 match focused_section {
                     SidebarSection::Connections => {
                         let mut names: Vec<_> =
@@ -592,67 +586,14 @@ impl Sidebar {
                     }
                 }
             }
-
-            // d：删除选中项（连接/表/筛选条件）
-            if i.key_pressed(Key::D) && !i.modifiers.ctrl && !i.modifiers.shift {
-                match focused_section {
-                    SidebarSection::Connections => {
-                        let mut names: Vec<_> =
-                            connection_manager.connections.keys().cloned().collect();
-                        names.sort_unstable();
-                        if let Some(name) = names.get(*selected_index) {
-                            actions.delete = Some(name.clone());
-                        }
-                    }
-                    SidebarSection::Tables => {
-                        // 表删除需要确认对话框，设置删除请求
-                        if let Some(conn) = connection_manager.get_active()
-                            && let Some(table) = conn.tables.get(*selected_index)
-                        {
-                            actions.delete = Some(format!("table:{}", table));
-                        }
-                    }
-                    SidebarSection::Filters => {
-                        // 删除选中的筛选条件
-                        if *selected_index < filters.len() {
-                            filters.remove(*selected_index);
-                            // 调整选中索引
-                            if *selected_index >= filters.len() && !filters.is_empty() {
-                                *selected_index = filters.len() - 1;
-                            }
-                            actions.filter_changed = true;
-                        }
-                    }
-                    _ => {} // 其他 section 暂不支持删除
-                }
-            }
-
-            // x：在 Filters section 也支持删除（Helix 风格）
-            if i.key_pressed(Key::X)
-                && focused_section == SidebarSection::Filters
-                && *selected_index < filters.len()
-            {
-                filters.remove(*selected_index);
-                if *selected_index >= filters.len() && !filters.is_empty() {
-                    *selected_index = filters.len() - 1;
-                }
-                actions.filter_changed = true;
-            }
-
-            // e：编辑选中的连接配置
-            if i.key_pressed(Key::E)
-                && !i.modifiers.ctrl
-                && let SidebarSection::Connections = focused_section
-            {
+            Some(SidebarKeyAction::Edit) if focused_section == SidebarSection::Connections => {
                 let mut names: Vec<_> = connection_manager.connections.keys().cloned().collect();
                 names.sort_unstable();
                 if let Some(name) = names.get(*selected_index) {
                     actions.edit_connection = Some(name.clone());
                 }
             }
-
-            // r：重命名选中项
-            if i.key_pressed(Key::R) && !i.modifiers.ctrl {
+            Some(SidebarKeyAction::Rename) => {
                 let item_name = match focused_section {
                     SidebarSection::Connections => {
                         let mut names: Vec<_> =
@@ -669,78 +610,67 @@ impl Sidebar {
                     actions.rename_item = Some((focused_section, name));
                 }
             }
-
-            // R (Shift+r)：刷新当前列表
-            if i.key_pressed(Key::R) && i.modifiers.shift {
+            Some(SidebarKeyAction::Refresh) => {
                 actions.refresh = true;
             }
-
-            // === Filters section 专用快捷键 (Helix 风格) ===
-            //
-            // 筛选条件操作快捷键：
-            // j/k     - 选择筛选条件（上/下）
-            // a/o     - 增加筛选条件
-            // d/x     - 删除筛选条件
-            // c       - 清空所有筛选条件
-            // w/b     - 切换筛选对象（列）到下一个/上一个
-            // n/N     - 切换筛选规则（操作符）到下一个/上一个
-            // i       - 编辑筛选值
-            // t       - 切换 AND/OR 逻辑
-            // s       - 切换大小写敏感
-            // Space   - 启用/禁用筛选条件
-            //
-            if focused_section == SidebarSection::Filters {
-                // a/o：增加筛选条件（Helix: a = append, o = open below）
-                if i.key_pressed(Key::A) || i.key_pressed(Key::O) {
-                    actions.add_filter = true;
+            Some(SidebarKeyAction::AddFilter) if focused_section == SidebarSection::Filters => {
+                actions.add_filter = true;
+            }
+            Some(SidebarKeyAction::DeleteFilterAlternative)
+                if focused_section == SidebarSection::Filters
+                    && *selected_index < filters.len() =>
+            {
+                filters.remove(*selected_index);
+                if *selected_index >= filters.len() && !filters.is_empty() {
+                    *selected_index = filters.len() - 1;
                 }
-
-                // c：清空所有筛选条件（Helix: c = change）
-                if i.key_pressed(Key::C) && !i.modifiers.ctrl {
-                    actions.clear_filters = true;
-                }
-
-                // w：切换筛选对象（列）到下一个（Helix: w = word forward）
-                if i.key_pressed(Key::W) && !i.modifiers.ctrl && *selected_index < filters.len() {
-                    actions.cycle_filter_column = Some((*selected_index, true));
-                }
-
-                // b：切换筛选对象（列）到上一个（Helix: b = word backward）
-                if i.key_pressed(Key::B) && !i.modifiers.ctrl && *selected_index < filters.len() {
-                    actions.cycle_filter_column = Some((*selected_index, false));
-                }
-
-                // n：切换筛选规则（操作符）到下一个（Helix: n = next search）
-                if i.key_pressed(Key::N)
-                    && !i.modifiers.ctrl
-                    && !i.modifiers.shift
+                actions.filter_changed = true;
+            }
+            Some(SidebarKeyAction::ClearFilters) if focused_section == SidebarSection::Filters => {
+                actions.clear_filters = true;
+            }
+            Some(SidebarKeyAction::FilterColumnNext)
+                if focused_section == SidebarSection::Filters
+                    && *selected_index < filters.len() =>
+            {
+                actions.cycle_filter_column = Some((*selected_index, true));
+            }
+            Some(SidebarKeyAction::FilterColumnPrev)
+                if focused_section == SidebarSection::Filters
+                    && *selected_index < filters.len() =>
+            {
+                actions.cycle_filter_column = Some((*selected_index, false));
+            }
+            Some(SidebarKeyAction::FilterOperatorNext) => {
+                if focused_section == SidebarSection::Filters
                     && let Some(filter) = filters.get_mut(*selected_index)
                 {
                     filter.operator = next_operator(&filter.operator);
                     actions.filter_changed = true;
                 }
-
-                // N (Shift+n)：切换筛选规则（操作符）到上一个
-                if i.key_pressed(Key::N)
-                    && i.modifiers.shift
+            }
+            Some(SidebarKeyAction::FilterOperatorPrev) => {
+                if focused_section == SidebarSection::Filters
                     && let Some(filter) = filters.get_mut(*selected_index)
                 {
                     filter.operator = prev_operator(&filter.operator);
                     actions.filter_changed = true;
                 }
-
-                // t：切换当前筛选条件的 AND/OR 逻辑
-                if i.key_pressed(Key::T) && *selected_index < filters.len() {
-                    actions.toggle_filter_logic = Some(*selected_index);
-                }
-
-                // i：编辑筛选值（Helix: i = insert mode）
-                if i.key_pressed(Key::I) && *selected_index < filters.len() {
-                    actions.focus_filter_input = Some(*selected_index);
-                }
-
-                // s：切换大小写敏感（Helix: s = select）
-                if i.key_pressed(Key::S)
+            }
+            Some(SidebarKeyAction::FilterLogicToggle)
+                if focused_section == SidebarSection::Filters
+                    && *selected_index < filters.len() =>
+            {
+                actions.toggle_filter_logic = Some(*selected_index);
+            }
+            Some(SidebarKeyAction::FilterFocusInput)
+                if focused_section == SidebarSection::Filters
+                    && *selected_index < filters.len() =>
+            {
+                actions.focus_filter_input = Some(*selected_index);
+            }
+            Some(SidebarKeyAction::FilterCaseToggle) => {
+                if focused_section == SidebarSection::Filters
                     && panel_state.command_buffer.is_empty()
                     && let Some(filter) = filters.get_mut(*selected_index)
                     && filter.operator.supports_case_sensitivity()
@@ -749,7 +679,8 @@ impl Sidebar {
                     actions.filter_changed = true;
                 }
             }
-        });
+            _ => {}
+        }
 
         // 同步到旧的 trigger_selected_index 字段（保持向后兼容）
         if focused_section == SidebarSection::Triggers {
@@ -757,7 +688,84 @@ impl Sidebar {
         }
     }
 
-    /// 处理删除操作（从 ListNavigation::Delete 调用）
+    fn detect_key_action(
+        ctx: &egui::Context,
+        panel_state: &mut SidebarPanelState,
+    ) -> Option<SidebarKeyAction> {
+        ctx.input_mut(|i| {
+            if i.key_pressed(Key::G) && i.modifiers.is_none() {
+                if panel_state.command_buffer == "g" {
+                    panel_state.command_buffer.clear();
+                    return Some(SidebarKeyAction::ItemStart);
+                }
+
+                panel_state.command_buffer.clear();
+                panel_state.command_buffer.push('g');
+                return None;
+            }
+
+            if i.key_pressed(Key::S) && i.modifiers.is_none() && panel_state.command_buffer == "g" {
+                panel_state.command_buffer.clear();
+                return Some(SidebarKeyAction::InspectSchema);
+            }
+
+            let action = if consume_local_shortcut(i, LocalShortcut::SidebarItemNext) {
+                Some(SidebarKeyAction::ItemNext)
+            } else if consume_local_shortcut(i, LocalShortcut::SidebarItemPrev) {
+                Some(SidebarKeyAction::ItemPrev)
+            } else if consume_local_shortcut(i, LocalShortcut::SidebarItemStart) {
+                Some(SidebarKeyAction::ItemStart)
+            } else if consume_local_shortcut(i, LocalShortcut::SidebarItemEnd) {
+                Some(SidebarKeyAction::ItemEnd)
+            } else if consume_local_shortcut(i, LocalShortcut::SidebarMoveLeft) {
+                Some(SidebarKeyAction::MoveLeft)
+            } else if consume_local_shortcut(i, LocalShortcut::SidebarMoveRight) {
+                Some(SidebarKeyAction::MoveRight)
+            } else if consume_local_shortcut(i, LocalShortcut::SidebarToggle) {
+                Some(SidebarKeyAction::Toggle)
+            } else if consume_local_shortcut(i, LocalShortcut::SidebarDelete) {
+                Some(SidebarKeyAction::Delete)
+            } else if consume_local_shortcut(i, LocalShortcut::SidebarActivate) {
+                Some(SidebarKeyAction::Activate)
+            } else if consume_local_shortcut(i, LocalShortcut::SidebarEdit) {
+                Some(SidebarKeyAction::Edit)
+            } else if consume_local_shortcut(i, LocalShortcut::SidebarRename) {
+                Some(SidebarKeyAction::Rename)
+            } else if consume_local_shortcut(i, LocalShortcut::SidebarRefresh) {
+                Some(SidebarKeyAction::Refresh)
+            } else if consume_local_shortcut(i, LocalShortcut::FilterAdd) {
+                Some(SidebarKeyAction::AddFilter)
+            } else if consume_local_shortcut(i, LocalShortcut::FilterDelete) {
+                Some(SidebarKeyAction::DeleteFilterAlternative)
+            } else if consume_local_shortcut(i, LocalShortcut::FilterClearAll) {
+                Some(SidebarKeyAction::ClearFilters)
+            } else if consume_local_shortcut(i, LocalShortcut::FilterColumnNext) {
+                Some(SidebarKeyAction::FilterColumnNext)
+            } else if consume_local_shortcut(i, LocalShortcut::FilterColumnPrev) {
+                Some(SidebarKeyAction::FilterColumnPrev)
+            } else if consume_local_shortcut(i, LocalShortcut::FilterOperatorNext) {
+                Some(SidebarKeyAction::FilterOperatorNext)
+            } else if consume_local_shortcut(i, LocalShortcut::FilterOperatorPrev) {
+                Some(SidebarKeyAction::FilterOperatorPrev)
+            } else if consume_local_shortcut(i, LocalShortcut::FilterLogicToggle) {
+                Some(SidebarKeyAction::FilterLogicToggle)
+            } else if consume_local_shortcut(i, LocalShortcut::FilterFocusInput) {
+                Some(SidebarKeyAction::FilterFocusInput)
+            } else if consume_local_shortcut(i, LocalShortcut::FilterCaseToggle) {
+                Some(SidebarKeyAction::FilterCaseToggle)
+            } else {
+                None
+            };
+
+            if action.is_some() {
+                panel_state.command_buffer.clear();
+            }
+
+            action
+        })
+    }
+
+    /// 处理删除操作
     fn handle_delete_action(
         focused_section: SidebarSection,
         selected_index: usize,
@@ -813,29 +821,69 @@ impl Sidebar {
                 };
 
             // 1. 连接面板
-            if icon_toggle(ui, "🔗", panel_state.show_connections, "连接面板 (Ctrl+1)") {
+            if icon_toggle(
+                ui,
+                "🔗",
+                panel_state.show_connections,
+                &shortcut_tooltip("切换连接面板", &["Ctrl+1"]),
+            ) {
                 panel_state.show_connections = !panel_state.show_connections;
             }
 
             // 2-3. 数据库和表在连接面板内，无需单独按钮
 
             // 4. 筛选面板
-            if icon_toggle(ui, "🔍", panel_state.show_filters, "筛选面板 (Ctrl+4)") {
+            if icon_toggle(
+                ui,
+                "🔍",
+                panel_state.show_filters,
+                &shortcut_tooltip("切换筛选面板", &["Ctrl+4"]),
+            ) {
                 panel_state.show_filters = !panel_state.show_filters;
             }
 
             // 5. 触发器面板
-            if icon_toggle(ui, "⚡", panel_state.show_triggers, "触发器面板 (Ctrl+5)") {
+            if icon_toggle(
+                ui,
+                "⚡",
+                panel_state.show_triggers,
+                &shortcut_tooltip("切换触发器面板", &["Ctrl+5"]),
+            ) {
                 panel_state.show_triggers = !panel_state.show_triggers;
             }
 
             // 6. 存储过程面板
-            if icon_toggle(ui, "📦", panel_state.show_routines, "存储过程面板 (Ctrl+6)") {
+            if icon_toggle(
+                ui,
+                "📦",
+                panel_state.show_routines,
+                &shortcut_tooltip("切换存储过程面板", &["Ctrl+6"]),
+            ) {
                 panel_state.show_routines = !panel_state.show_routines;
             }
         });
 
         ui.separator();
+    }
+
+    fn sidebar_flow_state(
+        panel_state: &SidebarPanelState,
+        connection_manager: &ConnectionManager,
+    ) -> SidebarFlowState {
+        let active_connection = connection_manager.get_active();
+
+        SidebarFlowState {
+            show_connections: panel_state.show_connections,
+            show_filters: panel_state.show_filters,
+            show_triggers: panel_state.show_triggers,
+            show_routines: panel_state.show_routines,
+            has_databases: active_connection
+                .map(|connection| !connection.databases.is_empty())
+                .unwrap_or(false),
+            has_tables: active_connection
+                .map(|connection| !connection.tables.is_empty())
+                .unwrap_or(false),
+        }
     }
 }
 
@@ -896,5 +944,187 @@ fn prev_operator(current: &crate::ui::FilterOperator) -> crate::ui::FilterOperat
         IsEmpty => IsNotNull,
         IsNotEmpty => IsEmpty,
         Regex => IsNotEmpty,
+    }
+}
+
+fn next_section_in_flow(current: SidebarSection, flow: SidebarFlowState) -> Option<SidebarSection> {
+    match current {
+        SidebarSection::Connections => {
+            if flow.show_connections && flow.has_databases {
+                Some(SidebarSection::Databases)
+            } else if flow.show_connections && flow.has_tables {
+                Some(SidebarSection::Tables)
+            } else if flow.show_filters {
+                Some(SidebarSection::Filters)
+            } else if flow.show_triggers {
+                Some(SidebarSection::Triggers)
+            } else if flow.show_routines {
+                Some(SidebarSection::Routines)
+            } else {
+                None
+            }
+        }
+        SidebarSection::Databases => {
+            if flow.show_connections && flow.has_tables {
+                Some(SidebarSection::Tables)
+            } else if flow.show_filters {
+                Some(SidebarSection::Filters)
+            } else if flow.show_triggers {
+                Some(SidebarSection::Triggers)
+            } else if flow.show_routines {
+                Some(SidebarSection::Routines)
+            } else {
+                None
+            }
+        }
+        SidebarSection::Tables => {
+            if flow.show_filters {
+                Some(SidebarSection::Filters)
+            } else if flow.show_triggers {
+                Some(SidebarSection::Triggers)
+            } else if flow.show_routines {
+                Some(SidebarSection::Routines)
+            } else {
+                None
+            }
+        }
+        SidebarSection::Filters => {
+            if flow.show_triggers {
+                Some(SidebarSection::Triggers)
+            } else if flow.show_routines {
+                Some(SidebarSection::Routines)
+            } else {
+                None
+            }
+        }
+        SidebarSection::Triggers => {
+            if flow.show_routines {
+                Some(SidebarSection::Routines)
+            } else {
+                None
+            }
+        }
+        SidebarSection::Routines => None,
+    }
+}
+
+fn previous_section_in_flow(
+    current: SidebarSection,
+    flow: SidebarFlowState,
+) -> Option<SidebarSection> {
+    match current {
+        SidebarSection::Connections => None,
+        SidebarSection::Databases => {
+            if flow.show_connections {
+                Some(SidebarSection::Connections)
+            } else {
+                None
+            }
+        }
+        SidebarSection::Tables => {
+            if flow.show_connections && flow.has_databases {
+                Some(SidebarSection::Databases)
+            } else if flow.show_connections {
+                Some(SidebarSection::Connections)
+            } else {
+                None
+            }
+        }
+        SidebarSection::Filters => {
+            if flow.show_connections && flow.has_tables {
+                Some(SidebarSection::Tables)
+            } else if flow.show_connections && flow.has_databases {
+                Some(SidebarSection::Databases)
+            } else if flow.show_connections {
+                Some(SidebarSection::Connections)
+            } else {
+                None
+            }
+        }
+        SidebarSection::Triggers => {
+            if flow.show_filters {
+                Some(SidebarSection::Filters)
+            } else if flow.show_connections && flow.has_tables {
+                Some(SidebarSection::Tables)
+            } else if flow.show_connections && flow.has_databases {
+                Some(SidebarSection::Databases)
+            } else if flow.show_connections {
+                Some(SidebarSection::Connections)
+            } else {
+                None
+            }
+        }
+        SidebarSection::Routines => {
+            if flow.show_triggers {
+                Some(SidebarSection::Triggers)
+            } else if flow.show_filters {
+                Some(SidebarSection::Filters)
+            } else if flow.show_connections && flow.has_tables {
+                Some(SidebarSection::Tables)
+            } else if flow.show_connections && flow.has_databases {
+                Some(SidebarSection::Databases)
+            } else if flow.show_connections {
+                Some(SidebarSection::Connections)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SidebarFlowState, next_section_in_flow, previous_section_in_flow};
+    use crate::ui::SidebarSection;
+
+    #[test]
+    fn tables_move_down_into_filters_when_filter_panel_is_open() {
+        let flow = SidebarFlowState {
+            show_connections: true,
+            show_filters: true,
+            show_triggers: false,
+            show_routines: false,
+            has_databases: true,
+            has_tables: true,
+        };
+
+        assert_eq!(
+            next_section_in_flow(SidebarSection::Tables, flow),
+            Some(SidebarSection::Filters)
+        );
+    }
+
+    #[test]
+    fn filters_move_up_back_to_tables_in_default_learning_flow() {
+        let flow = SidebarFlowState {
+            show_connections: true,
+            show_filters: true,
+            show_triggers: false,
+            show_routines: false,
+            has_databases: true,
+            has_tables: true,
+        };
+
+        assert_eq!(
+            previous_section_in_flow(SidebarSection::Filters, flow),
+            Some(SidebarSection::Tables)
+        );
+    }
+
+    #[test]
+    fn filters_fall_through_to_triggers_when_enabled() {
+        let flow = SidebarFlowState {
+            show_connections: true,
+            show_filters: true,
+            show_triggers: true,
+            show_routines: false,
+            has_databases: false,
+            has_tables: true,
+        };
+
+        assert_eq!(
+            next_section_in_flow(SidebarSection::Filters, flow),
+            Some(SidebarSection::Triggers)
+        );
     }
 }

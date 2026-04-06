@@ -1,6 +1,6 @@
 [package]
 name = "gridix"
-version = "3.3.1"
+version = "3.7.0"
 edition = "2024"
 description = "跨平台数据库管理工具，支持 SQLite/PostgreSQL/MySQL"
 authors = ["MCB-SMART-BOY"]
@@ -27,6 +27,7 @@ eframe = { version = "0.34.1", default-features = false, features = [
 ] }
 egui = "0.34.1"
 egui_extras = { version = "0.34.1", features = ["image"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 # -----------------------------------------------------------------------------
 # 异步运行时
@@ -145,7 +146,7 @@ opt-level = 1       # 开发时轻度优化，加快编译
 # =============================================================================
 
 [package.metadata.appimage]
-assets = ["gridix.png"]
+assets = ["assets/branding/gridix-icon.png"]
 auto_link = true
 auto_link_exclude_list = [
     "libc.so*",

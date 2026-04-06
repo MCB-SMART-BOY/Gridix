@@ -1,6 +1,6 @@
 //! 数据导入导出模块
 //!
-//! 支持 CSV、SQL、JSON 格式的数据导入导出。
+//! 支持 CSV、TSV、SQL、JSON 格式的数据导入导出。
 
 use crate::database::QueryResult;
 use std::borrow::Cow;
@@ -19,6 +19,7 @@ const MAX_JSON_IMPORT_FILE_BYTES: u64 = 128 * 1024 * 1024;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ExportFormat {
     Csv,
+    Tsv,
     Sql,
     Json,
 }
@@ -27,6 +28,7 @@ impl ExportFormat {
     pub fn extension(&self) -> &str {
         match self {
             ExportFormat::Csv => "csv",
+            ExportFormat::Tsv => "tsv",
             ExportFormat::Sql => "sql",
             ExportFormat::Json => "json",
         }
@@ -35,6 +37,7 @@ impl ExportFormat {
     pub fn display_name(&self) -> &str {
         match self {
             ExportFormat::Csv => "CSV",
+            ExportFormat::Tsv => "TSV",
             ExportFormat::Sql => "SQL",
             ExportFormat::Json => "JSON",
         }

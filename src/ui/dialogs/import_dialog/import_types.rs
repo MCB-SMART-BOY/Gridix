@@ -8,15 +8,43 @@ pub enum ImportFormat {
     #[default]
     Sql,
     Csv,
+    Tsv,
     Json,
 }
 
 impl ImportFormat {
+    pub fn previous(self) -> Self {
+        match self {
+            ImportFormat::Sql => ImportFormat::Json,
+            ImportFormat::Csv => ImportFormat::Sql,
+            ImportFormat::Tsv => ImportFormat::Csv,
+            ImportFormat::Json => ImportFormat::Tsv,
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            ImportFormat::Sql => ImportFormat::Csv,
+            ImportFormat::Csv => ImportFormat::Tsv,
+            ImportFormat::Tsv => ImportFormat::Json,
+            ImportFormat::Json => ImportFormat::Sql,
+        }
+    }
+
     pub fn from_extension(ext: &str) -> Self {
         match ext.to_lowercase().as_str() {
-            "csv" | "tsv" => ImportFormat::Csv,
+            "csv" => ImportFormat::Csv,
+            "tsv" | "tab" => ImportFormat::Tsv,
             "json" => ImportFormat::Json,
             _ => ImportFormat::Sql,
+        }
+    }
+
+    pub fn default_delimiter(self) -> Option<char> {
+        match self {
+            ImportFormat::Csv => Some(','),
+            ImportFormat::Tsv => Some('\t'),
+            _ => None,
         }
     }
 
@@ -24,6 +52,7 @@ impl ImportFormat {
         match self {
             ImportFormat::Sql => "📝",
             ImportFormat::Csv => "📊",
+            ImportFormat::Tsv => "↹",
             ImportFormat::Json => "🔧",
         }
     }
@@ -32,6 +61,7 @@ impl ImportFormat {
         match self {
             ImportFormat::Sql => "SQL",
             ImportFormat::Csv => "CSV",
+            ImportFormat::Tsv => "TSV",
             ImportFormat::Json => "JSON",
         }
     }
@@ -172,6 +202,9 @@ impl ImportState {
 
         self.csv_config.table_name = table_name.clone();
         self.json_config.table_name = table_name;
+        if let Some(delimiter) = self.format.default_delimiter() {
+            self.csv_config.delimiter = delimiter;
+        }
         self.file_path = Some(path);
         self.preview = None;
         self.error = None;
@@ -179,6 +212,34 @@ impl ImportState {
 
     pub fn clear(&mut self) {
         *self = Self::default();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ImportFormat;
+
+    #[test]
+    fn import_format_previous_cycles_backward() {
+        assert_eq!(ImportFormat::Sql.previous(), ImportFormat::Json);
+        assert_eq!(ImportFormat::Csv.previous(), ImportFormat::Sql);
+        assert_eq!(ImportFormat::Tsv.previous(), ImportFormat::Csv);
+        assert_eq!(ImportFormat::Json.previous(), ImportFormat::Tsv);
+    }
+
+    #[test]
+    fn import_format_next_cycles_forward() {
+        assert_eq!(ImportFormat::Sql.next(), ImportFormat::Csv);
+        assert_eq!(ImportFormat::Csv.next(), ImportFormat::Tsv);
+        assert_eq!(ImportFormat::Tsv.next(), ImportFormat::Json);
+        assert_eq!(ImportFormat::Json.next(), ImportFormat::Sql);
+    }
+
+    #[test]
+    fn import_format_detects_tsv_extension() {
+        assert_eq!(ImportFormat::from_extension("tsv"), ImportFormat::Tsv);
+        assert_eq!(ImportFormat::from_extension("TAB"), ImportFormat::Tsv);
+        assert_eq!(ImportFormat::from_extension("csv"), ImportFormat::Csv);
     }
 }
 

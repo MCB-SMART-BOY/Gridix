@@ -1,5 +1,7 @@
 use super::types::{HelpAction, LearningTopic, LearningTopicStatus};
 use super::*;
+use crate::core::Action;
+use crate::ui::{LocalShortcut, local_shortcut_text};
 use egui::Stroke;
 
 impl HelpDialog {
@@ -159,7 +161,13 @@ impl HelpDialog {
         );
     }
 
-    pub(super) fn show_select_topic(ui: &mut egui::Ui, action: &mut Option<HelpAction>) {
+    pub(super) fn show_select_topic(
+        ui: &mut egui::Ui,
+        context: &HelpContext,
+        action: &mut Option<HelpAction>,
+    ) {
+        let toggle_editor = Self::topic_binding(context, Action::ToggleEditor, "Ctrl+J");
+        let sql_execute = local_shortcut_text(LocalShortcut::SqlExecute);
         Self::topic_header(
             ui,
             "SELECT 基础：从表里读取你需要的列",
@@ -182,9 +190,9 @@ impl HelpDialog {
             "手动练习",
             &[
                 "1. 打开 `customers` 表。",
-                "2. 按 Ctrl+J 打开 SQL 编辑器。",
+                &format!("2. 按 {toggle_editor} 打开 SQL 编辑器。"),
                 "3. 输入 `SELECT id, name, city FROM customers LIMIT 5;`。",
-                "4. 按 Ctrl+Enter，看结果区是否出现 5 条客户记录。",
+                &format!("4. 按 {sql_execute}，看结果区是否出现 5 条客户记录。"),
             ],
         );
 
@@ -350,7 +358,12 @@ impl HelpDialog {
         );
     }
 
-    pub(super) fn show_relationships_topic(ui: &mut egui::Ui, action: &mut Option<HelpAction>) {
+    pub(super) fn show_relationships_topic(
+        ui: &mut egui::Ui,
+        context: &HelpContext,
+        action: &mut Option<HelpAction>,
+    ) {
+        let toggle_er_diagram = Self::topic_binding(context, Action::ToggleErDiagram, "Ctrl+R");
         Self::topic_header(
             ui,
             "主键、外键、关系图：理解表为什么能连起来",
@@ -372,7 +385,7 @@ impl HelpDialog {
             "手动练习",
             &[
                 "1. 打开学习示例库。",
-                "2. 按 Ctrl+R 打开 ER 图。",
+                &format!("2. 按 {toggle_er_diagram} 打开 ER 图。"),
                 "3. 找到 `customers -> orders -> order_items -> products` 这条关系链。",
                 "4. 再执行 `PRAGMA foreign_key_list('order_items');`，观察外键具体指向哪张表。",
             ],
@@ -970,6 +983,15 @@ impl HelpDialog {
             .corner_radius(egui::CornerRadius::same(8)),
         )
         .clicked()
+    }
+
+    fn topic_binding(context: &HelpContext, action: Action, fallback: &str) -> String {
+        let binding = context.keybindings.display(action);
+        if binding.is_empty() {
+            fallback.to_owned()
+        } else {
+            binding
+        }
     }
 }
 

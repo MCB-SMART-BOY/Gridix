@@ -48,8 +48,9 @@ pub struct AppConfig {
     /// UI 缩放比例 (0.5 - 2.0)
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f32,
-    /// 自定义快捷键绑定
-    #[serde(default)]
+    /// 兼容旧版本：从 config.toml 读取的内联快捷键绑定。
+    /// 新版本改为使用独立的 keymap.toml，因此不再写回 config.toml。
+    #[serde(default, skip_serializing)]
     pub keybindings: KeyBindings,
     /// 首次启动引导进度
     #[serde(default)]

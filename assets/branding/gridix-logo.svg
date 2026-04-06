@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 280" fill="none">
+  <title>Gridix Logo</title>
+  <desc>Original Gridix wordmark with app icon, designed for a grid-first database manager.</desc>
+  <defs>
+    <linearGradient id="logo-bg" x1="28" y1="24" x2="892" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#262B43"/>
+      <stop offset="1" stop-color="#1A1D2E"/>
+    </linearGradient>
+    <linearGradient id="logo-cyan" x1="74" y1="48" x2="228" y2="214" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7DCFFF"/>
+      <stop offset="1" stop-color="#4E8DFF"/>
+    </linearGradient>
+    <linearGradient id="logo-amber" x1="204" y1="126" x2="242" y2="164" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFB86C"/>
+      <stop offset="1" stop-color="#F08A24"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="12" y="12" width="896" height="256" rx="64" fill="url(#logo-bg)"/>
+  <rect x="12" y="12" width="896" height="256" rx="64" stroke="#3B4261" stroke-width="2"/>
+
+  <g opacity="0.14" stroke="#5B648C" stroke-width="2">
+    <path d="M54 92H258"/>
+    <path d="M54 132H278"/>
+    <path d="M54 172H258"/>
+    <path d="M694 104H858"/>
+    <path d="M654 144H858"/>
+    <path d="M694 184H858"/>
+    <path d="M94 52V192"/>
+    <path d="M134 52V172"/>
+    <path d="M734 64V204"/>
+    <path d="M774 104V204"/>
+  </g>
+
+  <g transform="translate(56 36)">
+    <rect x="0" y="52" width="28" height="28" rx="8" fill="url(#logo-cyan)"/>
+    <rect x="40" y="28" width="28" height="28" rx="8" fill="#8BE9FD"/>
+    <rect x="40" y="68" width="28" height="28" rx="8" fill="#6CB8FF"/>
+    <rect x="80" y="52" width="28" height="28" rx="8" fill="#5B9CFF"/>
+
+    <path d="M62 118C62 106.954 81.6995 98 106 98C130.3 98 150 106.954 150 118" stroke="url(#logo-cyan)" stroke-width="12" stroke-linecap="round"/>
+    <path d="M62 118V184C62 195.046 81.6995 204 106 204C130.3 204 150 195.046 150 184V118" stroke="url(#logo-cyan)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M62 150C62 161.046 81.6995 170 106 170C130.3 170 150 161.046 150 150" stroke="url(#logo-cyan)" stroke-width="12" stroke-linecap="round"/>
+    <path d="M106 150H154" stroke="url(#logo-cyan)" stroke-width="12" stroke-linecap="round"/>
+    <path d="M154 150V174" stroke="url(#logo-cyan)" stroke-width="12" stroke-linecap="round"/>
+
+    <rect x="144" y="140" width="22" height="22" rx="6" transform="rotate(45 144 140)" fill="url(#logo-amber)"/>
+    <circle cx="154" cy="96" r="6" fill="#FFB86C"/>
+  </g>
+
+  <text x="286" y="120" fill="#7AA2F7" font-size="76" font-weight="700" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" letter-spacing="6">GRIDIX</text>
+  <text x="288" y="168" fill="#C0CAF5" font-size="27" font-weight="500" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif" opacity="0.94">Grid-first database manager</text>
+  <text x="288" y="206" fill="#8F9BBF" font-size="21" font-weight="500" font-family="Noto Sans, DejaVu Sans, Arial, sans-serif">Query structure. Learn by focus.</text>
+</svg>

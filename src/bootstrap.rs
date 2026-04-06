@@ -13,6 +13,9 @@ const EMBEDDED_NOTO_SANS_SC: &[u8] = include_bytes!("../assets/fonts/NotoSansSC-
 /// 内嵌的 Noto Emoji 字体（支持 Unicode Emoji）
 const EMBEDDED_NOTO_EMOJI: &[u8] = include_bytes!("../assets/fonts/NotoEmoji-Regular.ttf");
 
+/// 内嵌的应用图标。
+const EMBEDDED_APP_ICON: &[u8] = include_bytes!("../assets/branding/gridix-icon.png");
+
 /// 启动 Gridix GUI
 pub fn run() -> eframe::Result<()> {
     init_tracing();
@@ -22,7 +25,7 @@ pub fn run() -> eframe::Result<()> {
     let options = native_options();
 
     eframe::run_native(
-        "Rust 数据库管理器",
+        "Gridix",
         options,
         Box::new(|cc| {
             setup_fonts(&cc.egui_ctx);
@@ -37,8 +40,22 @@ fn native_options() -> eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
             .with_min_inner_size([800.0, 600.0])
-            .with_title("Rust 数据库管理器"),
+            .with_title("Gridix")
+            .with_icon(load_app_icon()),
         ..Default::default()
+    }
+}
+
+fn load_app_icon() -> egui::IconData {
+    let image = image::load_from_memory(EMBEDDED_APP_ICON)
+        .expect("embedded Gridix icon must be a valid PNG")
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+
+    egui::IconData {
+        rgba: image.into_raw(),
+        width,
+        height,
     }
 }
 

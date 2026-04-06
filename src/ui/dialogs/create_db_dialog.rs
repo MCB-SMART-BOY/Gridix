@@ -1,10 +1,11 @@
 //! 新建数据库对话框
 //!
 //! 提供创建新数据库的 UI，支持 MySQL、PostgreSQL 和 SQLite。
-//! 支持 Helix 风格的键盘导航。
 
-use super::keyboard::{self, DialogAction};
 use crate::database::DatabaseType;
+use crate::ui::{
+    LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
+};
 use egui::{self, Color32, RichText, TextEdit};
 
 // ============================================================================
@@ -184,7 +185,38 @@ impl CreateDbDialogState {
 /// 创建数据库对话框
 pub struct CreateDbDialog;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CreateDbKeyAction {
+    Confirm,
+    Close,
+}
+
 impl CreateDbDialog {
+    fn try_create(state: &mut CreateDbDialogState) -> Result<String, String> {
+        match state.generate_sql() {
+            Ok(sql) => {
+                state.error = None;
+                Ok(sql)
+            }
+            Err(error) => {
+                state.error = Some(error.clone());
+                Err(error)
+            }
+        }
+    }
+
+    fn detect_key_action(ctx: &egui::Context) -> Option<CreateDbKeyAction> {
+        ctx.input_mut(|i| {
+            if consume_local_shortcut(i, LocalShortcut::Dismiss) {
+                return Some(CreateDbKeyAction::Close);
+            }
+            if consume_local_shortcut(i, LocalShortcut::Confirm) {
+                return Some(CreateDbKeyAction::Confirm);
+            }
+            None
+        })
+    }
+
     /// 显示对话框
     pub fn show(ctx: &egui::Context, state: &mut CreateDbDialogState) -> CreateDbDialogResult {
         if !state.show {
@@ -195,22 +227,18 @@ impl CreateDbDialog {
         let mut should_close = false;
 
         // 键盘快捷键处理
-        if !keyboard::has_text_focus(ctx) {
-            // Esc/q 关闭
-            if keyboard::handle_close_keys(ctx) {
-                state.close();
-                return CreateDbDialogResult::Cancelled;
-            }
-
-            // Enter 确认
-            if let DialogAction::Confirm = keyboard::handle_dialog_keys(ctx) {
-                match state.generate_sql() {
-                    Ok(sql) => {
+        if !ctx.memory(|mem| mem.focused().is_some())
+            && let Some(key_action) = Self::detect_key_action(ctx)
+        {
+            match key_action {
+                CreateDbKeyAction::Close => {
+                    state.close();
+                    return CreateDbDialogResult::Cancelled;
+                }
+                CreateDbKeyAction::Confirm => {
+                    if let Ok(sql) = Self::try_create(state) {
                         result = CreateDbDialogResult::Create(sql);
                         should_close = true;
-                    }
-                    Err(e) => {
-                        state.error = Some(e);
                     }
                 }
             }
@@ -281,9 +309,13 @@ impl CreateDbDialog {
                     // 快捷键提示
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new("快捷键: Esc/q 关闭 | Enter 创建")
-                                .small()
-                                .color(Color32::from_rgb(120, 120, 120)),
+                            RichText::new(format!(
+                                "快捷键: {} 关闭 | {} 创建",
+                                local_shortcut_text(LocalShortcut::Dismiss),
+                                local_shortcut_text(LocalShortcut::Confirm)
+                            ))
+                            .small()
+                            .color(Color32::from_rgb(120, 120, 120)),
                         );
                     });
 
@@ -291,19 +323,33 @@ impl CreateDbDialog {
 
                     // 按钮
                     ui.horizontal(|ui| {
-                        if ui.button("创建 [Enter]").clicked() {
-                            match state.generate_sql() {
-                                Ok(sql) => {
-                                    result = CreateDbDialogResult::Create(sql);
-                                    should_close = true;
-                                }
-                                Err(e) => {
-                                    state.error = Some(e);
-                                }
-                            }
+                        if ui
+                            .button(format!(
+                                "创建 [{}]",
+                                local_shortcut_text(LocalShortcut::Confirm)
+                            ))
+                            .on_hover_text(local_shortcut_tooltip(
+                                "创建数据库",
+                                LocalShortcut::Confirm,
+                            ))
+                            .clicked()
+                            && let Ok(sql) = Self::try_create(state)
+                        {
+                            result = CreateDbDialogResult::Create(sql);
+                            should_close = true;
                         }
 
-                        if ui.button("取消 [Esc]").clicked() {
+                        if ui
+                            .button(format!(
+                                "取消 [{}]",
+                                local_shortcut_text(LocalShortcut::Dismiss)
+                            ))
+                            .on_hover_text(local_shortcut_tooltip(
+                                "取消并关闭",
+                                LocalShortcut::Dismiss,
+                            ))
+                            .clicked()
+                        {
                             result = CreateDbDialogResult::Cancelled;
                             should_close = true;
                         }

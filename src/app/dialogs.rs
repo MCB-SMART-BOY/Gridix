@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use super::DbManagerApp;
 use crate::core::KeyBindings;
-use crate::ui::{self, ExportConfig, KeyBindingsDialog};
+use crate::ui::{self, ExportConfig, KeyBindingsDialog, LocalShortcut, local_shortcut_text};
 
 /// 对话框处理结果
 #[derive(Default)]
@@ -145,6 +145,7 @@ impl DbManagerApp {
         // 帮助面板
         let onboarding = self.welcome_onboarding_status();
         let help_context = ui::HelpContext {
+            keybindings: self.keybindings.clone(),
             active_connection_name: self.manager.active.clone(),
             selected_table: self.selected_table.clone(),
             has_result: self.result.is_some(),
@@ -236,7 +237,10 @@ impl DbManagerApp {
                 self.sql = sql;
                 self.show_sql_editor = true;
                 self.focus_sql_editor = true;
-                self.notifications.info("SQL 已生成，按 Ctrl+Enter 执行");
+                self.notifications.info(format!(
+                    "SQL 已生成，按 {} 执行",
+                    local_shortcut_text(LocalShortcut::SqlExecute)
+                ));
             }
         }
 
@@ -245,7 +249,10 @@ impl DbManagerApp {
             self.sql = statements.join("\n");
             self.show_sql_editor = true;
             self.focus_sql_editor = true;
-            self.notifications.info("SQL 已生成，按 Ctrl+Enter 执行");
+            self.notifications.info(format!(
+                "SQL 已生成，按 {} 执行",
+                local_shortcut_text(LocalShortcut::SqlExecute)
+            ));
         }
 
         // 处理历史记录
@@ -264,8 +271,8 @@ impl DbManagerApp {
         // 处理快捷键更新
         if let Some(keybindings) = results.updated_keybindings {
             self.keybindings = keybindings;
-            self.app_config.keybindings = self.keybindings.clone();
-            if let Err(e) = self.app_config.save() {
+            ui::sync_runtime_local_shortcuts(&self.keybindings);
+            if let Err(e) = self.keybindings.save_to_disk() {
                 self.notifications.error(format!("快捷键保存失败: {}", e));
             } else {
                 self.notifications.success("快捷键设置已保存");

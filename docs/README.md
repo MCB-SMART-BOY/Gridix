@@ -35,6 +35,18 @@ This folder contains user-facing and engineering docs for Gridix.
 - [ARCHITECTURE.md](ARCHITECTURE.md)
   Runtime architecture and module boundaries.
   运行时架构与模块边界说明。
+- [KEYBOARD_FOCUS_RFC.md](KEYBOARD_FOCUS_RFC.md)
+  Focus-scoped keyboard routing redesign.
+  焦点驱动的键盘路由重构方案。
+- [KEYMAP_TOML_SPEC.md](KEYMAP_TOML_SPEC.md)
+  External keymap file format and migration rules.
+  独立 keymap 文件格式与迁移规则。
+- [SIDEBAR_WORKFLOW_PLAN.md](SIDEBAR_WORKFLOW_PLAN.md)
+  Sidebar navigation and filter-workspace redesign.
+  侧边栏导航与筛选工作区改造方案。
+- [IMPORT_EXPORT_UNIFICATION_PLAN.md](IMPORT_EXPORT_UNIFICATION_PLAN.md)
+  Unified data transfer architecture for import/export.
+  导入导出统一数据传输架构方案。
 - [TESTING.md](TESTING.md)
   Local/CI testing workflow and regression focus areas.
   本地与 CI 测试流程及回归重点。

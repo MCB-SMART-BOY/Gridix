@@ -8,6 +8,90 @@ All notable changes to this project are documented in this file.
 - No unreleased changes yet.
   暂无未发布变更。
 
+## [3.7.0]
+
+### Added
+- Added scope-tree navigation, issue-only filtering, and conflict-summary jumping to the keybinding settings dialog.
+  为快捷键设置对话框新增作用域树导航、仅看问题项过滤以及冲突摘要跳转。
+- Added structured `grid.normal.*` command-sequence support to `keymap.toml` for DataGrid command chains.
+  为 `keymap.toml` 新增结构化 `grid.normal.*` 命令序列支持，用于配置数据表格命令链。
+- Added regression coverage for scope-tree filtering, issue summaries, and custom Grid command-sequence overrides.
+  新增作用域树筛选、冲突摘要以及数据表格自定义命令序列覆盖的回归测试。
+
+### Changed
+- Reworked the keybinding settings dialog from flat filters into a scope-tree driven workflow with richer issue analysis.
+  将快捷键设置界面从平铺筛选重构为作用域树驱动流程，并增强问题分析能力。
+- DataGrid mode help and high-frequency action tooltips now reflect the current runtime command sequences instead of fixed literals.
+  数据表格模式帮助和高频操作提示改为反映当前运行时命令序列，不再写死固定字面量。
+
+### Fixed
+- Fixed a regression where configurable Grid command prefixes could break counted `gg` jumps.
+  修复数据表格可配置命令前缀引入后可能破坏带计数 `gg` 跳转的回归问题。
+- Fixed another gap between configurable shortcut infrastructure and DataGrid’s hard-coded command chains.
+  修复快捷键可配置基础设施与数据表格硬编码命令链之间的又一处断层。
+
+## [3.6.0]
+
+### Added
+- Added original Gridix brand assets under `assets/branding`, including a square app icon and a horizontal wordmark.
+  新增原创 Gridix 品牌资产，统一放入 `assets/branding`，包括方形应用图标和横版字标。
+- Added native window icon loading from the packaged branding icon.
+  新增原生窗口图标加载，直接使用正式品牌图标。
+- Added structured local keymap sections and runtime local-shortcut overrides on top of external `keymap.toml`.
+  在外置 `keymap.toml` 之上新增结构化局部键位 section 与运行时局部快捷键覆盖能力。
+- Added high-level Grid keyboard regression tests covering prefixes, counts, selection, save/quit commands, and filter entry.
+  新增表格键盘高层回归测试，覆盖前缀命令、计数、选择模式、保存/退出命令以及筛选入口。
+
+### Changed
+- Moved packaging and runtime icon references from the repository root into `assets/branding`.
+  将打包与运行时图标引用从仓库根目录迁移到 `assets/branding`。
+- Updated README branding display to use the dedicated logo asset instead of the old root image path.
+  README 的品牌展示改为使用专门的 logo 资产，不再使用旧的根目录图片路径。
+- Updated desktop metadata to better reflect Gridix as a database tool.
+  更新桌面文件元数据，使其更准确反映 Gridix 的数据库工具定位。
+- Reworked dialogs, help/history panels, sidebar, and DataGrid around a shared local action/shortcut layer.
+  对话框、帮助/历史面板、侧边栏与数据表格进一步重构为共享的局部动作/快捷键层。
+- Expanded shortcut discoverability so hover hints and learning/help content increasingly reflect the current runtime keymap.
+  扩展快捷键可发现性，悬停提示与学习/帮助内容开始更多地反映当前运行时真实键位。
+
+### Fixed
+- Fixed a branding/resource inconsistency where the root `gridix.png` had become an ad-hoc distribution asset.
+  修复品牌资源不一致问题，根目录 `gridix.png` 不再作为临时发行资产继续扩散。
+- Fixed several legacy keyboard paths that still relied on deprecated dialog-level handlers.
+  修复多处仍依赖旧式对话框级键盘处理器的遗留路径。
+- Fixed DataGrid command-buffer edge cases, including stuck prefixes, leaked counts, and incorrect `2gg` / `2G` row jumps.
+  修复数据表格命令缓冲区边界问题，包括前缀卡死、计数泄漏以及 `2gg` / `2G` 跳行错误。
+- Fixed sidebar command-prefix behavior so `gg` and `gs` work reliably inside the workflow list.
+  修复侧边栏命令前缀行为，使 `gg` 与 `gs` 能在工作流列表中可靠工作。
+
+## [3.4.0]
+
+### Added
+- Added focus-scoped input routing foundation and keyboard architecture RFC/spec docs.
+  新增按焦点作用域分发输入的基础设施，并补充键盘架构 RFC/规范文档。
+- Added external `keymap.toml` loading, generation, merge-backfill, and validation path.
+  新增外置 `keymap.toml` 的加载、初始化生成、补齐合并与校验链路。
+- Added unified local-shortcut tooltip/label helpers and wired them into toolbar, dialogs, sidebar, grid, help, and welcome UI.
+  新增统一的局部快捷键提示/标签工具，并接入工具栏、对话框、侧边栏、表格、帮助和欢迎页。
+- Added dedicated TSV import/export support with tests.
+  新增正式的 TSV 导入/导出支持，并补充相应测试。
+
+### Changed
+- Reworked sidebar defaults and workflow toward beginner-friendly connections + filters layout.
+  侧边栏默认布局和工作流重构为更适合新手的“连接 + 筛选”优先模式。
+- Moved more workspace actions behind scoped helpers instead of global shortcut grabs.
+  更多工作区动作改为走作用域化 helper，而不是被全局快捷键直接抢占。
+- Help, welcome, learning guide, and configuration docs now reflect real runtime key bindings instead of hard-coded shortcuts.
+  帮助、欢迎页、学习指南和配置文档现在会反映运行时真实键位，而不是硬编码快捷键。
+- CSV/TSV/JSON import preview now also prepares generated SQL, enabling copy-to-editor flow before execution.
+  CSV/TSV/JSON 导入预览现在会同步生成 SQL，可先复制到编辑器检查后再执行。
+
+### Fixed
+- Fixed several text-input vs global-shortcut conflicts in editor/sidebar-related paths.
+  修复编辑器与侧边栏多处“文本输入被全局快捷键抢占”的冲突。
+- Fixed import/export format model inconsistency where TSV existed only as hidden CSV behavior.
+  修复导入导出格式模型不一致的问题，TSV 不再只是隐藏在 CSV 行为里的别名。
+
 ## [3.3.1]
 
 ### Added
