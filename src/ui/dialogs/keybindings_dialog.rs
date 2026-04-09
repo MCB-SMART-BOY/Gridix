@@ -3,6 +3,10 @@
 //! 允许用户自定义全局快捷键与局部作用域快捷键。
 
 use crate::core::{Action, KeyBinding, KeyBindings, KeyCode, KeyModifiers};
+use crate::ui::components::{
+    GridCommandShortcut, GridSequenceConflictKind, grid_command_sequence_conflict,
+    grid_command_shortcuts, normalize_grid_command_sequence,
+};
 use crate::ui::shortcut_tooltip::LocalShortcut;
 use eframe::egui::{self, Key, RichText};
 
@@ -22,7 +26,7 @@ impl BindingScope {
                 "提示: 全局动作会影响整个工作区；录制时若与其他全局动作冲突会即时提示。"
             }
             Self::Local => {
-                "提示: 局部快捷键按作用域生效，可与其他区域重复。录制会覆盖当前作用域整组绑定；点“恢复默认”可回到内置多键方案。"
+                "提示: 局部快捷键和表格命令序列都按作用域生效，可与其他区域重复。点“恢复默认”可回到内置多键方案。"
             }
         }
     }
@@ -33,6 +37,7 @@ enum LocalScopeSection {
     Dialog,
     Sidebar,
     Editor,
+    DataGrid,
 }
 
 impl LocalScopeSection {
@@ -41,6 +46,7 @@ impl LocalScopeSection {
             Self::Dialog => "对话框",
             Self::Sidebar => "侧边栏",
             Self::Editor => "编辑器",
+            Self::DataGrid => "表格",
         }
     }
 
@@ -58,6 +64,7 @@ impl LocalScopeSection {
             ],
             Self::Sidebar => &["侧边栏", "筛选"],
             Self::Editor => &["SQL 编辑器"],
+            Self::DataGrid => &["表格命令"],
         }
     }
 }
@@ -109,12 +116,18 @@ impl ScopeTreeSelection {
             (Self::GlobalCategory(category), BindingSelection::Global(action)) => {
                 action.category() == category
             }
-            (Self::LocalAll, BindingSelection::Local(_)) => true,
+            (Self::LocalAll, BindingSelection::Local(_) | BindingSelection::GridCommand(_)) => true,
             (Self::LocalSection(section), BindingSelection::Local(shortcut)) => {
                 local_scope_section(shortcut) == section
             }
+            (Self::LocalSection(section), BindingSelection::GridCommand(command)) => {
+                grid_command_scope_section(command) == section
+            }
             (Self::LocalCategory(category), BindingSelection::Local(shortcut)) => {
                 local_shortcut_category(shortcut) == category
+            }
+            (Self::LocalCategory(category), BindingSelection::GridCommand(command)) => {
+                grid_command_category(command) == category
             }
             _ => false,
         }
@@ -125,6 +138,7 @@ impl ScopeTreeSelection {
 enum BindingSelection {
     Global(Action),
     Local(LocalShortcut),
+    GridCommand(GridCommandShortcut),
 }
 
 impl BindingSelection {
@@ -132,6 +146,7 @@ impl BindingSelection {
         match self {
             Self::Global(action) => action.description(),
             Self::Local(shortcut) => local_shortcut_description(shortcut),
+            Self::GridCommand(command) => grid_command_description(command),
         }
     }
 
@@ -139,6 +154,7 @@ impl BindingSelection {
         match self {
             Self::Global(action) => action.category(),
             Self::Local(shortcut) => local_shortcut_category(shortcut),
+            Self::GridCommand(command) => grid_command_category(command),
         }
     }
 
@@ -146,6 +162,7 @@ impl BindingSelection {
         match self {
             Self::Global(action) => Some(action.keymap_name()),
             Self::Local(shortcut) => Some(shortcut.config_key()),
+            Self::GridCommand(command) => Some(command.config_key()),
         }
     }
 }
@@ -159,6 +176,12 @@ enum BindingIssue {
     LocalConflict {
         binding: KeyBinding,
         shortcut: LocalShortcut,
+    },
+    GridConflict {
+        sequence: String,
+        conflicting_sequence: String,
+        command: GridCommandShortcut,
+        kind: GridSequenceConflictKind,
     },
 }
 
@@ -175,6 +198,25 @@ impl BindingIssue {
                 binding.display(),
                 local_shortcut_description(*shortcut)
             ),
+            Self::GridConflict {
+                sequence,
+                conflicting_sequence,
+                command,
+                kind,
+            } => match kind {
+                GridSequenceConflictKind::Exact => format!(
+                    "{} 与表格命令“{}”的序列 {} 完全重叠",
+                    sequence,
+                    grid_command_description(*command),
+                    conflicting_sequence
+                ),
+                GridSequenceConflictKind::Prefix => format!(
+                    "{} 与表格命令“{}”的序列 {} 存在前缀重叠，可能互相吞键",
+                    sequence,
+                    grid_command_description(*command),
+                    conflicting_sequence
+                ),
+            },
         }
     }
 }
@@ -209,6 +251,8 @@ pub struct KeyBindingsDialogState {
     recording_mode: RecordingMode,
     /// 搜索过滤
     filter: String,
+    /// 表格命令序列输入
+    sequence_input: String,
     /// 是否仅显示带作用域提醒的局部快捷键
     show_issue_only: bool,
     /// 是否有未保存的更改
@@ -229,6 +273,7 @@ impl KeyBindingsDialogState {
         self.recorded_modifiers = KeyModifiers::NONE;
         self.recording_mode = RecordingMode::Replace;
         self.filter.clear();
+        self.sequence_input.clear();
         self.show_issue_only = false;
         self.has_changes = false;
         self.conflict_message = None;
@@ -278,6 +323,15 @@ impl KeyBindingsDialogState {
             }
         }
 
+        for command in GridCommandShortcut::all() {
+            let selection = BindingSelection::GridCommand(*command);
+            if self.matches_filter_for_tree(selection, &filter_lower, self.current_tree)
+                && self.matches_issue_filter(selection)
+            {
+                result.push(selection);
+            }
+        }
+
         result
     }
 
@@ -309,7 +363,9 @@ impl KeyBindingsDialogState {
 
         match selection {
             BindingSelection::Global(_) => false,
-            BindingSelection::Local(_) => !self.binding_issues(selection).is_empty(),
+            BindingSelection::Local(_) | BindingSelection::GridCommand(_) => {
+                !self.binding_issues(selection).is_empty()
+            }
         }
     }
 
@@ -317,6 +373,7 @@ impl KeyBindingsDialogState {
         self.selected_binding = Some(selection);
         self.recording = false;
         self.conflict_message = None;
+        self.sequence_input.clear();
     }
 
     fn begin_recording(&mut self, selection: BindingSelection, mode: RecordingMode) {
@@ -340,6 +397,7 @@ impl KeyBindingsDialogState {
         self.recording = false;
         self.recording_mode = RecordingMode::Replace;
         self.conflict_message = None;
+        self.sequence_input.clear();
     }
 
     fn set_show_issue_only(&mut self, enabled: bool) {
@@ -362,6 +420,9 @@ impl KeyBindingsDialogState {
                 let bindings = shortcut.bindings_for(&self.bindings);
                 keybinding_list_text(&bindings)
             }
+            BindingSelection::GridCommand(command) => {
+                keybinding_list_text_strings(&self.grid_sequences(command))
+            }
         }
     }
 
@@ -377,6 +438,17 @@ impl KeyBindingsDialogState {
             }
             BindingSelection::Local(shortcut) => {
                 if shortcut.is_overridden(&self.bindings) {
+                    "自定义"
+                } else {
+                    "默认"
+                }
+            }
+            BindingSelection::GridCommand(command) => {
+                if self
+                    .bindings
+                    .local_sequences_for(command.config_key())
+                    .is_some()
+                {
                     "自定义"
                 } else {
                     "默认"
@@ -401,6 +473,10 @@ impl KeyBindingsDialogState {
         shortcut.bindings_for(&self.bindings)
     }
 
+    fn grid_sequences(&self, command: GridCommandShortcut) -> Vec<String> {
+        grid_command_shortcuts(&self.bindings, command)
+    }
+
     fn set_effective_local_bindings(&mut self, shortcut: LocalShortcut, bindings: Vec<KeyBinding>) {
         let mut unique = Vec::new();
         for binding in bindings {
@@ -415,6 +491,32 @@ impl KeyBindingsDialogState {
         } else {
             self.bindings
                 .set_local_bindings(shortcut.config_key(), unique);
+        }
+    }
+
+    fn set_effective_grid_sequences(
+        &mut self,
+        command: GridCommandShortcut,
+        sequences: Vec<String>,
+    ) {
+        let mut unique = Vec::new();
+        for sequence in sequences {
+            if !unique.iter().any(|existing| existing == &sequence) {
+                unique.push(sequence);
+            }
+        }
+
+        let defaults: Vec<String> = command
+            .default_sequences()
+            .iter()
+            .map(|sequence| (*sequence).to_string())
+            .collect();
+
+        if unique.is_empty() || unique == defaults {
+            self.bindings.remove_local_sequences(command.config_key());
+        } else {
+            self.bindings
+                .set_local_sequences(command.config_key(), unique);
         }
     }
 
@@ -465,7 +567,48 @@ impl KeyBindingsDialogState {
                     ),
                 });
             }
+            BindingSelection::GridCommand(_) => {}
         }
+    }
+
+    fn apply_grid_sequence_input(&mut self, command: GridCommandShortcut, mode: RecordingMode) {
+        let Some(sequence) = normalize_grid_command_sequence(&self.sequence_input) else {
+            self.conflict_message =
+                Some("无效的表格命令序列。示例: yy、:w、Space+d、Ctrl+S".to_string());
+            return;
+        };
+
+        let mut sequences = self.grid_sequences(command);
+        match mode {
+            RecordingMode::Replace => sequences = vec![sequence.clone()],
+            RecordingMode::Append => {
+                if sequences.iter().any(|existing| existing == &sequence) {
+                    self.conflict_message = Some(format!(
+                        "“{}”已经包含 {}，无需重复追加。",
+                        grid_command_description(command),
+                        sequence
+                    ));
+                    return;
+                }
+                sequences.push(sequence.clone());
+            }
+        }
+
+        self.set_effective_grid_sequences(command, sequences);
+        self.sequence_input.clear();
+        self.has_changes = true;
+        self.conflict_message = Some(match mode {
+            RecordingMode::Replace => format!(
+                "已将“{}”替换为 {}。",
+                grid_command_description(command),
+                sequence
+            ),
+            RecordingMode::Append => format!(
+                "已为“{}”追加 {}。",
+                grid_command_description(command),
+                sequence
+            ),
+        });
     }
 
     fn clear_selected_binding(&mut self) {
@@ -481,6 +624,11 @@ impl KeyBindingsDialogState {
             }
             BindingSelection::Local(shortcut) => {
                 self.bindings.remove_local_bindings(shortcut.config_key());
+                self.has_changes = true;
+                self.conflict_message = None;
+            }
+            BindingSelection::GridCommand(command) => {
+                self.bindings.remove_local_sequences(command.config_key());
                 self.has_changes = true;
                 self.conflict_message = None;
             }
@@ -508,10 +656,31 @@ impl KeyBindingsDialogState {
         ));
     }
 
+    fn remove_grid_sequence_at(&mut self, command: GridCommandShortcut, index: usize) {
+        let mut sequences = self.grid_sequences(command);
+        if sequences.len() <= 1 {
+            self.conflict_message =
+                Some("表格命令至少保留一个序列；如需回到默认方案，请点“恢复默认”。".to_string());
+            return;
+        }
+        if index >= sequences.len() {
+            return;
+        }
+
+        let removed = sequences.remove(index);
+        self.set_effective_grid_sequences(command, sequences);
+        self.has_changes = true;
+        self.conflict_message = Some(format!(
+            "已移除“{}”的序列 {}。",
+            grid_command_description(command),
+            removed
+        ));
+    }
+
     fn clear_button_label(&self) -> Option<&'static str> {
         match self.selected_binding {
             Some(BindingSelection::Global(_)) => Some("清除快捷键"),
-            Some(BindingSelection::Local(_)) => Some("恢复默认"),
+            Some(BindingSelection::Local(_) | BindingSelection::GridCommand(_)) => Some("恢复默认"),
             None => None,
         }
     }
@@ -558,6 +727,40 @@ impl KeyBindingsDialogState {
                 }
                 deduped
             }
+            BindingSelection::GridCommand(command) => {
+                let mut issues = Vec::new();
+                let sequences = self.grid_sequences(command);
+
+                for sequence in &sequences {
+                    for other in GridCommandShortcut::all() {
+                        if *other == command {
+                            continue;
+                        }
+
+                        let other_sequences = self.grid_sequences(*other);
+                        for other_sequence in other_sequences {
+                            if let Some(kind) =
+                                grid_command_sequence_conflict(sequence, &other_sequence)
+                            {
+                                issues.push(BindingIssue::GridConflict {
+                                    sequence: sequence.clone(),
+                                    conflicting_sequence: other_sequence,
+                                    command: *other,
+                                    kind,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                let mut deduped = Vec::new();
+                for issue in issues {
+                    if !deduped.iter().any(|existing| existing == &issue) {
+                        deduped.push(issue);
+                    }
+                }
+                deduped
+            }
         }
     }
 
@@ -588,6 +791,12 @@ impl KeyBindingsDialogState {
                 count += 1;
             }
         }
+        for command in GridCommandShortcut::all() {
+            let selection = BindingSelection::GridCommand(*command);
+            if self.matches_filter_for_tree(selection, &filter_lower, tree) {
+                count += 1;
+            }
+        }
         count
     }
 
@@ -596,6 +805,12 @@ impl KeyBindingsDialogState {
         let mut total = 0;
         for shortcut in LocalShortcut::all() {
             let selection = BindingSelection::Local(*shortcut);
+            if self.matches_filter_for_tree(selection, &filter_lower, tree) {
+                total += self.binding_issues(selection).len();
+            }
+        }
+        for command in GridCommandShortcut::all() {
+            let selection = BindingSelection::GridCommand(*command);
             if self.matches_filter_for_tree(selection, &filter_lower, tree) {
                 total += self.binding_issues(selection).len();
             }
@@ -612,6 +827,18 @@ impl KeyBindingsDialogState {
 
         for shortcut in LocalShortcut::all() {
             let selection = BindingSelection::Local(*shortcut);
+            if !self.matches_filter_for_tree(selection, &filter_lower, tree) {
+                continue;
+            }
+
+            let issues = self.binding_issues(selection);
+            if !issues.is_empty() {
+                summary.push((selection, issues));
+            }
+        }
+
+        for command in GridCommandShortcut::all() {
+            let selection = BindingSelection::GridCommand(*command);
             if !self.matches_filter_for_tree(selection, &filter_lower, tree) {
                 continue;
             }
@@ -696,6 +923,7 @@ impl KeyBindingsDialog {
                                         LocalScopeSection::Dialog,
                                         LocalScopeSection::Sidebar,
                                         LocalScopeSection::Editor,
+                                        LocalScopeSection::DataGrid,
                                     ] {
                                         show_tree_entry(
                                             ui,
@@ -856,10 +1084,17 @@ impl KeyBindingsDialog {
                                             } else {
                                                 let binding_text = state.binding_text(selection);
                                                 if ui.button(binding_text).clicked() {
-                                                    state.begin_recording(
-                                                        selection,
-                                                        RecordingMode::Replace,
-                                                    );
+                                                    match selection {
+                                                        BindingSelection::GridCommand(_) => {
+                                                            state.select_binding(selection);
+                                                        }
+                                                        _ => {
+                                                            state.begin_recording(
+                                                                selection,
+                                                                RecordingMode::Replace,
+                                                            );
+                                                        }
+                                                    }
                                                 }
                                             }
 
@@ -927,6 +1162,61 @@ impl KeyBindingsDialog {
                     ui.add_space(4.0);
 
                     let issues = state.binding_issues(BindingSelection::Local(shortcut));
+                    if !issues.is_empty() {
+                        ui.group(|ui| {
+                            ui.label(
+                                RichText::new("作用域分析")
+                                    .small()
+                                    .strong()
+                                    .color(egui::Color32::from_rgb(245, 189, 130)),
+                            );
+                            for issue in issues {
+                                ui.label(
+                                    RichText::new(format!("• {}", issue.message()))
+                                        .small()
+                                        .color(egui::Color32::from_rgb(245, 189, 130)),
+                                );
+                            }
+                        });
+                        ui.add_space(4.0);
+                    }
+                } else if let Some(BindingSelection::GridCommand(command)) = state.selected_binding
+                {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new("当前命令序列:").small().weak());
+                        for (index, sequence) in state.grid_sequences(command).iter().enumerate() {
+                            let remove_label = format!("{} ×", sequence);
+                            if ui
+                                .small_button(remove_label)
+                                .on_hover_text("移除这一组表格命令序列")
+                                .clicked()
+                            {
+                                state.remove_grid_sequence_at(command, index);
+                            }
+                        }
+                    });
+
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.label("序列:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut state.sequence_input)
+                                .desired_width(220.0)
+                                .hint_text("如: yy / :w / Space+d / Ctrl+S"),
+                        );
+                    });
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("替换序列").clicked() {
+                            state.apply_grid_sequence_input(command, RecordingMode::Replace);
+                        }
+                        if ui.button("追加序列").clicked() {
+                            state.apply_grid_sequence_input(command, RecordingMode::Append);
+                        }
+                    });
+
+                    ui.add_space(4.0);
+                    let issues = state.binding_issues(BindingSelection::GridCommand(command));
                     if !issues.is_empty() {
                         ui.group(|ui| {
                             ui.label(
@@ -1058,6 +1348,16 @@ fn keybinding_list_text(bindings: &[KeyBinding]) -> String {
     values.join(" / ")
 }
 
+fn keybinding_list_text_strings(bindings: &[String]) -> String {
+    let mut values: Vec<String> = Vec::new();
+    for binding in bindings {
+        if !values.iter().any(|item| item == binding) {
+            values.push(binding.clone());
+        }
+    }
+    values.join(" / ")
+}
+
 fn local_shortcut_description(shortcut: LocalShortcut) -> &'static str {
     match shortcut {
         LocalShortcut::Confirm => "确认",
@@ -1142,6 +1442,29 @@ fn local_shortcut_description(shortcut: LocalShortcut) -> &'static str {
         LocalShortcut::HistoryPageDown => "历史面板下翻",
         LocalShortcut::HistoryUse => "使用选中历史 SQL",
     }
+}
+
+fn grid_command_description(command: GridCommandShortcut) -> &'static str {
+    match command {
+        GridCommandShortcut::OpenFilter => "表格打开筛选面板",
+        GridCommandShortcut::AddRowBelow => "表格在下方新增行",
+        GridCommandShortcut::AddRowAbove => "表格在上方新增行",
+        GridCommandShortcut::Save => "表格保存修改",
+        GridCommandShortcut::Discard => "表格放弃修改",
+        GridCommandShortcut::JumpFileStart => "表格跳到开头",
+        GridCommandShortcut::JumpFileEnd => "表格跳到结尾",
+        GridCommandShortcut::JumpLineStart => "表格跳到行首",
+        GridCommandShortcut::JumpLineEnd => "表格跳到行尾",
+        GridCommandShortcut::ScrollCenter => "表格滚动到居中",
+        GridCommandShortcut::ScrollTop => "表格滚动到顶部",
+        GridCommandShortcut::ScrollBottom => "表格滚动到底部",
+        GridCommandShortcut::DeleteRow => "表格删除当前行",
+        GridCommandShortcut::CopyRow => "表格复制当前行",
+    }
+}
+
+fn grid_command_category(_: GridCommandShortcut) -> &'static str {
+    "表格命令"
 }
 
 fn local_shortcut_category(shortcut: LocalShortcut) -> &'static str {
@@ -1240,8 +1563,13 @@ fn local_scope_section_for_category(category: &str) -> LocalScopeSection {
         }
         "侧边栏" | "筛选" => LocalScopeSection::Sidebar,
         "SQL 编辑器" => LocalScopeSection::Editor,
+        "表格命令" => LocalScopeSection::DataGrid,
         _ => LocalScopeSection::Dialog,
     }
+}
+
+fn grid_command_scope_section(_: GridCommandShortcut) -> LocalScopeSection {
+    LocalScopeSection::DataGrid
 }
 
 fn local_shortcut_scope_tags(shortcut: LocalShortcut) -> &'static [&'static str] {
@@ -1344,6 +1672,7 @@ mod tests {
         ScopeTreeSelection,
     };
     use crate::core::{KeyBinding, KeyBindings, KeyCode};
+    use crate::ui::components::{GridCommandShortcut, GridSequenceConflictKind};
     use crate::ui::shortcut_tooltip::LocalShortcut;
 
     #[test]
@@ -1355,6 +1684,19 @@ mod tests {
         let source = state.binding_source(BindingSelection::Local(LocalShortcut::Dismiss));
 
         assert_eq!(text, "Esc / Q");
+        assert_eq!(source, "默认");
+    }
+
+    #[test]
+    fn grid_command_uses_default_text_without_override() {
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&KeyBindings::default());
+
+        let text = state.binding_text(BindingSelection::GridCommand(GridCommandShortcut::CopyRow));
+        let source =
+            state.binding_source(BindingSelection::GridCommand(GridCommandShortcut::CopyRow));
+
+        assert_eq!(text, "yy");
         assert_eq!(source, "默认");
     }
 
@@ -1437,6 +1779,72 @@ mod tests {
     }
 
     #[test]
+    fn append_grid_sequence_keeps_existing_sequences() {
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&KeyBindings::default());
+        state.sequence_input = "cc".to_string();
+
+        state.apply_grid_sequence_input(GridCommandShortcut::CopyRow, RecordingMode::Append);
+
+        assert_eq!(
+            state.binding_text(BindingSelection::GridCommand(GridCommandShortcut::CopyRow)),
+            "yy / cc"
+        );
+        assert_eq!(
+            state.binding_source(BindingSelection::GridCommand(GridCommandShortcut::CopyRow)),
+            "自定义"
+        );
+    }
+
+    #[test]
+    fn remove_one_grid_sequence_keeps_other_overrides() {
+        let mut bindings = KeyBindings::default();
+        bindings.set_local_sequences(
+            GridCommandShortcut::CopyRow.config_key(),
+            vec!["yy".to_string(), "cc".to_string()],
+        );
+
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&bindings);
+
+        state.remove_grid_sequence_at(GridCommandShortcut::CopyRow, 0);
+
+        assert_eq!(
+            state.binding_text(BindingSelection::GridCommand(GridCommandShortcut::CopyRow)),
+            "cc"
+        );
+        assert_eq!(
+            state.binding_source(BindingSelection::GridCommand(GridCommandShortcut::CopyRow)),
+            "自定义"
+        );
+    }
+
+    #[test]
+    fn grid_issues_include_prefix_conflicts() {
+        let mut bindings = KeyBindings::default();
+        bindings.set_local_sequences(
+            GridCommandShortcut::AddRowBelow.config_key(),
+            vec!["g".to_string()],
+        );
+
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&bindings);
+
+        let issues = state.binding_issues(BindingSelection::GridCommand(
+            GridCommandShortcut::JumpFileStart,
+        ));
+
+        assert!(issues.iter().any(|issue| matches!(
+            issue,
+            BindingIssue::GridConflict {
+                command,
+                kind: GridSequenceConflictKind::Prefix,
+                ..
+            } if *command == GridCommandShortcut::AddRowBelow
+        )));
+    }
+
+    #[test]
     fn local_issues_include_global_shadowing() {
         let mut state = KeyBindingsDialogState::default();
         state.open(&KeyBindings::default());
@@ -1479,6 +1887,21 @@ mod tests {
         assert!(visible.contains(&BindingSelection::Local(LocalShortcut::SidebarItemPrev)));
         assert!(visible.contains(&BindingSelection::Local(LocalShortcut::FilterAdd)));
         assert!(!visible.contains(&BindingSelection::Local(LocalShortcut::HelpScrollUp)));
+        assert!(!visible.contains(&BindingSelection::Global(crate::core::Action::ShowHelp)));
+    }
+
+    #[test]
+    fn grid_scope_tree_filters_to_data_grid_section() {
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&KeyBindings::default());
+        state.select_tree(ScopeTreeSelection::LocalSection(
+            LocalScopeSection::DataGrid,
+        ));
+
+        let visible = state.visible_bindings();
+
+        assert!(visible.contains(&BindingSelection::GridCommand(GridCommandShortcut::CopyRow)));
+        assert!(!visible.contains(&BindingSelection::Local(LocalShortcut::SqlExecute)));
         assert!(!visible.contains(&BindingSelection::Global(crate::core::Action::ShowHelp)));
     }
 

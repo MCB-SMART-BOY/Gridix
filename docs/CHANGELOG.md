@@ -8,6 +8,36 @@ All notable changes to this project are documented in this file.
 - No unreleased changes yet.
   暂无未发布变更。
 
+## [3.8.0]
+
+### Added
+- Added DataGrid command-sequence editing to the keybinding settings dialog, so `yy` / `dd` / `:w` / `gg` and related table commands can now be customized from the UI instead of only through `keymap.toml`.
+  为快捷键设置界面新增数据表格命令序列编辑能力，使 `yy` / `dd` / `:w` / `gg` 等表格命令可以直接在 UI 中自定义，而不再只能手改 `keymap.toml`。
+
+### Changed
+- Extended the keybinding scope tree with a dedicated DataGrid section and sequence-management workflow for grid commands.
+  扩展快捷键作用域树，新增独立的数据表格分区和命令序列管理流程。
+
+### Fixed
+- Added DataGrid prefix-conflict diagnostics so exact collisions and prefix-shadowing cases like `g` vs `gg` or `:` vs `:w` are surfaced before they break command chains.
+  新增数据表格前缀冲突诊断，可在 `g` 与 `gg`、`:` 与 `:w` 这类命令链被吞掉之前，提前识别完全冲突和前缀遮蔽问题。
+
+## [3.7.1]
+
+### Changed
+- Expanded the in-app learning sample into a versioned large relational dataset with 8 main tables, 100+ rows per table, and richer multi-hop relationships.
+  将内置学习示例扩展为版本化的大型关系型数据集，包含 8 张主表、每表 100+ 行，并提供更丰富的多跳关系。
+- Updated learning-guide overview and onboarding copy so the sample database is described as a real teaching dataset instead of a tiny demo.
+  更新学习指南总览与新手引导文案，使示例数据库被明确描述为真实教学数据集，而不是小型演示库。
+
+### Fixed
+- Fixed focus-routing regressions where sidebar-to-grid transfer, SQL editor cancel behavior, and DataGrid horizontal movement could stop responding consistently.
+  修复焦点路由回归问题，解决侧边栏到表格的切换、SQL 编辑器取消行为以及数据表格横向移动不能稳定响应的问题。
+- Fixed legacy learning-sample databases so older files are detected and rebuilt instead of failing to open after the dataset upgrade.
+  修复旧版学习示例数据库兼容性问题，使旧文件会被识别并自动重建，而不是在数据集升级后无法打开。
+- Fixed a query-learning edge case where sample mutation demos could clash with the new seeded dataset and constraints.
+  修复查询学习示例中的边界问题，避免示例更新/删除演示与新的种子数据和约束发生冲突。
+
 ## [3.7.0]
 
 ### Added

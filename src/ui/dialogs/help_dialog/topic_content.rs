@@ -17,7 +17,7 @@ impl HelpDialog {
             "核心概念",
             &[
                 "数据库可以理解为一组有关联的数据集合。",
-                "表是数据库里的一个主题区域，例如 customers、orders。",
+                "表是数据库里的一个主题区域，例如 customers、orders、payments。",
                 "行是一条记录，列是这条记录的一个字段。",
                 "学习数据库时，先学会“从表里读数据”，再学更复杂的关系和聚合。",
             ],
@@ -30,7 +30,8 @@ impl HelpDialog {
                 "1. 先点下方“打开学习示例库”。",
                 "2. 在左侧连接列表里选中 `Gridix 学习示例`。",
                 "3. 在表列表里打开 `customers` 表。",
-                "4. 观察结果区：每一行是一个客户，每一列是客户的属性。",
+                "4. 再观察左侧：示例库现在包含客户、地址、供应商、分类、商品、订单、明细、支付 8 张主表。",
+                "5. 观察结果区：每一行是一个客户，每一列是客户的属性。",
             ],
         );
 
@@ -45,7 +46,7 @@ impl HelpDialog {
                 "自动查看 customers 表",
                 HelpAction::RunLearningQuery {
                     table: Some("customers".to_string()),
-                    sql: "SELECT id, name, city, level FROM customers ORDER BY id LIMIT 8;"
+                    sql: "SELECT id, customer_code, name, city, level, segment, reward_points, status FROM customers ORDER BY id LIMIT 8;"
                         .to_string(),
                     open_er_diagram: false,
                 },
@@ -78,8 +79,8 @@ impl HelpDialog {
             &[
                 "1. 打开学习示例库里的 `products` 表。",
                 "2. 执行 `PRAGMA table_info('products');` 查看列定义。",
-                "3. 再执行 `SELECT id, name, price, typeof(price) AS price_type FROM products ORDER BY id LIMIT 5;`。",
-                "4. 观察：`price` 是数值列，不是普通文本。",
+                "3. 再执行 `SELECT id, name, price, cost, stock_qty, warranty_months, launch_date, typeof(price) AS price_type FROM products ORDER BY id LIMIT 5;`。",
+                "4. 观察：同一张表里会同时出现文本、数值、整数、日期等多种类型。",
             ],
         );
 
@@ -98,7 +99,7 @@ impl HelpDialog {
                 "自动演示 typeof(price)",
                 HelpAction::RunLearningQuery {
                     table: Some("products".to_string()),
-                    sql: "SELECT id, name, price, typeof(price) AS price_type FROM products ORDER BY id LIMIT 5;"
+                    sql: "SELECT id, name, price, cost, stock_qty, warranty_months, launch_date, typeof(price) AS price_type FROM products ORDER BY id LIMIT 5;"
                         .to_string(),
                     open_er_diagram: false,
                 },
@@ -292,8 +293,8 @@ impl HelpDialog {
             "手动练习",
             &[
                 "1. 打开 `products` 表。",
-                "2. 在编辑器输入 `SELECT id, name, category, price FROM products WHERE price >= 80 ORDER BY price DESC LIMIT 8;`。",
-                "3. 执行后观察：结果只保留价格较高的商品，并按价格从高到低排序。",
+                "2. 在编辑器输入 `SELECT id, name, category, price, stock_qty, rating FROM products WHERE price >= 200 AND stock_qty >= 40 ORDER BY rating DESC, price DESC LIMIT 8;`。",
+                "3. 执行后观察：结果只保留高价且库存充足的商品，并按评分和价格排序。",
             ],
         );
 
@@ -304,7 +305,7 @@ impl HelpDialog {
                 "自动演示筛选与排序",
                 HelpAction::RunLearningQuery {
                     table: Some("products".to_string()),
-                    sql: "SELECT id, name, category, price FROM products WHERE price >= 80 ORDER BY price DESC LIMIT 8;"
+                    sql: "SELECT id, name, category, price, stock_qty, rating FROM products WHERE price >= 200 AND stock_qty >= 40 ORDER BY rating DESC, price DESC LIMIT 8;"
                         .to_string(),
                     open_er_diagram: false,
                 },
@@ -335,9 +336,9 @@ impl HelpDialog {
             ui,
             "手动练习",
             &[
-                "1. 打开 `orders` 表。",
-                "2. 输入 `SELECT status, COUNT(*) AS order_count, ROUND(SUM(total_amount), 2) AS total_sales FROM orders GROUP BY status ORDER BY total_sales DESC;`。",
-                "3. 执行后观察：每种订单状态对应多少笔订单、累计销售额是多少。",
+                "1. 打开 `products` 或 `product_categories` 表。",
+                "2. 输入 `SELECT pc.department, COUNT(*) AS product_count, ROUND(AVG(p.price), 2) AS avg_price, ROUND(SUM(p.stock_qty * p.cost), 2) AS inventory_cost FROM products p JOIN product_categories pc ON pc.id = p.category_id GROUP BY pc.department ORDER BY inventory_cost DESC LIMIT 8;`。",
+                "3. 执行后观察：每个业务部门有多少商品、均价和库存成本大概是多少。",
             ],
         );
 
@@ -347,8 +348,8 @@ impl HelpDialog {
             Some((
                 "自动演示 GROUP BY",
                 HelpAction::RunLearningQuery {
-                    table: Some("orders".to_string()),
-                    sql: "SELECT status, COUNT(*) AS order_count, ROUND(SUM(total_amount), 2) AS total_sales FROM orders GROUP BY status ORDER BY total_sales DESC;"
+                    table: Some("products".to_string()),
+                    sql: "SELECT pc.department, COUNT(*) AS product_count, ROUND(AVG(p.price), 2) AS avg_price, ROUND(SUM(p.stock_qty * p.cost), 2) AS inventory_cost FROM products p JOIN product_categories pc ON pc.id = p.category_id GROUP BY pc.department ORDER BY inventory_cost DESC LIMIT 8;"
                         .to_string(),
                     open_er_diagram: false,
                 },
@@ -386,8 +387,9 @@ impl HelpDialog {
             &[
                 "1. 打开学习示例库。",
                 &format!("2. 按 {toggle_er_diagram} 打开 ER 图。"),
-                "3. 找到 `customers -> orders -> order_items -> products` 这条关系链。",
-                "4. 再执行 `PRAGMA foreign_key_list('order_items');`，观察外键具体指向哪张表。",
+                "3. 找到 `customers -> orders -> order_items -> products -> suppliers` 这条关系链。",
+                "4. 再找 `customers -> customer_addresses` 和 `product_categories -> products` 两条关系，观察一对多与层级关系的区别。",
+                "5. 执行 `PRAGMA foreign_key_list('orders');` 与 `PRAGMA foreign_key_list('products');`，观察外键具体指向哪张表。",
             ],
         );
 
@@ -396,16 +398,20 @@ impl HelpDialog {
             action,
             Some(("自动打开学习示例 ER 图", HelpAction::ShowLearningErDiagram)),
             Some((
-                "自动查看 order_items 外键",
+                "自动查看 orders 外键",
                 HelpAction::RunLearningQuery {
-                    table: Some("order_items".to_string()),
-                    sql: "PRAGMA foreign_key_list('order_items');".to_string(),
+                    table: Some("orders".to_string()),
+                    sql: "PRAGMA foreign_key_list('orders');".to_string(),
                     open_er_diagram: false,
                 },
             )),
             Some((
-                "打开学习示例库",
-                HelpAction::EnsureLearningSample { reset: false },
+                "自动查看 products 外键",
+                HelpAction::RunLearningQuery {
+                    table: Some("products".to_string()),
+                    sql: "PRAGMA foreign_key_list('products');".to_string(),
+                    open_er_diagram: false,
+                },
             )),
         );
     }
@@ -431,9 +437,9 @@ impl HelpDialog {
             ui,
             "手动练习",
             &[
-                "1. 先理解 `orders` 保存订单，`customers` 保存客户。",
-                "2. 在编辑器输入 `SELECT o.id AS order_id, c.name AS customer, o.status, o.total_amount FROM orders o JOIN customers c ON c.id = o.customer_id ORDER BY o.total_amount DESC LIMIT 8;`。",
-                "3. 执行后观察：订单信息和客户姓名已经出现在同一张结果表里。",
+                "1. 先理解 `orders` 保存订单，`customers` 保存客户，`order_items` 保存每个订单里的商品明细，`products` 保存商品本身。",
+                "2. 在编辑器输入 `SELECT o.id AS order_id, c.name AS customer, p.name AS product, oi.quantity, o.status, pay.status AS payment_status FROM orders o JOIN customers c ON c.id = o.customer_id JOIN order_items oi ON oi.order_id = o.id JOIN products p ON p.id = oi.product_id JOIN payments pay ON pay.order_id = o.id ORDER BY o.id DESC, oi.line_number ASC LIMIT 8;`。",
+                "3. 执行后观察：客户、订单、商品、支付状态已经被拼成一张结果表。",
             ],
         );
 
@@ -444,7 +450,7 @@ impl HelpDialog {
                 "自动演示 JOIN",
                 HelpAction::RunLearningQuery {
                     table: Some("orders".to_string()),
-                    sql: "SELECT o.id AS order_id, c.name AS customer, o.status, o.total_amount FROM orders o JOIN customers c ON c.id = o.customer_id ORDER BY o.total_amount DESC LIMIT 8;"
+                    sql: "SELECT o.id AS order_id, c.name AS customer, p.name AS product, oi.quantity, o.status, pay.status AS payment_status FROM orders o JOIN customers c ON c.id = o.customer_id JOIN order_items oi ON oi.order_id = o.id JOIN products p ON p.id = oi.product_id JOIN payments pay ON pay.order_id = o.id ORDER BY o.id DESC, oi.line_number ASC LIMIT 8;"
                         .to_string(),
                     open_er_diagram: false,
                 },
@@ -453,7 +459,7 @@ impl HelpDialog {
                 "打开 ER 图辅助理解",
                 HelpAction::RunLearningQuery {
                     table: Some("orders".to_string()),
-                    sql: "SELECT o.id AS order_id, c.name AS customer, o.status, o.total_amount FROM orders o JOIN customers c ON c.id = o.customer_id ORDER BY o.total_amount DESC LIMIT 8;"
+                    sql: "SELECT o.id AS order_id, c.name AS customer, p.name AS product, oi.quantity, o.status, pay.status AS payment_status FROM orders o JOIN customers c ON c.id = o.customer_id JOIN order_items oi ON oi.order_id = o.id JOIN products p ON p.id = oi.product_id JOIN payments pay ON pay.order_id = o.id ORDER BY o.id DESC, oi.line_number ASC LIMIT 8;"
                         .to_string(),
                     open_er_diagram: true,
                 },
@@ -485,7 +491,7 @@ impl HelpDialog {
             "手动练习",
             &[
                 "1. 先打开学习示例库，选中 `customers` 表。",
-                "2. 在编辑器输入 `INSERT INTO customers (id, name, city, level) VALUES (7, 'Grace He', 'Suzhou', 'Silver');`。",
+                "2. 在编辑器输入 `INSERT INTO customers (id, name, city, level) VALUES (1001, 'Grace He', 'Suzhou', 'Silver');`。",
                 "3. 执行后，再运行 `SELECT id, name, city, level FROM customers ORDER BY id DESC LIMIT 3;`。",
                 "4. 观察结果区：新增客户已经出现在表中。",
             ],
@@ -498,7 +504,7 @@ impl HelpDialog {
                 "自动演示 INSERT",
                 HelpAction::RunLearningMutationDemo {
                     reset: true,
-                    mutation_sql: "INSERT INTO customers (id, name, city, level) VALUES (7, 'Grace He', 'Suzhou', 'Silver');"
+                    mutation_sql: "INSERT INTO customers (id, name, city, level) VALUES (1001, 'Grace He', 'Suzhou', 'Silver');"
                         .to_string(),
                     preview_table: Some("customers".to_string()),
                     preview_sql:
@@ -539,8 +545,9 @@ impl HelpDialog {
             "手动练习",
             &[
                 "1. 先执行 `PRAGMA table_info('customers');`，观察哪些列不允许为空、哪些列带默认值。",
-                "2. 再执行 `PRAGMA foreign_key_list('orders');`，观察订单表如何指向客户表。",
-                "3. 如果想更直观，再打开 ER 图，把图形关系和外键信息对上。",
+                "2. 再执行 `PRAGMA foreign_key_list('orders');`，观察订单表如何指向客户与地址表。",
+                "3. 最后执行 `PRAGMA foreign_key_list('payments');`，观察支付表如何挂到订单表上。",
+                "4. 如果想更直观，再打开 ER 图，把图形关系和外键信息对上。",
             ],
         );
 
@@ -563,7 +570,14 @@ impl HelpDialog {
                     open_er_diagram: false,
                 },
             )),
-            Some(("打开学习示例 ER 图", HelpAction::ShowLearningErDiagram)),
+            Some((
+                "自动查看 payments 外键",
+                HelpAction::RunLearningQuery {
+                    table: Some("payments".to_string()),
+                    sql: "PRAGMA foreign_key_list('payments');".to_string(),
+                    open_er_diagram: false,
+                },
+            )),
         );
     }
 
@@ -592,7 +606,7 @@ impl HelpDialog {
                 "1. 先运行 `SELECT id, status FROM orders WHERE id = 1004;`，确认要修改的是哪一行。",
                 "2. 再执行 `UPDATE orders SET status = 'SHIPPED' WHERE id = 1004;`。",
                 "3. 然后执行 `SELECT id, status FROM orders WHERE id = 1004;`，观察状态是否变化。",
-                "4. 如果要练习删除，先重置示例库，再执行 `DELETE FROM orders WHERE id = 1006;`，最后用 `SELECT COUNT(*) FROM orders WHERE id = 1006;` 验证。",
+                "4. 如果要练习删除，先重置示例库，再执行 `DELETE FROM orders WHERE id = 1006;`，最后同时检查订单、订单明细、支付记录是否都被移除。",
             ],
         );
 
@@ -616,11 +630,11 @@ impl HelpDialog {
                 HelpAction::RunLearningMutationDemo {
                     reset: true,
                     mutation_sql: "DELETE FROM orders WHERE id = 1006;".to_string(),
-                    preview_table: Some("orders".to_string()),
+                    preview_table: None,
                     preview_sql:
-                        "SELECT COUNT(*) AS deleted_row_count FROM orders WHERE id = 1006;"
+                        "SELECT (SELECT COUNT(*) FROM orders WHERE id = 1006) AS orders_left, (SELECT COUNT(*) FROM order_items WHERE order_id = 1006) AS order_items_left, (SELECT COUNT(*) FROM payments WHERE order_id = 1006) AS payments_left;"
                             .to_string(),
-                    success_message: "DELETE 演示已完成，订单 1006 已从学习示例库移除。"
+                    success_message: "DELETE 演示已完成，订单 1006 及其关联明细、支付记录都已从学习示例库移除。"
                         .to_string(),
                 },
             )),
@@ -653,10 +667,10 @@ impl HelpDialog {
             ui,
             "手动练习",
             &[
-                "1. 先查看 `SELECT id, status FROM orders WHERE id = 1004;`。",
-                "2. 执行 `BEGIN; UPDATE orders SET status = 'PAID' WHERE id = 1004; ROLLBACK;`。",
-                "3. 再查一次同一条记录，观察状态没有变化。",
-                "4. 如果把 `ROLLBACK` 换成 `COMMIT`，结果才会真正保留下来。",
+                "1. 先查看 `SELECT o.id, o.status, o.payment_status, p.status AS payment_record_status, p.paid_at FROM orders o JOIN payments p ON p.order_id = o.id WHERE o.id = 1004;`。",
+                "2. 执行 `BEGIN; UPDATE orders SET status = 'PAID', payment_status = 'PAID' WHERE id = 1004; UPDATE payments SET status = 'CAPTURED', paid_at = '2026-04-01 10:00:00', settled_at = '2026-04-01 12:00:00' WHERE order_id = 1004; ROLLBACK;`。",
+                "3. 再查一次同一订单和支付记录，观察两张表都没有被改动。",
+                "4. 如果把 `ROLLBACK` 换成 `COMMIT`，订单状态和支付状态才会一起真正保留下来。",
             ],
         );
 
@@ -668,12 +682,14 @@ impl HelpDialog {
                 HelpAction::RunLearningMutationDemo {
                     reset: true,
                     mutation_sql:
-                        "BEGIN;\nUPDATE orders SET status = 'PAID' WHERE id = 1004;\nROLLBACK;"
+                        "BEGIN;\nUPDATE orders SET status = 'PAID', payment_status = 'PAID' WHERE id = 1004;\nUPDATE payments SET status = 'CAPTURED', paid_at = '2026-04-01 10:00:00', settled_at = '2026-04-01 12:00:00' WHERE order_id = 1004;\nROLLBACK;"
                             .to_string(),
                     preview_table: Some("orders".to_string()),
-                    preview_sql: "SELECT id, status, total_amount FROM orders WHERE id = 1004;"
+                    preview_sql: "SELECT o.id, o.status, o.payment_status, p.status AS payment_record_status, p.paid_at FROM orders o JOIN payments p ON p.order_id = o.id WHERE o.id = 1004;"
                         .to_string(),
-                    success_message: "事务回滚演示已完成，订单 1004 保持原始状态。".to_string(),
+                    success_message:
+                        "事务回滚演示已完成，订单 1004 与其支付记录都保持原始状态。"
+                            .to_string(),
                 },
             )),
             Some((
@@ -681,12 +697,14 @@ impl HelpDialog {
                 HelpAction::RunLearningMutationDemo {
                     reset: true,
                     mutation_sql:
-                        "BEGIN;\nUPDATE orders SET status = 'PAID' WHERE id = 1004;\nCOMMIT;"
+                        "BEGIN;\nUPDATE orders SET status = 'PAID', payment_status = 'PAID' WHERE id = 1004;\nUPDATE payments SET status = 'CAPTURED', paid_at = '2026-04-01 10:00:00', settled_at = '2026-04-01 12:00:00' WHERE order_id = 1004;\nCOMMIT;"
                             .to_string(),
                     preview_table: Some("orders".to_string()),
-                    preview_sql: "SELECT id, status, total_amount FROM orders WHERE id = 1004;"
+                    preview_sql: "SELECT o.id, o.status, o.payment_status, p.status AS payment_record_status, p.paid_at FROM orders o JOIN payments p ON p.order_id = o.id WHERE o.id = 1004;"
                         .to_string(),
-                    success_message: "事务提交演示已完成，订单 1004 的状态已真正更新。".to_string(),
+                    success_message:
+                        "事务提交演示已完成，订单 1004 与其支付记录已被一致地更新。"
+                            .to_string(),
                 },
             )),
             Some((

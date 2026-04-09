@@ -48,7 +48,7 @@ use egui::{self, Key};
 use tracing::debug;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum GridCommandShortcut {
+pub(crate) enum GridCommandShortcut {
     OpenFilter,
     AddRowBelow,
     AddRowAbove,
@@ -75,6 +75,12 @@ struct GridSequenceStep {
 struct GridSequence {
     raw: String,
     steps: Vec<GridSequenceStep>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GridSequenceConflictKind {
+    Exact,
+    Prefix,
 }
 
 enum GridNormalInput {
@@ -113,7 +119,28 @@ impl CmdBuffer {
 }
 
 impl GridCommandShortcut {
-    fn config_key(self) -> &'static str {
+    pub(crate) const ALL: [Self; 14] = [
+        Self::OpenFilter,
+        Self::AddRowBelow,
+        Self::AddRowAbove,
+        Self::Save,
+        Self::Discard,
+        Self::JumpFileStart,
+        Self::JumpFileEnd,
+        Self::JumpLineStart,
+        Self::JumpLineEnd,
+        Self::ScrollCenter,
+        Self::ScrollTop,
+        Self::ScrollBottom,
+        Self::DeleteRow,
+        Self::CopyRow,
+    ];
+
+    pub(crate) fn all() -> &'static [Self] {
+        &Self::ALL
+    }
+
+    pub(crate) fn config_key(self) -> &'static str {
         match self {
             Self::OpenFilter => "grid.normal.open_filter",
             Self::AddRowBelow => "grid.normal.add_row_below",
@@ -132,7 +159,7 @@ impl GridCommandShortcut {
         }
     }
 
-    fn default_sequences(self) -> &'static [&'static str] {
+    pub(crate) fn default_sequences(self) -> &'static [&'static str] {
         match self {
             Self::OpenFilter => &["/"],
             Self::AddRowBelow => &["o"],
@@ -201,7 +228,7 @@ fn effective_grid_command_sequences(
         .collect()
 }
 
-pub(super) fn grid_command_shortcuts(
+pub(crate) fn grid_command_shortcuts(
     keybindings: &KeyBindings,
     command: GridCommandShortcut,
 ) -> Vec<String> {
@@ -229,6 +256,36 @@ fn first_grid_shortcut(keybindings: &KeyBindings, command: GridCommandShortcut) 
         .into_iter()
         .next()
         .unwrap_or_default()
+}
+
+pub(crate) fn normalize_grid_command_sequence(sequence: &str) -> Option<String> {
+    let parsed = parse_grid_sequence(sequence)?;
+    Some(match parsed.steps.as_slice() {
+        [step] => step.token.clone(),
+        [first, second] if first.token == " " => format!("Space+{}", second.token),
+        [first, second] if first.token == ":" => format!(":{}", second.token),
+        steps => steps.iter().map(|step| step.token.as_str()).collect(),
+    })
+}
+
+pub(crate) fn grid_command_sequence_conflict(
+    left: &str,
+    right: &str,
+) -> Option<GridSequenceConflictKind> {
+    let left = parse_grid_sequence(left)?;
+    let right = parse_grid_sequence(right)?;
+
+    if left.steps == right.steps {
+        return Some(GridSequenceConflictKind::Exact);
+    }
+
+    if is_grid_sequence_prefix(&left.steps, &right.steps)
+        || is_grid_sequence_prefix(&right.steps, &left.steps)
+    {
+        return Some(GridSequenceConflictKind::Prefix);
+    }
+
+    None
 }
 
 fn parse_grid_sequence(sequence: &str) -> Option<GridSequence> {
@@ -333,6 +390,14 @@ fn char_to_keycode(ch: char) -> Option<KeyCode> {
         'Z' => KeyCode::Z,
         _ => return None,
     })
+}
+
+fn is_grid_sequence_prefix(left: &[GridSequenceStep], right: &[GridSequenceStep]) -> bool {
+    left.len() < right.len()
+        && left
+            .iter()
+            .zip(right.iter())
+            .all(|(left, right)| left.token == right.token)
 }
 
 fn space_step() -> GridSequenceStep {

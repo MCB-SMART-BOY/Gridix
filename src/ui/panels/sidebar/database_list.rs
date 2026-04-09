@@ -80,6 +80,7 @@ impl DatabaseList {
 
             // 左键点击 - 选择数据库
             if db_response.clicked() {
+                actions.section_change = Some(SidebarSection::Databases);
                 connection_manager.active = Some(conn_name.to_string());
                 actions.select_database = Some(database.clone());
             }

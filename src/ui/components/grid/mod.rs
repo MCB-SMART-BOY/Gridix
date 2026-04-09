@@ -14,7 +14,7 @@
 
 mod actions;
 pub mod filter;
-mod keyboard;
+pub(crate) mod keyboard;
 mod mode;
 mod render;
 mod state;
@@ -24,6 +24,10 @@ pub use actions::{
 };
 pub use filter::{
     ColumnFilter, FilterCache, FilterLogic, FilterOperator, check_filter_match, filter_rows_cached,
+};
+pub(crate) use keyboard::{
+    GridCommandShortcut, GridSequenceConflictKind, grid_command_sequence_conflict,
+    grid_command_shortcuts, normalize_grid_command_sequence,
 };
 #[allow(unused_imports)] // 公开 API，供外部使用
 pub use mode::GridMode;
@@ -141,6 +145,7 @@ impl DataGrid {
         // 获取每列的最佳宽度（使用缓存优化）
         let col_widths =
             Self::get_column_widths(result, &filtered_rows, &mut state.column_width_cache);
+        let was_focused = state.focused;
 
         // 收集需要添加筛选的列
         let mut columns_to_filter: Vec<String> = Vec::new();
@@ -325,6 +330,10 @@ impl DataGrid {
         // 点击表格区域聚焦
         if table_response.response.clicked() {
             state.focused = true;
+            actions.request_focus = true;
+        }
+
+        if !was_focused && state.focused {
             actions.request_focus = true;
         }
 

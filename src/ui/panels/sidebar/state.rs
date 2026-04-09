@@ -82,6 +82,8 @@ pub struct SidebarPanelState {
     pub dragging_divider: Option<usize>,
     /// 命令缓冲区（用于多键命令如 gs）
     pub command_buffer: String,
+    /// 筛选值输入框当前是否持有文本焦点
+    pub filter_input_has_focus: bool,
 }
 
 impl Default for SidebarPanelState {
@@ -112,6 +114,7 @@ impl Default for SidebarPanelState {
             selection: SidebarSelectionState::default(),
             dragging_divider: None,
             command_buffer: String::new(),
+            filter_input_has_focus: false,
         }
     }
 }

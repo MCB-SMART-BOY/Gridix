@@ -22,6 +22,10 @@ pub use grid::{
     ColumnFilter, DataGrid, DataGridState, FilterCache, FilterLogic, FilterOperator, FocusTransfer,
     check_filter_match, escape_identifier, escape_value, filter_rows_cached, quote_identifier,
 };
+pub(crate) use grid::{
+    GridCommandShortcut, GridSequenceConflictKind, grid_command_sequence_conflict,
+    grid_command_shortcuts, normalize_grid_command_sequence,
+};
 
 // 欢迎页面
 pub use welcome::{

@@ -9,6 +9,117 @@ use eframe::egui;
 use super::DbManagerApp;
 
 impl DbManagerApp {
+    fn action_triggered_in_input(
+        keybindings: &crate::core::KeyBindings,
+        action: Action,
+        input: &egui::InputState,
+    ) -> bool {
+        keybindings.get(action).is_some_and(|binding| {
+            binding.modifiers.matches(&input.modifiers)
+                && input.key_pressed(binding.key.to_egui_key())
+        })
+    }
+
+    fn consume_action_binding(&self, action: Action, input: &mut egui::InputState) -> bool {
+        self.keybindings.get(action).is_some_and(|binding| {
+            input.consume_key(binding.modifiers.to_egui(), binding.key.to_egui_key())
+        })
+    }
+
+    fn handle_focus_fallback_shortcuts(&mut self, input: &mut egui::InputState) -> bool {
+        if self.focus_area == ui::FocusArea::Sidebar
+            && !(self.sidebar_section == ui::SidebarSection::Filters
+                && self.sidebar_panel_state.filter_input_has_focus)
+        {
+            let move_right = input.consume_key(egui::Modifiers::NONE, egui::Key::L)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight);
+            if move_right {
+                match self.sidebar_section {
+                    ui::SidebarSection::Connections => {
+                        if self
+                            .manager
+                            .get_active()
+                            .is_some_and(|connection| !connection.databases.is_empty())
+                        {
+                            self.sidebar_section = ui::SidebarSection::Databases;
+                        } else {
+                            self.set_focus_area(ui::FocusArea::DataGrid);
+                        }
+                    }
+                    ui::SidebarSection::Databases => {
+                        if self
+                            .manager
+                            .get_active()
+                            .is_some_and(|connection| !connection.tables.is_empty())
+                        {
+                            self.sidebar_section = ui::SidebarSection::Tables;
+                        } else {
+                            self.set_focus_area(ui::FocusArea::DataGrid);
+                        }
+                    }
+                    ui::SidebarSection::Tables
+                    | ui::SidebarSection::Filters
+                    | ui::SidebarSection::Triggers
+                    | ui::SidebarSection::Routines => {
+                        self.set_focus_area(ui::FocusArea::DataGrid);
+                    }
+                }
+                return true;
+            }
+        }
+
+        if self.focus_area == ui::FocusArea::SqlEditor && self.show_sql_editor {
+            if ui::consume_local_shortcut(input, ui::LocalShortcut::Cancel) {
+                if self.show_autocomplete {
+                    self.show_autocomplete = false;
+                } else if self.editor_mode == ui::EditorMode::Insert {
+                    self.editor_mode = ui::EditorMode::Normal;
+                    self.set_focus_area(ui::FocusArea::SqlEditor);
+                } else {
+                    self.set_focus_area(ui::FocusArea::DataGrid);
+                }
+                return true;
+            }
+
+            if self.consume_action_binding(Action::ToggleEditor, input) {
+                self.toggle_sql_editor_visibility();
+                return true;
+            }
+        }
+
+        if self.focus_area == ui::FocusArea::DataGrid
+            && self.grid_state.focused
+            && self.grid_state.editing_cell.is_none()
+            && let Some(result) = &self.result
+        {
+            let max_row = result.rows.len();
+            let max_col = result.columns.len();
+
+            if max_row > 0 && max_col > 0 {
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
+                    || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
+                {
+                    if self.grid_state.cursor.1 == 0 {
+                        self.show_sidebar = true;
+                        self.set_focus_area(ui::FocusArea::Sidebar);
+                    } else {
+                        self.grid_state.move_cursor(0, -1, max_row, max_col);
+                    }
+                    return true;
+                }
+
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
+                    || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
+                {
+                    self.grid_state.move_cursor(0, 1, max_row, max_col);
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     /// 处理键盘快捷键
     pub(super) fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
         // 检查是否有模态对话框打开
@@ -16,13 +127,10 @@ impl DbManagerApp {
         let has_dialog = input_context.has_modal_dialog;
         let keybindings = self.keybindings.clone();
 
-        ctx.input(|i| {
-            let action_triggered = |action: Action| {
-                keybindings.get(action).is_some_and(|binding| {
-                    binding.modifiers.matches(&i.modifiers)
-                        && i.key_pressed(binding.key.to_egui_key())
-                })
-            };
+        ctx.input_mut(|i| {
+            if self.handle_focus_fallback_shortcuts(i) {
+                return;
+            }
 
             // ===== 对话框打开时跳过以下快捷键 =====
             if has_dialog {
@@ -30,52 +138,56 @@ impl DbManagerApp {
             }
 
             // Ctrl+Shift+N: 新建表
-            if action_triggered(Action::NewTable)
+            if Self::action_triggered_in_input(&keybindings, Action::NewTable, i)
                 && input_context.allows_workspace_creation_shortcuts()
             {
                 self.open_create_table_dialog();
             }
 
             // Ctrl+Shift+D: 新建数据库
-            if action_triggered(Action::NewDatabase)
+            if Self::action_triggered_in_input(&keybindings, Action::NewDatabase, i)
                 && input_context.allows_workspace_creation_shortcuts()
             {
                 self.open_create_database_dialog();
             }
 
             // Ctrl+Shift+U: 新建用户
-            if action_triggered(Action::NewUser)
+            if Self::action_triggered_in_input(&keybindings, Action::NewUser, i)
                 && input_context.allows_workspace_creation_shortcuts()
             {
                 self.open_create_user_dialog();
             }
 
             // Ctrl+E: 导出
-            if action_triggered(Action::Export) && input_context.allows_import_export_shortcuts() {
+            if Self::action_triggered_in_input(&keybindings, Action::Export, i)
+                && input_context.allows_import_export_shortcuts()
+            {
                 self.open_export_dialog();
             }
 
             // Ctrl+I: 导入
-            if action_triggered(Action::Import) && input_context.allows_import_export_shortcuts() {
+            if Self::action_triggered_in_input(&keybindings, Action::Import, i)
+                && input_context.allows_import_export_shortcuts()
+            {
                 self.open_import_dialog();
             }
 
             // Ctrl+H: 历史记录
-            if action_triggered(Action::ShowHistory)
+            if Self::action_triggered_in_input(&keybindings, Action::ShowHistory, i)
                 && input_context.allows_workspace_overlay_shortcuts()
             {
                 self.toggle_history_panel();
             }
 
             // Ctrl+R: 切换 ER 关系图
-            if action_triggered(Action::ToggleErDiagram)
+            if Self::action_triggered_in_input(&keybindings, Action::ToggleErDiagram, i)
                 && input_context.allows_workspace_overlay_shortcuts()
             {
                 self.toggle_er_diagram_visibility();
             }
 
             // F5: 刷新表列表
-            if action_triggered(Action::Refresh)
+            if Self::action_triggered_in_input(&keybindings, Action::Refresh, i)
                 && input_context.allows_refresh()
                 && let Some(name) = self.manager.active.clone()
             {
@@ -83,7 +195,7 @@ impl DbManagerApp {
             }
 
             // Ctrl+L: 清空命令行
-            if action_triggered(Action::ClearCommandLine)
+            if Self::action_triggered_in_input(&keybindings, Action::ClearCommandLine, i)
                 && input_context.allows_clear_command_line()
             {
                 self.sql.clear();
@@ -91,63 +203,78 @@ impl DbManagerApp {
             }
 
             // Ctrl+J: 切换 SQL 编辑器显示
-            if action_triggered(Action::ToggleEditor)
-                && input_context.allows_panel_visibility_toggle()
+            if Self::action_triggered_in_input(&keybindings, Action::ToggleEditor, i)
+                && input_context.allows_editor_visibility_toggle()
             {
                 self.toggle_sql_editor_visibility();
             }
 
             // Ctrl+B: 切换侧边栏显示
-            if action_triggered(Action::ToggleSidebar)
+            if Self::action_triggered_in_input(&keybindings, Action::ToggleSidebar, i)
                 && input_context.allows_panel_visibility_toggle()
             {
                 self.toggle_sidebar_visibility();
             }
 
             // Ctrl+K: 清空搜索
-            if action_triggered(Action::ClearSearch) && input_context.allows_search_shortcuts() {
+            if Self::action_triggered_in_input(&keybindings, Action::ClearSearch, i)
+                && input_context.allows_search_shortcuts()
+            {
                 self.search_text.clear();
             }
 
             // Ctrl+F: 添加筛选条件
-            if action_triggered(Action::AddFilter) && input_context.allows_filter_shortcuts() {
+            if Self::action_triggered_in_input(&keybindings, Action::AddFilter, i)
+                && input_context.allows_filter_shortcuts()
+            {
                 self.add_sidebar_filter();
             }
 
             // Ctrl+Shift+F: 清空筛选条件
-            if action_triggered(Action::ClearFilters) && input_context.allows_filter_shortcuts() {
+            if Self::action_triggered_in_input(&keybindings, Action::ClearFilters, i)
+                && input_context.allows_filter_shortcuts()
+            {
                 self.clear_sidebar_filters();
             }
 
             // Ctrl+S: 触发保存表格修改
-            if action_triggered(Action::Save) && input_context.allows_data_grid_shortcuts() {
+            if Self::action_triggered_in_input(&keybindings, Action::Save, i)
+                && input_context.allows_data_grid_shortcuts()
+            {
                 self.grid_state.pending_save = true;
             }
 
             // Ctrl+G: 跳转到行
-            if action_triggered(Action::GotoLine) && input_context.allows_data_grid_shortcuts() {
+            if Self::action_triggered_in_input(&keybindings, Action::GotoLine, i)
+                && input_context.allows_data_grid_shortcuts()
+            {
                 self.grid_state.show_goto_dialog = true;
             }
 
             // 用户可选：新建查询标签页（默认未绑定）
-            if action_triggered(Action::NewTab) && input_context.allows_tab_management_shortcuts() {
+            if Self::action_triggered_in_input(&keybindings, Action::NewTab, i)
+                && input_context.allows_tab_management_shortcuts()
+            {
                 self.open_new_query_tab();
             }
 
             // Ctrl+Tab: 下一个查询标签页
-            if action_triggered(Action::NextTab) && input_context.allows_tab_management_shortcuts()
+            if Self::action_triggered_in_input(&keybindings, Action::NextTab, i)
+                && input_context.allows_tab_management_shortcuts()
             {
                 self.select_next_query_tab();
             }
 
             // Ctrl+Shift+Tab: 上一个查询标签页
-            if action_triggered(Action::PrevTab) && input_context.allows_tab_management_shortcuts()
+            if Self::action_triggered_in_input(&keybindings, Action::PrevTab, i)
+                && input_context.allows_tab_management_shortcuts()
             {
                 self.select_previous_query_tab();
             }
 
             // Ctrl+W: 关闭当前查询标签页
-            if action_triggered(Action::CloseTab) && input_context.allows_tab_management_shortcuts()
+            if Self::action_triggered_in_input(&keybindings, Action::CloseTab, i)
+                && input_context.allows_tab_management_shortcuts()
             {
                 self.close_active_query_tab();
             }
@@ -202,34 +329,7 @@ impl DbManagerApp {
         };
 
         let new_focus = areas[next_idx];
-        self.focus_area = new_focus;
-
-        // 更新焦点状态
-        match new_focus {
-            ui::FocusArea::Toolbar => {
-                self.grid_state.focused = false;
-                self.focus_sql_editor = false;
-            }
-            ui::FocusArea::QueryTabs => {
-                self.grid_state.focused = false;
-                self.focus_sql_editor = false;
-            }
-            ui::FocusArea::Sidebar => {
-                self.grid_state.focused = false;
-                self.focus_sql_editor = false;
-            }
-            ui::FocusArea::DataGrid => {
-                self.grid_state.focused = true;
-                self.focus_sql_editor = false;
-            }
-            ui::FocusArea::SqlEditor => {
-                self.grid_state.focused = false;
-                self.focus_sql_editor = true;
-            }
-            ui::FocusArea::Dialog => {
-                // 对话框焦点由对话框系统管理，不在这里处理
-            }
-        }
+        self.set_focus_area(new_focus);
     }
 
     /// 处理缩放快捷键

@@ -41,8 +41,8 @@ impl InputContextSnapshot {
             return InputScope::Dialog;
         }
 
-        let editor_has_priority = self.show_sql_editor
-            && (self.focus_area == ui::FocusArea::SqlEditor || self.focus_sql_editor);
+        let editor_has_priority =
+            self.show_sql_editor && self.focus_area == ui::FocusArea::SqlEditor;
 
         if editor_has_priority {
             return match self.editor_mode {
@@ -115,6 +115,12 @@ impl InputContextSnapshot {
         !self.is_text_entry_scope() && self.focused_scope() != InputScope::Dialog
     }
 
+    pub(super) fn allows_editor_visibility_toggle(self) -> bool {
+        !self.has_modal_dialog
+            && self.focused_scope() != InputScope::Dialog
+            && self.focused_scope() != InputScope::TextInput
+    }
+
     pub(super) fn allows_import_export_shortcuts(self) -> bool {
         matches!(
             self.focused_scope(),
@@ -174,6 +180,27 @@ impl InputContextSnapshot {
 }
 
 impl DbManagerApp {
+    pub(super) fn set_focus_area(&mut self, area: ui::FocusArea) {
+        self.focus_area = area;
+        match area {
+            ui::FocusArea::DataGrid => {
+                self.grid_state.focused = true;
+                self.focus_sql_editor = false;
+            }
+            ui::FocusArea::SqlEditor => {
+                self.grid_state.focused = false;
+                self.focus_sql_editor = true;
+            }
+            ui::FocusArea::Toolbar
+            | ui::FocusArea::QueryTabs
+            | ui::FocusArea::Sidebar
+            | ui::FocusArea::Dialog => {
+                self.grid_state.focused = false;
+                self.focus_sql_editor = false;
+            }
+        }
+    }
+
     /// 处理集中式输入路由。
     ///
     /// 这里先只接管真正跨区域的快捷键，避免继续在多个模块里重复拦截。
@@ -306,18 +333,14 @@ impl DbManagerApp {
             }
 
             if self.focus_area == ui::FocusArea::Sidebar {
-                self.focus_area = ui::FocusArea::DataGrid;
-                self.grid_state.focused = true;
-                self.focus_sql_editor = false;
+                self.set_focus_area(ui::FocusArea::DataGrid);
             }
             return;
         }
 
         self.show_sidebar = true;
-        self.focus_area = ui::FocusArea::Sidebar;
+        self.set_focus_area(ui::FocusArea::Sidebar);
         self.sidebar_section = section;
-        self.grid_state.focused = false;
-        self.focus_sql_editor = false;
 
         match section {
             ui::SidebarSection::Connections
@@ -339,14 +362,9 @@ impl DbManagerApp {
 
     pub(super) fn set_sidebar_visible(&mut self, visible: bool) {
         self.show_sidebar = visible;
-        if visible {
-            self.focus_area = ui::FocusArea::Sidebar;
-            self.grid_state.focused = false;
-            self.focus_sql_editor = false;
-        } else if self.focus_area == ui::FocusArea::Sidebar {
-            self.focus_area = ui::FocusArea::DataGrid;
-            self.grid_state.focused = true;
-            self.focus_sql_editor = false;
+        let next_focus = focus_after_sidebar_visibility_change(self.focus_area, visible);
+        if next_focus != self.focus_area {
+            self.set_focus_area(next_focus);
         }
     }
 
@@ -357,13 +375,9 @@ impl DbManagerApp {
     pub(super) fn set_sql_editor_visible(&mut self, visible: bool) {
         self.show_sql_editor = visible;
         if visible {
-            self.focus_area = ui::FocusArea::SqlEditor;
-            self.focus_sql_editor = true;
-            self.grid_state.focused = false;
+            self.set_focus_area(ui::FocusArea::SqlEditor);
         } else if self.focus_area == ui::FocusArea::SqlEditor {
-            self.focus_area = ui::FocusArea::DataGrid;
-            self.grid_state.focused = true;
-            self.focus_sql_editor = false;
+            self.set_focus_area(ui::FocusArea::DataGrid);
         } else {
             self.focus_sql_editor = false;
         }
@@ -461,6 +475,17 @@ impl DbManagerApp {
         }
         self.tab_manager.close_active_tab();
         self.sync_from_active_tab();
+    }
+}
+
+fn focus_after_sidebar_visibility_change(
+    current_focus: ui::FocusArea,
+    visible: bool,
+) -> ui::FocusArea {
+    if !visible && current_focus == ui::FocusArea::Sidebar {
+        ui::FocusArea::DataGrid
+    } else {
+        current_focus
     }
 }
 
@@ -564,6 +589,7 @@ mod tests {
         assert!(!context.allows_workspace_creation_shortcuts());
         assert!(!context.allows_workspace_overlay_shortcuts());
         assert!(!context.allows_tab_management_shortcuts());
+        assert!(context.allows_editor_visibility_toggle());
     }
 
     #[test]
@@ -586,5 +612,26 @@ mod tests {
         assert!(!context.allows_workspace_creation_shortcuts());
         assert!(!context.allows_workspace_overlay_shortcuts());
         assert!(!context.allows_tab_management_shortcuts());
+        assert!(!context.allows_editor_visibility_toggle());
+    }
+
+    #[test]
+    fn showing_sidebar_keeps_existing_focus() {
+        assert_eq!(
+            super::focus_after_sidebar_visibility_change(FocusArea::DataGrid, true),
+            FocusArea::DataGrid
+        );
+        assert_eq!(
+            super::focus_after_sidebar_visibility_change(FocusArea::SqlEditor, true),
+            FocusArea::SqlEditor
+        );
+    }
+
+    #[test]
+    fn hiding_sidebar_returns_sidebar_focus_to_data_grid() {
+        assert_eq!(
+            super::focus_after_sidebar_visibility_change(FocusArea::Sidebar, false),
+            FocusArea::DataGrid
+        );
     }
 }
