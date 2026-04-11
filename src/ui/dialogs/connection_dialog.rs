@@ -1,13 +1,13 @@
 //! 数据库连接对话框
+use super::common::{
+    DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow,
+};
 use crate::database::{
     ConnectionConfig, DatabaseType, MySqlSslMode, PostgresSslMode, SshAuthMethod,
 };
-use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_LG, SPACING_MD, SPACING_SM, SUCCESS};
-use crate::ui::{
-    LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
-    local_shortcuts_text,
-};
-use egui::{self, Color32, CornerRadius, RichText, TextEdit};
+use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_MD, SPACING_SM, SUCCESS};
+use crate::ui::{LocalShortcut, local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text};
+use egui::{self, Color32, CornerRadius, RichText, ScrollArea, TextEdit};
 use std::path::Path;
 
 /// 输入验证结果
@@ -93,13 +93,20 @@ fn validate_config(config: &ConnectionConfig) -> ValidationResult {
 pub struct ConnectionDialog;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ConnectionKeyAction {
+enum ConnectionDialogAction {
     Close,
     Confirm,
     SetDatabaseType(DatabaseType),
     CycleDatabaseTypePrev,
     CycleDatabaseTypeNext,
-    BrowseSqliteFile,
+    Browse(ConnectionBrowseTarget),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConnectionBrowseTarget {
+    SqliteFile,
+    CaCertificate,
+    SshPrivateKey,
 }
 
 impl ConnectionDialog {
@@ -116,38 +123,125 @@ impl ConnectionDialog {
         ctx: &egui::Context,
         config: &ConnectionConfig,
         can_confirm: bool,
-    ) -> Option<ConnectionKeyAction> {
-        ctx.input_mut(|i| {
-            if consume_local_shortcut(i, LocalShortcut::Dismiss) {
-                return Some(ConnectionKeyAction::Close);
+    ) -> Option<ConnectionDialogAction> {
+        let shortcuts = DialogShortcutContext::new(ctx);
+
+        if shortcuts.consume_command(LocalShortcut::Dismiss.config_key()) {
+            return Some(ConnectionDialogAction::Close);
+        }
+        if can_confirm && shortcuts.consume_command(LocalShortcut::Confirm.config_key()) {
+            return Some(ConnectionDialogAction::Confirm);
+        }
+
+        if let Some(action) = shortcuts.resolve_commands(&[
+            (
+                LocalShortcut::ConnectionTypeSqlite.config_key(),
+                ConnectionDialogAction::SetDatabaseType(DatabaseType::SQLite),
+            ),
+            (
+                LocalShortcut::ConnectionTypePostgres.config_key(),
+                ConnectionDialogAction::SetDatabaseType(DatabaseType::PostgreSQL),
+            ),
+            (
+                LocalShortcut::ConnectionTypeMySql.config_key(),
+                ConnectionDialogAction::SetDatabaseType(DatabaseType::MySQL),
+            ),
+            (
+                LocalShortcut::ConnectionTypePrev.config_key(),
+                ConnectionDialogAction::CycleDatabaseTypePrev,
+            ),
+            (
+                LocalShortcut::ConnectionTypeNext.config_key(),
+                ConnectionDialogAction::CycleDatabaseTypeNext,
+            ),
+        ]) {
+            return Some(action);
+        }
+
+        if matches!(config.db_type, DatabaseType::SQLite)
+            && shortcuts.consume_command(LocalShortcut::SqliteBrowseFile.config_key())
+        {
+            return Some(ConnectionDialogAction::Browse(
+                ConnectionBrowseTarget::SqliteFile,
+            ));
+        }
+
+        None
+    }
+
+    fn cycle_database_type(config: &mut ConnectionConfig, direction: isize) {
+        let db_types = DatabaseType::all();
+        let current_idx = db_types
+            .iter()
+            .position(|db_type| *db_type == config.db_type)
+            .unwrap_or(0);
+        let next_idx = current_idx as isize + direction;
+        if next_idx >= 0 && next_idx < db_types.len() as isize {
+            Self::apply_database_type(config, db_types[next_idx as usize]);
+        }
+    }
+
+    fn browse_target_path(target: ConnectionBrowseTarget) -> Option<String> {
+        let path = match target {
+            ConnectionBrowseTarget::SqliteFile => rfd::FileDialog::new()
+                .add_filter("SQLite 数据库", &["db", "sqlite", "sqlite3"])
+                .add_filter("所有文件", &["*"])
+                .pick_file(),
+            ConnectionBrowseTarget::CaCertificate => rfd::FileDialog::new()
+                .add_filter("证书文件", &["pem", "crt", "cer"])
+                .add_filter("所有文件", &["*"])
+                .pick_file(),
+            ConnectionBrowseTarget::SshPrivateKey => rfd::FileDialog::new()
+                .add_filter("私钥文件", &["pem", "key", "*"])
+                .pick_file(),
+        }?;
+
+        Some(path.display().to_string())
+    }
+
+    fn apply_browse_target(
+        config: &mut ConnectionConfig,
+        target: ConnectionBrowseTarget,
+        selected_path: String,
+    ) {
+        match target {
+            ConnectionBrowseTarget::SqliteFile => config.database = selected_path,
+            ConnectionBrowseTarget::CaCertificate => config.ssl_ca_cert = selected_path,
+            ConnectionBrowseTarget::SshPrivateKey => {
+                config.ssh_config.private_key_path = selected_path
             }
-            if can_confirm && consume_local_shortcut(i, LocalShortcut::Confirm) {
-                return Some(ConnectionKeyAction::Confirm);
+        }
+    }
+
+    fn apply_dialog_action(
+        action: ConnectionDialogAction,
+        config: &mut ConnectionConfig,
+        on_save: &mut bool,
+        should_close: &mut bool,
+    ) {
+        match action {
+            ConnectionDialogAction::Close => {
+                *should_close = true;
             }
-            if consume_local_shortcut(i, LocalShortcut::ConnectionTypeSqlite) {
-                return Some(ConnectionKeyAction::SetDatabaseType(DatabaseType::SQLite));
+            ConnectionDialogAction::Confirm => {
+                *on_save = true;
+                *should_close = true;
             }
-            if consume_local_shortcut(i, LocalShortcut::ConnectionTypePostgres) {
-                return Some(ConnectionKeyAction::SetDatabaseType(
-                    DatabaseType::PostgreSQL,
-                ));
+            ConnectionDialogAction::SetDatabaseType(db_type) => {
+                Self::apply_database_type(config, db_type);
             }
-            if consume_local_shortcut(i, LocalShortcut::ConnectionTypeMySql) {
-                return Some(ConnectionKeyAction::SetDatabaseType(DatabaseType::MySQL));
+            ConnectionDialogAction::CycleDatabaseTypePrev => {
+                Self::cycle_database_type(config, -1);
             }
-            if consume_local_shortcut(i, LocalShortcut::ConnectionTypePrev) {
-                return Some(ConnectionKeyAction::CycleDatabaseTypePrev);
+            ConnectionDialogAction::CycleDatabaseTypeNext => {
+                Self::cycle_database_type(config, 1);
             }
-            if consume_local_shortcut(i, LocalShortcut::ConnectionTypeNext) {
-                return Some(ConnectionKeyAction::CycleDatabaseTypeNext);
+            ConnectionDialogAction::Browse(target) => {
+                if let Some(path) = Self::browse_target_path(target) {
+                    Self::apply_browse_target(config, target, path);
+                }
             }
-            if matches!(config.db_type, DatabaseType::SQLite)
-                && consume_local_shortcut(i, LocalShortcut::SqliteBrowseFile)
-            {
-                return Some(ConnectionKeyAction::BrowseSqliteFile);
-            }
-            None
-        })
+        }
     }
 
     pub fn show(
@@ -161,52 +255,13 @@ impl ConnectionDialog {
         let mut is_open = *open;
         let mut should_close = false;
 
-        // 键盘快捷键处理（仅在没有文本框焦点时）
-        if !ctx.memory(|mem| mem.focused().is_some()) {
-            let validation = validate_config(config);
-            let db_types = DatabaseType::all();
-            if let Some(key_action) = Self::detect_key_action(ctx, config, validation.is_valid) {
-                match key_action {
-                    ConnectionKeyAction::Close => {
-                        *open = false;
-                        return;
-                    }
-                    ConnectionKeyAction::Confirm => {
-                        *on_save = true;
-                        *open = false;
-                        return;
-                    }
-                    ConnectionKeyAction::SetDatabaseType(db_type) => {
-                        Self::apply_database_type(config, db_type);
-                    }
-                    ConnectionKeyAction::CycleDatabaseTypePrev => {
-                        let current_idx = db_types
-                            .iter()
-                            .position(|t| *t == config.db_type)
-                            .unwrap_or(0);
-                        if current_idx > 0 {
-                            Self::apply_database_type(config, db_types[current_idx - 1]);
-                        }
-                    }
-                    ConnectionKeyAction::CycleDatabaseTypeNext => {
-                        let current_idx = db_types
-                            .iter()
-                            .position(|t| *t == config.db_type)
-                            .unwrap_or(0);
-                        if current_idx < db_types.len() - 1 {
-                            Self::apply_database_type(config, db_types[current_idx + 1]);
-                        }
-                    }
-                    ConnectionKeyAction::BrowseSqliteFile => {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("SQLite 数据库", &["db", "sqlite", "sqlite3"])
-                            .add_filter("所有文件", &["*"])
-                            .pick_file()
-                        {
-                            config.database = path.display().to_string();
-                        }
-                    }
-                }
+        // 键盘快捷键处理（文本输入优先于普通命令键）
+        let validation = validate_config(config);
+        if let Some(key_action) = Self::detect_key_action(ctx, config, validation.is_valid) {
+            Self::apply_dialog_action(key_action, config, on_save, &mut should_close);
+            if should_close {
+                *open = false;
+                return;
             }
         }
 
@@ -216,74 +271,117 @@ impl ConnectionDialog {
             "🔗 新建数据库连接"
         };
 
-        egui::Window::new(dialog_title)
+        let style = DialogStyle::LARGE;
+        let mut click_action = None;
+        DialogWindow::standard(ctx, dialog_title, &style)
             .open(&mut is_open)
-            .resizable(false)
-            .collapsible(false)
-            .min_width(480.0)
             .show(ctx, |ui| {
                 ui.add_space(SPACING_MD);
 
-                // 数据库类型选择卡片
-                Self::show_db_type_selector(ui, config);
-
-                ui.add_space(SPACING_LG);
-
-                // 连接表单
-                Self::show_connection_form(ui, config);
-
-                ui.add_space(SPACING_MD);
-
-                // 实时检查清单
-                Self::show_realtime_checklist(ui, config);
-
-                ui.add_space(SPACING_LG);
-
-                Self::show_advanced_toggle(ui, show_advanced);
-                ui.add_space(SPACING_MD);
-
-                if *show_advanced {
-                    // SSL/TLS 配置
-                    match config.db_type {
-                        DatabaseType::MySQL => {
-                            Self::show_mysql_ssl_config(ui, config);
-                            ui.add_space(SPACING_LG);
-                        }
-                        DatabaseType::PostgreSQL => {
-                            Self::show_postgres_ssl_config(ui, config);
-                            ui.add_space(SPACING_LG);
-                        }
-                        DatabaseType::SQLite => {}
-                    }
-
-                    // SSH 隧道配置（仅对非 SQLite 显示）
-                    if !matches!(config.db_type, DatabaseType::SQLite) {
-                        Self::show_ssh_tunnel_config(ui, config);
-                        ui.add_space(SPACING_LG);
-                    }
-
-                    // 连接字符串预览
-                    Self::show_connection_preview(ui, config);
-                } else {
-                    ui.horizontal(|ui| {
-                        ui.add_space(SPACING_MD);
-                        ui.label(
-                            RichText::new("已隐藏 SSL/SSH/连接字符串等高级配置")
-                                .small()
-                                .color(MUTED),
+                ScrollArea::vertical()
+                    .max_height(DialogContent::adaptive_height(ui, 0.82, 300.0, 620.0))
+                    .show(ui, |ui| {
+                        DialogContent::section_with_description(
+                            ui,
+                            "数据库类型",
+                            "先确定连接类型，再补齐对应的主机、文件或认证字段。",
+                            |ui| Self::show_db_type_selector(ui, config),
                         );
+
+                        DialogContent::section_with_description(
+                            ui,
+                            "连接信息",
+                            "核心字段始终固定在前，高级能力单独放在后面。",
+                            |ui| {
+                                if click_action.is_none() {
+                                    click_action = Self::show_connection_form(ui, config);
+                                } else {
+                                    let _ = Self::show_connection_form(ui, config);
+                                }
+                            },
+                        );
+
+                        DialogContent::section_with_description(
+                            ui,
+                            "实时检查",
+                            "保存前先给出最小可用性检查，避免无效配置直接落盘。",
+                            |ui| Self::show_realtime_checklist(ui, config),
+                        );
+
+                        Self::show_advanced_toggle(ui, show_advanced);
+                        ui.add_space(SPACING_MD);
+
+                        if *show_advanced {
+                            match config.db_type {
+                                DatabaseType::MySQL => {
+                                    DialogContent::section_with_description(
+                                        ui,
+                                        "SSL / TLS",
+                                        "加密链路配置与连接核心参数分离，避免信息堆叠。",
+                                        |ui| {
+                                            if click_action.is_none() {
+                                                click_action =
+                                                    Self::show_mysql_ssl_config(ui, config);
+                                            } else {
+                                                let _ = Self::show_mysql_ssl_config(ui, config);
+                                            }
+                                        },
+                                    );
+                                }
+                                DatabaseType::PostgreSQL => {
+                                    DialogContent::section_with_description(
+                                        ui,
+                                        "SSL / TLS",
+                                        "按 PostgreSQL 语义展示验证级别和证书字段。",
+                                        |ui| {
+                                            if click_action.is_none() {
+                                                click_action =
+                                                    Self::show_postgres_ssl_config(ui, config);
+                                            } else {
+                                                let _ = Self::show_postgres_ssl_config(ui, config);
+                                            }
+                                        },
+                                    );
+                                }
+                                DatabaseType::SQLite => {}
+                            }
+
+                            if !matches!(config.db_type, DatabaseType::SQLite) {
+                                DialogContent::section_with_description(
+                                    ui,
+                                    "SSH 隧道",
+                                    "SSH 只在需要时展开，避免常规直连场景被额外字段干扰。",
+                                    |ui| {
+                                        if click_action.is_none() {
+                                            click_action = Self::show_ssh_tunnel_config(ui, config);
+                                        } else {
+                                            let _ = Self::show_ssh_tunnel_config(ui, config);
+                                        }
+                                    },
+                                );
+                            }
+
+                            DialogContent::section_with_description(
+                                ui,
+                                "连接字符串预览",
+                                "用于快速校验目标地址和方言，敏感字段会自动脱敏。",
+                                |ui| Self::show_connection_preview(ui, config),
+                            );
+                        } else {
+                            DialogContent::info_text(
+                                ui,
+                                "已隐藏 SSL、SSH 和连接字符串预览，聚焦核心连接字段。",
+                            );
+                            ui.add_space(SPACING_SM);
+                        }
                     });
-                }
 
-                ui.add_space(SPACING_LG);
-                ui.separator();
-                ui.add_space(SPACING_MD);
-
-                // 底部按钮
-                Self::show_buttons(ui, config, on_save, &mut should_close, is_edit_mode);
-
-                ui.add_space(SPACING_SM);
+                Self::show_buttons(ui, config, on_save, &mut should_close, is_edit_mode, &style);
             });
+
+        if let Some(action) = click_action {
+            Self::apply_dialog_action(action, config, on_save, &mut should_close);
+        }
 
         if should_close {
             is_open = false;
@@ -292,25 +390,21 @@ impl ConnectionDialog {
     }
 
     fn show_advanced_toggle(ui: &mut egui::Ui, show_advanced: &mut bool) {
-        egui::Frame::NONE
-            .fill(Color32::from_rgba_unmultiplied(120, 120, 130, 10))
-            .corner_radius(CornerRadius::same(6))
-            .inner_margin(egui::Margin::symmetric(10, 8))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    if ui
-                        .button(if *show_advanced {
-                            "收起高级配置"
-                        } else {
-                            "显示高级配置（SSL/SSH/连接串）"
-                        })
-                        .clicked()
-                    {
-                        *show_advanced = !*show_advanced;
-                    }
-                    ui.label(RichText::new("默认只保留核心连接字段").small().color(MUTED));
-                });
+        DialogContent::toolbar(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .button(if *show_advanced {
+                        "收起高级配置"
+                    } else {
+                        "显示高级配置（SSL / SSH / 连接串）"
+                    })
+                    .clicked()
+                {
+                    *show_advanced = !*show_advanced;
+                }
+                ui.label(RichText::new("默认只保留核心连接字段").small().color(MUTED));
             });
+        });
     }
 
     /// 数据库类型选择器
@@ -400,126 +494,109 @@ impl ConnectionDialog {
     }
 
     /// 连接表单
-    fn show_connection_form(ui: &mut egui::Ui, config: &mut ConnectionConfig) {
-        egui::Frame::NONE
-            .fill(Color32::from_rgba_unmultiplied(100, 100, 110, 10))
-            .corner_radius(CornerRadius::same(8))
-            .inner_margin(egui::Margin::symmetric(16, 12))
+    fn show_connection_form(
+        ui: &mut egui::Ui,
+        config: &mut ConnectionConfig,
+    ) -> Option<ConnectionDialogAction> {
+        let mut action = None;
+        egui::Grid::new("connection_form")
+            .num_columns(2)
+            .spacing([16.0, 10.0])
             .show(ui, |ui| {
-                egui::Grid::new("connection_form")
-                    .num_columns(2)
-                    .spacing([16.0, 10.0])
-                    .show(ui, |ui| {
-                        // 连接名称
-                        ui.label(RichText::new("连接名称").color(GRAY));
+                ui.label(RichText::new("连接名称").color(GRAY));
+                ui.add(
+                    TextEdit::singleline(&mut config.name)
+                        .hint_text("我的数据库")
+                        .char_limit(64)
+                        .desired_width(280.0),
+                );
+                ui.end_row();
+
+                if !matches!(config.db_type, DatabaseType::SQLite) {
+                    ui.label(RichText::new("主机地址").color(GRAY));
+                    ui.add(
+                        TextEdit::singleline(&mut config.host)
+                            .hint_text("localhost")
+                            .char_limit(255)
+                            .desired_width(280.0),
+                    );
+                    ui.end_row();
+
+                    ui.label(RichText::new("端口").color(GRAY));
+                    let mut port_string = config.port.to_string();
+                    ui.add(
+                        TextEdit::singleline(&mut port_string)
+                            .char_limit(5)
+                            .desired_width(80.0),
+                    );
+                    if let Ok(port) = port_string.parse::<u16>() {
+                        config.port = port;
+                    }
+                    ui.end_row();
+
+                    ui.label(RichText::new("用户名").color(GRAY));
+                    ui.add(
+                        TextEdit::singleline(&mut config.username)
+                            .hint_text("root")
+                            .char_limit(128)
+                            .desired_width(280.0),
+                    );
+                    ui.end_row();
+
+                    ui.label(RichText::new("密码").color(GRAY));
+                    ui.add(
+                        TextEdit::singleline(&mut config.password)
+                            .password(true)
+                            .char_limit(256)
+                            .desired_width(280.0),
+                    );
+                    ui.end_row();
+                }
+
+                if matches!(config.db_type, DatabaseType::SQLite) {
+                    ui.label(RichText::new("文件路径").color(GRAY));
+
+                    ui.horizontal(|ui| {
                         ui.add(
-                            TextEdit::singleline(&mut config.name)
-                                .hint_text("我的数据库")
-                                .char_limit(64)
-                                .desired_width(280.0),
+                            TextEdit::singleline(&mut config.database)
+                                .hint_text("/path/to/database.db")
+                                .desired_width(220.0),
                         );
-                        ui.end_row();
 
-                        if !matches!(config.db_type, DatabaseType::SQLite) {
-                            // 主机地址
-                            ui.label(RichText::new("主机地址").color(GRAY));
-                            ui.add(
-                                TextEdit::singleline(&mut config.host)
-                                    .hint_text("localhost")
-                                    .char_limit(255)
-                                    .desired_width(280.0),
-                            );
-                            ui.end_row();
-
-                            // 端口
-                            ui.label(RichText::new("端口").color(GRAY));
-                            let mut port_string = config.port.to_string();
-                            ui.add(
-                                TextEdit::singleline(&mut port_string)
-                                    .char_limit(5)
-                                    .desired_width(80.0),
-                            );
-                            if let Ok(port) = port_string.parse::<u16>() {
-                                config.port = port;
-                            }
-                            ui.end_row();
-
-                            // 用户名
-                            ui.label(RichText::new("用户名").color(GRAY));
-                            ui.add(
-                                TextEdit::singleline(&mut config.username)
-                                    .hint_text("root")
-                                    .char_limit(128)
-                                    .desired_width(280.0),
-                            );
-                            ui.end_row();
-
-                            // 密码
-                            ui.label(RichText::new("密码").color(GRAY));
-                            ui.add(
-                                TextEdit::singleline(&mut config.password)
-                                    .password(true)
-                                    .char_limit(256)
-                                    .desired_width(280.0),
-                            );
-                            ui.end_row();
-                        }
-
-                        // SQLite 文件路径（必填）
-                        if matches!(config.db_type, DatabaseType::SQLite) {
-                            ui.label(RichText::new("文件路径").color(GRAY));
-
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    TextEdit::singleline(&mut config.database)
-                                        .hint_text("/path/to/database.db")
-                                        .desired_width(200.0),
-                                );
-
-                                if ui
-                                    .add(
-                                        egui::Button::new(format!(
-                                            "浏览 [{}]",
-                                            local_shortcut_text(LocalShortcut::SqliteBrowseFile)
-                                        ))
-                                        .corner_radius(CornerRadius::same(4)),
-                                    )
-                                    .on_hover_text(local_shortcut_tooltip(
-                                        "浏览并选择 SQLite 数据库文件",
-                                        LocalShortcut::SqliteBrowseFile,
-                                    ))
-                                    .clicked()
-                                    && let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("SQLite 数据库", &["db", "sqlite", "sqlite3"])
-                                        .add_filter("所有文件", &["*"])
-                                        .pick_file()
-                                {
-                                    config.database = path.display().to_string();
-                                }
-                            });
-                            ui.end_row();
+                        if ui
+                            .add(
+                                egui::Button::new(format!(
+                                    "浏览 [{}]",
+                                    local_shortcut_text(LocalShortcut::SqliteBrowseFile)
+                                ))
+                                .corner_radius(CornerRadius::same(4)),
+                            )
+                            .on_hover_text(local_shortcut_tooltip(
+                                "浏览并选择 SQLite 数据库文件",
+                                LocalShortcut::SqliteBrowseFile,
+                            ))
+                            .clicked()
+                        {
+                            action = Some(ConnectionDialogAction::Browse(
+                                ConnectionBrowseTarget::SqliteFile,
+                            ));
                         }
                     });
+                    ui.end_row();
+                }
             });
 
-        // 提示信息
         ui.add_space(SPACING_SM);
-        ui.horizontal(|ui| {
-            ui.add_space(SPACING_MD);
-            ui.add_space(4.0);
-            let tip = match config.db_type {
-                DatabaseType::SQLite => "输入 SQLite 数据库文件路径，文件不存在时将自动创建",
-                DatabaseType::PostgreSQL => "默认端口 5432，连接后可选择数据库",
-                DatabaseType::MySQL => "默认端口 3306，连接后可选择数据库",
-            };
-            ui.label(RichText::new(tip).small().color(MUTED));
-            ui.add_space(SPACING_SM);
-            ui.label(
-                RichText::new("需要 SSL/SSH 时，点击“显示高级配置”即可。")
-                    .small()
-                    .color(MUTED),
-            );
-        });
+        DialogContent::info_text(
+            ui,
+            match config.db_type {
+                DatabaseType::SQLite => "输入 SQLite 文件路径，文件不存在时会按路径创建。",
+                DatabaseType::PostgreSQL => "默认端口 5432，保存后会进入数据库选择与连接流程。",
+                DatabaseType::MySQL => "默认端口 3306，高级 SSL / SSH 配置可稍后展开。",
+            },
+        );
+
+        action
     }
 
     fn show_realtime_checklist(ui: &mut egui::Ui, config: &ConnectionConfig) {
@@ -537,365 +614,280 @@ impl ConnectionDialog {
             }
         }
 
-        egui::Frame::NONE
-            .fill(Color32::from_rgba_unmultiplied(90, 130, 210, 12))
-            .stroke(egui::Stroke::new(
-                1.0,
-                Color32::from_rgba_unmultiplied(110, 150, 230, 32),
-            ))
-            .corner_radius(CornerRadius::same(6))
-            .inner_margin(egui::Margin::symmetric(12, 8))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("实时检查")
-                            .small()
-                            .strong()
-                            .color(Color32::from_rgb(125, 182, 246)),
-                    );
-                    let passed = items.iter().filter(|(_, ok)| *ok).count();
-                    ui.label(
-                        RichText::new(format!("{}/{} 通过", passed, items.len()))
-                            .small()
-                            .color(MUTED),
-                    );
-                });
-                ui.add_space(4.0);
+        let passed = items.iter().filter(|(_, ok)| *ok).count();
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new(format!("已通过 {}/{} 项", passed, items.len()))
+                    .small()
+                    .color(MUTED),
+            );
+        });
+        ui.add_space(SPACING_SM);
 
-                for (label, ok) in items {
-                    let color = if ok { SUCCESS } else { DANGER };
-                    let icon = if ok { "✓" } else { "•" };
-                    ui.label(
-                        RichText::new(format!("{} {}", icon, label))
-                            .small()
-                            .color(color),
-                    );
-                }
-            });
+        for (label, ok) in items {
+            let color = if ok { SUCCESS } else { DANGER };
+            let icon = if ok { "✓" } else { "•" };
+            ui.label(
+                RichText::new(format!("{} {}", icon, label))
+                    .small()
+                    .color(color),
+            );
+        }
     }
 
     /// MySQL SSL 配置
-    fn show_mysql_ssl_config(ui: &mut egui::Ui, config: &mut ConnectionConfig) {
-        ui.collapsing("🔐 SSL/TLS 加密", |ui| {
-            ui.add_space(SPACING_SM);
+    fn show_mysql_ssl_config(
+        ui: &mut egui::Ui,
+        config: &mut ConnectionConfig,
+    ) -> Option<ConnectionDialogAction> {
+        let mut action = None;
+        egui::Grid::new("mysql_ssl_form")
+            .num_columns(2)
+            .spacing([16.0, 8.0])
+            .show(ui, |ui| {
+                ui.label(RichText::new("SSL 模式").color(GRAY));
+                egui::ComboBox::new("ssl_mode_combo", "")
+                    .selected_text(config.mysql_ssl_mode.display_name())
+                    .show_ui(ui, |ui| {
+                        for mode in MySqlSslMode::all() {
+                            let label = format!("{} - {}", mode.display_name(), mode.description());
+                            ui.selectable_value(&mut config.mysql_ssl_mode, *mode, label);
+                        }
+                    });
+                ui.end_row();
 
-            egui::Frame::NONE
-                .fill(Color32::from_rgba_unmultiplied(100, 100, 110, 10))
-                .corner_radius(CornerRadius::same(8))
-                .inner_margin(egui::Margin::symmetric(16, 12))
-                .show(ui, |ui| {
-                    egui::Grid::new("mysql_ssl_form")
-                        .num_columns(2)
-                        .spacing([16.0, 8.0])
-                        .show(ui, |ui| {
-                            // SSL 模式选择
-                            ui.label(RichText::new("SSL 模式").color(GRAY));
-                            egui::ComboBox::new("ssl_mode_combo", "")
-                                .selected_text(config.mysql_ssl_mode.display_name())
-                                .show_ui(ui, |ui| {
-                                    for mode in MySqlSslMode::all() {
-                                        let label = format!(
-                                            "{} - {}",
-                                            mode.display_name(),
-                                            mode.description()
-                                        );
-                                        ui.selectable_value(
-                                            &mut config.mysql_ssl_mode,
-                                            *mode,
-                                            label,
-                                        );
-                                    }
-                                });
-                            ui.end_row();
+                if matches!(
+                    config.mysql_ssl_mode,
+                    MySqlSslMode::VerifyCa | MySqlSslMode::VerifyIdentity
+                ) {
+                    ui.label(RichText::new("CA 证书").color(GRAY));
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            TextEdit::singleline(&mut config.ssl_ca_cert)
+                                .hint_text("/path/to/ca-cert.pem")
+                                .desired_width(180.0),
+                        );
+                        if ui.button("浏览").clicked() {
+                            action = Some(ConnectionDialogAction::Browse(
+                                ConnectionBrowseTarget::CaCertificate,
+                            ));
+                        }
+                    });
+                    ui.end_row();
+                }
+            });
 
-                            // CA 证书路径（仅在 VerifyCa 或 VerifyIdentity 模式下显示）
-                            if matches!(
-                                config.mysql_ssl_mode,
-                                MySqlSslMode::VerifyCa | MySqlSslMode::VerifyIdentity
-                            ) {
-                                ui.label(RichText::new("CA 证书").color(GRAY));
-                                ui.horizontal(|ui| {
-                                    ui.add(
-                                        TextEdit::singleline(&mut config.ssl_ca_cert)
-                                            .hint_text("/path/to/ca-cert.pem")
-                                            .desired_width(160.0),
-                                    );
-                                    if ui.button("浏览").clicked()
-                                        && let Some(path) = rfd::FileDialog::new()
-                                            .add_filter("证书文件", &["pem", "crt", "cer"])
-                                            .add_filter("所有文件", &["*"])
-                                            .pick_file()
-                                    {
-                                        config.ssl_ca_cert = path.display().to_string();
-                                    }
-                                });
-                                ui.end_row();
-                            }
-                        });
+        ui.add_space(SPACING_SM);
+        DialogContent::info_text(
+            ui,
+            match config.mysql_ssl_mode {
+                MySqlSslMode::Disabled => "不使用加密，数据以明文传输。",
+                MySqlSslMode::Preferred => "优先使用 SSL，服务端不支持时回退为明文。",
+                MySqlSslMode::Required => "必须使用 SSL，但不验证服务器证书。",
+                MySqlSslMode::VerifyCa => "验证服务器 CA 证书，不检查主机名。",
+                MySqlSslMode::VerifyIdentity => "同时验证 CA 证书与服务器主机名。",
+            },
+        );
 
-                    ui.add_space(SPACING_SM);
-
-                    // SSL 模式说明
-                    let tip = match config.mysql_ssl_mode {
-                        MySqlSslMode::Disabled => "不使用加密，数据以明文传输",
-                        MySqlSslMode::Preferred => "优先使用 SSL，如果服务器不支持则回退到明文",
-                        MySqlSslMode::Required => "必须使用 SSL 加密，不验证服务器证书",
-                        MySqlSslMode::VerifyCa => "验证服务器 CA 证书，不检查主机名",
-                        MySqlSslMode::VerifyIdentity => "完整验证：检查 CA 证书和服务器主机名",
-                    };
-                    ui.label(RichText::new(tip).small().color(MUTED));
-                });
-        });
+        action
     }
 
     /// PostgreSQL SSL 配置
-    fn show_postgres_ssl_config(ui: &mut egui::Ui, config: &mut ConnectionConfig) {
-        ui.collapsing("🔐 SSL/TLS 加密", |ui| {
-            ui.add_space(SPACING_SM);
+    fn show_postgres_ssl_config(
+        ui: &mut egui::Ui,
+        config: &mut ConnectionConfig,
+    ) -> Option<ConnectionDialogAction> {
+        let mut action = None;
+        egui::Grid::new("postgres_ssl_form")
+            .num_columns(2)
+            .spacing([16.0, 8.0])
+            .show(ui, |ui| {
+                ui.label(RichText::new("SSL 模式").color(GRAY));
+                egui::ComboBox::new("pg_ssl_mode_combo", "")
+                    .selected_text(config.postgres_ssl_mode.display_name())
+                    .show_ui(ui, |ui| {
+                        for mode in PostgresSslMode::all() {
+                            let label = format!("{} - {}", mode.display_name(), mode.description());
+                            ui.selectable_value(&mut config.postgres_ssl_mode, *mode, label);
+                        }
+                    });
+                ui.end_row();
 
-            egui::Frame::NONE
-                .fill(Color32::from_rgba_unmultiplied(100, 100, 110, 10))
-                .corner_radius(CornerRadius::same(8))
-                .inner_margin(egui::Margin::symmetric(16, 12))
-                .show(ui, |ui| {
-                    egui::Grid::new("postgres_ssl_form")
-                        .num_columns(2)
-                        .spacing([16.0, 8.0])
-                        .show(ui, |ui| {
-                            // SSL 模式选择
-                            ui.label(RichText::new("SSL 模式").color(GRAY));
-                            egui::ComboBox::new("pg_ssl_mode_combo", "")
-                                .selected_text(config.postgres_ssl_mode.display_name())
-                                .show_ui(ui, |ui| {
-                                    for mode in PostgresSslMode::all() {
-                                        let label = format!(
-                                            "{} - {}",
-                                            mode.display_name(),
-                                            mode.description()
-                                        );
-                                        ui.selectable_value(
-                                            &mut config.postgres_ssl_mode,
-                                            *mode,
-                                            label,
-                                        );
-                                    }
-                                });
-                            ui.end_row();
+                if matches!(
+                    config.postgres_ssl_mode,
+                    PostgresSslMode::VerifyCa | PostgresSslMode::VerifyFull
+                ) {
+                    ui.label(RichText::new("CA 证书").color(GRAY));
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            TextEdit::singleline(&mut config.ssl_ca_cert)
+                                .hint_text("/path/to/ca-cert.pem")
+                                .desired_width(180.0),
+                        );
+                        if ui.button("浏览").clicked() {
+                            action = Some(ConnectionDialogAction::Browse(
+                                ConnectionBrowseTarget::CaCertificate,
+                            ));
+                        }
+                    });
+                    ui.end_row();
+                }
+            });
 
-                            // CA 证书路径（仅在 VerifyCa 或 VerifyFull 模式下显示）
-                            if matches!(
-                                config.postgres_ssl_mode,
-                                PostgresSslMode::VerifyCa | PostgresSslMode::VerifyFull
-                            ) {
-                                ui.label(RichText::new("CA 证书").color(GRAY));
-                                ui.horizontal(|ui| {
-                                    ui.add(
-                                        TextEdit::singleline(&mut config.ssl_ca_cert)
-                                            .hint_text("/path/to/ca-cert.pem")
-                                            .desired_width(160.0),
-                                    );
-                                    if ui.button("浏览").clicked()
-                                        && let Some(path) = rfd::FileDialog::new()
-                                            .add_filter("证书文件", &["pem", "crt", "cer"])
-                                            .add_filter("所有文件", &["*"])
-                                            .pick_file()
-                                    {
-                                        config.ssl_ca_cert = path.display().to_string();
-                                    }
-                                });
-                                ui.end_row();
-                            }
-                        });
+        ui.add_space(SPACING_SM);
+        DialogContent::info_text(
+            ui,
+            match config.postgres_ssl_mode {
+                PostgresSslMode::Disable => "不使用加密，数据以明文传输。",
+                PostgresSslMode::Prefer => "优先使用 SSL，服务端不支持时回退为明文。",
+                PostgresSslMode::Require => "必须使用 SSL，但不验证服务器证书。",
+                PostgresSslMode::VerifyCa => "验证服务器 CA 证书，不检查主机名。",
+                PostgresSslMode::VerifyFull => "同时验证 CA 证书与服务器主机名。",
+            },
+        );
 
-                    ui.add_space(SPACING_SM);
-
-                    // SSL 模式说明
-                    let tip = match config.postgres_ssl_mode {
-                        PostgresSslMode::Disable => "不使用加密，数据以明文传输",
-                        PostgresSslMode::Prefer => "优先使用 SSL，如果服务器不支持则回退到明文",
-                        PostgresSslMode::Require => "必须使用 SSL 加密，不验证服务器证书",
-                        PostgresSslMode::VerifyCa => "验证服务器 CA 证书，不检查主机名",
-                        PostgresSslMode::VerifyFull => "完整验证：检查 CA 证书和服务器主机名",
-                    };
-                    ui.label(RichText::new(tip).small().color(MUTED));
-                });
-        });
+        action
     }
 
     /// SSH 隧道配置
-    fn show_ssh_tunnel_config(ui: &mut egui::Ui, config: &mut ConnectionConfig) {
-        ui.collapsing("🔒 SSH 隧道（可选）", |ui| {
-            ui.add_space(SPACING_SM);
+    fn show_ssh_tunnel_config(
+        ui: &mut egui::Ui,
+        config: &mut ConnectionConfig,
+    ) -> Option<ConnectionDialogAction> {
+        ui.checkbox(&mut config.ssh_config.enabled, "启用 SSH 隧道");
 
-            egui::Frame::NONE
-                .fill(Color32::from_rgba_unmultiplied(100, 100, 110, 10))
-                .corner_radius(CornerRadius::same(8))
-                .inner_margin(egui::Margin::symmetric(16, 12))
-                .show(ui, |ui| {
-                    // 启用 SSH 隧道
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut config.ssh_config.enabled, "");
-                        ui.label(RichText::new("启用 SSH 隧道").color(GRAY));
-                    });
+        if !config.ssh_config.enabled {
+            DialogContent::info_text(ui, "关闭时将直接连接数据库地址，不经过跳板机。");
+            return None;
+        }
 
-                    if config.ssh_config.enabled {
-                        ui.add_space(SPACING_SM);
+        let mut action = None;
+        ui.add_space(SPACING_SM);
+        egui::Grid::new("ssh_tunnel_form")
+            .num_columns(2)
+            .spacing([16.0, 8.0])
+            .show(ui, |ui| {
+                ui.label(RichText::new("SSH 主机").color(GRAY));
+                ui.add(
+                    TextEdit::singleline(&mut config.ssh_config.ssh_host)
+                        .hint_text("跳板机地址")
+                        .desired_width(200.0),
+                );
+                ui.end_row();
 
-                        egui::Grid::new("ssh_tunnel_form")
-                            .num_columns(2)
-                            .spacing([16.0, 8.0])
-                            .show(ui, |ui| {
-                                // SSH 主机
-                                ui.label(RichText::new("SSH 主机").color(GRAY));
-                                ui.add(
-                                    TextEdit::singleline(&mut config.ssh_config.ssh_host)
-                                        .hint_text("跳板机地址")
-                                        .desired_width(200.0),
-                                );
-                                ui.end_row();
+                ui.label(RichText::new("SSH 端口").color(GRAY));
+                let mut port_str = config.ssh_config.ssh_port.to_string();
+                if ui
+                    .add(TextEdit::singleline(&mut port_str).desired_width(80.0))
+                    .changed()
+                    && let Ok(port) = port_str.parse::<u16>()
+                {
+                    config.ssh_config.ssh_port = port;
+                }
+                ui.end_row();
 
-                                // SSH 端口
-                                ui.label(RichText::new("SSH 端口").color(GRAY));
-                                let mut port_str = config.ssh_config.ssh_port.to_string();
-                                if ui
-                                    .add(TextEdit::singleline(&mut port_str).desired_width(80.0))
-                                    .changed()
-                                    && let Ok(port) = port_str.parse::<u16>()
-                                {
-                                    config.ssh_config.ssh_port = port;
-                                }
-                                ui.end_row();
+                ui.label(RichText::new("SSH 用户名").color(GRAY));
+                ui.add(
+                    TextEdit::singleline(&mut config.ssh_config.ssh_username)
+                        .hint_text("用户名")
+                        .desired_width(200.0),
+                );
+                ui.end_row();
 
-                                // SSH 用户名
-                                ui.label(RichText::new("SSH 用户名").color(GRAY));
-                                ui.add(
-                                    TextEdit::singleline(&mut config.ssh_config.ssh_username)
-                                        .hint_text("用户名")
-                                        .desired_width(200.0),
-                                );
-                                ui.end_row();
-
-                                // 认证方式
-                                ui.label(RichText::new("认证方式").color(GRAY));
-                                ui.horizontal(|ui| {
-                                    ui.selectable_value(
-                                        &mut config.ssh_config.auth_method,
-                                        SshAuthMethod::Password,
-                                        SshAuthMethod::Password.display_name(),
-                                    );
-                                    ui.selectable_value(
-                                        &mut config.ssh_config.auth_method,
-                                        SshAuthMethod::PrivateKey,
-                                        SshAuthMethod::PrivateKey.display_name(),
-                                    );
-                                });
-                                ui.end_row();
-
-                                // 密码或私钥
-                                match config.ssh_config.auth_method {
-                                    SshAuthMethod::Password => {
-                                        ui.label(RichText::new("SSH 密码").color(GRAY));
-                                        ui.add(
-                                            TextEdit::singleline(
-                                                &mut config.ssh_config.ssh_password,
-                                            )
-                                            .password(true)
-                                            .desired_width(200.0),
-                                        );
-                                        ui.end_row();
-                                    }
-                                    SshAuthMethod::PrivateKey => {
-                                        ui.label(RichText::new("私钥路径").color(GRAY));
-                                        ui.horizontal(|ui| {
-                                            ui.add(
-                                                TextEdit::singleline(
-                                                    &mut config.ssh_config.private_key_path,
-                                                )
-                                                .hint_text("~/.ssh/id_rsa")
-                                                .desired_width(160.0),
-                                            );
-                                            if ui.button("浏览").clicked()
-                                                && let Some(path) = rfd::FileDialog::new()
-                                                    .add_filter("私钥文件", &["pem", "key", "*"])
-                                                    .pick_file()
-                                            {
-                                                config.ssh_config.private_key_path =
-                                                    path.display().to_string();
-                                            }
-                                        });
-                                        ui.end_row();
-
-                                        ui.label(RichText::new("私钥密码").color(GRAY));
-                                        ui.add(
-                                            TextEdit::singleline(
-                                                &mut config.ssh_config.private_key_passphrase,
-                                            )
-                                            .password(true)
-                                            .hint_text("（可选）")
-                                            .desired_width(200.0),
-                                        );
-                                        ui.end_row();
-                                    }
-                                }
-
-                                // 远程数据库地址（从 SSH 服务器视角）
-                                ui.label(RichText::new("远程主机").color(GRAY));
-                                ui.add(
-                                    TextEdit::singleline(&mut config.ssh_config.remote_host)
-                                        .hint_text("数据库主机（如 127.0.0.1）")
-                                        .desired_width(200.0),
-                                );
-                                ui.end_row();
-
-                                // 远程端口
-                                ui.label(RichText::new("远程端口").color(GRAY));
-                                let mut remote_port_str = config.ssh_config.remote_port.to_string();
-                                if ui
-                                    .add(
-                                        TextEdit::singleline(&mut remote_port_str)
-                                            .hint_text("数据库端口")
-                                            .desired_width(80.0),
-                                    )
-                                    .changed()
-                                    && let Ok(port) = remote_port_str.parse::<u16>()
-                                {
-                                    config.ssh_config.remote_port = port;
-                                }
-                                ui.end_row();
-                            });
-
-                        ui.add_space(SPACING_SM);
-                        ui.label(
-                            RichText::new(
-                                "提示：启用 SSH 隧道后，连接将通过跳板机转发到远程数据库",
-                            )
-                            .small()
-                            .color(MUTED),
-                        );
-                    }
+                ui.label(RichText::new("认证方式").color(GRAY));
+                ui.horizontal(|ui| {
+                    ui.selectable_value(
+                        &mut config.ssh_config.auth_method,
+                        SshAuthMethod::Password,
+                        SshAuthMethod::Password.display_name(),
+                    );
+                    ui.selectable_value(
+                        &mut config.ssh_config.auth_method,
+                        SshAuthMethod::PrivateKey,
+                        SshAuthMethod::PrivateKey.display_name(),
+                    );
                 });
-        });
+                ui.end_row();
+
+                match config.ssh_config.auth_method {
+                    SshAuthMethod::Password => {
+                        ui.label(RichText::new("SSH 密码").color(GRAY));
+                        ui.add(
+                            TextEdit::singleline(&mut config.ssh_config.ssh_password)
+                                .password(true)
+                                .desired_width(200.0),
+                        );
+                        ui.end_row();
+                    }
+                    SshAuthMethod::PrivateKey => {
+                        ui.label(RichText::new("私钥路径").color(GRAY));
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                TextEdit::singleline(&mut config.ssh_config.private_key_path)
+                                    .hint_text("~/.ssh/id_rsa")
+                                    .desired_width(160.0),
+                            );
+                            if ui.button("浏览").clicked() {
+                                action = Some(ConnectionDialogAction::Browse(
+                                    ConnectionBrowseTarget::SshPrivateKey,
+                                ));
+                            }
+                        });
+                        ui.end_row();
+
+                        ui.label(RichText::new("私钥密码").color(GRAY));
+                        ui.add(
+                            TextEdit::singleline(&mut config.ssh_config.private_key_passphrase)
+                                .password(true)
+                                .hint_text("（可选）")
+                                .desired_width(200.0),
+                        );
+                        ui.end_row();
+                    }
+                }
+
+                ui.label(RichText::new("远程主机").color(GRAY));
+                ui.add(
+                    TextEdit::singleline(&mut config.ssh_config.remote_host)
+                        .hint_text("数据库主机（如 127.0.0.1）")
+                        .desired_width(200.0),
+                );
+                ui.end_row();
+
+                ui.label(RichText::new("远程端口").color(GRAY));
+                let mut remote_port_str = config.ssh_config.remote_port.to_string();
+                if ui
+                    .add(
+                        TextEdit::singleline(&mut remote_port_str)
+                            .hint_text("数据库端口")
+                            .desired_width(80.0),
+                    )
+                    .changed()
+                    && let Ok(port) = remote_port_str.parse::<u16>()
+                {
+                    config.ssh_config.remote_port = port;
+                }
+                ui.end_row();
+            });
+
+        ui.add_space(SPACING_SM);
+        DialogContent::info_text(
+            ui,
+            "启用后，数据库连接会先连到 SSH 跳板机，再转发到远程数据库地址。",
+        );
+
+        action
     }
 
     /// 连接字符串预览
     fn show_connection_preview(ui: &mut egui::Ui, config: &ConnectionConfig) {
-        ui.collapsing("🔍 连接字符串预览", |ui| {
-            ui.add_space(SPACING_SM);
-
-            egui::Frame::NONE
-                .fill(Color32::from_rgba_unmultiplied(60, 60, 70, 40))
-                .corner_radius(CornerRadius::same(4))
-                .inner_margin(egui::Margin::symmetric(12, 8))
-                .show(ui, |ui| {
-                    let conn_str = config.connection_string();
-                    let display_str = if !config.password.is_empty() {
-                        conn_str.replace(&config.password, "****")
-                    } else {
-                        conn_str
-                    };
-                    ui.label(RichText::new(&display_str).monospace().small());
-                });
-        });
+        let conn_str = config.connection_string();
+        let display_str = if !config.password.is_empty() {
+            conn_str.replace(&config.password, "****")
+        } else {
+            conn_str
+        };
+        DialogContent::code_block(ui, &display_str, 120.0);
     }
 
     /// 底部按钮
@@ -905,86 +897,181 @@ impl ConnectionDialog {
         on_save: &mut bool,
         should_close: &mut bool,
         is_edit_mode: bool,
+        style: &DialogStyle,
     ) {
-        // 执行验证
         let validation = validate_config(config);
 
-        // 快捷键提示
-        ui.horizontal(|ui| {
+        DialogContent::shortcut_hint(
+            ui,
+            &[
+                (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
+                (local_shortcut_text(LocalShortcut::Confirm).as_str(), "保存"),
+            ],
+        );
+
+        if let Some(error) = validation.errors.first() {
+            DialogContent::warning_text(ui, error);
             ui.add_space(SPACING_SM);
-            ui.label(
-                RichText::new(format!(
-                    "快捷键: {} 关闭 | {} 保存",
-                    local_shortcut_text(LocalShortcut::Dismiss),
+        }
+
+        let footer = DialogFooter::show(
+            ui,
+            &if is_edit_mode {
+                format!(
+                    "保存并重连 [{}]",
                     local_shortcut_text(LocalShortcut::Confirm)
-                ))
-                .small()
-                .color(MUTED),
-            );
-        });
-        ui.add_space(SPACING_SM);
-
-        ui.horizontal(|ui| {
-            // 取消按钮
-            if ui
-                .add(
-                    egui::Button::new(format!(
-                        "取消 [{}]",
-                        local_shortcut_text(LocalShortcut::Dismiss)
-                    ))
-                    .corner_radius(CornerRadius::same(6)),
                 )
-                .on_hover_text(local_shortcut_tooltip(
-                    "关闭连接对话框",
-                    LocalShortcut::Dismiss,
-                ))
-                .clicked()
-            {
-                *should_close = true;
-            }
+            } else {
+                format!(
+                    "保存并连接 [{}]",
+                    local_shortcut_text(LocalShortcut::Confirm)
+                )
+            },
+            &format!("取消 [{}]", local_shortcut_text(LocalShortcut::Dismiss)),
+            validation.is_valid,
+            style,
+        );
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // 保存按钮
-                let confirm_shortcut = local_shortcut_text(LocalShortcut::Confirm);
-                let save_label = if is_edit_mode {
-                    format!("保存并重连 [{confirm_shortcut}]")
-                } else {
-                    format!("保存并连接 [{confirm_shortcut}]")
-                };
-                let save_btn =
-                    egui::Button::new(RichText::new(save_label).color(if validation.is_valid {
-                        Color32::WHITE
-                    } else {
-                        GRAY
-                    }))
-                    .fill(if validation.is_valid {
-                        SUCCESS
-                    } else {
-                        Color32::from_rgb(80, 80, 90)
-                    })
-                    .corner_radius(CornerRadius::same(6));
+        if footer.cancelled {
+            *should_close = true;
+        }
+        if footer.confirmed {
+            *on_save = true;
+            *should_close = true;
+        }
+    }
+}
 
-                if ui
-                    .add_enabled(validation.is_valid, save_btn)
-                    .on_hover_text(local_shortcut_tooltip(
-                        "保存并创建连接",
-                        LocalShortcut::Confirm,
-                    ))
-                    .clicked()
-                {
-                    *on_save = true;
-                    *should_close = true;
-                }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{Event, Key, Modifiers, RawInput};
 
-                // 显示验证错误
-                if !validation.is_valid {
-                    ui.add_space(SPACING_MD);
-                    // 只显示第一个错误
-                    if let Some(error) = validation.errors.first() {
-                        ui.label(RichText::new(error).small().color(DANGER));
-                    }
-                }
-            });
+    fn begin_key_pass(ctx: &egui::Context, key: Key) {
+        ctx.begin_pass(RawInput {
+            events: vec![Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            }],
+            modifiers: Modifiers::NONE,
+            ..Default::default()
         });
+    }
+
+    fn begin_key_pass_with_modifiers(ctx: &egui::Context, key: Key, modifiers: Modifiers) {
+        ctx.begin_pass(RawInput {
+            events: vec![Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            modifiers,
+            ..Default::default()
+        });
+    }
+
+    fn ctrl_modifiers() -> Modifiers {
+        Modifiers {
+            ctrl: true,
+            command: true,
+            ..Default::default()
+        }
+    }
+
+    fn focus_text_input(ctx: &egui::Context) {
+        let mut text = String::new();
+        ctx.begin_pass(RawInput::default());
+        egui::Window::new("connection dialog shortcut test input").show(ctx, |ui| {
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut text).id_salt("connection_shortcut_text_input"),
+            );
+            response.request_focus();
+        });
+        let _ = ctx.end_pass();
+    }
+
+    fn valid_server_config() -> ConnectionConfig {
+        ConnectionConfig {
+            name: "pg".to_string(),
+            db_type: DatabaseType::PostgreSQL,
+            host: "localhost".to_string(),
+            port: 5432,
+            username: "postgres".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn connection_dialog_detects_database_type_shortcut_through_scoped_command_id() {
+        let ctx = egui::Context::default();
+        begin_key_pass(&ctx, Key::Num2);
+
+        let action = ConnectionDialog::detect_key_action(&ctx, &ConnectionConfig::default(), false);
+
+        assert_eq!(
+            action,
+            Some(ConnectionDialogAction::SetDatabaseType(
+                DatabaseType::PostgreSQL,
+            ))
+        );
+
+        let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn connection_dialog_confirm_requires_valid_config() {
+        let ctx = egui::Context::default();
+        begin_key_pass(&ctx, Key::Enter);
+
+        let action = ConnectionDialog::detect_key_action(&ctx, &ConnectionConfig::default(), false);
+
+        assert_eq!(action, None);
+
+        let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn connection_dialog_sqlite_browse_shortcut_only_enabled_for_sqlite() {
+        let ctx = egui::Context::default();
+        begin_key_pass_with_modifiers(&ctx, Key::O, ctrl_modifiers());
+        let sqlite_config = ConnectionConfig::new("", DatabaseType::SQLite);
+
+        let action = ConnectionDialog::detect_key_action(&ctx, &sqlite_config, false);
+
+        assert_eq!(
+            action,
+            Some(ConnectionDialogAction::Browse(
+                ConnectionBrowseTarget::SqliteFile,
+            ))
+        );
+
+        let _ = ctx.end_pass();
+
+        let ctx = egui::Context::default();
+        begin_key_pass_with_modifiers(&ctx, Key::O, ctrl_modifiers());
+
+        let action = ConnectionDialog::detect_key_action(&ctx, &valid_server_config(), true);
+
+        assert_eq!(action, None);
+
+        let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn connection_dialog_blocks_type_cycle_text_conflicts_when_text_input_is_focused() {
+        let ctx = egui::Context::default();
+        focus_text_input(&ctx);
+        begin_key_pass(&ctx, Key::H);
+
+        let action = ConnectionDialog::detect_key_action(&ctx, &valid_server_config(), true);
+
+        assert_eq!(action, None);
+
+        let _ = ctx.end_pass();
     }
 }

@@ -8,17 +8,18 @@ use std::time::Instant;
 
 use crate::core::constants;
 use crate::database::{
-    ConnectResult, ConnectionConfig, DatabaseType, connect_database, execute_query_cancellable,
-    get_primary_key_column, get_tables_for_database, ssh_tunnel::SSH_TUNNEL_MANAGER,
+    ConnectResult, ConnectionConfig, DatabaseType, connect_database, execute_import_batch,
+    execute_query_cancellable, get_primary_key_column, get_tables_for_database,
+    ssh_tunnel::SSH_TUNNEL_MANAGER,
 };
 use crate::ui;
 
-use super::DbManagerApp;
 use super::message::Message;
+use super::{DbManagerApp, GridSaveContext};
 
 impl DbManagerApp {
     /// 打开连接编辑对话框（预填当前配置）
-    pub(super) fn open_connection_editor(&mut self, name: &str) {
+    pub(in crate::app) fn open_connection_editor(&mut self, name: &str) {
         if let Some(conn) = self.manager.connections.get(name) {
             self.new_config = conn.config.clone();
             self.editing_connection_name = Some(name.to_string());
@@ -30,7 +31,7 @@ impl DbManagerApp {
     }
 
     /// 保存连接对话框结果（新建或编辑）
-    pub(super) fn save_connection_from_dialog(&mut self) {
+    pub(in crate::app) fn save_connection_from_dialog(&mut self) {
         let config = std::mem::take(&mut self.new_config);
         let saved_db_type = config.db_type;
         let name = config.name.clone();
@@ -80,7 +81,7 @@ impl DbManagerApp {
     }
 
     /// 连接到数据库
-    pub(super) fn connect(&mut self, name: String) {
+    pub(in crate::app) fn connect(&mut self, name: String) {
         if let Some(conn) = self.manager.connections.get(&name) {
             let config = conn.config.clone();
             let tx = self.tx.clone();
@@ -142,7 +143,7 @@ impl DbManagerApp {
     }
 
     /// 选择数据库（MySQL/PostgreSQL）
-    pub(super) fn select_database(&mut self, database: String) {
+    pub(in crate::app) fn select_database(&mut self, database: String) {
         let Some(active_name) = self.manager.active.clone() else {
             return;
         };
@@ -195,7 +196,7 @@ impl DbManagerApp {
     }
 
     /// 断开数据库连接
-    pub(super) fn disconnect(&mut self, name: String) {
+    pub(in crate::app) fn disconnect(&mut self, name: String) {
         // 清理 SSH 隧道和连接池
         if let Some(conn) = self.manager.connections.get(&name) {
             let config = conn.config.clone();
@@ -242,8 +243,16 @@ impl DbManagerApp {
     }
 
     /// 删除连接配置
-    pub(super) fn delete_connection(&mut self, name: &str) {
+    pub(in crate::app) fn delete_connection(&mut self, name: &str) {
         let was_active = self.manager.active.as_deref() == Some(name);
+        if let Some(password_ref) = self
+            .manager
+            .connections
+            .get(name)
+            .and_then(|connection| connection.config.password_ref.clone())
+        {
+            let _ = crate::database::delete_password_secret(&password_ref);
+        }
         if self.manager.connections.contains_key(name) {
             self.disconnect(name.to_string());
             self.manager.connections.remove(name);
@@ -262,7 +271,7 @@ impl DbManagerApp {
     }
 
     /// 删除表（执行 DROP TABLE）
-    pub(super) fn delete_table(&mut self, table: &str) {
+    pub(in crate::app) fn delete_table(&mut self, table: &str) {
         let Some(conn) = self.manager.get_active() else {
             self.notifications.warning("请先连接数据库");
             return;
@@ -285,7 +294,7 @@ impl DbManagerApp {
     }
 
     /// 执行 SQL 查询
-    pub(super) fn execute(&mut self, sql: String) -> Option<u64> {
+    pub(in crate::app) fn execute(&mut self, sql: String) -> Option<u64> {
         if sql.trim().is_empty() {
             tracing::debug!("SQL 为空，跳过执行");
             return None;
@@ -414,8 +423,121 @@ impl DbManagerApp {
         Some(request_id)
     }
 
+    /// 批量保存表格修改，并在成功后刷新当前表格视图。
+    pub(in crate::app) fn execute_grid_save(&mut self, statements: Vec<String>) -> Option<u64> {
+        let statements: Vec<String> = statements
+            .into_iter()
+            .filter(|statement| !statement.trim().is_empty())
+            .collect();
+        if statements.is_empty() {
+            return None;
+        }
+
+        let Some(active_name) = self.manager.active.clone() else {
+            self.notifications.warning("请先连接数据库");
+            return None;
+        };
+        let Some(conn) = self.manager.connections.get(&active_name) else {
+            self.notifications.warning("请先连接数据库");
+            return None;
+        };
+        let Some(table_name) = self.selected_table.clone() else {
+            self.notifications.warning("当前没有可刷新的表格上下文");
+            return None;
+        };
+
+        let config = conn.config.clone();
+        let request_id = self.next_grid_save_request_id();
+        let active_tab_id = self
+            .tab_manager
+            .get_active()
+            .map(|tab| tab.id.clone())
+            .unwrap_or_default();
+        let tx = self.tx.clone();
+        let statement_count = statements.len();
+
+        self.pending_grid_save_requests.insert(
+            request_id,
+            GridSaveContext {
+                table_name,
+                tab_id: active_tab_id,
+                cursor: self.grid_state.cursor,
+                search_text: self.search_text.clone(),
+                search_column: self.search_column.clone(),
+            },
+        );
+        self.refresh_executing_flag();
+        self.last_query_time_ms = None;
+
+        self.runtime.spawn(async move {
+            let start = Instant::now();
+            let result = execute_import_batch(&config, statements, true, true)
+                .await
+                .map_err(|error| error.to_string());
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+
+            if tx
+                .send(Message::GridSaveDone(request_id, result, elapsed_ms))
+                .is_err()
+            {
+                tracing::warn!("无法发送表格保存结果：接收端已关闭");
+            }
+        });
+
+        self.notifications
+            .info(format!("保存已开始：共 {} 条 SQL 语句", statement_count));
+
+        Some(request_id)
+    }
+
+    pub(in crate::app) fn refresh_table_after_grid_save(
+        &mut self,
+        ctx: &egui::Context,
+        restore: GridSaveContext,
+    ) {
+        let active_tab_matches = self
+            .tab_manager
+            .get_active()
+            .is_some_and(|tab| tab.id == restore.tab_id);
+        if !active_tab_matches {
+            self.notifications
+                .info("保存已完成；当前已切换到其他查询标签，未自动覆盖当前页面");
+            ctx.request_repaint();
+            return;
+        }
+
+        let query_sql = match self.build_table_query_sql(&restore.table_name) {
+            Ok(sql) => sql,
+            Err(error) => {
+                self.notifications
+                    .warning(format!("保存成功，但刷新表格失败: {}", error));
+                ctx.request_repaint();
+                return;
+            }
+        };
+
+        self.selected_table = Some(restore.table_name.clone());
+        if let Some(request_id) = self.execute(query_sql) {
+            self.pending_grid_refresh_restores
+                .insert(request_id, restore);
+        } else {
+            self.notifications.warning("保存成功，但未能发起表格刷新");
+        }
+        ctx.request_repaint();
+    }
+
+    fn build_table_query_sql(&self, table_name: &str) -> Result<String, String> {
+        let quoted_table = ui::quote_identifier(table_name, self.is_mysql())
+            .map_err(|error| format!("表名无效: {}", error))?;
+        Ok(format!(
+            "SELECT * FROM {} LIMIT {};",
+            quoted_table,
+            constants::database::DEFAULT_QUERY_LIMIT
+        ))
+    }
+
     /// 异步获取表的主键列
-    pub(super) fn fetch_primary_key(&self, table_name: &str) {
+    pub(in crate::app) fn fetch_primary_key(&self, table_name: &str) {
         let Some(conn) = self.manager.get_active() else {
             return;
         };
@@ -437,7 +559,7 @@ impl DbManagerApp {
     }
 
     /// 处理连接错误的通用逻辑
-    pub(super) fn handle_connection_error(&mut self, name: &str, error: String) {
+    pub(in crate::app) fn handle_connection_error(&mut self, name: &str, error: String) {
         let conn_config = self.manager.connections.get(name).map(|c| c.config.clone());
         let friendly = conn_config
             .as_ref()

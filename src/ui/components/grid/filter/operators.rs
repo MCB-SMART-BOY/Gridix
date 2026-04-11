@@ -175,6 +175,18 @@ pub fn check_filter_match(
     value2: &str,
     case_sensitive: bool,
 ) -> bool {
+    check_filter_match_with_null(cell, false, operator, value, value2, case_sensitive)
+}
+
+/// 检查筛选条件是否匹配（带 SQL NULL 元信息）
+pub fn check_filter_match_with_null(
+    cell: &str,
+    is_null: bool,
+    operator: &FilterOperator,
+    value: &str,
+    value2: &str,
+    case_sensitive: bool,
+) -> bool {
     let (cell_cmp, value_cmp, value2_cmp) = if case_sensitive {
         (cell.to_string(), value.to_string(), value2.to_string())
     } else {
@@ -224,10 +236,10 @@ pub fn check_filter_match(
             }
         }
 
-        FilterOperator::IsNull => cell == "NULL",
-        FilterOperator::IsNotNull => cell != "NULL",
-        FilterOperator::IsEmpty => cell.is_empty() || cell == "NULL",
-        FilterOperator::IsNotEmpty => !cell.is_empty() && cell != "NULL",
+        FilterOperator::IsNull => is_null,
+        FilterOperator::IsNotNull => !is_null,
+        FilterOperator::IsEmpty => cell.is_empty() && !is_null,
+        FilterOperator::IsNotEmpty => !cell.is_empty() && !is_null,
 
         FilterOperator::Regex => {
             if value.len() > 100 {

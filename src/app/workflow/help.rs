@@ -6,6 +6,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use eframe::egui;
 use rusqlite::{Connection as SqliteConn, OptionalExtension, Transaction, params};
 
 use crate::core::AppConfig;
@@ -13,6 +14,7 @@ use crate::database::{ConnectionConfig, DatabaseType};
 use crate::ui;
 
 use super::DbManagerApp;
+use super::action_system::AppAction;
 
 const LEARNING_CONNECTION_NAME: &str = "Gridix 学习示例";
 const LEARNING_DB_FILENAME: &str = "learning.sqlite3";
@@ -30,15 +32,26 @@ const LEARNING_REQUIRED_TABLES: &[&str] = &[
 ];
 
 impl DbManagerApp {
-    pub(super) fn handle_help_action(&mut self, action: ui::HelpAction) {
+    pub(in crate::app) fn handle_help_action(
+        &mut self,
+        ctx: &egui::Context,
+        action: ui::HelpAction,
+    ) {
         match action {
             ui::HelpAction::OpenConnectionDialog => {
-                self.show_connection_dialog = true;
+                self.dispatch_app_action(
+                    ctx,
+                    AppAction::OpenConnectionDialogFor(self.onboarding_target_db_type()),
+                );
             }
             ui::HelpAction::EnsureLearningSample { reset } => {
-                if let Err(error) = self.ensure_learning_connection(reset, true) {
-                    self.notifications.error(error);
-                }
+                self.dispatch_app_action(
+                    ctx,
+                    AppAction::EnsureLearningSample {
+                        reset,
+                        notify: true,
+                    },
+                );
             }
             ui::HelpAction::RunLearningQuery {
                 table,
@@ -121,7 +134,7 @@ impl DbManagerApp {
         }
     }
 
-    pub(super) fn ensure_learning_connection(
+    pub(in crate::app) fn ensure_learning_connection(
         &mut self,
         reset: bool,
         notify: bool,

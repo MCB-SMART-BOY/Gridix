@@ -4,6 +4,7 @@
 
 #![allow(dead_code)] // 公开 API，供未来使用
 
+use super::commands::scoped_commands;
 use egui::{Key, Modifiers};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -18,6 +19,33 @@ pub struct KeyBinding {
     pub key: KeyCode,
     /// 修饰键
     pub modifiers: KeyModifiers,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeymapDiagnosticSeverity {
+    Warning,
+    Error,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeymapDiagnosticCode {
+    UnknownSection,
+    UnknownAction,
+    InvalidBinding,
+    ExactScopeConflict,
+    ParentShadowing,
+    TextEntryPlainCharacterRejected,
+    WorkspaceFallbackShadowingTextEntry,
+    LegacyConfigMigrationPending,
+    DeprecatedAlias,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeymapDiagnostic {
+    pub severity: KeymapDiagnosticSeverity,
+    pub code: KeymapDiagnosticCode,
+    pub path: String,
+    pub message: String,
 }
 
 /// 可序列化的按键代码
@@ -487,6 +515,12 @@ impl KeyBinding {
         let mut key_str = "";
 
         for part in &parts {
+            if part.is_empty() {
+                // 支持 "Ctrl++" 这类写法，将最后的空片段视为 '+' 键。
+                key_str = "+";
+                continue;
+            }
+
             let part_lower = part.to_lowercase();
             match part_lower.as_str() {
                 "ctrl" | "control" => modifiers.ctrl = true,
@@ -588,6 +622,66 @@ impl KeyBinding {
         ctx.input(|i| self.modifiers.matches(&i.modifiers) && i.key_pressed(self.key.to_egui_key()))
     }
 
+    /// 文本输入作用域必须拒绝会直接写入字符的普通按键命令。
+    pub fn conflicts_with_text_entry(&self) -> bool {
+        if self.modifiers.ctrl || self.modifiers.alt || self.modifiers.mac_cmd {
+            return false;
+        }
+
+        matches!(
+            self.key,
+            KeyCode::A
+                | KeyCode::B
+                | KeyCode::C
+                | KeyCode::D
+                | KeyCode::E
+                | KeyCode::F
+                | KeyCode::G
+                | KeyCode::H
+                | KeyCode::I
+                | KeyCode::J
+                | KeyCode::K
+                | KeyCode::L
+                | KeyCode::M
+                | KeyCode::N
+                | KeyCode::O
+                | KeyCode::P
+                | KeyCode::Q
+                | KeyCode::R
+                | KeyCode::S
+                | KeyCode::T
+                | KeyCode::U
+                | KeyCode::V
+                | KeyCode::W
+                | KeyCode::X
+                | KeyCode::Y
+                | KeyCode::Z
+                | KeyCode::Num0
+                | KeyCode::Num1
+                | KeyCode::Num2
+                | KeyCode::Num3
+                | KeyCode::Num4
+                | KeyCode::Num5
+                | KeyCode::Num6
+                | KeyCode::Num7
+                | KeyCode::Num8
+                | KeyCode::Num9
+                | KeyCode::Space
+                | KeyCode::Minus
+                | KeyCode::Plus
+                | KeyCode::Equals
+                | KeyCode::LeftBracket
+                | KeyCode::RightBracket
+                | KeyCode::Semicolon
+                | KeyCode::Quote
+                | KeyCode::Comma
+                | KeyCode::Period
+                | KeyCode::Slash
+                | KeyCode::Backslash
+                | KeyCode::Grave
+        )
+    }
+
     /// 显示快捷键字符串
     pub fn display(&self) -> String {
         let mods = self.modifiers.to_string();
@@ -611,10 +705,22 @@ impl fmt::Display for KeyBinding {
 #[serde(rename_all = "snake_case")]
 pub enum Action {
     // === 全局操作 ===
+    /// 切到下一个主区域
+    NextFocusArea,
+    /// 切到上一个主区域
+    PrevFocusArea,
     /// 新建连接
     NewConnection,
+    /// 打开命令面板
+    CommandPalette,
+    /// 打开快捷键设置
+    OpenKeybindingsDialog,
+    /// 打开主题选择器
+    OpenThemeSelector,
     /// 切换侧边栏
     ToggleSidebar,
+    /// 切换明暗主题
+    ToggleDarkMode,
     /// 切换 SQL 编辑器
     ToggleEditor,
     /// 切换 ER 关系图
@@ -662,6 +768,20 @@ pub enum Action {
     /// 跳转到行
     GotoLine,
 
+    // === 侧边栏焦点 ===
+    /// 聚焦连接分区
+    FocusSidebarConnections,
+    /// 聚焦数据库分区
+    FocusSidebarDatabases,
+    /// 聚焦表分区
+    FocusSidebarTables,
+    /// 聚焦筛选分区
+    FocusSidebarFilters,
+    /// 聚焦触发器分区
+    FocusSidebarTriggers,
+    /// 聚焦存储过程分区
+    FocusSidebarRoutines,
+
     // === 缩放 ===
     /// 放大
     ZoomIn,
@@ -675,8 +795,14 @@ impl Action {
     /// 获取所有操作
     pub fn all() -> &'static [Action] {
         &[
+            Action::NextFocusArea,
+            Action::PrevFocusArea,
             Action::NewConnection,
+            Action::CommandPalette,
+            Action::OpenKeybindingsDialog,
+            Action::OpenThemeSelector,
             Action::ToggleSidebar,
+            Action::ToggleDarkMode,
             Action::ToggleEditor,
             Action::ToggleErDiagram,
             Action::ShowHelp,
@@ -697,6 +823,12 @@ impl Action {
             Action::AddFilter,
             Action::ClearFilters,
             Action::GotoLine,
+            Action::FocusSidebarConnections,
+            Action::FocusSidebarDatabases,
+            Action::FocusSidebarTables,
+            Action::FocusSidebarFilters,
+            Action::FocusSidebarTriggers,
+            Action::FocusSidebarRoutines,
             Action::ZoomIn,
             Action::ZoomOut,
             Action::ZoomReset,
@@ -706,8 +838,14 @@ impl Action {
     /// 获取操作的描述
     pub fn description(&self) -> &'static str {
         match self {
+            Action::NextFocusArea => "切到下一个主区域",
+            Action::PrevFocusArea => "切到上一个主区域",
             Action::NewConnection => "新建连接",
+            Action::CommandPalette => "打开命令面板",
+            Action::OpenKeybindingsDialog => "打开快捷键设置",
+            Action::OpenThemeSelector => "打开主题选择器",
             Action::ToggleSidebar => "切换侧边栏",
+            Action::ToggleDarkMode => "切换明暗主题",
             Action::ToggleEditor => "切换 SQL 编辑器",
             Action::ToggleErDiagram => "切换 ER 关系图",
             Action::ShowHelp => "显示帮助",
@@ -728,6 +866,12 @@ impl Action {
             Action::AddFilter => "添加筛选",
             Action::ClearFilters => "清空筛选",
             Action::GotoLine => "跳转到行",
+            Action::FocusSidebarConnections => "聚焦连接分区",
+            Action::FocusSidebarDatabases => "聚焦数据库分区",
+            Action::FocusSidebarTables => "聚焦表分区",
+            Action::FocusSidebarFilters => "聚焦筛选分区",
+            Action::FocusSidebarTriggers => "聚焦触发器分区",
+            Action::FocusSidebarRoutines => "聚焦存储过程分区",
             Action::ZoomIn => "放大",
             Action::ZoomOut => "缩小",
             Action::ZoomReset => "重置缩放",
@@ -737,7 +881,11 @@ impl Action {
     /// 获取操作的分类
     pub fn category(&self) -> &'static str {
         match self {
-            Action::NewConnection
+            Action::NextFocusArea
+            | Action::PrevFocusArea
+            | Action::NewConnection
+            | Action::CommandPalette
+            | Action::OpenKeybindingsDialog
             | Action::ToggleSidebar
             | Action::ToggleEditor
             | Action::ToggleErDiagram
@@ -751,6 +899,13 @@ impl Action {
             Action::NewTable | Action::NewDatabase | Action::NewUser => "创建",
             Action::NewTab | Action::CloseTab | Action::NextTab | Action::PrevTab => "Tab",
             Action::Save | Action::AddFilter | Action::ClearFilters | Action::GotoLine => "编辑",
+            Action::OpenThemeSelector | Action::ToggleDarkMode => "外观",
+            Action::FocusSidebarConnections
+            | Action::FocusSidebarDatabases
+            | Action::FocusSidebarTables
+            | Action::FocusSidebarFilters
+            | Action::FocusSidebarTriggers
+            | Action::FocusSidebarRoutines => "侧边栏",
             Action::ZoomIn | Action::ZoomOut | Action::ZoomReset => "缩放",
         }
     }
@@ -758,8 +913,14 @@ impl Action {
     /// keymap.toml 中使用的稳定键名
     pub fn keymap_name(&self) -> &'static str {
         match self {
+            Action::NextFocusArea => "next_focus_area",
+            Action::PrevFocusArea => "prev_focus_area",
             Action::NewConnection => "new_connection",
+            Action::CommandPalette => "command_palette",
+            Action::OpenKeybindingsDialog => "open_keybindings",
+            Action::OpenThemeSelector => "open_theme_selector",
             Action::ToggleSidebar => "toggle_sidebar",
+            Action::ToggleDarkMode => "toggle_dark_mode",
             Action::ToggleEditor => "toggle_editor",
             Action::ToggleErDiagram => "toggle_er_diagram",
             Action::ShowHelp => "show_help",
@@ -780,6 +941,12 @@ impl Action {
             Action::AddFilter => "add_filter",
             Action::ClearFilters => "clear_filters",
             Action::GotoLine => "goto_line",
+            Action::FocusSidebarConnections => "focus_sidebar_connections",
+            Action::FocusSidebarDatabases => "focus_sidebar_databases",
+            Action::FocusSidebarTables => "focus_sidebar_tables",
+            Action::FocusSidebarFilters => "focus_sidebar_filters",
+            Action::FocusSidebarTriggers => "focus_sidebar_triggers",
+            Action::FocusSidebarRoutines => "focus_sidebar_routines",
             Action::ZoomIn => "zoom_in",
             Action::ZoomOut => "zoom_out",
             Action::ZoomReset => "zoom_reset",
@@ -788,8 +955,14 @@ impl Action {
 
     pub fn from_keymap_name(name: &str) -> Option<Self> {
         Some(match name {
+            "next_focus_area" => Action::NextFocusArea,
+            "prev_focus_area" => Action::PrevFocusArea,
             "new_connection" => Action::NewConnection,
+            "command_palette" => Action::CommandPalette,
+            "open_keybindings" => Action::OpenKeybindingsDialog,
+            "open_theme_selector" => Action::OpenThemeSelector,
             "toggle_sidebar" => Action::ToggleSidebar,
+            "toggle_dark_mode" => Action::ToggleDarkMode,
             "toggle_editor" => Action::ToggleEditor,
             "toggle_er_diagram" => Action::ToggleErDiagram,
             "show_help" => Action::ShowHelp,
@@ -810,6 +983,12 @@ impl Action {
             "add_filter" => Action::AddFilter,
             "clear_filters" => Action::ClearFilters,
             "goto_line" => Action::GotoLine,
+            "focus_sidebar_connections" => Action::FocusSidebarConnections,
+            "focus_sidebar_databases" => Action::FocusSidebarDatabases,
+            "focus_sidebar_tables" => Action::FocusSidebarTables,
+            "focus_sidebar_filters" => Action::FocusSidebarFilters,
+            "focus_sidebar_triggers" => Action::FocusSidebarTriggers,
+            "focus_sidebar_routines" => Action::FocusSidebarRoutines,
             "zoom_in" => Action::ZoomIn,
             "zoom_out" => Action::ZoomOut,
             "zoom_reset" => Action::ZoomReset,
@@ -829,6 +1008,9 @@ pub struct KeyBindings {
     /// 局部命令序列覆盖（如 grid.normal.copy_row）
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     local_sequences: HashMap<String, Vec<String>>,
+    /// 运行时诊断信息，仅用于 UI 和日志，不写回磁盘。
+    #[serde(default, skip_serializing, skip_deserializing)]
+    diagnostics: Vec<KeymapDiagnostic>,
 }
 
 impl Default for KeyBindings {
@@ -836,8 +1018,23 @@ impl Default for KeyBindings {
         let mut bindings = HashMap::new();
 
         // 全局操作
+        bindings.insert(Action::NextFocusArea, KeyBinding::key_only(KeyCode::Tab));
+        bindings.insert(
+            Action::PrevFocusArea,
+            KeyBinding::new(KeyCode::Tab, KeyModifiers::SHIFT),
+        );
         bindings.insert(Action::NewConnection, KeyBinding::ctrl(KeyCode::N));
+        bindings.insert(Action::CommandPalette, KeyBinding::ctrl(KeyCode::P));
+        bindings.insert(
+            Action::OpenKeybindingsDialog,
+            KeyBinding::new(KeyCode::K, KeyModifiers::ALT),
+        );
+        bindings.insert(
+            Action::OpenThemeSelector,
+            KeyBinding::ctrl_shift(KeyCode::T),
+        );
         bindings.insert(Action::ToggleSidebar, KeyBinding::ctrl(KeyCode::B));
+        bindings.insert(Action::ToggleDarkMode, KeyBinding::ctrl(KeyCode::D));
         bindings.insert(Action::ToggleEditor, KeyBinding::ctrl(KeyCode::J));
         bindings.insert(Action::ToggleErDiagram, KeyBinding::ctrl(KeyCode::R));
         bindings.insert(Action::ShowHelp, KeyBinding::key_only(KeyCode::F1));
@@ -871,6 +1068,26 @@ impl Default for KeyBindings {
         bindings.insert(Action::ClearFilters, KeyBinding::ctrl_shift(KeyCode::F));
         bindings.insert(Action::GotoLine, KeyBinding::ctrl(KeyCode::G));
 
+        // 侧边栏焦点
+        bindings.insert(
+            Action::FocusSidebarConnections,
+            KeyBinding::ctrl(KeyCode::Num1),
+        );
+        bindings.insert(
+            Action::FocusSidebarDatabases,
+            KeyBinding::ctrl(KeyCode::Num2),
+        );
+        bindings.insert(Action::FocusSidebarTables, KeyBinding::ctrl(KeyCode::Num3));
+        bindings.insert(Action::FocusSidebarFilters, KeyBinding::ctrl(KeyCode::Num4));
+        bindings.insert(
+            Action::FocusSidebarTriggers,
+            KeyBinding::ctrl(KeyCode::Num5),
+        );
+        bindings.insert(
+            Action::FocusSidebarRoutines,
+            KeyBinding::ctrl(KeyCode::Num6),
+        );
+
         // 缩放
         bindings.insert(Action::ZoomIn, KeyBinding::ctrl(KeyCode::Plus));
         bindings.insert(Action::ZoomOut, KeyBinding::ctrl(KeyCode::Minus));
@@ -880,11 +1097,43 @@ impl Default for KeyBindings {
             bindings,
             local_bindings: HashMap::new(),
             local_sequences: HashMap::new(),
+            diagnostics: Vec::new(),
         }
     }
 }
 
 impl KeyBindings {
+    const KNOWN_ACTION_SCOPE_PATHS: &[&'static str] = &[
+        "toolbar",
+        "query_tabs",
+        "sidebar.connections",
+        "sidebar.databases",
+        "sidebar.tables",
+        "sidebar.filters.list",
+        "sidebar.filters.input",
+        "sidebar.triggers",
+        "sidebar.routines",
+        "grid.normal",
+        "grid.select",
+        "grid.insert",
+        "editor.normal",
+        "editor.insert",
+        "dialog.connection",
+        "dialog.export",
+        "dialog.import",
+        "dialog.delete_confirm",
+        "dialog.help",
+        "dialog.about",
+        "dialog.welcome_setup",
+        "dialog.history",
+        "dialog.ddl",
+        "dialog.create_database",
+        "dialog.create_user",
+        "dialog.keybindings",
+        "dialog.command_palette",
+        "dialog.generic",
+    ];
+
     pub fn keymap_dir() -> Option<PathBuf> {
         dirs::config_dir().map(|p| p.join("gridix"))
     }
@@ -901,8 +1150,15 @@ impl KeyBindings {
     pub fn load_or_init(legacy: &KeyBindings) -> Self {
         let Some(path) = Self::keymap_path() else {
             tracing::warn!("无法找到 keymap.toml 路径，回退到内置快捷键");
-            let mut bindings = legacy.clone();
-            bindings.fill_missing_defaults();
+            let mut bindings = Self::default();
+            if Self::has_legacy_customizations(legacy) {
+                bindings.push_diagnostic(
+                    KeymapDiagnosticSeverity::Warning,
+                    KeymapDiagnosticCode::LegacyConfigMigrationPending,
+                    "config.toml.keybindings",
+                    "检测到旧版 config.toml 内联快捷键，但当前会话无法定位 keymap.toml 路径；运行时已回退到默认 keymap，请手动迁移到 ~/.config/gridix/keymap.toml。",
+                );
+            }
             return bindings;
         };
 
@@ -910,8 +1166,15 @@ impl KeyBindings {
             Ok(bindings) => bindings,
             Err(error) => {
                 tracing::warn!(error = %error, path = ?path, "加载 keymap.toml 失败，回退到默认/迁移键位");
-                let mut bindings = legacy.clone();
-                bindings.fill_missing_defaults();
+                let mut bindings = Self::default();
+                if Self::has_legacy_customizations(legacy) {
+                    bindings.push_diagnostic(
+                        KeymapDiagnosticSeverity::Warning,
+                        KeymapDiagnosticCode::LegacyConfigMigrationPending,
+                        "config.toml.keybindings",
+                        "检测到旧版 config.toml 内联快捷键，但 keymap.toml 加载失败；运行时已回退到默认 keymap，请手动迁移后重试。",
+                    );
+                }
                 bindings
             }
         }
@@ -963,9 +1226,73 @@ impl KeyBindings {
         &self.bindings
     }
 
+    pub fn diagnostics(&self) -> &[KeymapDiagnostic] {
+        &self.diagnostics
+    }
+
+    pub fn diagnostics_for_action(&self, action: Action) -> Vec<&KeymapDiagnostic> {
+        let action_key = action.keymap_name();
+        self.diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.path == action_key)
+            .collect()
+    }
+
+    pub fn diagnostics_for_command(&self, command_id: &str) -> Vec<&KeymapDiagnostic> {
+        self.diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.path == command_id)
+            .collect()
+    }
+
+    pub fn diagnostics_for_binding_path(&self, path: &str) -> Vec<&KeymapDiagnostic> {
+        self.diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.path == path)
+            .collect()
+    }
+
+    pub fn has_customizations(&self) -> bool {
+        let defaults = Self::default();
+        self.bindings != defaults.bindings
+            || !self.local_bindings.is_empty()
+            || !self.local_sequences.is_empty()
+    }
+
+    pub fn effective_scoped_bindings(&self, command_id: &str) -> Vec<KeyBinding> {
+        self.local_bindings_for(command_id)
+            .map(|bindings| bindings.to_vec())
+            .unwrap_or_else(|| {
+                scoped_commands()
+                    .iter()
+                    .find(|command| command.id == command_id)
+                    .map(|command| {
+                        command
+                            .default_bindings
+                            .iter()
+                            .map(|binding| binding.key_binding())
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            })
+    }
+
     /// 获取局部作用域快捷键覆盖
     pub fn local_bindings_for(&self, key: &str) -> Option<&[KeyBinding]> {
         self.local_bindings.get(key).map(Vec::as_slice)
+    }
+
+    /// 获取某个作用域下动作对应的局部快捷键覆盖。
+    ///
+    /// 运行时路由使用 `scope_path.action_name`，例如
+    /// `sidebar.tables.refresh` 或 `editor.normal.clear_command_line`。
+    pub fn scoped_bindings_for_action(
+        &self,
+        scope_path: &str,
+        action: Action,
+    ) -> Option<&[KeyBinding]> {
+        let key = format!("{}.{}", scope_path, action.keymap_name());
+        self.local_bindings_for(&key)
     }
 
     /// 获取所有局部作用域快捷键覆盖
@@ -1064,10 +1391,54 @@ impl KeyBindings {
         }
     }
 
+    fn push_diagnostic(
+        &mut self,
+        severity: KeymapDiagnosticSeverity,
+        code: KeymapDiagnosticCode,
+        path: impl Into<String>,
+        message: impl Into<String>,
+    ) {
+        let diagnostic = KeymapDiagnostic {
+            severity,
+            code,
+            path: path.into(),
+            message: message.into(),
+        };
+        if !self
+            .diagnostics
+            .iter()
+            .any(|existing| existing == &diagnostic)
+        {
+            match diagnostic.severity {
+                KeymapDiagnosticSeverity::Warning => {
+                    tracing::warn!(path = %diagnostic.path, message = %diagnostic.message, "keymap warning");
+                }
+                KeymapDiagnosticSeverity::Error => {
+                    tracing::warn!(path = %diagnostic.path, message = %diagnostic.message, "keymap error");
+                }
+            }
+            self.diagnostics.push(diagnostic);
+        }
+    }
+
+    fn has_legacy_customizations(legacy: &KeyBindings) -> bool {
+        let defaults = Self::default();
+        legacy.bindings != defaults.bindings
+            || !legacy.local_bindings.is_empty()
+            || !legacy.local_sequences.is_empty()
+    }
+
     fn load_or_init_from_path(path: &Path, legacy: &KeyBindings) -> Result<Self, String> {
         if !path.exists() {
-            let mut initial = legacy.clone();
-            initial.fill_missing_defaults();
+            let mut initial = Self::default();
+            if Self::has_legacy_customizations(legacy) {
+                initial.push_diagnostic(
+                    KeymapDiagnosticSeverity::Warning,
+                    KeymapDiagnosticCode::LegacyConfigMigrationPending,
+                    "config.toml.keybindings",
+                    "检测到旧版 config.toml 内联快捷键。已初始化默认 keymap.toml；当前运行时使用默认 keymap，旧字段迁移和清理留到兼容窗口结束后处理。",
+                );
+            }
             initial.save_to_path(path)?;
             return Ok(initial);
         }
@@ -1087,47 +1458,45 @@ impl KeyBindings {
         let mut bindings = Self::default();
         bindings.local_bindings.clear();
         bindings.local_sequences.clear();
+        bindings.diagnostics.clear();
 
         for (raw_key, raw_value) in table {
             if raw_key == "global" {
                 let Some(global_table) = raw_value.as_table() else {
-                    tracing::warn!(entry = raw_key, "忽略非表结构的 global 配置");
+                    bindings.push_diagnostic(
+                        KeymapDiagnosticSeverity::Error,
+                        KeymapDiagnosticCode::InvalidBinding,
+                        raw_key,
+                        "global 段必须是 TOML 表。",
+                    );
                     continue;
                 };
                 for (action_key, action_value) in global_table {
-                    Self::parse_global_binding_entry(&mut bindings, action_key, action_value);
+                    bindings.parse_global_binding_entry(action_key, action_value);
                 }
                 continue;
             }
 
-            if Action::from_keymap_name(raw_key).is_some() {
-                Self::parse_global_binding_entry(&mut bindings, raw_key, raw_value);
+            if Action::from_keymap_name(raw_key).is_some() || raw_key == "major_area_switch" {
+                bindings.parse_global_binding_entry(raw_key, raw_value);
                 continue;
             }
 
             let Some(section_table) = raw_value.as_table() else {
-                tracing::warn!(entry = raw_key, "忽略未知或非表结构的快捷键配置");
+                bindings.push_diagnostic(
+                    KeymapDiagnosticSeverity::Warning,
+                    KeymapDiagnosticCode::UnknownSection,
+                    raw_key,
+                    "忽略未知或非表结构的快捷键配置。",
+                );
                 continue;
             };
 
-            Self::parse_local_binding_section(
-                raw_key,
-                section_table,
-                &mut bindings.local_bindings,
-                &mut bindings.local_sequences,
-            );
+            bindings.parse_local_binding_section(raw_key, section_table);
         }
 
         bindings.fill_missing_defaults();
-
-        for (left, right, binding) in bindings.find_conflicts() {
-            tracing::warn!(
-                left = left.keymap_name(),
-                right = right.keymap_name(),
-                binding = %binding,
-                "检测到快捷键冲突"
-            );
-        }
+        bindings.collect_conflict_diagnostics();
 
         Ok(bindings)
     }
@@ -1152,9 +1521,35 @@ impl KeyBindings {
             toml::Value::Table(global.into_iter().collect()),
         );
 
-        let mut local_entries: Vec<_> = self.local_bindings.iter().collect();
+        let mut local_entries: Vec<_> = scoped_commands()
+            .iter()
+            .map(|command| {
+                (
+                    command.id.to_string(),
+                    self.effective_scoped_bindings(command.id),
+                )
+            })
+            .collect();
         local_entries.sort_by(|(left, _), (right, _)| left.cmp(right));
         for (path_key, bindings) in local_entries {
+            Self::insert_nested_local_binding(
+                &mut root,
+                &path_key,
+                Self::serialize_binding_list(&bindings),
+            );
+        }
+
+        let mut extra_local_entries: Vec<_> = self
+            .local_bindings
+            .iter()
+            .filter(|(path_key, _)| {
+                !scoped_commands()
+                    .iter()
+                    .any(|command| command.id == path_key.as_str())
+            })
+            .collect();
+        extra_local_entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+        for (path_key, bindings) in extra_local_entries {
             Self::insert_nested_local_binding(
                 &mut root,
                 path_key,
@@ -1190,61 +1585,96 @@ impl KeyBindings {
         Ok(())
     }
 
-    fn parse_global_binding_entry(bindings: &mut Self, raw_key: &str, raw_value: &toml::Value) {
-        let Some(action) = Action::from_keymap_name(raw_key) else {
-            tracing::warn!(entry = raw_key, "忽略未知快捷键动作");
-            return;
-        };
-
-        let Some(binding_text) = raw_value.as_str() else {
-            tracing::warn!(entry = raw_key, "忽略非字符串快捷键配置");
-            return;
-        };
-
-        let Some(binding) = KeyBinding::parse(binding_text) else {
-            tracing::warn!(
-                entry = raw_key,
-                value = binding_text,
-                "忽略无法解析的快捷键配置"
+    fn parse_global_binding_entry(&mut self, raw_key: &str, raw_value: &toml::Value) {
+        let action = if raw_key == "major_area_switch" {
+            self.push_diagnostic(
+                KeymapDiagnosticSeverity::Warning,
+                KeymapDiagnosticCode::DeprecatedAlias,
+                raw_key,
+                "major_area_switch 已废弃，请改用 next_focus_area / prev_focus_area。当前会按 next_focus_area 处理。",
+            );
+            Action::NextFocusArea
+        } else if let Some(action) = Action::from_keymap_name(raw_key) {
+            action
+        } else {
+            self.push_diagnostic(
+                KeymapDiagnosticSeverity::Warning,
+                KeymapDiagnosticCode::UnknownAction,
+                raw_key,
+                "忽略未知的全局快捷键动作。",
             );
             return;
         };
 
-        bindings.set(action, binding);
+        let Some(binding_text) = raw_value.as_str() else {
+            self.push_diagnostic(
+                KeymapDiagnosticSeverity::Error,
+                KeymapDiagnosticCode::InvalidBinding,
+                raw_key,
+                "全局快捷键必须是字符串。",
+            );
+            return;
+        };
+
+        let Some(binding) = KeyBinding::parse(binding_text) else {
+            self.push_diagnostic(
+                KeymapDiagnosticSeverity::Error,
+                KeymapDiagnosticCode::InvalidBinding,
+                raw_key,
+                format!("无法解析全局快捷键绑定 {binding_text:?}。"),
+            );
+            return;
+        };
+
+        self.set(action, binding);
     }
 
     fn parse_local_binding_section(
+        &mut self,
         prefix: &str,
         table: &toml::map::Map<String, toml::Value>,
-        local_bindings: &mut HashMap<String, Vec<KeyBinding>>,
-        local_sequences: &mut HashMap<String, Vec<String>>,
     ) {
+        if !Self::is_known_scoped_prefix(prefix) {
+            self.push_diagnostic(
+                KeymapDiagnosticSeverity::Warning,
+                KeymapDiagnosticCode::UnknownSection,
+                prefix,
+                "忽略未知的 keymap 作用域段。",
+            );
+            return;
+        }
+
         for (raw_key, raw_value) in table {
             let path = format!("{prefix}.{raw_key}");
             if let Some(child_table) = raw_value.as_table() {
-                Self::parse_local_binding_section(
-                    &path,
-                    child_table,
-                    local_bindings,
-                    local_sequences,
-                );
+                self.parse_local_binding_section(&path, child_table);
                 continue;
             }
 
             if Self::is_local_sequence_key(&path) {
-                let Some(sequences) = Self::parse_local_sequence_value(&path, raw_value) else {
+                let Some(sequences) = self.parse_local_sequence_value(&path, raw_value) else {
                     continue;
                 };
 
-                local_sequences.insert(path, sequences);
+                self.local_sequences.insert(path, sequences);
                 continue;
             }
 
-            let Some(bindings) = Self::parse_local_binding_value(&path, raw_value) else {
+            let Some(binding_path) = self.canonical_local_binding_path(&path) else {
+                self.push_diagnostic(
+                    KeymapDiagnosticSeverity::Warning,
+                    KeymapDiagnosticCode::UnknownAction,
+                    &path,
+                    "忽略未知的作用域动作。",
+                );
                 continue;
             };
 
-            local_bindings.insert(path, bindings);
+            let Some(bindings) = self.parse_local_binding_value(&binding_path, raw_value) else {
+                continue;
+            };
+
+            self.local_bindings.insert(binding_path, bindings);
         }
     }
 
@@ -1252,47 +1682,173 @@ impl KeyBindings {
         path.starts_with("grid.")
     }
 
-    fn parse_local_binding_value(path: &str, raw_value: &toml::Value) -> Option<Vec<KeyBinding>> {
+    fn is_known_scoped_prefix(prefix: &str) -> bool {
+        prefix == "grid"
+            || prefix.starts_with("grid.")
+            || Self::KNOWN_ACTION_SCOPE_PATHS.iter().any(|scope| {
+                *scope == prefix
+                    || scope
+                        .strip_prefix(prefix)
+                        .is_some_and(|suffix| suffix.starts_with('.'))
+            })
+            || scoped_commands().iter().any(|command| {
+                command.id == prefix
+                    || command
+                        .id
+                        .strip_prefix(prefix)
+                        .is_some_and(|suffix| suffix.starts_with('.'))
+            })
+    }
+
+    fn canonical_command_id(&mut self, path: &str) -> Option<&'static str> {
+        if let Some(command) = scoped_commands().iter().find(|command| command.id == path) {
+            return Some(command.id);
+        }
+
+        let alias = match path {
+            "editor.sql.execute" => Some("editor.insert.execute"),
+            "editor.sql.explain" => Some("editor.insert.explain"),
+            "editor.sql.clear" => Some("editor.insert.clear"),
+            "editor.sql.autocomplete_trigger" => Some("editor.insert.trigger_completion"),
+            "editor.sql.autocomplete_confirm" => Some("editor.insert.confirm_completion"),
+            "editor.sql.history_prev" => Some("editor.insert.history_prev"),
+            "editor.sql.history_next" => Some("editor.insert.history_next"),
+            "editor.sql.history_browse" => Some("editor.insert.history_browse"),
+            _ => None,
+        }?;
+
+        self.push_diagnostic(
+            KeymapDiagnosticSeverity::Warning,
+            KeymapDiagnosticCode::DeprecatedAlias,
+            path,
+            format!("旧命令 id {path} 已废弃，将按 {alias} 处理。"),
+        );
+        Some(alias)
+    }
+
+    fn is_known_action_scope(scope_path: &str) -> bool {
+        Self::KNOWN_ACTION_SCOPE_PATHS.contains(&scope_path)
+    }
+
+    fn scope_resolution_chain(scope: &str) -> Vec<&str> {
+        let mut chain = Vec::new();
+        let mut current = Some(scope);
+        while let Some(path) = current {
+            if !chain.contains(&path) {
+                chain.push(path);
+            }
+            current = path.rsplit_once('.').map(|(parent, _)| parent);
+        }
+
+        // Runtime dialog dispatch lets specific dialog scopes fall back to
+        // dialog.common before the key returns to workspace/global routing.
+        if scope.starts_with("dialog.")
+            && scope != "dialog.common"
+            && scope != "dialog.confirm"
+            && !chain.contains(&"dialog.common")
+        {
+            chain.push("dialog.common");
+        }
+
+        // Filters list commands inherit the generic sidebar list traversal keys.
+        if scope.starts_with("sidebar.filters") && !chain.contains(&"sidebar.list") {
+            chain.push("sidebar.list");
+        }
+
+        chain
+    }
+
+    fn scopes_shadow_each_other(left_scope: &str, right_scope: &str) -> bool {
+        if left_scope == right_scope {
+            return false;
+        }
+
+        let left_chain = Self::scope_resolution_chain(left_scope);
+        let right_chain = Self::scope_resolution_chain(right_scope);
+        left_chain.iter().skip(1).any(|scope| *scope == right_scope)
+            || right_chain.iter().skip(1).any(|scope| *scope == left_scope)
+    }
+
+    fn canonical_local_binding_path(&mut self, path: &str) -> Option<String> {
+        if let Some(command_id) = self.canonical_command_id(path) {
+            return Some(command_id.to_string());
+        }
+
+        let (scope_path, action_key) = path.rsplit_once('.')?;
+        if Self::is_known_action_scope(scope_path) && Action::from_keymap_name(action_key).is_some()
+        {
+            return Some(path.to_string());
+        }
+
+        None
+    }
+
+    fn is_text_entry_scope(command_id: &str) -> bool {
+        command_id.starts_with("editor.insert.") || command_id.starts_with("sidebar.filters.input.")
+    }
+
+    fn parse_local_binding_value(
+        &mut self,
+        path: &str,
+        raw_value: &toml::Value,
+    ) -> Option<Vec<KeyBinding>> {
         match raw_value {
             toml::Value::String(binding_text) => {
                 let Some(binding) = KeyBinding::parse(binding_text) else {
-                    tracing::warn!(
-                        entry = path,
-                        value = binding_text,
-                        "忽略无法解析的局部快捷键配置"
+                    self.push_diagnostic(
+                        KeymapDiagnosticSeverity::Error,
+                        KeymapDiagnosticCode::InvalidBinding,
+                        path,
+                        format!("无法解析局部快捷键绑定 {binding_text:?}。"),
                     );
                     return None;
                 };
-                Some(vec![binding])
+                let mut bindings = Vec::new();
+                self.try_push_local_binding(path, &mut bindings, binding);
+                (!bindings.is_empty()).then_some(bindings)
             }
             toml::Value::Array(values) => {
                 let mut bindings = Vec::new();
                 for value in values {
                     let Some(binding_text) = value.as_str() else {
-                        tracing::warn!(entry = path, "忽略包含非字符串项的局部快捷键数组");
-                        return None;
+                        self.push_diagnostic(
+                            KeymapDiagnosticSeverity::Error,
+                            KeymapDiagnosticCode::InvalidBinding,
+                            path,
+                            "局部快捷键数组只能包含字符串。",
+                        );
+                        continue;
                     };
                     let Some(binding) = KeyBinding::parse(binding_text) else {
-                        tracing::warn!(
-                            entry = path,
-                            value = binding_text,
-                            "忽略无法解析的局部快捷键配置"
+                        self.push_diagnostic(
+                            KeymapDiagnosticSeverity::Error,
+                            KeymapDiagnosticCode::InvalidBinding,
+                            path,
+                            format!("无法解析局部快捷键绑定 {binding_text:?}。"),
                         );
-                        return None;
+                        continue;
                     };
-                    if !bindings.iter().any(|existing| existing == &binding) {
-                        bindings.push(binding);
-                    }
+                    self.try_push_local_binding(path, &mut bindings, binding);
                 }
                 if bindings.is_empty() {
-                    tracing::warn!(entry = path, "忽略空的局部快捷键数组");
+                    self.push_diagnostic(
+                        KeymapDiagnosticSeverity::Error,
+                        KeymapDiagnosticCode::InvalidBinding,
+                        path,
+                        "局部快捷键数组为空或全部非法。",
+                    );
                     None
                 } else {
                     Some(bindings)
                 }
             }
             _ => {
-                tracing::warn!(entry = path, "忽略非法类型的局部快捷键配置");
+                self.push_diagnostic(
+                    KeymapDiagnosticSeverity::Error,
+                    KeymapDiagnosticCode::InvalidBinding,
+                    path,
+                    "局部快捷键必须是字符串或字符串数组。",
+                );
                 None
             }
         }
@@ -1311,12 +1867,21 @@ impl KeyBindings {
         }
     }
 
-    fn parse_local_sequence_value(path: &str, raw_value: &toml::Value) -> Option<Vec<String>> {
+    fn parse_local_sequence_value(
+        &mut self,
+        path: &str,
+        raw_value: &toml::Value,
+    ) -> Option<Vec<String>> {
         match raw_value {
             toml::Value::String(sequence) => {
                 let sequence = sequence.trim();
                 if sequence.is_empty() {
-                    tracing::warn!(entry = path, "忽略空的局部命令序列");
+                    self.push_diagnostic(
+                        KeymapDiagnosticSeverity::Error,
+                        KeymapDiagnosticCode::InvalidBinding,
+                        path,
+                        "忽略空的局部命令序列。",
+                    );
                     return None;
                 }
                 Some(vec![sequence.to_string()])
@@ -1325,27 +1890,47 @@ impl KeyBindings {
                 let mut sequences = Vec::new();
                 for value in values {
                     let Some(sequence) = value.as_str() else {
-                        tracing::warn!(entry = path, "忽略包含非字符串项的局部命令序列数组");
-                        return None;
+                        self.push_diagnostic(
+                            KeymapDiagnosticSeverity::Error,
+                            KeymapDiagnosticCode::InvalidBinding,
+                            path,
+                            "局部命令序列数组只能包含字符串。",
+                        );
+                        continue;
                     };
                     let sequence = sequence.trim();
                     if sequence.is_empty() {
-                        tracing::warn!(entry = path, "忽略空白局部命令序列");
-                        return None;
+                        self.push_diagnostic(
+                            KeymapDiagnosticSeverity::Error,
+                            KeymapDiagnosticCode::InvalidBinding,
+                            path,
+                            "忽略空白局部命令序列。",
+                        );
+                        continue;
                     }
                     if !sequences.iter().any(|existing| existing == sequence) {
                         sequences.push(sequence.to_string());
                     }
                 }
                 if sequences.is_empty() {
-                    tracing::warn!(entry = path, "忽略空的局部命令序列数组");
+                    self.push_diagnostic(
+                        KeymapDiagnosticSeverity::Error,
+                        KeymapDiagnosticCode::InvalidBinding,
+                        path,
+                        "局部命令序列数组为空或全部非法。",
+                    );
                     None
                 } else {
                     Some(sequences)
                 }
             }
             _ => {
-                tracing::warn!(entry = path, "忽略非法类型的局部命令序列配置");
+                self.push_diagnostic(
+                    KeymapDiagnosticSeverity::Error,
+                    KeymapDiagnosticCode::InvalidBinding,
+                    path,
+                    "局部命令序列必须是字符串或字符串数组。",
+                );
                 None
             }
         }
@@ -1389,16 +1974,193 @@ impl KeyBindings {
                 .expect("entry was just normalized to a TOML table");
         }
     }
+
+    fn try_push_local_binding(
+        &mut self,
+        path: &str,
+        bindings: &mut Vec<KeyBinding>,
+        binding: KeyBinding,
+    ) {
+        if Self::is_text_entry_scope(path) && binding.conflicts_with_text_entry() {
+            self.push_diagnostic(
+                KeymapDiagnosticSeverity::Error,
+                KeymapDiagnosticCode::TextEntryPlainCharacterRejected,
+                path,
+                format!(
+                    "文本输入作用域 {path} 不接受会直接写入字符的命令绑定 {}。",
+                    binding.display()
+                ),
+            );
+            return;
+        }
+
+        if !bindings.iter().any(|existing| existing == &binding) {
+            bindings.push(binding);
+        }
+    }
+
+    fn collect_conflict_diagnostics(&mut self) {
+        for (left, right, binding) in self.find_conflicts() {
+            self.push_diagnostic(
+                KeymapDiagnosticSeverity::Error,
+                KeymapDiagnosticCode::ExactScopeConflict,
+                left.keymap_name(),
+                format!(
+                    "{} 与同一作用域动作 {} 使用了相同绑定 {}。",
+                    left.description(),
+                    right.description(),
+                    binding.display()
+                ),
+            );
+            self.push_diagnostic(
+                KeymapDiagnosticSeverity::Error,
+                KeymapDiagnosticCode::ExactScopeConflict,
+                right.keymap_name(),
+                format!(
+                    "{} 与同一作用域动作 {} 使用了相同绑定 {}。",
+                    right.description(),
+                    left.description(),
+                    binding.display()
+                ),
+            );
+        }
+
+        let mut scoped_entries: Vec<(String, Vec<KeyBinding>)> = scoped_commands()
+            .iter()
+            .map(|command| {
+                (
+                    command.id.to_string(),
+                    self.effective_scoped_bindings(command.id),
+                )
+            })
+            .collect();
+        scoped_entries.extend(self.local_bindings.iter().filter_map(|(path, bindings)| {
+            if scoped_commands()
+                .iter()
+                .any(|command| command.id == path.as_str())
+            {
+                return None;
+            }
+
+            let (scope_path, action_key) = path.rsplit_once('.')?;
+            if Self::is_known_action_scope(scope_path)
+                && Action::from_keymap_name(action_key).is_some()
+            {
+                Some((path.clone(), bindings.clone()))
+            } else {
+                None
+            }
+        }));
+
+        for i in 0..scoped_entries.len() {
+            for j in (i + 1)..scoped_entries.len() {
+                let (left_id, left_bindings) = &scoped_entries[i];
+                let (right_id, right_bindings) = &scoped_entries[j];
+                let left_scope = left_id
+                    .rsplit_once('.')
+                    .map(|(scope, _)| scope)
+                    .unwrap_or(left_id.as_str());
+                let right_scope = right_id
+                    .rsplit_once('.')
+                    .map(|(scope, _)| scope)
+                    .unwrap_or(right_id.as_str());
+
+                for binding in left_bindings {
+                    if !right_bindings.iter().any(|candidate| candidate == binding) {
+                        continue;
+                    }
+
+                    if left_scope == right_scope {
+                        self.push_diagnostic(
+                            KeymapDiagnosticSeverity::Error,
+                            KeymapDiagnosticCode::ExactScopeConflict,
+                            left_id.as_str(),
+                            format!(
+                                "{} 与 {} 在同一作用域 {left_scope} 内重复使用 {}。",
+                                left_id,
+                                right_id,
+                                binding.display()
+                            ),
+                        );
+                        self.push_diagnostic(
+                            KeymapDiagnosticSeverity::Error,
+                            KeymapDiagnosticCode::ExactScopeConflict,
+                            right_id.as_str(),
+                            format!(
+                                "{} 与 {} 在同一作用域 {right_scope} 内重复使用 {}。",
+                                right_id,
+                                left_id,
+                                binding.display()
+                            ),
+                        );
+                    } else if Self::scopes_shadow_each_other(left_scope, right_scope) {
+                        self.push_diagnostic(
+                            KeymapDiagnosticSeverity::Warning,
+                            KeymapDiagnosticCode::ParentShadowing,
+                            left_id.as_str(),
+                            format!(
+                                "{} 与层级父/子作用域命令 {} 共享 {}；运行时会优先由更具体的局部命令消费。",
+                                left_id,
+                                right_id,
+                                binding.display()
+                            ),
+                        );
+                        self.push_diagnostic(
+                            KeymapDiagnosticSeverity::Warning,
+                            KeymapDiagnosticCode::ParentShadowing,
+                            right_id.as_str(),
+                            format!(
+                                "{} 与层级父/子作用域命令 {} 共享 {}；运行时会优先由更具体的局部命令消费。",
+                                right_id,
+                                left_id,
+                                binding.display()
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+
+        let text_entry_commands: Vec<_> = scoped_commands()
+            .iter()
+            .filter(|command| Self::is_text_entry_scope(command.id))
+            .collect();
+
+        for action in Action::all() {
+            let Some(global_binding) = self.get(*action).cloned() else {
+                continue;
+            };
+            for command in &text_entry_commands {
+                if self
+                    .effective_scoped_bindings(command.id)
+                    .iter()
+                    .any(|binding| binding == &global_binding)
+                {
+                    self.push_diagnostic(
+                        KeymapDiagnosticSeverity::Warning,
+                        KeymapDiagnosticCode::WorkspaceFallbackShadowingTextEntry,
+                        action.keymap_name(),
+                        format!(
+                            "{} 与文本输入作用域命令 {} 共享 {}。运行时会先由局部文本输入命令消费，再回退到 focus-area 切换或工作区动作。",
+                            action.keymap_name(),
+                            command.id,
+                            global_binding.display()
+                        ),
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Action, KeyBinding, KeyBindings, KeyCode};
+    use super::{Action, KeyBinding, KeyBindings, KeyCode, KeymapDiagnosticCode};
     use std::fs;
     use tempfile::tempdir;
 
     #[test]
-    fn missing_keymap_is_initialized_from_legacy_bindings() {
+    fn missing_keymap_is_initialized_from_defaults_and_marks_legacy_migration() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("keymap.toml");
         let mut legacy = KeyBindings::default();
@@ -1406,8 +2168,15 @@ mod tests {
 
         let loaded = KeyBindings::load_or_init_from_path(&path, &legacy).unwrap();
 
-        assert_eq!(loaded.display(Action::NewConnection), "Ctrl+P");
+        assert_eq!(loaded.display(Action::NewConnection), "Ctrl+N");
         assert!(path.exists());
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("[global]"));
+        assert!(content.contains("next_focus_area = \"Tab\""));
+        assert!(content.contains("[editor.insert]"));
+        assert!(loaded.diagnostics().iter().any(|diagnostic| {
+            diagnostic.code == KeymapDiagnosticCode::LegacyConfigMigrationPending
+        }));
     }
 
     #[test]
@@ -1418,6 +2187,14 @@ mod tests {
 
         assert_eq!(loaded.display(Action::NewConnection), "Alt+N");
         assert_eq!(loaded.display(Action::ShowHelp), "F1");
+    }
+
+    #[test]
+    fn parse_plus_key_binding_from_ctrl_plus_plus() {
+        let parsed = KeyBinding::parse("Ctrl++").expect("Ctrl++ should parse as Ctrl + Plus");
+
+        assert_eq!(parsed.key, KeyCode::Plus);
+        assert_eq!(parsed.display(), "Ctrl++");
     }
 
     #[test]
@@ -1432,6 +2209,22 @@ show_help = "F2"
 
         assert_eq!(loaded.display(Action::NewConnection), "Ctrl+N");
         assert_eq!(loaded.display(Action::ShowHelp), "F2");
+    }
+
+    #[test]
+    fn invalid_key_produces_diagnostic_and_keeps_default_binding() {
+        let content = r#"
+[global]
+next_focus_area = "NotAKey"
+"#;
+
+        let loaded = KeyBindings::parse_keymap(content).unwrap();
+
+        assert_eq!(loaded.display(Action::NextFocusArea), "Tab");
+        assert!(loaded.diagnostics().iter().any(|diagnostic| {
+            diagnostic.code == KeymapDiagnosticCode::InvalidBinding
+                && diagnostic.path == "next_focus_area"
+        }));
     }
 
     #[test]
@@ -1466,6 +2259,124 @@ copy_row = ["yy", "Y"]
     }
 
     #[test]
+    fn same_scope_conflict_detection_reports_error() {
+        let content = r#"
+[dialog.help]
+scroll_up = "J"
+scroll_down = "J"
+"#;
+
+        let loaded = KeyBindings::parse_keymap(content).unwrap();
+
+        assert!(loaded.diagnostics().iter().any(|diagnostic| {
+            diagnostic.code == KeymapDiagnosticCode::ExactScopeConflict
+                && diagnostic.path == "dialog.help.scroll_up"
+        }));
+        assert!(loaded.diagnostics().iter().any(|diagnostic| {
+            diagnostic.code == KeymapDiagnosticCode::ExactScopeConflict
+                && diagnostic.path == "dialog.help.scroll_down"
+        }));
+    }
+
+    #[test]
+    fn same_scope_scoped_action_conflict_detection_reports_error() {
+        let content = r#"
+[toolbar]
+refresh = "Ctrl+R"
+save = "Ctrl+R"
+"#;
+
+        let loaded = KeyBindings::parse_keymap(content).unwrap();
+
+        assert!(loaded.diagnostics().iter().any(|diagnostic| {
+            diagnostic.code == KeymapDiagnosticCode::ExactScopeConflict
+                && diagnostic.path == "toolbar.refresh"
+        }));
+        assert!(loaded.diagnostics().iter().any(|diagnostic| {
+            diagnostic.code == KeymapDiagnosticCode::ExactScopeConflict
+                && diagnostic.path == "toolbar.save"
+        }));
+    }
+
+    #[test]
+    fn inherited_conflict_detection_reports_warning() {
+        let content = r#"
+[dialog.common]
+dismiss = "Esc"
+
+[dialog.help]
+scroll_up = "Esc"
+"#;
+
+        let loaded = KeyBindings::parse_keymap(content).unwrap();
+
+        assert!(loaded.diagnostics().iter().any(|diagnostic| {
+            diagnostic.code == KeymapDiagnosticCode::ParentShadowing
+                && diagnostic.path == "dialog.help.scroll_up"
+        }));
+    }
+
+    #[test]
+    fn text_entry_scopes_reject_plain_character_commands() {
+        let content = r#"
+[editor.insert]
+confirm_completion = "J"
+"#;
+
+        let loaded = KeyBindings::parse_keymap(content).unwrap();
+
+        assert!(
+            loaded
+                .local_bindings_for("editor.insert.confirm_completion")
+                .is_none()
+        );
+        assert!(loaded.diagnostics().iter().any(|diagnostic| {
+            diagnostic.code == KeymapDiagnosticCode::TextEntryPlainCharacterRejected
+                && diagnostic.path == "editor.insert.confirm_completion"
+        }));
+    }
+
+    #[test]
+    fn scoped_bindings_for_action_reads_scope_action_paths() {
+        let content = r#"
+[toolbar]
+refresh = "R"
+
+[sidebar.tables]
+add_filter = "A"
+
+[sidebar.filters.input]
+show_help = "Ctrl+H"
+"#;
+
+        let loaded = KeyBindings::parse_keymap(content).unwrap();
+
+        let toolbar_refresh = loaded
+            .scoped_bindings_for_action("toolbar", Action::Refresh)
+            .unwrap();
+        assert_eq!(toolbar_refresh.len(), 1);
+        assert_eq!(toolbar_refresh[0].display(), "R");
+
+        let sidebar_add_filter = loaded
+            .scoped_bindings_for_action("sidebar.tables", Action::AddFilter)
+            .unwrap();
+        assert_eq!(sidebar_add_filter.len(), 1);
+        assert_eq!(sidebar_add_filter[0].display(), "A");
+
+        let filters_input_help = loaded
+            .scoped_bindings_for_action("sidebar.filters.input", Action::ShowHelp)
+            .unwrap();
+        assert_eq!(filters_input_help.len(), 1);
+        assert_eq!(filters_input_help[0].display(), "Ctrl+H");
+
+        assert!(
+            loaded
+                .scoped_bindings_for_action("sidebar.tables", Action::Refresh)
+                .is_none()
+        );
+    }
+
+    #[test]
     fn save_to_path_writes_structured_keymap_sections() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("keymap.toml");
@@ -1496,6 +2407,9 @@ copy_row = ["yy", "Y"]
         assert!(content.contains("\"Q\""));
         assert!(content.contains("[dialog.help]"));
         assert!(content.contains("scroll_up = \"K\""));
+        assert!(content.contains("[editor.insert]"));
+        assert!(content.contains("confirm_completion = ["));
+        assert!(content.contains("\"Tab\""));
         assert!(content.contains("[grid.normal]"));
         assert!(content.contains("copy_row = ["));
         assert!(content.contains("\"yy\""));

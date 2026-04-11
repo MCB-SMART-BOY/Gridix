@@ -5,7 +5,7 @@
 **A keyboard-first database manager for command-style workflow**  
 **面向命令式工作流的键盘优先数据库管理工具**
 
-[![Version](https://img.shields.io/badge/version-3.8.0-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
+[![Version](https://img.shields.io/badge/version-4.0.0-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024_edition-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
@@ -46,8 +46,8 @@ nix run github:MCB-SMART-BOY/Gridix
 nix profile install github:MCB-SMART-BOY/Gridix
 
 # pinned release
-nix run github:MCB-SMART-BOY/Gridix/v3.8.0
-nix profile install github:MCB-SMART-BOY/Gridix/v3.8.0
+nix run github:MCB-SMART-BOY/Gridix/v4.0.0
+nix profile install github:MCB-SMART-BOY/Gridix/v4.0.0
 
 # Homebrew (macOS/Linux)
 brew tap MCB-SMART-BOY/gridix
@@ -106,6 +106,10 @@ sudo zypper install gtk3-devel libxdo-devel
   `Tab / Shift+Tab`：切换主区域焦点。
 - `hjkl`: navigate inside the current area.  
   `hjkl`：在当前区域内导航。
+- In DataGrid, `h/j/k/l` stay local to table movement; they do not double as sidebar/query-tab traversal.
+  在数据表格中，`h/j/k/l` 只服务于表格内移动，不再兼作侧边栏或查询标签栏跳转。
+- In SQL editor, `Tab` confirms completion before focus switching, and `Escape` closes completion before leaving insert mode.
+  在 SQL 编辑器中，`Tab` 会先确认补全，再考虑焦点切换；`Escape` 会先关闭补全，再退出插入模式。
 - Same key can mean different actions in different areas.
   同一按键在不同区域语义可能不同。
 

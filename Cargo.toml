@@ -1,6 +1,6 @@
 [package]
 name = "gridix"
-version = "3.8.0"
+version = "4.0.0"
 edition = "2024"
 description = "跨平台数据库管理工具，支持 SQLite/PostgreSQL/MySQL"
 authors = ["MCB-SMART-BOY"]
@@ -111,6 +111,7 @@ futures-util = "0.3"
 # -----------------------------------------------------------------------------
 base64 = "0.22"
 ring = { version = "0.17", features = ["std"] }
+keyring = "3"
 
 # -----------------------------------------------------------------------------
 # 文本处理

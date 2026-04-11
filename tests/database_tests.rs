@@ -149,3 +149,37 @@ fn test_pool_key_changes_with_password_and_ssl_mysql() {
     changed_ssl.mysql_ssl_mode = MySqlSslMode::Required;
     assert_ne!(base.pool_key(), changed_ssl.pool_key());
 }
+
+#[test]
+fn test_ssh_pool_key_is_stable_after_runtime_host_rewrite() {
+    let base = ConnectionConfig {
+        db_type: DatabaseType::PostgreSQL,
+        host: "db.internal".to_string(),
+        port: 5432,
+        username: "app_user".to_string(),
+        password: "db-secret".to_string(),
+        database: "app".to_string(),
+        ssh_config: SshTunnelConfig {
+            enabled: true,
+            ssh_host: "jump.internal".to_string(),
+            ssh_port: 22,
+            ssh_username: "ssh-user".to_string(),
+            ssh_password: "ssh-secret".to_string(),
+            auth_method: SshAuthMethod::Password,
+            remote_host: "db.internal".to_string(),
+            remote_port: 5432,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let mut effective = base.clone();
+    effective.host = "127.0.0.1".to_string();
+    effective.port = 15432;
+
+    assert_eq!(base.pool_key(), effective.pool_key());
+
+    let mut changed_ssh_password = base.clone();
+    changed_ssh_password.ssh_config.ssh_password = "other-ssh-secret".to_string();
+    assert_ne!(base.pool_key(), changed_ssh_password.pool_key());
+}

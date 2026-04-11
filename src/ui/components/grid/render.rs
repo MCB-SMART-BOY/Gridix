@@ -8,7 +8,7 @@ use super::{
     CELL_TRUNCATE_LEN, COLOR_CELL_EDITING, COLOR_CELL_MODIFIED, COLOR_CELL_SELECTED,
     COLOR_VISUAL_SELECT,
 };
-use crate::ui::styles::GRAY;
+use crate::ui::styles::{GRAY, theme_text};
 use egui::{self, Color32, Key, RichText, Sense, TextEdit, Vec2};
 
 // NULL 值颜色
@@ -119,7 +119,13 @@ pub fn render_row_number(
             };
 
             if is_deleted {
-                if menu_btn(ui, "↩", "取消删除", "取消删除 (u)", Color32::LIGHT_GRAY) {
+                if menu_btn(
+                    ui,
+                    "↩",
+                    "取消删除",
+                    "取消删除 (u)",
+                    theme_text(ui.visuals()),
+                ) {
                     state.rows_to_delete.retain(|&x| x != row_idx);
                     ui.close();
                 }
@@ -143,6 +149,7 @@ pub fn render_row_number(
 pub fn render_editable_cell(
     ui: &mut egui::Ui,
     cell: &str,
+    is_null: bool,
     row_idx: usize,
     col_idx: usize,
     _is_cursor_row: bool, // 行级别高亮由 set_selected 处理
@@ -159,6 +166,11 @@ pub fn render_editable_cell(
         .get(&(row_idx, col_idx))
         .cloned()
         .unwrap_or_else(|| cell.to_string());
+    let display_is_null = state
+        .modified_cells
+        .get(&(row_idx, col_idx))
+        .is_some_and(|value| value.is_empty() || value.eq_ignore_ascii_case("null"))
+        || (!state.modified_cells.contains_key(&(row_idx, col_idx)) && is_null);
 
     // 只在特殊单元格状态时设置背景色，行级别高亮由表格的 set_selected 处理
     let bg_color = if is_row_deleted {
@@ -187,6 +199,7 @@ pub fn render_editable_cell(
                     state,
                     cell,
                     &display_value,
+                    display_is_null,
                     row_idx,
                     col_idx,
                     is_cursor,
@@ -228,12 +241,18 @@ fn render_display_cell(
     state: &mut DataGridState,
     cell: &str,
     display_value: &str,
+    display_is_null: bool,
     row_idx: usize,
     col_idx: usize,
     is_cursor: bool,
     is_row_deleted: bool,
 ) {
-    let cell_text = format_cell_text(display_value, is_cursor);
+    let cell_text = format_cell_text(display_value, display_is_null, is_cursor);
+    let hover_value = if display_is_null {
+        "NULL"
+    } else {
+        display_value
+    };
     let response = ui.add(egui::Label::new(cell_text).sense(Sense::click()));
 
     if response.clicked() {
@@ -248,7 +267,7 @@ fn render_display_cell(
         state.original_value = cell.to_string();
     }
 
-    let show_hover = display_value.len() > CELL_TRUNCATE_LEN;
+    let show_hover = display_is_null || display_value.len() > CELL_TRUNCATE_LEN;
 
     // 右键菜单 - 无边框按钮
     response.context_menu(|ui| {
@@ -257,7 +276,7 @@ fn render_display_cell(
                 egui::Button::new(
                     RichText::new(format!("{} {}", icon, text))
                         .size(13.0)
-                        .color(Color32::LIGHT_GRAY),
+                        .color(theme_text(ui.visuals())),
                 )
                 .frame(false)
                 .min_size(Vec2::new(0.0, 24.0)),
@@ -274,8 +293,8 @@ fn render_display_cell(
             ui.close();
         }
         if menu_btn(ui, "📋", "复制", "复制内容 (y)") {
-            state.clipboard = Some(display_value.to_string());
-            ui.ctx().copy_text(display_value.to_string());
+            state.clipboard = Some(hover_value.to_string());
+            ui.ctx().copy_text(hover_value.to_string());
             ui.close();
         }
         if menu_btn(ui, "📥", "粘贴", "粘贴内容 (p)") {
@@ -295,12 +314,12 @@ fn render_display_cell(
     });
 
     if show_hover {
-        response.on_hover_text(display_value);
+        response.on_hover_text(hover_value);
     }
 }
 
-fn format_cell_text(cell: &str, is_cursor: bool) -> RichText {
-    let text = if cell == "NULL" {
+fn format_cell_text(cell: &str, is_null: bool, is_cursor: bool) -> RichText {
+    let text = if is_null {
         // NULL 值使用斜体、特殊颜色和背景标记
         RichText::new("∅ NULL").italics().color(COLOR_NULL)
     } else if cell.len() > CELL_TRUNCATE_LEN {
@@ -413,7 +432,7 @@ fn render_new_row_display_cell(
                 egui::Button::new(
                     RichText::new(format!("{} {}", icon, text))
                         .size(13.0)
-                        .color(Color32::LIGHT_GRAY),
+                        .color(theme_text(ui.visuals())),
                 )
                 .frame(false)
                 .min_size(Vec2::new(0.0, 24.0)),

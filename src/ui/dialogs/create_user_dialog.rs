@@ -3,10 +3,11 @@
 //! 提供创建新数据库用户的 UI，支持 MySQL 和 PostgreSQL。
 //! SQLite 不支持用户管理。
 
-use crate::database::DatabaseType;
-use crate::ui::{
-    LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
+use super::common::{
+    DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow,
 };
+use crate::database::DatabaseType;
+use crate::ui::{LocalShortcut, local_shortcut_text};
 use egui::{self, Color32, RichText, TextEdit};
 
 // ============================================================================
@@ -343,15 +344,16 @@ impl CreateUserDialog {
     }
 
     fn detect_key_action(ctx: &egui::Context) -> Option<CreateUserKeyAction> {
-        ctx.input_mut(|i| {
-            if consume_local_shortcut(i, LocalShortcut::Dismiss) {
-                return Some(CreateUserKeyAction::Close);
-            }
-            if consume_local_shortcut(i, LocalShortcut::Confirm) {
-                return Some(CreateUserKeyAction::Confirm);
-            }
-            None
-        })
+        DialogShortcutContext::new(ctx).resolve_commands(&[
+            (
+                LocalShortcut::Dismiss.config_key(),
+                CreateUserKeyAction::Close,
+            ),
+            (
+                LocalShortcut::Confirm.config_key(),
+                CreateUserKeyAction::Confirm,
+            ),
+        ])
     }
 
     /// 显示对话框
@@ -369,10 +371,8 @@ impl CreateUserDialog {
         let mut result = CreateUserDialogResult::None;
         let mut should_close = false;
 
-        // 键盘快捷键处理
-        if !ctx.memory(|mem| mem.focused().is_some())
-            && let Some(key_action) = Self::detect_key_action(ctx)
-        {
+        // 键盘快捷键处理（文本输入优先于普通命令键）
+        if let Some(key_action) = Self::detect_key_action(ctx) {
             match key_action {
                 CreateUserKeyAction::Close => {
                     state.close();
@@ -393,212 +393,177 @@ impl CreateUserDialog {
             DatabaseType::SQLite => "新建用户", // 不会显示
         };
 
-        egui::Window::new(title)
-            .collapsible(false)
-            .resizable(true)
-            .min_width(450.0)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
-                ui.vertical(|ui| {
-                    // 基本信息
-                    ui.group(|ui| {
-                        ui.label(RichText::new("基本信息").strong());
-                        ui.add_space(4.0);
-
-                        ui.horizontal(|ui| {
-                            ui.label("用户名:");
-                            ui.add(
-                                TextEdit::singleline(&mut state.username)
-                                    .desired_width(200.0)
-                                    .hint_text("输入用户名"),
-                            );
-                        });
-
-                        ui.horizontal(|ui| {
-                            ui.label("密  码:");
-                            ui.add(
-                                TextEdit::singleline(&mut state.password)
-                                    .password(true)
-                                    .desired_width(200.0)
-                                    .hint_text("输入密码"),
-                            );
-                        });
-
-                        ui.horizontal(|ui| {
-                            ui.label("确  认:");
-                            ui.add(
-                                TextEdit::singleline(&mut state.confirm_password)
-                                    .password(true)
-                                    .desired_width(200.0)
-                                    .hint_text("再次输入密码"),
-                            );
-                        });
-
-                        // MySQL 特有：主机
-                        if matches!(state.db_type, DatabaseType::MySQL) {
-                            ui.horizontal(|ui| {
-                                ui.label("主  机:");
-                                egui::ComboBox::from_id_salt("host")
-                                    .selected_text(&state.host)
-                                    .width(150.0)
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(
-                                            &mut state.host,
-                                            "localhost".to_string(),
-                                            "localhost",
-                                        );
-                                        ui.selectable_value(
-                                            &mut state.host,
-                                            "%".to_string(),
-                                            "% (所有主机)",
-                                        );
-                                        ui.selectable_value(
-                                            &mut state.host,
-                                            "127.0.0.1".to_string(),
-                                            "127.0.0.1",
-                                        );
-                                    });
-                            });
-                        }
+        let style = DialogStyle::LARGE;
+        DialogWindow::resizable(ctx, title, &style).show(ctx, |ui| {
+            ui.vertical(|ui| {
+                // 基本信息
+                DialogContent::section(ui, "基本信息", |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("用户名:");
+                        ui.add(
+                            TextEdit::singleline(&mut state.username)
+                                .desired_width(200.0)
+                                .hint_text("输入用户名"),
+                        );
                     });
 
-                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.label("密  码:");
+                        ui.add(
+                            TextEdit::singleline(&mut state.password)
+                                .password(true)
+                                .desired_width(200.0)
+                                .hint_text("输入密码"),
+                        );
+                    });
 
-                    // 权限设置
-                    ui.group(|ui| {
-                        ui.label(RichText::new("权限设置").strong());
-                        ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label("确  认:");
+                        ui.add(
+                            TextEdit::singleline(&mut state.confirm_password)
+                                .password(true)
+                                .desired_width(200.0)
+                                .hint_text("再次输入密码"),
+                        );
+                    });
 
+                    // MySQL 特有：主机
+                    if matches!(state.db_type, DatabaseType::MySQL) {
                         ui.horizontal(|ui| {
-                            ui.label("授权数据库:");
-                            egui::ComboBox::from_id_salt("grant_db")
-                                .selected_text(if state.grant_database.is_empty() {
-                                    "选择数据库（可选）"
-                                } else {
-                                    &state.grant_database
-                                })
-                                .width(200.0)
+                            ui.label("主  机:");
+                            egui::ComboBox::from_id_salt("host")
+                                .selected_text(&state.host)
+                                .width(150.0)
                                 .show_ui(ui, |ui| {
                                     ui.selectable_value(
-                                        &mut state.grant_database,
-                                        String::new(),
-                                        "不授权",
+                                        &mut state.host,
+                                        "localhost".to_string(),
+                                        "localhost",
                                     );
-                                    for db in &state.available_databases {
-                                        ui.selectable_value(
-                                            &mut state.grant_database,
-                                            db.clone(),
-                                            db,
-                                        );
-                                    }
+                                    ui.selectable_value(
+                                        &mut state.host,
+                                        "%".to_string(),
+                                        "% (所有主机)",
+                                    );
+                                    ui.selectable_value(
+                                        &mut state.host,
+                                        "127.0.0.1".to_string(),
+                                        "127.0.0.1",
+                                    );
                                 });
                         });
-
-                        if !state.grant_database.is_empty() {
-                            ui.add_space(4.0);
-
-                            ui.checkbox(&mut state.grant_all, "授予所有权限 (ALL PRIVILEGES)");
-
-                            if !state.grant_all {
-                                ui.add_space(4.0);
-                                ui.label(
-                                    RichText::new("选择权限:")
-                                        .small()
-                                        .color(Color32::from_rgb(150, 150, 150)),
-                                );
-
-                                egui::ScrollArea::vertical()
-                                    .max_height(150.0)
-                                    .show(ui, |ui| {
-                                        ui.horizontal_wrapped(|ui| {
-                                            for priv_item in &mut state.privileges {
-                                                ui.checkbox(
-                                                    &mut priv_item.selected,
-                                                    priv_item.name,
-                                                )
-                                                .on_hover_text(priv_item.description);
-                                            }
-                                        });
-                                    });
-                            }
-                        }
-                    });
-
-                    ui.add_space(8.0);
-                    ui.separator();
-
-                    // 预览 SQL
-                    ui.collapsing("预览 SQL", |ui| {
-                        let sql = state
-                            .generate_sql()
-                            .map(|stmts| stmts.join("\n"))
-                            .unwrap_or_default();
-                        ui.add(
-                            TextEdit::multiline(&mut sql.as_str())
-                                .code_editor()
-                                .desired_width(f32::INFINITY)
-                                .desired_rows(4),
-                        );
-                    });
-
-                    // 错误信息
-                    if let Some(err) = &state.error {
-                        ui.add_space(4.0);
-                        ui.label(RichText::new(err).color(Color32::from_rgb(255, 100, 100)));
                     }
-
-                    ui.add_space(8.0);
-
-                    // 快捷键提示
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            RichText::new(format!(
-                                "快捷键: {} 关闭 | {} 创建",
-                                local_shortcut_text(LocalShortcut::Dismiss),
-                                local_shortcut_text(LocalShortcut::Confirm)
-                            ))
-                            .small()
-                            .color(Color32::from_rgb(120, 120, 120)),
-                        );
-                    });
-
-                    ui.add_space(4.0);
-
-                    // 按钮
-                    ui.horizontal(|ui| {
-                        if ui
-                            .button(format!(
-                                "创建 [{}]",
-                                local_shortcut_text(LocalShortcut::Confirm)
-                            ))
-                            .on_hover_text(local_shortcut_tooltip(
-                                "创建数据库用户",
-                                LocalShortcut::Confirm,
-                            ))
-                            .clicked()
-                            && let Ok(statements) = Self::try_create(state)
-                        {
-                            result = CreateUserDialogResult::Create(statements);
-                            should_close = true;
-                        }
-
-                        if ui
-                            .button(format!(
-                                "取消 [{}]",
-                                local_shortcut_text(LocalShortcut::Dismiss)
-                            ))
-                            .on_hover_text(local_shortcut_tooltip(
-                                "取消并关闭",
-                                LocalShortcut::Dismiss,
-                            ))
-                            .clicked()
-                        {
-                            result = CreateUserDialogResult::Cancelled;
-                            should_close = true;
-                        }
-                    });
                 });
+
+                ui.add_space(8.0);
+
+                // 权限设置
+                DialogContent::section(ui, "权限设置", |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("授权数据库:");
+                        egui::ComboBox::from_id_salt("grant_db")
+                            .selected_text(if state.grant_database.is_empty() {
+                                "选择数据库（可选）"
+                            } else {
+                                &state.grant_database
+                            })
+                            .width(200.0)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut state.grant_database,
+                                    String::new(),
+                                    "不授权",
+                                );
+                                for db in &state.available_databases {
+                                    ui.selectable_value(&mut state.grant_database, db.clone(), db);
+                                }
+                            });
+                    });
+
+                    if !state.grant_database.is_empty() {
+                        ui.add_space(4.0);
+
+                        ui.checkbox(&mut state.grant_all, "授予所有权限 (ALL PRIVILEGES)");
+
+                        if !state.grant_all {
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new("选择权限:")
+                                    .small()
+                                    .color(Color32::from_rgb(150, 150, 150)),
+                            );
+
+                            egui::ScrollArea::vertical()
+                                .max_height(150.0)
+                                .show(ui, |ui| {
+                                    ui.horizontal_wrapped(|ui| {
+                                        for priv_item in &mut state.privileges {
+                                            ui.checkbox(&mut priv_item.selected, priv_item.name)
+                                                .on_hover_text(priv_item.description);
+                                        }
+                                    });
+                                });
+                        }
+                    }
+                });
+
+                ui.add_space(8.0);
+                ui.separator();
+
+                // 预览 SQL
+                ui.collapsing("预览 SQL", |ui| {
+                    let sql = state
+                        .generate_sql()
+                        .map(|stmts| stmts.join("\n"))
+                        .unwrap_or_default();
+                    ui.add(
+                        TextEdit::multiline(&mut sql.as_str())
+                            .code_editor()
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(4),
+                    );
+                });
+
+                // 错误信息
+                if let Some(err) = &state.error {
+                    ui.add_space(4.0);
+                    DialogContent::error_text(ui, err);
+                }
+
+                ui.add_space(8.0);
+
+                // 快捷键提示
+                DialogContent::shortcut_hint(
+                    ui,
+                    &[
+                        (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
+                        (local_shortcut_text(LocalShortcut::Confirm).as_str(), "创建"),
+                    ],
+                );
+
+                let can_attempt_create = !state.username.trim().is_empty()
+                    && !state.password.is_empty()
+                    && !state.confirm_password.is_empty();
+                let footer = DialogFooter::show(
+                    ui,
+                    &format!("创建 [{}]", local_shortcut_text(LocalShortcut::Confirm)),
+                    &format!("取消 [{}]", local_shortcut_text(LocalShortcut::Dismiss)),
+                    can_attempt_create,
+                    &style,
+                );
+
+                if footer.confirmed
+                    && let Ok(statements) = Self::try_create(state)
+                {
+                    result = CreateUserDialogResult::Create(statements);
+                    should_close = true;
+                }
+                if footer.cancelled {
+                    result = CreateUserDialogResult::Cancelled;
+                    should_close = true;
+                }
             });
+        });
 
         if should_close {
             state.close();
@@ -611,6 +576,21 @@ impl CreateUserDialog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use egui::{Event, Key, Modifiers, RawInput};
+
+    fn begin_key_pass(ctx: &egui::Context, key: Key) {
+        ctx.begin_pass(RawInput {
+            events: vec![Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            }],
+            modifiers: Modifiers::NONE,
+            ..Default::default()
+        });
+    }
 
     #[test]
     fn postgres_non_all_privileges_use_valid_scope() {
@@ -644,5 +624,17 @@ mod tests {
             !combined.contains("GRANT SELECT ON DATABASE"),
             "table privileges must not be granted on DATABASE scope"
         );
+    }
+
+    #[test]
+    fn create_user_dialog_detects_confirm_shortcut_through_scoped_command_id() {
+        let ctx = egui::Context::default();
+        begin_key_pass(&ctx, Key::Enter);
+
+        let action = CreateUserDialog::detect_key_action(&ctx);
+
+        assert_eq!(action, Some(CreateUserKeyAction::Confirm));
+
+        let _ = ctx.end_pass();
     }
 }

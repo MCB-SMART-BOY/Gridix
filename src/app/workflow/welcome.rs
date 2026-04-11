@@ -14,10 +14,11 @@ use crate::database::{ConnectionConfig, DatabaseType};
 use crate::ui;
 
 use super::DbManagerApp;
+use super::action_system::AppAction;
 
 impl DbManagerApp {
     /// 刷新欢迎页数据库环境检测状态
-    pub(super) fn refresh_welcome_environment_status(&mut self) {
+    pub(in crate::app) fn refresh_welcome_environment_status(&mut self) {
         self.welcome_status = ui::WelcomeStatusSummary {
             sqlite: ui::WelcomeServiceState::BuiltIn,
             postgres: Self::detect_postgres_status(),
@@ -27,37 +28,29 @@ impl DbManagerApp {
     }
 
     /// 处理欢迎页动作
-    pub(super) fn handle_welcome_action(&mut self, action: ui::WelcomeAction) {
+    pub(in crate::app) fn handle_welcome_action(
+        &mut self,
+        ctx: &egui::Context,
+        action: ui::WelcomeAction,
+    ) {
         match action {
             ui::WelcomeAction::OpenConnection(db_type) => {
-                self.welcome_setup_target = db_type;
-                self.open_connection_dialog_for(db_type);
+                self.dispatch_app_action(ctx, AppAction::OpenConnectionDialogFor(db_type));
             }
             ui::WelcomeAction::OpenSetupGuide(db_type) => {
                 self.welcome_setup_target = db_type;
                 self.show_welcome_setup_dialog = true;
             }
             ui::WelcomeAction::RecheckEnvironment => {
-                self.refresh_welcome_environment_status();
-                self.notifications.info("已重新检测本机数据库环境");
+                self.dispatch_app_action(ctx, AppAction::RecheckEnvironment);
             }
             ui::WelcomeAction::OpenLearningSample => {
-                self.welcome_setup_target = DatabaseType::SQLite;
-                match self.ensure_learning_connection(false, true) {
-                    Ok(()) => {
-                        self.mark_onboarding_connection_created();
-                        self.mark_onboarding_database_initialized();
-                        self.show_welcome_setup_dialog = true;
-                    }
-                    Err(error) => {
-                        self.notifications.error(error);
-                    }
-                }
+                self.dispatch_app_action(ctx, AppAction::OpenLearningSample);
             }
         }
     }
 
-    pub(super) fn welcome_onboarding_status(&self) -> ui::WelcomeOnboardingStatus {
+    pub(in crate::app) fn welcome_onboarding_status(&self) -> ui::WelcomeOnboardingStatus {
         let connection_created =
             self.app_config.onboarding.connection_created || !self.manager.connections.is_empty();
         let require_user_step = !matches!(self.onboarding_target_db_type(), DatabaseType::SQLite);
@@ -71,7 +64,7 @@ impl DbManagerApp {
         }
     }
 
-    pub(super) fn mark_onboarding_connection_created(&mut self) {
+    pub(in crate::app) fn mark_onboarding_connection_created(&mut self) {
         if self.app_config.onboarding.connection_created {
             return;
         }
@@ -79,7 +72,7 @@ impl DbManagerApp {
         let _ = self.app_config.save();
     }
 
-    pub(super) fn mark_onboarding_database_initialized(&mut self) {
+    pub(in crate::app) fn mark_onboarding_database_initialized(&mut self) {
         if self.app_config.onboarding.database_initialized {
             return;
         }
@@ -87,7 +80,7 @@ impl DbManagerApp {
         let _ = self.app_config.save();
     }
 
-    pub(super) fn mark_onboarding_user_created(&mut self) {
+    pub(in crate::app) fn mark_onboarding_user_created(&mut self) {
         if self.app_config.onboarding.user_created {
             return;
         }
@@ -95,7 +88,7 @@ impl DbManagerApp {
         let _ = self.app_config.save();
     }
 
-    pub(super) fn mark_onboarding_first_query_executed(&mut self) {
+    pub(in crate::app) fn mark_onboarding_first_query_executed(&mut self) {
         if self.app_config.onboarding.first_query_executed {
             return;
         }
@@ -111,7 +104,7 @@ impl DbManagerApp {
         let _ = self.app_config.save();
     }
 
-    pub(super) fn handle_onboarding_step(&mut self, step: ui::WelcomeOnboardingStep) {
+    pub(in crate::app) fn handle_onboarding_step(&mut self, step: ui::WelcomeOnboardingStep) {
         match step {
             ui::WelcomeOnboardingStep::EnvironmentCheck => {
                 self.refresh_welcome_environment_status();
@@ -141,7 +134,7 @@ impl DbManagerApp {
         }
     }
 
-    fn onboarding_target_db_type(&self) -> DatabaseType {
+    pub(in crate::app) fn onboarding_target_db_type(&self) -> DatabaseType {
         if let Some(conn) = self.manager.get_active() {
             return conn.config.db_type;
         }
@@ -190,7 +183,7 @@ impl DbManagerApp {
     }
 
     /// 渲染欢迎页安装/初始化引导弹窗
-    pub(super) fn show_welcome_setup_dialog_window(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn show_welcome_setup_dialog_window(&mut self, ctx: &egui::Context) {
         if !self.show_welcome_setup_dialog {
             return;
         }
@@ -262,11 +255,11 @@ impl DbManagerApp {
                 ui.add_space(12.0);
                 ui.horizontal_wrapped(|ui| {
                     if ui.button("重新检测环境").clicked() {
-                        self.refresh_welcome_environment_status();
+                        self.dispatch_app_action(ctx, AppAction::RecheckEnvironment);
                     }
 
                     if ui.button("打开新建连接").clicked() {
-                        self.open_connection_dialog_for(db_type);
+                        self.dispatch_app_action(ctx, AppAction::OpenConnectionDialogFor(db_type));
                         close_now = true;
                     }
 
@@ -293,7 +286,7 @@ impl DbManagerApp {
         self.show_welcome_setup_dialog = keep_open && !close_now;
     }
 
-    fn open_connection_dialog_for(&mut self, db_type: DatabaseType) {
+    pub(in crate::app) fn open_connection_dialog_for(&mut self, db_type: DatabaseType) {
         let mut config = match db_type {
             DatabaseType::SQLite => {
                 let path = default_sqlite_path();

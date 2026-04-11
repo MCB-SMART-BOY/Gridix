@@ -9,7 +9,9 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::core::{AutoComplete, CompletionKind, HighlightColors, highlight_sql};
-use crate::ui::styles::GRAY;
+use crate::ui::styles::{
+    GRAY, theme_disabled_text, theme_muted_text, theme_subtle_stroke, theme_text,
+};
 use crate::ui::{
     LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
 };
@@ -576,12 +578,16 @@ impl SqlEditor {
         ui.horizontal(|ui| {
             ui.set_height(height);
             ui.spacing_mut().item_spacing.x = 2.0;
+            let toolbar_text_color = theme_text(ui.visuals());
+            let toolbar_disabled_color = theme_disabled_text(ui.visuals());
+            let toolbar_muted_color = theme_muted_text(ui.visuals());
+            let toolbar_separator_color = theme_subtle_stroke(ui.visuals());
 
             let icon_btn = |ui: &mut egui::Ui, icon: &str, enabled: bool, tooltip: &str| -> bool {
                 let color = if enabled {
-                    Color32::LIGHT_GRAY
+                    toolbar_text_color
                 } else {
-                    Color32::from_gray(60)
+                    toolbar_disabled_color
                 };
                 ui.add_enabled(
                     enabled,
@@ -627,13 +633,21 @@ impl SqlEditor {
             }
 
             ui.add_space(8.0);
-            ui.label(RichText::new("|").small().color(Color32::from_gray(60)));
+            ui.label(RichText::new("|").small().color(toolbar_separator_color));
             ui.add_space(8.0);
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if mode == EditorMode::Normal {
-                    ui.label(RichText::new("双击/i 编辑").small().color(GRAY));
-                    ui.label(RichText::new("hjkl 移动").small().color(GRAY));
+                    ui.label(
+                        RichText::new("双击/i 编辑")
+                            .small()
+                            .color(toolbar_muted_color),
+                    );
+                    ui.label(
+                        RichText::new("hjkl 移动")
+                            .small()
+                            .color(toolbar_muted_color),
+                    );
                 } else {
                     ui.label(
                         RichText::new(format!(
@@ -641,7 +655,7 @@ impl SqlEditor {
                             local_shortcut_text(LocalShortcut::Cancel)
                         ))
                         .small()
-                        .color(GRAY),
+                        .color(toolbar_muted_color),
                     );
                     ui.label(
                         RichText::new(format!(
@@ -649,7 +663,7 @@ impl SqlEditor {
                             local_shortcut_text(LocalShortcut::SqlAutocompleteTrigger)
                         ))
                         .small()
-                        .color(GRAY),
+                        .color(toolbar_muted_color),
                     );
                 }
                 ui.label(
@@ -658,7 +672,7 @@ impl SqlEditor {
                         local_shortcut_text(LocalShortcut::SqlExecute)
                     ))
                     .small()
-                    .color(GRAY),
+                    .color(toolbar_muted_color),
                 );
             });
         });
@@ -787,21 +801,6 @@ impl SqlEditor {
             {
                 actions.focus_to_grid = true;
                 return;
-            }
-
-            // Ctrl+Enter 执行
-            if i.modifiers.ctrl && i.key_pressed(Key::Enter) && !sql_input.trim().is_empty() {
-                actions.execute = true;
-            }
-
-            // F5 执行
-            if i.key_pressed(Key::F5) && !sql_input.trim().is_empty() {
-                actions.execute = true;
-            }
-
-            // F6 EXPLAIN
-            if i.key_pressed(Key::F6) && !sql_input.trim().is_empty() {
-                actions.explain = true;
             }
 
             // Escape 切换焦点到 Grid
@@ -1030,9 +1029,9 @@ impl SqlEditor {
 
                                         ui.label(RichText::new(&item.label).monospace().color(
                                             if is_selected {
-                                                Color32::WHITE
+                                                theme_text(ui.visuals())
                                             } else {
-                                                Color32::LIGHT_GRAY
+                                                theme_muted_text(ui.visuals())
                                             },
                                         ));
                                     });
@@ -1063,7 +1062,11 @@ impl SqlEditor {
 
 #[cfg(test)]
 mod tests {
-    use super::{EditorMode, SqlEditor};
+    use super::{
+        CompletionKeyInput, EditorMode, SqlEditor, SqlEditorActions, apply_completion_at_cursor,
+    };
+    use crate::core::AutoComplete;
+    use egui::Key;
 
     #[test]
     fn insert_mode_cancel_closes_autocomplete_without_leaving_insert_mode() {
@@ -1083,5 +1086,113 @@ mod tests {
         assert!(!outcome.show_autocomplete);
         assert!(outcome.keep_editor_focus);
         assert!(outcome.escape_consumed);
+    }
+
+    #[test]
+    fn apply_completion_at_cursor_returns_cursor_after_inserted_text() {
+        let mut sql = "sel".to_string();
+
+        let cursor = apply_completion_at_cursor(&mut sql, 3, "SELECT");
+
+        assert_eq!(sql, "SELECT ");
+        assert_eq!(cursor, "SELECT ".chars().count());
+    }
+
+    #[test]
+    fn insert_mode_tab_accepts_completion_and_reports_cursor_target() {
+        let ctx = egui::Context::default();
+        let mut sql = "sel".to_string();
+        let mut history_index = None;
+        let mut actions = SqlEditorActions::default();
+        let autocomplete = AutoComplete::default();
+        let mut show_autocomplete = true;
+        let mut selected_completion = 0usize;
+        let mut editor_mode = EditorMode::Insert;
+        let mut completion_cursor_target = None;
+
+        ctx.begin_pass(egui::RawInput::default());
+        egui::Area::new(egui::Id::new("sql_editor_insert_mode_tab_accept")).show(&ctx, |ui| {
+            SqlEditor::handle_insert_mode(
+                ui,
+                &mut sql,
+                &[],
+                &mut history_index,
+                &mut actions,
+                &autocomplete,
+                &mut show_autocomplete,
+                &mut selected_completion,
+                3,
+                &mut editor_mode,
+                CompletionKeyInput {
+                    confirm_tab: true,
+                    ..Default::default()
+                },
+                &mut completion_cursor_target,
+            );
+        });
+        let _ = ctx.end_pass();
+
+        assert_eq!(sql, "SELECT ");
+        assert_eq!(completion_cursor_target, Some("SELECT ".chars().count()));
+        assert!(!show_autocomplete);
+        assert!(actions.text_changed);
+        assert_eq!(editor_mode, EditorMode::Insert);
+    }
+
+    #[test]
+    fn unfocused_editor_does_not_execute_on_editor_shortcuts() {
+        let ctx = egui::Context::default();
+        let mut sql = "select 1".to_string();
+        let mut history_index = None;
+        let mut show_autocomplete = false;
+        let mut selected_completion = 0usize;
+        let mut request_focus = false;
+        let mut editor_mode = EditorMode::Insert;
+
+        let raw_input = egui::RawInput {
+            events: vec![egui::Event::Key {
+                key: Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers {
+                    ctrl: true,
+                    command: true,
+                    ..egui::Modifiers::NONE
+                },
+            }],
+            modifiers: egui::Modifiers {
+                ctrl: true,
+                command: true,
+                ..egui::Modifiers::NONE
+            },
+            ..Default::default()
+        };
+
+        ctx.begin_pass(raw_input);
+        let actions = egui::Area::new(egui::Id::new("sql_editor_unfocused_shortcut_guard"))
+            .show(&ctx, |ui| {
+                SqlEditor::show(
+                    ui,
+                    &mut sql,
+                    &[],
+                    &mut history_index,
+                    false,
+                    &None,
+                    &Default::default(),
+                    None,
+                    &AutoComplete::default(),
+                    &mut show_autocomplete,
+                    &mut selected_completion,
+                    &mut request_focus,
+                    false,
+                    &mut editor_mode,
+                )
+            })
+            .inner;
+        let _ = ctx.end_pass();
+
+        assert!(!actions.execute);
+        assert!(!actions.explain);
     }
 }

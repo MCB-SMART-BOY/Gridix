@@ -2,7 +2,7 @@
 
 use super::{
     ColumnInfo, ForeignKeyInfo, ImportExecutionReport, RoutineInfo, RoutineType, TriggerInfo,
-    empty_result, exec_result, is_query_statement, query_result,
+    empty_result, exec_result, is_query_statement, query_result_with_null_flags,
 };
 use crate::core::constants;
 use crate::database::{ConnectionConfig, DatabaseType, DbError, POOL_MANAGER, QueryResult};
@@ -330,6 +330,7 @@ async fn execute_with_connection(
 
         let max_rows = constants::database::MAX_RESULT_SET_ROWS;
         let mut data: Vec<Vec<String>> = Vec::new();
+        let mut null_flags: Vec<Vec<bool>> = Vec::new();
         let mut total_rows = 0usize;
 
         while let Some(row) = result
@@ -339,11 +340,13 @@ async fn execute_with_connection(
         {
             total_rows += 1;
             if data.len() < max_rows {
-                data.push(row_to_strings(&row, columns.len()));
+                let (row_values, row_nulls) = row_to_strings(&row, columns.len());
+                data.push(row_values);
+                null_flags.push(row_nulls);
             }
         }
 
-        let mut query_result = query_result(columns, data);
+        let mut query_result = query_result_with_null_flags(columns, data, null_flags);
         if total_rows > max_rows {
             query_result.truncated = true;
             query_result.original_row_count = Some(total_rows);
@@ -432,46 +435,64 @@ pub async fn execute_batch(
 }
 
 /// 将 MySQL 行转换为字符串向量
-fn row_to_strings(row: &mysql_async::Row, col_count: usize) -> Vec<String> {
-    (0..col_count)
-        .map(|i| {
-            row.get::<mysql_async::Value, _>(i)
-                .map(value_to_string)
-                .unwrap_or_else(|| String::from("NULL"))
-        })
-        .collect()
+fn row_to_strings(row: &mysql_async::Row, col_count: usize) -> (Vec<String>, Vec<bool>) {
+    let mut row_values = Vec::with_capacity(col_count);
+    let mut row_nulls = Vec::with_capacity(col_count);
+    for i in 0..col_count {
+        match row.get::<mysql_async::Value, _>(i) {
+            Some(value) => {
+                let (text, is_null) = value_to_string(value);
+                row_values.push(text);
+                row_nulls.push(is_null);
+            }
+            None => {
+                row_values.push(String::new());
+                row_nulls.push(true);
+            }
+        }
+    }
+    (row_values, row_nulls)
 }
 
 /// 将 MySQL Value 转换为字符串
-fn value_to_string(val: mysql_async::Value) -> String {
+fn value_to_string(val: mysql_async::Value) -> (String, bool) {
     use mysql_async::Value;
     match val {
-        Value::NULL => String::from("NULL"),
-        Value::Bytes(b) => String::from_utf8_lossy(&b).into_owned(),
-        Value::Int(i) => i.to_string(),
-        Value::UInt(u) => u.to_string(),
-        Value::Float(f) => f.to_string(),
-        Value::Double(d) => d.to_string(),
+        Value::NULL => (String::new(), true),
+        Value::Bytes(b) => (String::from_utf8_lossy(&b).into_owned(), false),
+        Value::Int(i) => (i.to_string(), false),
+        Value::UInt(u) => (u.to_string(), false),
+        Value::Float(f) => (f.to_string(), false),
+        Value::Double(d) => (d.to_string(), false),
         Value::Date(y, m, d, h, mi, s, us) => {
             if h == 0 && mi == 0 && s == 0 && us == 0 {
-                format!("{:04}-{:02}-{:02}", y, m, d)
+                (format!("{:04}-{:02}-{:02}", y, m, d), false)
             } else if us == 0 {
-                format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", y, m, d, h, mi, s)
+                (
+                    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", y, m, d, h, mi, s),
+                    false,
+                )
             } else {
-                format!(
-                    "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
-                    y, m, d, h, mi, s, us
+                (
+                    format!(
+                        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
+                        y, m, d, h, mi, s, us
+                    ),
+                    false,
                 )
             }
         }
         Value::Time(neg, d, h, m, s, us) => {
             let sign = if neg { "-" } else { "" };
             if d > 0 {
-                format!("{}{}d {:02}:{:02}:{:02}", sign, d, h, m, s)
+                (format!("{}{}d {:02}:{:02}:{:02}", sign, d, h, m, s), false)
             } else if us > 0 {
-                format!("{}{:02}:{:02}:{:02}.{:06}", sign, h, m, s, us)
+                (
+                    format!("{}{:02}:{:02}:{:02}.{:06}", sign, h, m, s, us),
+                    false,
+                )
             } else {
-                format!("{}{:02}:{:02}:{:02}", sign, h, m, s)
+                (format!("{}{:02}:{:02}:{:02}", sign, h, m, s), false)
             }
         }
     }
@@ -723,8 +744,9 @@ pub async fn get_routines(config: &ConnectionConfig) -> Result<Vec<RoutineInfo>,
 mod tests {
     use super::{
         DbError, await_cancellable_query, build_kill_query_sql, format_cancel_message,
-        query_result, quote_mysql_identifier,
+        quote_mysql_identifier,
     };
+    use crate::database::query::query_result;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;

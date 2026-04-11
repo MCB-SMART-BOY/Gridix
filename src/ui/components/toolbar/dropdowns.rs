@@ -1,4 +1,5 @@
 use crate::core::{Action, KeyBindings};
+use crate::ui::styles::theme_text;
 use crate::ui::{action_tooltip, shortcut_tooltip};
 use egui::{Color32, CornerRadius, Id, Key, RichText, Vec2};
 
@@ -21,9 +22,13 @@ pub fn show_actions_dropdown(
 
     let response = ui
         .add(
-            egui::Button::new(RichText::new("⚡").size(15.0).color(Color32::LIGHT_GRAY))
-                .frame(false)
-                .min_size(Vec2::new(24.0, 24.0)),
+            egui::Button::new(
+                RichText::new("⚡")
+                    .size(15.0)
+                    .color(theme_text(ui.visuals())),
+            )
+            .frame(false)
+            .min_size(Vec2::new(24.0, 24.0)),
         )
         .on_hover_text(shortcut_tooltip("打开操作菜单（工具栏焦点下）", &["Enter"]));
 
@@ -172,9 +177,13 @@ pub fn show_create_dropdown(
 
     let response = ui
         .add(
-            egui::Button::new(RichText::new("+").size(15.0).color(Color32::LIGHT_GRAY))
-                .frame(false)
-                .min_size(Vec2::new(24.0, 24.0)),
+            egui::Button::new(
+                RichText::new("+")
+                    .size(15.0)
+                    .color(theme_text(ui.visuals())),
+            )
+            .frame(false)
+            .min_size(Vec2::new(24.0, 24.0)),
         )
         .on_hover_text(shortcut_tooltip("打开新建菜单（工具栏焦点下）", &["Enter"]));
 

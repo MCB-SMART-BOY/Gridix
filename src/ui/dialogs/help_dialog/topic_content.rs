@@ -5,7 +5,10 @@ use crate::ui::{LocalShortcut, local_shortcut_text};
 use egui::Stroke;
 
 impl HelpDialog {
-    pub(super) fn show_foundations_topic(ui: &mut egui::Ui, action: &mut Option<HelpAction>) {
+    pub(super) fn show_foundations_topic(
+        ui: &mut egui::Ui,
+        pending_ui_action: &mut Option<HelpUiAction>,
+    ) {
         Self::topic_header(
             ui,
             "数据库、表、行、列分别是什么？",
@@ -37,7 +40,7 @@ impl HelpDialog {
 
         Self::action_row(
             ui,
-            action,
+            pending_ui_action,
             Some((
                 "打开学习示例库",
                 HelpAction::EnsureLearningSample { reset: false },
@@ -55,7 +58,10 @@ impl HelpDialog {
         );
     }
 
-    pub(super) fn show_data_types_topic(ui: &mut egui::Ui, action: &mut Option<HelpAction>) {
+    pub(super) fn show_data_types_topic(
+        ui: &mut egui::Ui,
+        pending_ui_action: &mut Option<HelpUiAction>,
+    ) {
         Self::topic_header(
             ui,
             "数据类型：每一列为什么不能什么都塞",
@@ -86,7 +92,7 @@ impl HelpDialog {
 
         Self::action_row(
             ui,
-            action,
+            pending_ui_action,
             Some((
                 "自动查看 products 列类型",
                 HelpAction::RunLearningQuery {
@@ -108,7 +114,10 @@ impl HelpDialog {
         );
     }
 
-    pub(super) fn show_null_handling_topic(ui: &mut egui::Ui, action: &mut Option<HelpAction>) {
+    pub(super) fn show_null_handling_topic(
+        ui: &mut egui::Ui,
+        pending_ui_action: &mut Option<HelpUiAction>,
+    ) {
         Self::topic_header(
             ui,
             "NULL：缺失值不是空字符串，也不是 0",
@@ -139,7 +148,7 @@ impl HelpDialog {
 
         Self::action_row(
             ui,
-            action,
+            pending_ui_action,
             Some((
                 "自动演示 email 的 NULL 查询",
                 HelpAction::RunLearningQuery {
@@ -165,7 +174,7 @@ impl HelpDialog {
     pub(super) fn show_select_topic(
         ui: &mut egui::Ui,
         context: &HelpContext,
-        action: &mut Option<HelpAction>,
+        pending_ui_action: &mut Option<HelpUiAction>,
     ) {
         let toggle_editor = Self::topic_binding(context, Action::ToggleEditor, "Ctrl+J");
         let sql_execute = local_shortcut_text(LocalShortcut::SqlExecute);
@@ -199,7 +208,7 @@ impl HelpDialog {
 
         Self::action_row(
             ui,
-            action,
+            pending_ui_action,
             Some((
                 "自动演示 SELECT",
                 HelpAction::RunLearningQuery {
@@ -216,7 +225,7 @@ impl HelpDialog {
         );
     }
 
-    pub(super) fn show_like_topic(ui: &mut egui::Ui, action: &mut Option<HelpAction>) {
+    pub(super) fn show_like_topic(ui: &mut egui::Ui, pending_ui_action: &mut Option<HelpUiAction>) {
         Self::topic_header(
             ui,
             "LIKE：在文本里按关键字模糊匹配",
@@ -247,7 +256,7 @@ impl HelpDialog {
 
         Self::action_row(
             ui,
-            action,
+            pending_ui_action,
             Some((
                 "自动演示城市 LIKE 查询",
                 HelpAction::RunLearningQuery {
@@ -270,7 +279,10 @@ impl HelpDialog {
         );
     }
 
-    pub(super) fn show_filter_sort_topic(ui: &mut egui::Ui, action: &mut Option<HelpAction>) {
+    pub(super) fn show_filter_sort_topic(
+        ui: &mut egui::Ui,
+        pending_ui_action: &mut Option<HelpUiAction>,
+    ) {
         Self::topic_header(
             ui,
             "WHERE 与 ORDER BY：筛选你想看的数据，再排序",
@@ -300,7 +312,7 @@ impl HelpDialog {
 
         Self::action_row(
             ui,
-            action,
+            pending_ui_action,
             Some((
                 "自动演示筛选与排序",
                 HelpAction::RunLearningQuery {
@@ -315,7 +327,10 @@ impl HelpDialog {
         );
     }
 
-    pub(super) fn show_aggregate_topic(ui: &mut egui::Ui, action: &mut Option<HelpAction>) {
+    pub(super) fn show_aggregate_topic(
+        ui: &mut egui::Ui,
+        pending_ui_action: &mut Option<HelpUiAction>,
+    ) {
         Self::topic_header(
             ui,
             "GROUP BY：从明细数据里提炼出统计结论",
@@ -344,7 +359,7 @@ impl HelpDialog {
 
         Self::action_row(
             ui,
-            action,
+            pending_ui_action,
             Some((
                 "自动演示 GROUP BY",
                 HelpAction::RunLearningQuery {
@@ -362,7 +377,7 @@ impl HelpDialog {
     pub(super) fn show_relationships_topic(
         ui: &mut egui::Ui,
         context: &HelpContext,
-        action: &mut Option<HelpAction>,
+        pending_ui_action: &mut Option<HelpUiAction>,
     ) {
         let toggle_er_diagram = Self::topic_binding(context, Action::ToggleErDiagram, "Ctrl+R");
         Self::topic_header(
@@ -395,7 +410,7 @@ impl HelpDialog {
 
         Self::action_row(
             ui,
-            action,
+            pending_ui_action,
             Some(("自动打开学习示例 ER 图", HelpAction::ShowLearningErDiagram)),
             Some((
                 "自动查看 orders 外键",
@@ -416,7 +431,7 @@ impl HelpDialog {
         );
     }
 
-    pub(super) fn show_join_topic(ui: &mut egui::Ui, action: &mut Option<HelpAction>) {
+    pub(super) fn show_join_topic(ui: &mut egui::Ui, pending_ui_action: &mut Option<HelpUiAction>) {
         Self::topic_header(
             ui,
             "JOIN：把分散在不同表里的信息拼起来",
@@ -445,7 +460,7 @@ impl HelpDialog {
 
         Self::action_row(
             ui,
-            action,
+            pending_ui_action,
             Some((
                 "自动演示 JOIN",
                 HelpAction::RunLearningQuery {
@@ -468,7 +483,10 @@ impl HelpDialog {
         );
     }
 
-    pub(super) fn show_insert_topic(ui: &mut egui::Ui, action: &mut Option<HelpAction>) {
+    pub(super) fn show_insert_topic(
+        ui: &mut egui::Ui,
+        pending_ui_action: &mut Option<HelpUiAction>,
+    ) {
         Self::topic_header(
             ui,
             "INSERT：向表里新增一条记录",
@@ -499,7 +517,7 @@ impl HelpDialog {
 
         Self::action_row(
             ui,
-            action,
+            pending_ui_action,
             Some((
                 "自动演示 INSERT",
                 HelpAction::RunLearningMutationDemo {
@@ -522,7 +540,10 @@ impl HelpDialog {
         );
     }
 
-    pub(super) fn show_constraints_topic(ui: &mut egui::Ui, action: &mut Option<HelpAction>) {
+    pub(super) fn show_constraints_topic(
+        ui: &mut egui::Ui,
+        pending_ui_action: &mut Option<HelpUiAction>,
+    ) {
         Self::topic_header(
             ui,
             "约束：数据库用什么规则保护数据质量",
@@ -553,7 +574,7 @@ impl HelpDialog {
 
         Self::action_row(
             ui,
-            action,
+            pending_ui_action,
             Some((
                 "自动查看 customers 约束",
                 HelpAction::RunLearningQuery {
@@ -581,7 +602,10 @@ impl HelpDialog {
         );
     }
 
-    pub(super) fn show_update_delete_topic(ui: &mut egui::Ui, action: &mut Option<HelpAction>) {
+    pub(super) fn show_update_delete_topic(
+        ui: &mut egui::Ui,
+        pending_ui_action: &mut Option<HelpUiAction>,
+    ) {
         Self::topic_header(
             ui,
             "UPDATE 与 DELETE：先筛选，再修改或删除",
@@ -612,7 +636,7 @@ impl HelpDialog {
 
         Self::action_row(
             ui,
-            action,
+            pending_ui_action,
             Some((
                 "自动演示 UPDATE",
                 HelpAction::RunLearningMutationDemo {
@@ -645,7 +669,10 @@ impl HelpDialog {
         );
     }
 
-    pub(super) fn show_transactions_topic(ui: &mut egui::Ui, action: &mut Option<HelpAction>) {
+    pub(super) fn show_transactions_topic(
+        ui: &mut egui::Ui,
+        pending_ui_action: &mut Option<HelpUiAction>,
+    ) {
         Self::topic_header(
             ui,
             "事务：一批操作为什么要么全成功、要么全撤销",
@@ -676,7 +703,7 @@ impl HelpDialog {
 
         Self::action_row(
             ui,
-            action,
+            pending_ui_action,
             Some((
                 "自动演示事务回滚",
                 HelpAction::RunLearningMutationDemo {
@@ -769,7 +796,7 @@ impl HelpDialog {
                         .color(Color32::from_rgb(130, 180, 255)),
                 );
                 ui.add_space(6.0);
-                ui.label(RichText::new(subtitle).color(Color32::from_rgb(205, 208, 216)));
+                ui.label(RichText::new(subtitle).color(Self::muted_text_color(ui)));
                 ui.add_space(10.0);
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(8.0, 8.0);
@@ -927,7 +954,7 @@ impl HelpDialog {
 
     fn action_row(
         ui: &mut egui::Ui,
-        action: &mut Option<HelpAction>,
+        pending_ui_action: &mut Option<HelpUiAction>,
         primary: Option<(&str, HelpAction)>,
         secondary: Option<(&str, HelpAction)>,
         tertiary: Option<(&str, HelpAction)>,
@@ -944,13 +971,13 @@ impl HelpDialog {
                 ui.label(
                     RichText::new("直接在 Gridix 里试一遍")
                         .strong()
-                        .color(Color32::from_rgb(220, 225, 235)),
+                        .color(Self::body_text_color(ui)),
                 );
                 ui.add_space(6.0);
                 ui.label(
                     RichText::new("不会做时先点自动演示；想自己练时再切回编辑器手动操作。")
                         .small()
-                        .color(Color32::from_rgb(182, 186, 194)),
+                        .color(Self::muted_text_color(ui)),
                 );
                 ui.add_space(10.0);
 
@@ -960,17 +987,17 @@ impl HelpDialog {
                     if let Some((label, value)) = primary
                         && Self::action_button(ui, label, true)
                     {
-                        *action = Some(value);
+                        *pending_ui_action = Some(HelpUiAction::Dispatch(value));
                     }
                     if let Some((label, value)) = secondary
                         && Self::action_button(ui, label, false)
                     {
-                        *action = Some(value);
+                        *pending_ui_action = Some(HelpUiAction::Dispatch(value));
                     }
                     if let Some((label, value)) = tertiary
                         && Self::action_button(ui, label, false)
                     {
-                        *action = Some(value);
+                        *pending_ui_action = Some(HelpUiAction::Dispatch(value));
                     }
                 });
             });

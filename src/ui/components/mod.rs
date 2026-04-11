@@ -20,7 +20,8 @@ pub use sql_editor::{EditorMode, SqlEditor, SqlEditorActions};
 // 数据表格（Helix 风格）
 pub use grid::{
     ColumnFilter, DataGrid, DataGridState, FilterCache, FilterLogic, FilterOperator, FocusTransfer,
-    check_filter_match, escape_identifier, escape_value, filter_rows_cached, quote_identifier,
+    GridMode, check_filter_match, escape_identifier, escape_value, filter_rows_cached,
+    quote_identifier,
 };
 pub(crate) use grid::{
     GridCommandShortcut, GridSequenceConflictKind, grid_command_sequence_conflict,

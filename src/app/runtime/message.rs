@@ -25,6 +25,8 @@ pub enum Message {
     ),
     /// 导入执行完成 (执行报告, 耗时毫秒)
     ImportDone(Result<ImportExecutionReport, String>, u64),
+    /// 表格保存执行完成 (请求ID, 执行报告, 耗时毫秒)
+    GridSaveDone(u64, Result<ImportExecutionReport, String>, u64),
     /// 主键列获取完成 (表名, 主键列名)
     PrimaryKeyFetched(String, Option<String>),
     /// 触发器列表获取完成 (连接名, 数据库名, 请求ID, 触发器列表结果)

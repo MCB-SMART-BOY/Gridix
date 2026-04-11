@@ -3,7 +3,7 @@
 use egui::Color32;
 
 /// 编辑器模式（类似 Helix/Vim）
-#[derive(Clone, Copy, PartialEq, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum GridMode {
     #[default]
     Normal, // 普通模式：导航、命令

@@ -101,11 +101,24 @@ pub fn quote_identifier(name: &str, use_backticks: bool) -> Result<String, Strin
 ///
 /// 处理单引号转义，防止 SQL 注入
 pub fn escape_value(value: &str) -> String {
-    if value == "NULL" {
-        return "NULL".to_string();
-    }
     // 转义单引号为两个单引号
-    format!("'{}'", value.replace('\'', "''"))
+    format!("'{}'", value.replace("'", "''"))
+}
+
+fn escape_result_cell(value: &str, is_null: bool) -> String {
+    if is_null {
+        "NULL".to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "''"))
+    }
+}
+
+fn escape_editor_input(value: &str) -> String {
+    if value.is_empty() || value.eq_ignore_ascii_case("null") {
+        "NULL".to_string()
+    } else {
+        escape_value(value)
+    }
 }
 
 /// 生成保存修改的 SQL（带确认）
@@ -178,12 +191,8 @@ pub fn generate_save_sql(
             && let Some(pk_value) = row.get(pk_idx)
             && let Some(col_name) = safe_columns.get(*col_idx)
         {
-            let safe_value = if new_value.is_empty() || new_value.eq_ignore_ascii_case("null") {
-                "NULL".to_string()
-            } else {
-                escape_value(new_value)
-            };
-            let safe_pk_value = escape_value(pk_value);
+            let safe_value = escape_editor_input(new_value);
+            let safe_pk_value = escape_result_cell(pk_value, result.is_null(*row_idx, pk_idx));
 
             let sql = format!(
                 "UPDATE {} SET {} = {} WHERE {} = {};",
@@ -198,7 +207,7 @@ pub fn generate_save_sql(
         if let Some(row) = result.rows.get(*row_idx)
             && let Some(pk_value) = row.get(pk_idx)
         {
-            let safe_pk_value = escape_value(pk_value);
+            let safe_pk_value = escape_result_cell(pk_value, result.is_null(*row_idx, pk_idx));
             let sql = format!(
                 "DELETE FROM {} WHERE {} = {};",
                 safe_table_name, pk_col, safe_pk_value
@@ -211,16 +220,7 @@ pub fn generate_save_sql(
     for new_row in &state.new_rows {
         if new_row.iter().any(|v| !v.is_empty()) {
             let cols = safe_columns.join(", ");
-            let vals: Vec<String> = new_row
-                .iter()
-                .map(|v| {
-                    if v.is_empty() || v.eq_ignore_ascii_case("null") {
-                        "NULL".to_string()
-                    } else {
-                        escape_value(v)
-                    }
-                })
-                .collect();
+            let vals: Vec<String> = new_row.iter().map(|v| escape_editor_input(v)).collect();
             let sql = format!(
                 "INSERT INTO {} ({}) VALUES ({});",
                 safe_table_name,
@@ -251,7 +251,6 @@ pub fn generate_save_sql(
             "将执行 {} 条 SQL 语句",
             actions.sql_to_execute.len()
         ));
-        state.clear_edits();
     }
 }
 
@@ -260,7 +259,6 @@ pub fn confirm_pending_sql(state: &mut DataGridState, actions: &mut DataGridActi
     if !state.pending_sql.is_empty() {
         actions.sql_to_execute = std::mem::take(&mut state.pending_sql);
         actions.message = Some(format!("执行 {} 条 SQL 语句", actions.sql_to_execute.len()));
-        state.clear_edits();
     }
     state.show_save_confirm = false;
 }
@@ -269,4 +267,70 @@ pub fn confirm_pending_sql(state: &mut DataGridState, actions: &mut DataGridActi
 pub fn cancel_pending_sql(state: &mut DataGridState) {
     state.pending_sql.clear();
     state.show_save_confirm = false;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DataGridActions, cancel_pending_sql, confirm_pending_sql, generate_save_sql};
+    use crate::database::QueryResult;
+    use crate::ui::DataGridState;
+
+    fn sample_result() -> QueryResult {
+        QueryResult::with_rows(
+            vec!["id".to_string(), "name".to_string()],
+            vec![vec!["1".to_string(), "alice".to_string()]],
+        )
+    }
+
+    #[test]
+    fn generate_save_sql_keeps_edit_state_until_save_completes() {
+        let result = sample_result();
+        let mut state = DataGridState::default();
+        let mut actions = DataGridActions::default();
+
+        state.modified_cells.insert((0, 1), "bob".to_string());
+
+        generate_save_sql(&result, &mut state, "users", &mut actions);
+
+        assert_eq!(actions.sql_to_execute.len(), 1);
+        assert_eq!(state.modified_cells.get(&(0, 1)), Some(&"bob".to_string()));
+        assert!(state.has_changes());
+    }
+
+    #[test]
+    fn confirm_pending_sql_keeps_edits_until_execution_result_returns() {
+        let result = sample_result();
+        let mut state = DataGridState::default();
+        let mut actions = DataGridActions::default();
+
+        state.rows_to_delete.push(0);
+        generate_save_sql(&result, &mut state, "users", &mut actions);
+
+        assert!(state.show_save_confirm);
+        assert_eq!(state.pending_sql.len(), 1);
+
+        confirm_pending_sql(&mut state, &mut actions);
+
+        assert!(!state.show_save_confirm);
+        assert_eq!(actions.sql_to_execute.len(), 1);
+        assert_eq!(state.rows_to_delete, vec![0]);
+        assert!(state.has_changes());
+    }
+
+    #[test]
+    fn cancel_pending_sql_discards_confirmation_queue_only() {
+        let result = sample_result();
+        let mut state = DataGridState::default();
+        let mut actions = DataGridActions::default();
+
+        state.rows_to_delete.push(0);
+        generate_save_sql(&result, &mut state, "users", &mut actions);
+
+        cancel_pending_sql(&mut state);
+
+        assert!(!state.show_save_confirm);
+        assert!(state.pending_sql.is_empty());
+        assert_eq!(state.rows_to_delete, vec![0]);
+        assert!(state.has_changes());
+    }
 }

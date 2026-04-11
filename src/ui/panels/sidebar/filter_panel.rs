@@ -2,11 +2,11 @@
 //!
 //! 显示在左侧栏的筛选条件管理面板
 
-use crate::core::{Action, KeyBindings};
+use crate::core::KeyBindings;
 use crate::ui::styles::{GRAY, MUTED, SUCCESS};
 use crate::ui::{
     ColumnFilter, FilterLogic, FilterOperator, LocalShortcut, SidebarPanelState, SidebarSection,
-    action_tooltip_with_extras, local_shortcuts_text, local_shortcuts_tooltip,
+    local_shortcuts_tooltip,
 };
 use egui::{self, Color32, CornerRadius, RichText, TextEdit, Vec2};
 
@@ -25,7 +25,7 @@ impl FilterPanel {
     #[allow(clippy::too_many_arguments)]
     pub fn show(
         ui: &mut egui::Ui,
-        keybindings: &KeyBindings,
+        _keybindings: &KeyBindings,
         is_focused: bool,
         focused_section: SidebarSection,
         panel_state: &mut SidebarPanelState,
@@ -37,12 +37,10 @@ impl FilterPanel {
         let mut changed = false;
         let mut clicked = false;
         let mut filter_to_remove: Option<usize> = None;
-        panel_state.filter_input_has_focus = false;
+        panel_state.begin_filter_workspace_frame();
 
         // 标题栏
         ui.horizontal(|ui| {
-            let add_filter_shortcuts = local_shortcuts_text(&[LocalShortcut::FilterAdd]);
-            let clear_filter_shortcuts = local_shortcuts_text(&[LocalShortcut::FilterClearAll]);
             let filter_count = filters.iter().filter(|f| f.enabled).count();
             let title = if filter_count > 0 {
                 format!("筛选 ({})", filter_count)
@@ -72,11 +70,9 @@ impl FilterPanel {
                             .frame(false)
                             .min_size(Vec2::new(18.0, 18.0)),
                         )
-                        .on_hover_text(action_tooltip_with_extras(
-                            keybindings,
-                            Action::AddFilter,
+                        .on_hover_text(local_shortcuts_tooltip(
                             "添加筛选条件",
-                            &[add_filter_shortcuts.as_str()],
+                            &[LocalShortcut::FilterAdd],
                         ))
                         .clicked()
                 {
@@ -98,11 +94,9 @@ impl FilterPanel {
                             .frame(false)
                             .min_size(Vec2::new(18.0, 18.0)),
                         )
-                        .on_hover_text(action_tooltip_with_extras(
-                            keybindings,
-                            Action::ClearFilters,
+                        .on_hover_text(local_shortcuts_tooltip(
                             "清空所有筛选条件",
-                            &[clear_filter_shortcuts.as_str()],
+                            &[LocalShortcut::FilterClearAll],
                         ))
                         .clicked()
                 {
@@ -113,6 +107,27 @@ impl FilterPanel {
         });
 
         ui.add_space(2.0);
+
+        if is_focused && focused_section == SidebarSection::Filters {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                ui.label(RichText::new("j/k").small().color(GRAY));
+                ui.label(RichText::new("列表").small().color(MUTED));
+                ui.label(RichText::new("a/A").small().color(GRAY));
+                ui.label(RichText::new("插入").small().color(MUTED));
+                ui.label(RichText::new("space").small().color(GRAY));
+                ui.label(RichText::new("启用").small().color(MUTED));
+                ui.label(RichText::new("o").small().color(GRAY));
+                ui.label(RichText::new("逻辑").small().color(MUTED));
+                ui.label(RichText::new("[ ]").small().color(GRAY));
+                ui.label(RichText::new("列").small().color(MUTED));
+                ui.label(RichText::new("- =").small().color(GRAY));
+                ui.label(RichText::new("操作符").small().color(MUTED));
+                ui.label(RichText::new("l / Esc").small().color(GRAY));
+                ui.label(RichText::new("进入/退出输入").small().color(MUTED));
+            });
+            ui.add_space(2.0);
+        }
 
         // 分隔线
         let rect = ui.available_rect_before_wrap();
@@ -142,7 +157,12 @@ impl FilterPanel {
                         if columns.is_empty() {
                             ui.label(RichText::new("请先查询数据").size(11.0).color(MUTED));
                         } else {
-                            ui.label(RichText::new("点击 + 添加筛选").size(11.0).color(MUTED));
+                            ui.label(RichText::new("按 a 添加筛选条件").size(11.0).color(MUTED));
+                            ui.label(
+                                RichText::new("l 编辑值 · space 启用/停用")
+                                    .size(10.0)
+                                    .color(GRAY),
+                            );
                         }
                     });
                 } else {
@@ -151,15 +171,35 @@ impl FilterPanel {
                         let is_last = idx == filters_len - 1;
 
                         ui.push_id(format!("filter_{}", idx), |ui| {
-                            // 筛选条件行
-                            let bg_color = if filter.enabled {
+                            let is_nav_selected = is_focused
+                                && focused_section == SidebarSection::Filters
+                                && idx == panel_state.selection.filters;
+                            let is_input_selected =
+                                is_nav_selected && panel_state.filter_input_mode();
+
+                            let bg_color = if is_input_selected {
+                                Color32::from_rgba_unmultiplied(70, 95, 125, 110)
+                            } else if is_nav_selected {
+                                Color32::from_rgba_unmultiplied(60, 85, 110, 78)
+                            } else if filter.enabled {
                                 Color32::from_rgba_unmultiplied(50, 70, 90, 50)
                             } else {
                                 Color32::from_rgba_unmultiplied(40, 40, 40, 30)
                             };
+                            let stroke = if is_input_selected {
+                                egui::Stroke::new(1.0, Color32::from_rgb(120, 190, 255))
+                            } else if is_nav_selected {
+                                egui::Stroke::new(
+                                    1.0,
+                                    Color32::from_rgba_unmultiplied(120, 180, 240, 160),
+                                )
+                            } else {
+                                egui::Stroke::NONE
+                            };
 
-                            egui::Frame::NONE
+                            let row_response = egui::Frame::NONE
                                 .fill(bg_color)
+                                .stroke(stroke)
                                 .corner_radius(CornerRadius::same(3))
                                 .inner_margin(egui::Margin::symmetric(6, 4))
                                 .show(ui, |ui| {
@@ -168,6 +208,16 @@ impl FilterPanel {
                                     // 第一行：启用 + 列选择 + 操作符 + 删除
                                     ui.horizontal(|ui| {
                                         ui.spacing_mut().item_spacing.x = 3.0;
+
+                                        if is_nav_selected {
+                                            let marker =
+                                                if is_input_selected { "↳" } else { ">" };
+                                            ui.label(
+                                                RichText::new(marker)
+                                                    .size(10.0)
+                                                    .color(Color32::from_rgb(120, 190, 255)),
+                                            );
+                                        }
 
                                         // 启用复选框
                                         let checkbox_response = ui
@@ -302,7 +352,11 @@ impl FilterPanel {
                                         ui.add_space(3.0);
                                         ui.add_enabled_ui(filter.enabled, |ui| {
                                             ui.horizontal(|ui| {
-                                                ui.add_space(20.0);
+                                                ui.add_space(if is_nav_selected {
+                                                    8.0
+                                                } else {
+                                                    20.0
+                                                });
 
                                                 let response = ui.add(
                                                     TextEdit::singleline(&mut filter.value)
@@ -313,6 +367,7 @@ impl FilterPanel {
 
                                                 if *pending_focus_filter_input == Some(idx) {
                                                     response.request_focus();
+                                                    panel_state.mark_filter_input_focus();
                                                     *pending_focus_filter_input = None;
                                                 }
 
@@ -321,7 +376,14 @@ impl FilterPanel {
                                                 }
 
                                                 if response.has_focus() {
-                                                    panel_state.filter_input_has_focus = true;
+                                                    panel_state.mark_filter_input_focus();
+
+                                                    if ui.input(|input| {
+                                                        input.key_pressed(egui::Key::Escape)
+                                                    }) {
+                                                        response.surrender_focus();
+                                                        panel_state.exit_filter_input();
+                                                    }
                                                 }
 
                                                 // 大小写切换
@@ -359,8 +421,12 @@ impl FilterPanel {
                                             });
                                         });
                                     }
-                                });
+                                })
+                                .response;
 
+                            if is_nav_selected {
+                                row_response.scroll_to_me(Some(egui::Align::Center));
+                            }
                             // AND/OR 逻辑（非最后一条）
                             if !is_last {
                                 ui.horizontal(|ui| {
@@ -402,6 +468,12 @@ impl FilterPanel {
 
         if let Some(idx) = filter_to_remove {
             filters.remove(idx);
+            if filters.is_empty() {
+                panel_state.selection.filters = 0;
+                panel_state.exit_filter_input();
+            } else if panel_state.selection.filters >= filters.len() {
+                panel_state.selection.filters = filters.len() - 1;
+            }
             changed = true;
         }
 

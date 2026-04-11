@@ -6,6 +6,7 @@ use crate::core::HighlightColors;
 use crate::core::{Action, KeyBindings};
 use crate::database::QueryResult;
 use crate::ui::action_tooltip;
+use crate::ui::styles::theme_text;
 use egui::{self, Color32, RichText, Ui, Vec2};
 use uuid::Uuid;
 
@@ -445,11 +446,12 @@ impl QueryTabBar {
 
                         // 右键菜单
                         title_response.context_menu(|ui| {
+                            let menu_text_color = theme_text(ui.visuals());
                             // 无边框菜单按钮
                             let menu_btn = |ui: &mut Ui, text: &str, tooltip: &str| -> bool {
                                 ui.add(
                                     egui::Button::new(
-                                        RichText::new(text).size(13.0).color(Color32::LIGHT_GRAY),
+                                        RichText::new(text).size(13.0).color(menu_text_color),
                                     )
                                     .frame(false)
                                     .min_size(Vec2::new(0.0, 24.0)),
@@ -503,9 +505,13 @@ impl QueryTabBar {
             ui.add_space(4.0);
             if ui
                 .add(
-                    egui::Button::new(RichText::new("+").size(14.0).color(Color32::LIGHT_GRAY))
-                        .frame(false)
-                        .min_size(Vec2::new(22.0, 22.0)),
+                    egui::Button::new(
+                        RichText::new("+")
+                            .size(14.0)
+                            .color(theme_text(ui.visuals())),
+                    )
+                    .frame(false)
+                    .min_size(Vec2::new(22.0, 22.0)),
                 )
                 .on_hover_text(action_tooltip(keybindings, Action::NewTab))
                 .clicked()

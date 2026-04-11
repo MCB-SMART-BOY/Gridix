@@ -2,7 +2,7 @@
 
 use super::{
     ColumnInfo, ForeignKeyInfo, ImportExecutionReport, TriggerInfo, exec_result,
-    is_query_statement, query_result,
+    is_query_statement, query_result_with_null_flags,
 };
 use crate::core::constants;
 use crate::database::{ConnectionConfig, DatabaseType, DbError, QueryResult};
@@ -87,6 +87,7 @@ fn execute_with_connection(conn: &SqliteConn, sql: &str) -> Result<QueryResult, 
 
         let columns: Vec<String> = stmt.column_names().into_iter().map(String::from).collect();
         let mut rows: Vec<Vec<String>> = Vec::new();
+        let mut null_flags: Vec<Vec<bool>> = Vec::new();
         let mut total_rows = 0usize;
         let max_rows = constants::database::MAX_RESULT_SET_ROWS;
 
@@ -102,11 +103,13 @@ fn execute_with_connection(conn: &SqliteConn, sql: &str) -> Result<QueryResult, 
             let row = row.map_err(|e| DbError::Query(e.to_string()))?;
             total_rows += 1;
             if rows.len() < max_rows {
-                rows.push(row);
+                let (row_values, row_nulls): (Vec<String>, Vec<bool>) = row.into_iter().unzip();
+                rows.push(row_values);
+                null_flags.push(row_nulls);
             }
         }
 
-        let mut result = query_result(columns, rows);
+        let mut result = query_result_with_null_flags(columns, rows, null_flags);
         if total_rows > max_rows {
             result.truncated = true;
             result.original_row_count = Some(total_rows);
@@ -181,13 +184,15 @@ pub fn execute_batch(
 }
 
 /// 将 SQLite 值转换为字符串
-fn value_to_string(val: Result<ValueRef<'_>, rusqlite::Error>) -> Result<String, rusqlite::Error> {
+fn value_to_string(
+    val: Result<ValueRef<'_>, rusqlite::Error>,
+) -> Result<(String, bool), rusqlite::Error> {
     Ok(match val? {
-        ValueRef::Null => String::from("NULL"),
-        ValueRef::Integer(i) => i.to_string(),
-        ValueRef::Real(f) => f.to_string(),
-        ValueRef::Text(t) => String::from_utf8_lossy(t).into_owned(),
-        ValueRef::Blob(b) => format!("<Blob {} bytes>", b.len()),
+        ValueRef::Null => (String::new(), true),
+        ValueRef::Integer(i) => (i.to_string(), false),
+        ValueRef::Real(f) => (f.to_string(), false),
+        ValueRef::Text(t) => (String::from_utf8_lossy(t).into_owned(), false),
+        ValueRef::Blob(b) => (format!("<Blob {} bytes>", b.len()), false),
     })
 }
 

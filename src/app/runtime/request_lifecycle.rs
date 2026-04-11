@@ -10,23 +10,12 @@ use super::DbManagerApp;
 impl DbManagerApp {
     /// 检查是否有任何模态对话框打开
     /// 用于在对话框打开时禁用其他区域的键盘响应
-    pub(super) fn has_modal_dialog_open(&self) -> bool {
-        self.show_connection_dialog
-            || self.show_export_dialog
-            || self.show_import_dialog
-            || self.show_delete_confirm
-            || self.show_help
-            || self.show_about
-            || self.show_welcome_setup_dialog
-            || self.show_history_panel
-            || self.ddl_dialog_state.show
-            || self.create_db_dialog_state.show
-            || self.create_user_dialog_state.show
-            || self.keybindings_dialog_state.show
+    pub(in crate::app) fn has_modal_dialog_open(&self) -> bool {
+        self.dialog_host_snapshot().has_active_dialog()
     }
 
     /// 从当前活动 Tab 同步 SQL 和结果到主视图
-    pub(super) fn sync_from_active_tab(&mut self) {
+    pub(in crate::app) fn sync_from_active_tab(&mut self) {
         if let Some(tab) = self.tab_manager.get_active() {
             self.sql = tab.sql.clone();
             self.result = tab.result.clone();
@@ -34,7 +23,7 @@ impl DbManagerApp {
     }
 
     /// 将当前编辑中的 SQL 草稿同步回活动 Tab
-    pub(super) fn sync_sql_to_active_tab(&mut self) {
+    pub(in crate::app) fn sync_sql_to_active_tab(&mut self) {
         if let Some(tab) = self.tab_manager.get_active_mut()
             && tab.sql != self.sql
         {
@@ -45,23 +34,29 @@ impl DbManagerApp {
     }
 
     /// 根据导入状态和 Tab 执行状态刷新全局 executing 标记
-    pub(super) fn refresh_executing_flag(&mut self) {
+    pub(in crate::app) fn refresh_executing_flag(&mut self) {
         let query_executing = self.tab_manager.tabs.iter().any(|t| t.executing);
-        self.executing = self.import_executing || query_executing;
+        let grid_save_executing = !self.pending_grid_save_requests.is_empty();
+        self.executing = self.import_executing || query_executing || grid_save_executing;
     }
 
     /// 生成新的连接请求 ID
-    pub(super) fn next_connect_request_id(&mut self) -> u64 {
+    pub(in crate::app) fn next_connect_request_id(&mut self) -> u64 {
         Self::next_nonzero_request_id(&mut self.next_connect_request_id)
     }
 
     /// 生成新的元数据请求 ID
-    pub(super) fn next_metadata_request_id(&mut self) -> u64 {
+    pub(in crate::app) fn next_metadata_request_id(&mut self) -> u64 {
         Self::next_nonzero_request_id(&mut self.next_metadata_request_id)
     }
 
+    /// 生成新的表格保存请求 ID
+    pub(in crate::app) fn next_grid_save_request_id(&mut self) -> u64 {
+        Self::next_nonzero_request_id(&mut self.next_grid_save_request_id)
+    }
+
     /// 根据当前活动连接的 pending 请求刷新 connecting 标记
-    pub(super) fn refresh_connecting_flag(&mut self) {
+    pub(in crate::app) fn refresh_connecting_flag(&mut self) {
         let has_pending = self.manager.active.as_ref().is_some_and(|active_name| {
             self.pending_connect_requests.contains_key(active_name)
                 || self.pending_database_requests.contains_key(active_name)
@@ -70,7 +65,7 @@ impl DbManagerApp {
     }
 
     /// 记录进行中的查询任务
-    pub(super) fn track_query_task(
+    pub(in crate::app) fn track_query_task(
         &mut self,
         request_id: u64,
         conn_name: String,
@@ -86,14 +81,14 @@ impl DbManagerApp {
     }
 
     /// 查询完成后清理任务跟踪
-    pub(super) fn finalize_query_task(&mut self, request_id: u64) {
+    pub(in crate::app) fn finalize_query_task(&mut self, request_id: u64) {
         self.pending_query_tasks.remove(&request_id);
         self.pending_query_connections.remove(&request_id);
         self.pending_query_cancellers.remove(&request_id);
     }
 
     /// 取消指定查询请求
-    pub(super) fn cancel_query_request(&mut self, request_id: u64) {
+    pub(in crate::app) fn cancel_query_request(&mut self, request_id: u64) {
         let cancel_sent = self
             .pending_query_cancellers
             .remove(&request_id)
@@ -113,7 +108,7 @@ impl DbManagerApp {
     }
 
     /// 取消某个连接关联的所有查询请求
-    pub(super) fn cancel_queries_for_connection(&mut self, conn_name: &str) {
+    pub(in crate::app) fn cancel_queries_for_connection(&mut self, conn_name: &str) {
         let request_ids: Vec<u64> = self
             .pending_query_connections
             .iter()

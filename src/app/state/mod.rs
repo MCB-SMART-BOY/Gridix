@@ -4,7 +4,7 @@
 
 #![allow(dead_code)] // 公开 API，供未来使用
 
-use super::message::Message;
+use super::runtime::message::Message;
 use crate::core::{
     AppConfig, AutoComplete, HighlightColors, NotificationManager, ProgressManager, QueryHistory,
     ThemeManager,

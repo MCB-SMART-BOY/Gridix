@@ -1005,50 +1005,34 @@ fn handle_detected_normal_action(
     let mut should_clear_cmd = true;
     match action {
         GridKeyAction::MoveLeft => {
-            if state.cursor.1 == 0 {
-                actions.focus_transfer = Some(super::actions::FocusTransfer::Sidebar);
-            } else {
-                for _ in 0..repeat {
-                    state.move_cursor(0, -1, max_row, max_col);
-                }
-            }
+            let _ = repeat;
+            state.move_cursor(0, -1, max_row, max_col);
         }
         GridKeyAction::MoveDown => {
             if state.cursor.0 >= max_row.saturating_sub(1) {
+                state.cursor.0 = max_row.saturating_sub(1);
+                state.scroll_to_row = Some(state.cursor.0);
                 actions.focus_transfer = Some(super::actions::FocusTransfer::SqlEditor);
             } else {
-                for _ in 0..repeat {
-                    state.move_cursor(1, 0, max_row, max_col);
-                }
+                let _ = repeat;
+                state.move_cursor(1, 0, max_row, max_col);
             }
         }
         GridKeyAction::MoveUp => {
-            if state.cursor.0 == 0 {
-                actions.focus_transfer = Some(super::actions::FocusTransfer::QueryTabs);
-            } else {
-                for _ in 0..repeat {
-                    state.move_cursor(-1, 0, max_row, max_col);
-                }
-            }
+            let _ = repeat;
+            state.move_cursor(-1, 0, max_row, max_col);
         }
         GridKeyAction::MoveRight => {
-            for _ in 0..repeat {
-                state.move_cursor(0, 1, max_row, max_col);
-            }
+            let _ = repeat;
+            state.move_cursor(0, 1, max_row, max_col);
         }
         GridKeyAction::MoveWordRight => {
-            if state.cursor.1 >= max_col.saturating_sub(1) {
-                actions.focus_transfer = Some(super::actions::FocusTransfer::SqlEditor);
-            } else {
-                state.move_cursor(0, 1, max_row, max_col);
-            }
+            let _ = repeat;
+            state.move_cursor(0, 1, max_row, max_col);
         }
         GridKeyAction::MoveWordLeft => {
-            if state.cursor.1 == 0 {
-                actions.focus_transfer = Some(super::actions::FocusTransfer::Sidebar);
-            } else {
-                state.move_cursor(0, -1, max_row, max_col);
-            }
+            let _ = repeat;
+            state.move_cursor(0, -1, max_row, max_col);
         }
         GridKeyAction::JumpLineEnd => state.goto_line_end(max_col),
         GridKeyAction::JumpLineStart => state.goto_line_start(),
@@ -1345,6 +1329,11 @@ mod tests {
                     "c@example.com".to_string(),
                 ],
             ],
+            null_flags: vec![
+                vec![false, false, false],
+                vec![false, false, false],
+                vec![false, false, false],
+            ],
             affected_rows: 0,
             truncated: false,
             original_row_count: None,
@@ -1489,6 +1478,139 @@ mod tests {
         assert_eq!(state.cursor, (2, 0));
         assert!(state.command_buffer.is_empty());
         assert_eq!(state.count, None);
+    }
+
+    #[test]
+    fn count_prefix_moves_exact_distance_in_larger_result_set() {
+        let mut state = DataGridState::new();
+        let mut result = sample_result();
+        result.rows.extend(vec![
+            vec![
+                "4".to_string(),
+                "dave".to_string(),
+                "d@example.com".to_string(),
+            ],
+            vec![
+                "5".to_string(),
+                "erin".to_string(),
+                "e@example.com".to_string(),
+            ],
+            vec![
+                "6".to_string(),
+                "frank".to_string(),
+                "f@example.com".to_string(),
+            ],
+        ]);
+        result.null_flags.extend(vec![
+            vec![false, false, false],
+            vec![false, false, false],
+            vec![false, false, false],
+        ]);
+
+        let _ = send_key(&mut state, &result, key_event(Key::Num2));
+        let _ = send_key(&mut state, &result, key_event(Key::J));
+
+        assert_eq!(state.cursor, (2, 0));
+        assert_eq!(state.scroll_to_row, Some(2));
+        assert_eq!(state.count, None);
+    }
+
+    #[test]
+    fn move_down_reaches_last_row_before_transferring_to_sql_editor() {
+        let mut state = DataGridState::new();
+        state.cursor = (1, 0);
+        let result = sample_result();
+
+        let actions = send_key(&mut state, &result, key_event(Key::J));
+
+        assert_eq!(state.cursor, (2, 0));
+        assert_eq!(state.scroll_to_row, Some(2));
+        assert_eq!(actions.focus_transfer, None);
+    }
+
+    #[test]
+    fn move_down_on_last_row_transfers_to_sql_editor_and_scrolls_bottom() {
+        let mut state = DataGridState::new();
+        state.cursor = (2, 0);
+        let result = sample_result();
+
+        let actions = send_key(&mut state, &result, key_event(Key::J));
+
+        assert_eq!(state.cursor, (2, 0));
+        assert_eq!(state.scroll_to_row, Some(2));
+        assert_eq!(
+            actions.focus_transfer,
+            Some(crate::ui::FocusTransfer::SqlEditor)
+        );
+    }
+
+    #[test]
+    fn move_left_on_first_column_stays_in_grid() {
+        let mut state = DataGridState::new();
+        state.cursor = (1, 0);
+        let result = sample_result();
+
+        let actions = send_key(&mut state, &result, key_event(Key::H));
+
+        assert_eq!(state.cursor, (1, 0));
+        assert_eq!(actions.focus_transfer, None);
+    }
+
+    #[test]
+    fn move_up_on_first_row_stays_in_grid() {
+        let mut state = DataGridState::new();
+        state.cursor = (0, 1);
+        let result = sample_result();
+
+        let actions = send_key(&mut state, &result, key_event(Key::K));
+
+        assert_eq!(state.cursor, (0, 1));
+        assert_eq!(actions.focus_transfer, None);
+    }
+
+    #[test]
+    fn word_motions_do_not_transfer_focus_at_grid_edges() {
+        let mut state = DataGridState::new();
+        state.cursor = (1, 0);
+        let result = sample_result();
+
+        let left_actions = send_key(&mut state, &result, key_event(Key::B));
+        assert_eq!(state.cursor, (1, 0));
+        assert_eq!(left_actions.focus_transfer, None);
+
+        state.cursor = (1, result.columns.len() - 1);
+        let right_actions = send_key(&mut state, &result, key_event(Key::W));
+        assert_eq!(state.cursor, (1, result.columns.len() - 1));
+        assert_eq!(right_actions.focus_transfer, None);
+    }
+
+    #[test]
+    fn normal_mode_i_enters_insert_on_current_cell() {
+        let mut state = DataGridState::new();
+        state.cursor = (1, 1);
+        let result = sample_result();
+
+        let _ = send_key(&mut state, &result, key_event(Key::I));
+
+        assert_eq!(state.mode, GridMode::Insert);
+        assert_eq!(state.editing_cell, Some((1, 1)));
+        assert_eq!(state.edit_text, "bob");
+        assert_eq!(state.original_value, "bob");
+    }
+
+    #[test]
+    fn normal_mode_v_enters_select_and_escape_returns_to_normal() {
+        let mut state = DataGridState::new();
+        state.cursor = (1, 1);
+        let result = sample_result();
+
+        let _ = send_key(&mut state, &result, key_event(Key::V));
+        assert_eq!(state.mode, GridMode::Select);
+        assert_eq!(state.select_anchor, Some((1, 1)));
+
+        let _ = send_key(&mut state, &result, key_event(Key::Escape));
+        assert_eq!(state.mode, GridMode::Normal);
+        assert_eq!(state.select_anchor, None);
     }
 
     #[test]

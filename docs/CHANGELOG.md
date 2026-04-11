@@ -5,8 +5,81 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-- No unreleased changes yet.
-  暂无未发布变更。
+## [4.0.0]
+
+### Changed
+- Reframed major area switching as the `next_focus_area` / `prev_focus_area` action pair in the input router, so `Tab / Shift+Tab` are now only default bindings for workspace fallback actions instead of hard-coded global-first keys.
+  将主区域切换在输入路由中重构为 `next_focus_area` / `prev_focus_area` 动作对，使 `Tab / Shift+Tab` 现在只是 workspace fallback action 的默认绑定，而不是硬编码的 global-first 按键。
+- Tightened the router order so focused-scope keymap actions now always run before workspace fallback shortcuts such as `next_focus_area`, and converted the remaining theme/sidebar fallback keys into action-backed routes instead of direct router hooks.
+  收紧输入路由顺序，使当前聚焦作用域的 keymap 动作现在始终先于 `next_focus_area` 这类 workspace fallback 快捷键执行，并将剩余的主题/侧边栏回退按键改为 action-backed 路径，而不是 direct router hook。
+- Removed the old global filter shortcut path from the input router so sidebar filter editing now lives only in the sidebar-local workflow instead of leaking through app-level fallback handling.
+  从输入路由中移除了旧的全局筛选快捷键路径，使 Filters 编辑现在只存在于 sidebar 局部工作流中，不再通过 app-level fallback 泄漏。
+- Added persistent `sidebar.edge_transfer` config and hardened the sidebar focus graph around the explicit `Connections -> Databases -> Tables -> Filters -> Triggers -> Routines` order.
+  新增持久化的 `sidebar.edge_transfer` 配置，并围绕显式的 `Connections -> Databases -> Tables -> Filters -> Triggers -> Routines` 顺序收紧侧边栏焦点图。
+- Completed the third-round keymap migration by initializing `~/.config/gridix/keymap.toml` from defaults when missing, keeping runtime partial-merge backfill in memory, and surfacing parser/runtime diagnostics instead of silently dropping issues.
+  完成第三轮 keymap 迁移：在 `~/.config/gridix/keymap.toml` 缺失时从默认值初始化，只在内存中做补齐合并，并通过 diagnostics 暴露解析期和运行时问题，而不是静默丢弃。
+- Reworked the shortcut settings dialog into a scope-aware skeleton with a scope tree, per-scope action list, current binding/source display, and diagnostics placeholder instead of the old flat action table.
+  将快捷键设置界面重构为 scope-aware skeleton：包含作用域树、按 scope 展开的动作列表、当前绑定/来源显示以及 diagnostics 占位，不再沿用旧的平铺动作表。
+- Added a legacy-import affordance and keymap-path card to the shortcut settings dialog, so users can explicitly pull old `config.toml` bindings into the new editor and copy the active `keymap.toml` location.
+  为快捷键设置界面新增 legacy 导入入口和 keymap 路径卡片，使用户可以显式把旧 `config.toml` 键位导入到新编辑器中，并复制当前生效的 `keymap.toml` 路径。
+- Exposed scope-action override rows such as `toolbar.refresh` directly inside the shortcut settings dialog, including inherited/local source state and scoped diagnostics instead of limiting the editor to legacy local commands.
+  在快捷键设置界面中直接暴露 `toolbar.refresh` 这类 scope-action override 条目，并显示继承/局部来源状态与 scoped diagnostics，而不是把编辑器限制在遗留的局部命令上。
+- Extended the shortcut settings dialog to expose text-entry runtime scopes such as `editor.insert` and `sidebar.filters.input` with only text-entry-safe scoped actions, keeping command-mode-only actions out of those lists.
+  扩展快捷键设置界面，显式暴露 `editor.insert` 与 `sidebar.filters.input` 这类文本输入运行时作用域，并只展示 text-entry-safe 的 scoped action，避免把仅适用于 command mode 的动作放进这些列表。
+- Tightened DataGrid keyboard semantics so `h/j/k/l` stay local to table movement, fixed counted movement to avoid double-applying the numeric prefix, and kept the explicit bottom-edge `j` transfer to SQL editor.
+  收紧数据表格键盘语义，使 `h/j/k/l` 保持为表格内移动；修复数字计数移动被重复应用的问题；并保留“在底部再次按 `j` 才进入 SQL 编辑器”的显式转移。
+- Removed the SQL editor's remaining hard-coded execute/explain keys from local handling so `F5` / `Ctrl+Enter` / `F6` continue to work only through editor-scoped bindings and current input ownership.
+  移除 SQL 编辑器局部处理里残留的硬编码执行/分析按键，使 `F5` / `Ctrl+Enter` / `F6` 继续只通过 editor-scoped 绑定和当前输入所有权生效。
+- Added a reusable picker-style dialog shell for layered selection flows, so chooser-style dialogs can use the same fixed-size, keyboard-first, click-to-open structure.
+  新增可复用的 picker 风格对话框壳，用于分级选择工作流，使 chooser 类对话框共享固定尺寸、键盘优先、单击打开的统一结构。
+- Reworked the help dialog into a layered picker flow with fixed panes for root topics, current items, and detail content while keeping the existing learning actions and reducer path.
+  将帮助对话框重构为分级 picker 流程，固定显示主线、当前条目和详情三栏，同时保留现有学习动作与 reducer 路径。
+- Rebuilt the keybinding settings dialog around the same layered picker model so scope selection, action browsing, and binding editing now follow a yazi-like open flow instead of an expanding workspace layout.
+  将快捷键设置对话框重构为同一套分级 picker 模型，使作用域选择、动作浏览与绑定编辑遵循 yazi 风格的逐级打开流程，而不是继续使用会扩张的 workspace 布局。
+- Continued the dialog reducer split by moving help-learning navigation and keybinding-editor mutations onto explicit action paths instead of mutating business state directly from render branches.
+  继续推进 dialog reducer 拆分：帮助学习导航和快捷键编辑区的状态变更改为显式 action 路径，不再直接从渲染分支修改业务状态。
+- Unified help-content buttons behind a single `HelpUiAction` exit so learning navigation and demo actions now leave the renderer through the same path.
+  将帮助内容区按钮统一到单一 `HelpUiAction` 出口，学习导航与示例动作现在通过同一条路径离开渲染层。
+- Moved keybinding search text and grid-sequence editor input onto dialog UI actions so the remaining high-frequency controls no longer mutate state directly from render code.
+  将快捷键设置中的搜索词与表格命令序列编辑输入迁移到 dialog UI action 路径，使剩余高频控件不再直接从渲染代码修改状态。
+
+### Fixed
+- Restored keybinding-recording ownership so recording mode now consumes `Esc` and recorded keys itself instead of leaking back into generic dialog dismiss handling.
+  修复快捷键录制态输入所有权：录制模式现在会自行消费 `Esc` 和录制按键，不再错误落回通用对话框关闭逻辑。
+- Fixed the picker shell width allocation so help and keybinding dialogs now always fit the actual window width instead of inventing extra horizontal space.
+  修复 picker 壳的列宽分配逻辑，帮助与快捷键设置对话框现在始终服从实际窗口宽度，不再虚构额外横向空间。
+- Locked the help and keybinding dialogs to fixed-size windows with internal scrolling, preventing both dialogs from auto-extending with content.
+  将帮助与快捷键设置对话框锁定为固定尺寸窗口并使用内部滚动，阻止内容驱动窗口继续自动延伸。
+- Fixed the broken keybinding settings rendering by removing the previous expanding workspace layout and giving every pane stable scroll ids and business-key-based entry ids.
+  通过移除之前会扩张的 workspace 布局，并为每个 pane 提供稳定的 scroll id 和基于业务 key 的条目 id，修复快捷键设置界面的异常渲染。
+
+### Changed
+- Introduced an app-level dialog host so only the active modal dialog owns keyboard input and dialog result handling in a frame.
+  新增应用层对话框宿主，使每帧只有当前 active 模态对话框拥有键盘输入与结果处理权。
+- Added a frame-level input owner model for modal, text-entry, select, command, recording, and disabled input states.
+  新增每帧输入所有者模型，覆盖模态、文本输入、选择、命令、录制与禁用状态。
+- Updated dialog rendering orchestration to respect active dialog priority instead of letting all open dialog flags process interaction.
+  更新对话框渲染编排，按 active dialog 优先级处理，而不是让所有打开状态的对话框都处理交互。
+- Replaced the SQLite create-database string sentinel with an explicit `CreateDatabaseRequest::SqliteFile` workflow request.
+  将 SQLite 创建数据库的字符串哨兵替换为显式的 `CreateDatabaseRequest::SqliteFile` 工作流请求。
+- Added a scoped command metadata registry and moved legacy local shortcut descriptions, categories, and default bindings behind that registry.
+  新增作用域命令元数据注册表，并将遗留局部快捷键的说明、分类与默认键位迁移到该注册表之后。
+- Added command-id dialog shortcut helpers and migrated the import/export dialog keyboard handlers to resolve scoped command ids directly.
+  新增 command-id 对话框快捷键 helper，并将导入/导出对话框键盘处理迁移为直接解析作用域 command id。
+- Reworked grid save execution into a batched workflow so multi-row edits are not cancelled by later statements, and successful saves refresh back into the same table view instead of falling through to Welcome.
+  将表格保存重构为批量执行工作流，避免多行修改被后续语句取消，并在保存成功后刷新回同一张表视图，而不是掉回 Welcome。
+- Adjusted DataGrid bottom-edge navigation so reaching the last row keeps focus in the grid, and only a subsequent `j` / Down opens the SQL editor while scrolling the table to the bottom.
+  调整数据表格底边导航行为：到达最后一行时仍保持表格焦点，只有后续再次按 `j` / 下箭头时才打开 SQL 编辑器，并同时将表格滚动到底部。
+- Replaced a batch of hard-coded dark-only label colors with theme-driven text colors across the toolbar, query tabs, SQL editor, help/about dialogs, sidebar menus, ER diagram controls, and grid actions so light themes remain readable.
+  将工具栏、查询标签、SQL 编辑器、帮助/关于对话框、侧边栏菜单、ER 图控制条与表格动作中的一批仅适配暗色模式的硬编码文字颜色改为主题驱动颜色，确保日间主题下仍可读。
+- Refactored `ConnectionDialog` so keyboard shortcuts resolve scoped command ids directly and all file-picker side effects are dispatched from a single action path instead of being embedded inside render branches.
+  重构 `ConnectionDialog`：键盘快捷键改为直接解析作用域 command id，并将所有文件选择副作用收口到统一动作分发路径，不再散落在渲染分支中。
+- Migrated create-database, create-user, and DDL dialog shortcut parsing to scoped command ids and added regression coverage for text-entry priority on DDL column navigation.
+  将创建数据库、创建用户和 DDL 对话框的快捷键解析迁移到 scoped command id，并补充 DDL 列导航在文本输入优先级下的回归测试。
+
+### Documentation
+- Updated architecture, keyboard focus, keymap, testing, release, distribution, and install docs for the `v4.0.0` scoped-input foundation.
+  更新架构、键盘焦点、keymap、测试、发布、分发与安装文档，以反映 `v4.0.0` 的作用域化输入基础。
 
 ## [3.8.0]
 

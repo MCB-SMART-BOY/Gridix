@@ -18,6 +18,7 @@ pub use components::{
     FilterLogic,
     FilterOperator,
     FocusTransfer,
+    GridMode,
     // 通知组件
     NotificationToast,
     // 进度指示器
@@ -61,6 +62,7 @@ pub use dialogs::{
     ConfirmDialog,
     ConnectionDialog,
     // 新建数据库/用户对话框
+    CreateDatabaseRequest,
     CreateDbDialog,
     CreateDbDialogResult,
     CreateDbDialogState,
@@ -69,6 +71,7 @@ pub use dialogs::{
     CreateUserDialogState,
     DdlDialog,
     DdlDialogState,
+    DialogShortcutContext,
     ExportConfig,
     ExportDialog,
     HelpAction,
@@ -91,14 +94,16 @@ pub use dialogs::{
     parse_sql_file,
 };
 pub use panels::{
-    HistoryPanel, HistoryPanelState, Sidebar, SidebarActions, SidebarFocusTransfer,
-    SidebarPanelState,
+    HistoryPanel, HistoryPanelState, Sidebar, SidebarActions, SidebarFilterInsertMode,
+    SidebarFilterWorkspaceMode, SidebarFocusTransfer, SidebarPanelState, SidebarWorkflowState,
 };
 #[allow(unused_imports)] // 公开 API，供外部使用
 pub use shortcut_tooltip::{
     LocalShortcut, action_tooltip, action_tooltip_with_extras, consume_local_shortcut,
+    consume_local_shortcut_with_text_priority, consume_scoped_command_with_text_priority,
     local_shortcut_pressed, local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text,
-    local_shortcuts_tooltip, shortcut_tooltip, sync_runtime_local_shortcuts,
+    local_shortcuts_tooltip, scoped_command_text, shortcut_tooltip, sync_runtime_local_shortcuts,
+    text_entry_has_priority,
 };
 
 /// 全局焦点区域

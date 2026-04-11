@@ -2,10 +2,13 @@
 //!
 //! 提供创建新数据库的 UI，支持 MySQL、PostgreSQL 和 SQLite。
 
-use crate::database::DatabaseType;
-use crate::ui::{
-    LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
+use std::path::PathBuf;
+
+use super::common::{
+    DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow,
 };
+use crate::database::DatabaseType;
+use crate::ui::{LocalShortcut, local_shortcut_text};
 use egui::{self, Color32, RichText, TextEdit};
 
 // ============================================================================
@@ -17,9 +20,18 @@ pub enum CreateDbDialogResult {
     /// 无操作
     None,
     /// 用户确认创建
-    Create(String), // SQL 语句
+    Create(CreateDatabaseRequest),
     /// 用户取消
     Cancelled,
+}
+
+/// 创建数据库 workflow 的显式请求。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CreateDatabaseRequest {
+    /// 需要复制到 SQL 编辑器并由用户执行的 SQL。
+    Sql(String),
+    /// SQLite 通过打开目标文件完成创建，不应伪装成 SQL 字符串。
+    SqliteFile(PathBuf),
 }
 
 // ============================================================================
@@ -97,24 +109,31 @@ impl CreateDbDialogState {
         self.error = None;
     }
 
-    /// 生成 SQL 语句
-    pub fn generate_sql(&self) -> Result<String, String> {
+    /// 生成 workflow 请求。
+    pub fn generate_request(&self) -> Result<CreateDatabaseRequest, String> {
         match self.db_type {
-            DatabaseType::SQLite => self.generate_sqlite_sql(),
+            DatabaseType::SQLite => self.generate_sqlite_request(),
             DatabaseType::MySQL | DatabaseType::PostgreSQL => {
-                let db_name = self.db_name.trim();
-                if db_name.is_empty() {
-                    return Err("数据库名称不能为空".to_string());
-                }
-                if !db_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                    return Err("数据库名只能包含字母、数字和下划线".to_string());
-                }
+                self.generate_sql().map(CreateDatabaseRequest::Sql)
+            }
+        }
+    }
 
-                match self.db_type {
-                    DatabaseType::MySQL => self.generate_mysql_sql(),
-                    DatabaseType::PostgreSQL => self.generate_postgres_sql(),
-                    DatabaseType::SQLite => unreachable!(),
-                }
+    /// 生成 SQL 语句。SQLite 使用文件创建请求，不走 SQL 预览。
+    pub fn generate_sql(&self) -> Result<String, String> {
+        let db_name = self.db_name.trim();
+        if db_name.is_empty() {
+            return Err("数据库名称不能为空".to_string());
+        }
+        if !db_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Err("数据库名只能包含字母、数字和下划线".to_string());
+        }
+
+        match self.db_type {
+            DatabaseType::MySQL => self.generate_mysql_sql(),
+            DatabaseType::PostgreSQL => self.generate_postgres_sql(),
+            DatabaseType::SQLite => {
+                Err("SQLite 数据库通过文件创建，不生成 CREATE DATABASE SQL".to_string())
             }
         }
     }
@@ -153,7 +172,7 @@ impl CreateDbDialogState {
         Ok(sql)
     }
 
-    fn generate_sqlite_sql(&self) -> Result<String, String> {
+    fn generate_sqlite_request(&self) -> Result<CreateDatabaseRequest, String> {
         // SQLite 不需要 CREATE DATABASE 语句
         // 只需要连接到新文件即可创建
         let sqlite_path = self.sqlite_path.trim();
@@ -162,7 +181,6 @@ impl CreateDbDialogState {
             return Err("请指定数据库文件路径或名称".to_string());
         }
 
-        // 返回文件路径作为特殊标记
         let path = if sqlite_path.is_empty() {
             let lower = db_name.to_ascii_lowercase();
             if lower.ends_with(".db") || lower.ends_with(".sqlite") || lower.ends_with(".sqlite3") {
@@ -174,7 +192,7 @@ impl CreateDbDialogState {
             sqlite_path.to_string()
         };
 
-        Ok(format!("SQLITE_CREATE:{}", path))
+        Ok(CreateDatabaseRequest::SqliteFile(PathBuf::from(path)))
     }
 }
 
@@ -192,11 +210,11 @@ enum CreateDbKeyAction {
 }
 
 impl CreateDbDialog {
-    fn try_create(state: &mut CreateDbDialogState) -> Result<String, String> {
-        match state.generate_sql() {
-            Ok(sql) => {
+    fn try_create(state: &mut CreateDbDialogState) -> Result<CreateDatabaseRequest, String> {
+        match state.generate_request() {
+            Ok(request) => {
                 state.error = None;
-                Ok(sql)
+                Ok(request)
             }
             Err(error) => {
                 state.error = Some(error.clone());
@@ -206,15 +224,16 @@ impl CreateDbDialog {
     }
 
     fn detect_key_action(ctx: &egui::Context) -> Option<CreateDbKeyAction> {
-        ctx.input_mut(|i| {
-            if consume_local_shortcut(i, LocalShortcut::Dismiss) {
-                return Some(CreateDbKeyAction::Close);
-            }
-            if consume_local_shortcut(i, LocalShortcut::Confirm) {
-                return Some(CreateDbKeyAction::Confirm);
-            }
-            None
-        })
+        DialogShortcutContext::new(ctx).resolve_commands(&[
+            (
+                LocalShortcut::Dismiss.config_key(),
+                CreateDbKeyAction::Close,
+            ),
+            (
+                LocalShortcut::Confirm.config_key(),
+                CreateDbKeyAction::Confirm,
+            ),
+        ])
     }
 
     /// 显示对话框
@@ -226,18 +245,16 @@ impl CreateDbDialog {
         let mut result = CreateDbDialogResult::None;
         let mut should_close = false;
 
-        // 键盘快捷键处理
-        if !ctx.memory(|mem| mem.focused().is_some())
-            && let Some(key_action) = Self::detect_key_action(ctx)
-        {
+        // 键盘快捷键处理（文本输入优先于普通命令键）
+        if let Some(key_action) = Self::detect_key_action(ctx) {
             match key_action {
                 CreateDbKeyAction::Close => {
                     state.close();
                     return CreateDbDialogResult::Cancelled;
                 }
                 CreateDbKeyAction::Confirm => {
-                    if let Ok(sql) = Self::try_create(state) {
-                        result = CreateDbDialogResult::Create(sql);
+                    if let Ok(request) = Self::try_create(state) {
+                        result = CreateDbDialogResult::Create(request);
                         should_close = true;
                     }
                 }
@@ -250,112 +267,95 @@ impl CreateDbDialog {
             DatabaseType::SQLite => "新建 SQLite 数据库",
         };
 
-        egui::Window::new(title)
-            .collapsible(false)
-            .resizable(false)
-            .min_width(400.0)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
-                ui.vertical(|ui| {
-                    // 数据库名称
-                    ui.horizontal(|ui| {
-                        ui.label("数据库名:");
-                        ui.add(
-                            TextEdit::singleline(&mut state.db_name)
-                                .desired_width(200.0)
-                                .hint_text("输入数据库名称"),
-                        );
-                    });
-
-                    ui.add_space(8.0);
-
-                    // 根据数据库类型显示不同选项
-                    match state.db_type {
-                        DatabaseType::MySQL => {
-                            Self::show_mysql_options(ui, state);
-                        }
-                        DatabaseType::PostgreSQL => {
-                            Self::show_postgres_options(ui, state);
-                        }
-                        DatabaseType::SQLite => {
-                            Self::show_sqlite_options(ui, state);
-                        }
-                    }
-
-                    ui.add_space(8.0);
-                    ui.separator();
-
-                    // 预览 SQL
-                    if !matches!(state.db_type, DatabaseType::SQLite) {
-                        ui.collapsing("预览 SQL", |ui| {
-                            let sql = state.generate_sql().unwrap_or_default();
-                            ui.add(
-                                TextEdit::multiline(&mut sql.as_str())
-                                    .code_editor()
-                                    .desired_width(f32::INFINITY)
-                                    .desired_rows(3),
-                            );
-                        });
-                    }
-
-                    // 错误信息
-                    if let Some(err) = &state.error {
-                        ui.add_space(4.0);
-                        ui.label(RichText::new(err).color(Color32::from_rgb(255, 100, 100)));
-                    }
-
-                    ui.add_space(8.0);
-
-                    // 快捷键提示
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            RichText::new(format!(
-                                "快捷键: {} 关闭 | {} 创建",
-                                local_shortcut_text(LocalShortcut::Dismiss),
-                                local_shortcut_text(LocalShortcut::Confirm)
-                            ))
-                            .small()
-                            .color(Color32::from_rgb(120, 120, 120)),
-                        );
-                    });
-
-                    ui.add_space(4.0);
-
-                    // 按钮
-                    ui.horizontal(|ui| {
-                        if ui
-                            .button(format!(
-                                "创建 [{}]",
-                                local_shortcut_text(LocalShortcut::Confirm)
-                            ))
-                            .on_hover_text(local_shortcut_tooltip(
-                                "创建数据库",
-                                LocalShortcut::Confirm,
-                            ))
-                            .clicked()
-                            && let Ok(sql) = Self::try_create(state)
-                        {
-                            result = CreateDbDialogResult::Create(sql);
-                            should_close = true;
-                        }
-
-                        if ui
-                            .button(format!(
-                                "取消 [{}]",
-                                local_shortcut_text(LocalShortcut::Dismiss)
-                            ))
-                            .on_hover_text(local_shortcut_tooltip(
-                                "取消并关闭",
-                                LocalShortcut::Dismiss,
-                            ))
-                            .clicked()
-                        {
-                            result = CreateDbDialogResult::Cancelled;
-                            should_close = true;
-                        }
-                    });
+        let style = DialogStyle::MEDIUM;
+        DialogWindow::standard(ctx, title, &style).show(ctx, |ui| {
+            ui.vertical(|ui| {
+                // 数据库名称
+                ui.horizontal(|ui| {
+                    ui.label("数据库名:");
+                    ui.add(
+                        TextEdit::singleline(&mut state.db_name)
+                            .desired_width(200.0)
+                            .hint_text("输入数据库名称"),
+                    );
                 });
+
+                ui.add_space(8.0);
+
+                // 根据数据库类型显示不同选项
+                match state.db_type {
+                    DatabaseType::MySQL => {
+                        Self::show_mysql_options(ui, state);
+                    }
+                    DatabaseType::PostgreSQL => {
+                        Self::show_postgres_options(ui, state);
+                    }
+                    DatabaseType::SQLite => {
+                        Self::show_sqlite_options(ui, state);
+                    }
+                }
+
+                ui.add_space(8.0);
+                ui.separator();
+
+                // 预览 SQL
+                if !matches!(state.db_type, DatabaseType::SQLite) {
+                    ui.collapsing("预览 SQL", |ui| {
+                        let sql = state.generate_sql().unwrap_or_default();
+                        ui.add(
+                            TextEdit::multiline(&mut sql.as_str())
+                                .code_editor()
+                                .desired_width(f32::INFINITY)
+                                .desired_rows(3),
+                        );
+                    });
+                }
+
+                // 错误信息
+                if let Some(err) = &state.error {
+                    ui.add_space(4.0);
+                    DialogContent::error_text(ui, err);
+                }
+
+                ui.add_space(8.0);
+
+                // 快捷键提示
+                DialogContent::shortcut_hint(
+                    ui,
+                    &[
+                        (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
+                        (local_shortcut_text(LocalShortcut::Confirm).as_str(), "创建"),
+                    ],
+                );
+
+                let can_attempt_create = match state.db_type {
+                    DatabaseType::SQLite => {
+                        !state.db_name.trim().is_empty() || !state.sqlite_path.trim().is_empty()
+                    }
+                    DatabaseType::MySQL | DatabaseType::PostgreSQL => {
+                        !state.db_name.trim().is_empty()
+                    }
+                };
+                let footer = DialogFooter::show(
+                    ui,
+                    &format!("创建 [{}]", local_shortcut_text(LocalShortcut::Confirm)),
+                    &format!("取消 [{}]", local_shortcut_text(LocalShortcut::Dismiss)),
+                    can_attempt_create,
+                    &style,
+                );
+
+                if footer.confirmed
+                    && let Ok(request) = Self::try_create(state)
+                {
+                    result = CreateDbDialogResult::Create(request);
+                    should_close = true;
+                }
+                if footer.cancelled {
+                    result = CreateDbDialogResult::Cancelled;
+                    should_close = true;
+                }
             });
+        });
 
         if should_close {
             state.close();
@@ -365,10 +365,7 @@ impl CreateDbDialog {
     }
 
     fn show_mysql_options(ui: &mut egui::Ui, state: &mut CreateDbDialogState) {
-        ui.group(|ui| {
-            ui.label(RichText::new("MySQL 选项").strong());
-            ui.add_space(4.0);
-
+        DialogContent::section(ui, "MySQL 选项", |ui| {
             ui.horizontal(|ui| {
                 ui.label("字符集:");
                 egui::ComboBox::from_id_salt("charset")
@@ -414,10 +411,7 @@ impl CreateDbDialog {
     }
 
     fn show_postgres_options(ui: &mut egui::Ui, state: &mut CreateDbDialogState) {
-        ui.group(|ui| {
-            ui.label(RichText::new("PostgreSQL 选项").strong());
-            ui.add_space(4.0);
-
+        DialogContent::section(ui, "PostgreSQL 选项", |ui| {
             ui.horizontal(|ui| {
                 ui.label("编码:");
                 egui::ComboBox::from_id_salt("encoding")
@@ -465,10 +459,7 @@ impl CreateDbDialog {
     }
 
     fn show_sqlite_options(ui: &mut egui::Ui, state: &mut CreateDbDialogState) {
-        ui.group(|ui| {
-            ui.label(RichText::new("SQLite 选项").strong());
-            ui.add_space(4.0);
-
+        DialogContent::section(ui, "SQLite 选项", |ui| {
             ui.horizontal(|ui| {
                 ui.label("文件路径:");
                 ui.add(
@@ -491,6 +482,21 @@ impl CreateDbDialog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use egui::{Event, Key, Modifiers, RawInput};
+
+    fn begin_key_pass(ctx: &egui::Context, key: Key) {
+        ctx.begin_pass(RawInput {
+            events: vec![Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            }],
+            modifiers: Modifiers::NONE,
+            ..Default::default()
+        });
+    }
 
     #[test]
     fn sqlite_accepts_path_without_db_name() {
@@ -499,10 +505,13 @@ mod tests {
             ..Default::default()
         };
         state.sqlite_path = "/tmp/gridix-learning.sqlite3".to_string();
-        let sql = state
-            .generate_sql()
+        let request = state
+            .generate_request()
             .expect("sqlite path should be accepted");
-        assert_eq!(sql, "SQLITE_CREATE:/tmp/gridix-learning.sqlite3");
+        assert_eq!(
+            request,
+            CreateDatabaseRequest::SqliteFile(PathBuf::from("/tmp/gridix-learning.sqlite3"))
+        );
     }
 
     #[test]
@@ -512,10 +521,13 @@ mod tests {
             db_name: "demo.sqlite3".to_string(),
             ..Default::default()
         };
-        let sql = state
-            .generate_sql()
+        let request = state
+            .generate_request()
             .expect("sqlite db_name with extension should be accepted");
-        assert_eq!(sql, "SQLITE_CREATE:demo.sqlite3");
+        assert_eq!(
+            request,
+            CreateDatabaseRequest::SqliteFile(PathBuf::from("demo.sqlite3"))
+        );
     }
 
     #[test]
@@ -527,5 +539,17 @@ mod tests {
         };
         let err = state.generate_sql().expect_err("invalid name should fail");
         assert!(err.contains("数据库名只能包含"));
+    }
+
+    #[test]
+    fn create_db_dialog_detects_confirm_shortcut_through_scoped_command_id() {
+        let ctx = egui::Context::default();
+        begin_key_pass(&ctx, Key::Enter);
+
+        let action = CreateDbDialog::detect_key_action(&ctx);
+
+        assert_eq!(action, Some(CreateDbKeyAction::Confirm));
+
+        let _ = ctx.end_pass();
     }
 }

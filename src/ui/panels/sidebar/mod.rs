@@ -31,20 +31,29 @@ mod state;
 mod table_list;
 mod trigger_panel;
 
-pub use actions::{SidebarActions, SidebarFocusTransfer};
+pub use actions::{SidebarActions, SidebarFilterInsertMode, SidebarFocusTransfer};
 pub use filter_panel::FilterPanel;
-pub use state::{SidebarPanelState, SidebarSelectionState};
+pub use state::{
+    SidebarFilterWorkspaceMode, SidebarPanelState, SidebarSelectionState, SidebarWorkflowState,
+};
 
 use connection_list::ConnectionList;
 use database_list::DatabaseList;
 use routine_panel::RoutinePanel;
+use state::{
+    SidebarWorkflowAction, SidebarWorkflowContext, SidebarWorkflowEffect, SidebarWorkflowReduction,
+    reduce_sidebar_workflow,
+};
 use table_list::TableList;
 use trigger_panel::TriggerPanel;
 
 use crate::core::KeyBindings;
 use crate::database::ConnectionManager;
 use crate::ui::SidebarSection;
-use crate::ui::{LocalShortcut, consume_local_shortcut, shortcut_tooltip};
+use crate::ui::{
+    LocalShortcut, consume_local_shortcut_with_text_priority, shortcut_tooltip,
+    text_entry_has_priority,
+};
 use egui::{self, Color32, CornerRadius, Key, Vec2};
 
 /// 分割条高度
@@ -53,16 +62,6 @@ const DIVIDER_HEIGHT: f32 = 6.0;
 pub struct Sidebar;
 
 use crate::ui::ColumnFilter;
-
-#[derive(Debug, Clone, Copy)]
-struct SidebarFlowState {
-    show_connections: bool,
-    show_filters: bool,
-    show_triggers: bool,
-    show_routines: bool,
-    has_databases: bool,
-    has_tables: bool,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SidebarKeyAction {
@@ -79,7 +78,8 @@ enum SidebarKeyAction {
     Rename,
     Refresh,
     InspectSchema,
-    AddFilter,
+    AddFilterBelow,
+    AppendFilter,
     DeleteFilterAlternative,
     ClearFilters,
     FilterColumnNext,
@@ -89,12 +89,6 @@ enum SidebarKeyAction {
     FilterLogicToggle,
     FilterFocusInput,
     FilterCaseToggle,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SidebarMoveRightTarget {
-    Section(SidebarSection),
-    DataGrid,
 }
 
 impl Sidebar {
@@ -188,7 +182,14 @@ impl Sidebar {
                 filter_changed = true;
             }
             if filter_panel_result.clicked {
-                actions.section_change = Some(SidebarSection::Filters);
+                let workflow_context =
+                    Self::sidebar_workflow_context(panel_state, connection_manager);
+                let reduction = reduce_sidebar_workflow(
+                    &mut panel_state.workflow,
+                    workflow_context,
+                    SidebarWorkflowAction::FocusSection(SidebarSection::Filters),
+                );
+                Self::apply_workflow_reduction(&mut actions, reduction);
             }
 
             // 分割条：筛选 <-> 触发器/存储过程
@@ -232,7 +233,10 @@ impl Sidebar {
         {
             ui.vertical_centered(|ui| {
                 ui.add_space(20.0);
-                ui.label(egui::RichText::new("点击上方按钮显示面板").color(Color32::GRAY));
+                ui.label(
+                    egui::RichText::new("按 Ctrl+1 或 Ctrl+4 打开连接/筛选工作区")
+                        .color(Color32::GRAY),
+                );
             });
         }
 
@@ -449,10 +453,33 @@ impl Sidebar {
         filters: &mut Vec<crate::ui::ColumnFilter>,
         actions: &mut SidebarActions,
     ) {
-        let flow_state = Self::sidebar_flow_state(panel_state, connection_manager);
+        let workflow_context = Self::sidebar_workflow_context(panel_state, connection_manager);
 
-        // 文本输入焦点优先于侧边栏导航，避免筛选值输入时被 j/k/h/l 等快捷键抢占。
-        if focused_section == SidebarSection::Filters && panel_state.filter_input_has_focus {
+        // 筛选输入是独立的 text-entry 工作区，只接受退出输入动作。
+        if focused_section == SidebarSection::Filters && panel_state.filter_input_mode() {
+            if Self::detect_filter_input_exit(ctx) {
+                let reduction = reduce_sidebar_workflow(
+                    &mut panel_state.workflow,
+                    workflow_context,
+                    SidebarWorkflowAction::ExitFilterInput,
+                );
+                panel_state.filter_input_has_focus = false;
+                Self::apply_workflow_reduction(actions, reduction);
+            }
+            panel_state.command_buffer.clear();
+            return;
+        }
+
+        if focused_section == SidebarSection::Filters && Self::detect_filter_list_back(ctx) {
+            let reduction = reduce_sidebar_workflow(
+                &mut panel_state.workflow,
+                workflow_context,
+                SidebarWorkflowAction::MoveLeft {
+                    current: focused_section,
+                },
+            );
+            panel_state.filter_input_has_focus = false;
+            Self::apply_workflow_reduction(actions, reduction);
             panel_state.command_buffer.clear();
             return;
         }
@@ -470,20 +497,28 @@ impl Sidebar {
         match key_action {
             Some(SidebarKeyAction::ItemNext) => {
                 if item_count == 0 || *selected_index >= item_count.saturating_sub(1) {
-                    if let Some(next_section) = next_section_in_flow(focused_section, flow_state) {
-                        actions.section_change = Some(next_section);
-                    }
+                    let reduction = reduce_sidebar_workflow(
+                        &mut panel_state.workflow,
+                        workflow_context,
+                        SidebarWorkflowAction::EdgeNext {
+                            current: focused_section,
+                        },
+                    );
+                    Self::apply_workflow_reduction(actions, reduction);
                 } else {
                     *selected_index = (*selected_index + 1).min(item_count.saturating_sub(1));
                 }
             }
             Some(SidebarKeyAction::ItemPrev) => {
                 if item_count == 0 || *selected_index == 0 {
-                    if let Some(previous_section) =
-                        previous_section_in_flow(focused_section, flow_state)
-                    {
-                        actions.section_change = Some(previous_section);
-                    }
+                    let reduction = reduce_sidebar_workflow(
+                        &mut panel_state.workflow,
+                        workflow_context,
+                        SidebarWorkflowAction::EdgePrevious {
+                            current: focused_section,
+                        },
+                    );
+                    Self::apply_workflow_reduction(actions, reduction);
                 } else {
                     *selected_index = selected_index.saturating_sub(1);
                 }
@@ -495,7 +530,6 @@ impl Sidebar {
                 *selected_index = item_count.saturating_sub(1);
             }
             Some(SidebarKeyAction::Toggle) => {
-                // Space：在 Filters section 切换启用状态
                 if focused_section == SidebarSection::Filters
                     && let Some(filter) = filters.get_mut(*selected_index)
                 {
@@ -504,47 +538,43 @@ impl Sidebar {
                 }
             }
             Some(SidebarKeyAction::Delete) => {
-                Self::handle_delete_action(
-                    focused_section,
-                    *selected_index,
-                    connection_manager,
-                    filters,
-                    actions,
-                );
+                if focused_section == SidebarSection::Filters {
+                    Self::remove_selected_filter(selected_index, filters, actions);
+                } else {
+                    Self::handle_delete_action(
+                        focused_section,
+                        *selected_index,
+                        connection_manager,
+                        filters,
+                        actions,
+                    );
+                }
             }
             Some(SidebarKeyAction::MoveLeft) => {
-                // h：向上层级导航
-                let new_section = match focused_section {
-                    SidebarSection::Routines => Some(SidebarSection::Triggers),
-                    SidebarSection::Triggers => Some(SidebarSection::Filters),
-                    SidebarSection::Filters => Some(SidebarSection::Tables),
-                    SidebarSection::Tables => {
-                        if connection_manager
-                            .get_active()
-                            .map(|c| !c.databases.is_empty())
-                            .unwrap_or(false)
-                        {
-                            Some(SidebarSection::Databases)
-                        } else {
-                            Some(SidebarSection::Connections)
-                        }
-                    }
-                    SidebarSection::Databases => Some(SidebarSection::Connections),
-                    SidebarSection::Connections => None,
-                };
-                if let Some(section) = new_section {
-                    actions.section_change = Some(section);
-                }
+                let reduction = reduce_sidebar_workflow(
+                    &mut panel_state.workflow,
+                    workflow_context,
+                    SidebarWorkflowAction::MoveLeft {
+                        current: focused_section,
+                    },
+                );
+                panel_state.filter_input_has_focus = false;
+                Self::apply_workflow_reduction(actions, reduction);
             }
             Some(SidebarKeyAction::MoveRight) => {
-                match move_right_target(focused_section, flow_state) {
-                    SidebarMoveRightTarget::Section(section) => {
-                        actions.section_change = Some(section);
-                    }
-                    SidebarMoveRightTarget::DataGrid => {
-                        actions.focus_transfer = Some(SidebarFocusTransfer::ToDataGrid);
-                    }
-                }
+                let filter_needs_value = filters
+                    .get(*selected_index)
+                    .is_some_and(|filter| filter.operator.needs_value());
+                let reduction = reduce_sidebar_workflow(
+                    &mut panel_state.workflow,
+                    workflow_context,
+                    SidebarWorkflowAction::MoveRight {
+                        current: focused_section,
+                        selected_filter_index: *selected_index,
+                        filter_needs_value,
+                    },
+                );
+                Self::apply_workflow_reduction(actions, reduction);
             }
             Some(SidebarKeyAction::InspectSchema) => {
                 if let SidebarSection::Tables = focused_section
@@ -554,50 +584,47 @@ impl Sidebar {
                     actions.show_table_schema = Some(table.clone());
                 }
             }
-            Some(SidebarKeyAction::Activate) => {
-                match focused_section {
-                    SidebarSection::Connections => {
-                        let mut names: Vec<_> =
-                            connection_manager.connections.keys().cloned().collect();
-                        names.sort_unstable();
-                        if let Some(name) = names.get(*selected_index) {
-                            actions.connect = Some(name.clone());
-                        }
-                    }
-                    SidebarSection::Databases => {
-                        if let Some(conn) = connection_manager.get_active()
-                            && let Some(db) = conn.databases.get(*selected_index)
-                        {
-                            actions.select_database = Some(db.clone());
-                        }
-                    }
-                    SidebarSection::Tables => {
-                        if let Some(conn) = connection_manager.get_active()
-                            && let Some(table) = conn.tables.get(*selected_index)
-                        {
-                            actions.query_table = Some(table.clone());
-                            *selected_table = Some(table.clone());
-                        }
-                    }
-                    SidebarSection::Triggers => {
-                        if let Some(trigger) = panel_state.triggers.get(*selected_index) {
-                            actions.show_trigger_definition = Some(trigger.definition.clone());
-                        }
-                    }
-                    SidebarSection::Routines => {
-                        if let Some(routine) = panel_state.routines.get(*selected_index) {
-                            actions.show_routine_definition = Some(routine.definition.clone());
-                        }
-                    }
-                    SidebarSection::Filters => {
-                        // Enter 切换筛选条件的启用状态
-                        if let Some(filter) = filters.get_mut(*selected_index) {
-                            filter.enabled = !filter.enabled;
-                            actions.filter_changed = true;
-                        }
+            Some(SidebarKeyAction::Activate) => match focused_section {
+                SidebarSection::Connections => {
+                    let mut names: Vec<_> =
+                        connection_manager.connections.keys().cloned().collect();
+                    names.sort_unstable();
+                    if let Some(name) = names.get(*selected_index) {
+                        actions.connect = Some(name.clone());
                     }
                 }
-            }
+                SidebarSection::Databases => {
+                    if let Some(conn) = connection_manager.get_active()
+                        && let Some(db) = conn.databases.get(*selected_index)
+                    {
+                        actions.select_database = Some(db.clone());
+                    }
+                }
+                SidebarSection::Tables => {
+                    if let Some(conn) = connection_manager.get_active()
+                        && let Some(table) = conn.tables.get(*selected_index)
+                    {
+                        actions.query_table = Some(table.clone());
+                        *selected_table = Some(table.clone());
+                    }
+                }
+                SidebarSection::Triggers => {
+                    if let Some(trigger) = panel_state.triggers.get(*selected_index) {
+                        actions.show_trigger_definition = Some(trigger.definition.clone());
+                    }
+                }
+                SidebarSection::Routines => {
+                    if let Some(routine) = panel_state.routines.get(*selected_index) {
+                        actions.show_routine_definition = Some(routine.definition.clone());
+                    }
+                }
+                SidebarSection::Filters => {
+                    if let Some(filter) = filters.get_mut(*selected_index) {
+                        filter.enabled = !filter.enabled;
+                        actions.filter_changed = true;
+                    }
+                }
+            },
             Some(SidebarKeyAction::Edit) if focused_section == SidebarSection::Connections => {
                 let mut names: Vec<_> = connection_manager.connections.keys().cloned().collect();
                 names.sort_unstable();
@@ -625,18 +652,19 @@ impl Sidebar {
             Some(SidebarKeyAction::Refresh) => {
                 actions.refresh = true;
             }
-            Some(SidebarKeyAction::AddFilter) if focused_section == SidebarSection::Filters => {
-                actions.add_filter = true;
+            Some(SidebarKeyAction::AddFilterBelow)
+                if focused_section == SidebarSection::Filters =>
+            {
+                actions.insert_filter = Some(SidebarFilterInsertMode::BelowSelection);
+            }
+            Some(SidebarKeyAction::AppendFilter) if focused_section == SidebarSection::Filters => {
+                actions.insert_filter = Some(SidebarFilterInsertMode::AppendEnd);
             }
             Some(SidebarKeyAction::DeleteFilterAlternative)
                 if focused_section == SidebarSection::Filters
                     && *selected_index < filters.len() =>
             {
-                filters.remove(*selected_index);
-                if *selected_index >= filters.len() && !filters.is_empty() {
-                    *selected_index = filters.len() - 1;
-                }
-                actions.filter_changed = true;
+                Self::remove_selected_filter(selected_index, filters, actions);
             }
             Some(SidebarKeyAction::ClearFilters) if focused_section == SidebarSection::Filters => {
                 actions.clear_filters = true;
@@ -677,9 +705,18 @@ impl Sidebar {
             }
             Some(SidebarKeyAction::FilterFocusInput)
                 if focused_section == SidebarSection::Filters
-                    && *selected_index < filters.len() =>
+                    && *selected_index < filters.len()
+                    && filters[*selected_index].operator.needs_value() =>
             {
-                actions.focus_filter_input = Some(*selected_index);
+                let reduction = reduce_sidebar_workflow(
+                    &mut panel_state.workflow,
+                    workflow_context,
+                    SidebarWorkflowAction::EnterFilterInput {
+                        index: *selected_index,
+                        filter_needs_value: true,
+                    },
+                );
+                Self::apply_workflow_reduction(actions, reduction);
             }
             Some(SidebarKeyAction::FilterCaseToggle) => {
                 if focused_section == SidebarSection::Filters
@@ -694,7 +731,6 @@ impl Sidebar {
             _ => {}
         }
 
-        // 同步到旧的 trigger_selected_index 字段（保持向后兼容）
         if focused_section == SidebarSection::Triggers {
             panel_state.trigger_selected_index = panel_state.selection.triggers;
         }
@@ -704,7 +740,13 @@ impl Sidebar {
         ctx: &egui::Context,
         panel_state: &mut SidebarPanelState,
     ) -> Option<SidebarKeyAction> {
+        let text_entry_active = text_entry_has_priority(ctx);
         ctx.input_mut(|i| {
+            if text_entry_active {
+                panel_state.command_buffer.clear();
+                return None;
+            }
+
             if i.key_pressed(Key::G) && i.modifiers.is_none() {
                 if panel_state.command_buffer == "g" {
                     panel_state.command_buffer.clear();
@@ -721,49 +763,139 @@ impl Sidebar {
                 return Some(SidebarKeyAction::InspectSchema);
             }
 
-            let action = if consume_local_shortcut(i, LocalShortcut::SidebarItemNext) {
+            let action = if i.key_pressed(Key::A) && i.modifiers.shift_only() {
+                Some(SidebarKeyAction::AppendFilter)
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::SidebarItemNext,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::ItemNext)
-            } else if consume_local_shortcut(i, LocalShortcut::SidebarItemPrev) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::SidebarItemPrev,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::ItemPrev)
-            } else if consume_local_shortcut(i, LocalShortcut::SidebarItemStart) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::SidebarItemStart,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::ItemStart)
-            } else if consume_local_shortcut(i, LocalShortcut::SidebarItemEnd) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::SidebarItemEnd,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::ItemEnd)
-            } else if consume_local_shortcut(i, LocalShortcut::SidebarMoveLeft) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::SidebarMoveLeft,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::MoveLeft)
-            } else if consume_local_shortcut(i, LocalShortcut::SidebarMoveRight) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::SidebarMoveRight,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::MoveRight)
-            } else if consume_local_shortcut(i, LocalShortcut::SidebarToggle) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::SidebarToggle,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::Toggle)
-            } else if consume_local_shortcut(i, LocalShortcut::SidebarDelete) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::SidebarDelete,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::Delete)
-            } else if consume_local_shortcut(i, LocalShortcut::SidebarActivate) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::SidebarActivate,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::Activate)
-            } else if consume_local_shortcut(i, LocalShortcut::SidebarEdit) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::SidebarEdit,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::Edit)
-            } else if consume_local_shortcut(i, LocalShortcut::SidebarRename) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::SidebarRename,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::Rename)
-            } else if consume_local_shortcut(i, LocalShortcut::SidebarRefresh) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::SidebarRefresh,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::Refresh)
-            } else if consume_local_shortcut(i, LocalShortcut::FilterAdd) {
-                Some(SidebarKeyAction::AddFilter)
-            } else if consume_local_shortcut(i, LocalShortcut::FilterDelete) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::FilterAdd,
+                text_entry_active,
+            ) {
+                Some(SidebarKeyAction::AddFilterBelow)
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::FilterDelete,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::DeleteFilterAlternative)
-            } else if consume_local_shortcut(i, LocalShortcut::FilterClearAll) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::FilterClearAll,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::ClearFilters)
-            } else if consume_local_shortcut(i, LocalShortcut::FilterColumnNext) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::FilterColumnNext,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::FilterColumnNext)
-            } else if consume_local_shortcut(i, LocalShortcut::FilterColumnPrev) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::FilterColumnPrev,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::FilterColumnPrev)
-            } else if consume_local_shortcut(i, LocalShortcut::FilterOperatorNext) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::FilterOperatorNext,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::FilterOperatorNext)
-            } else if consume_local_shortcut(i, LocalShortcut::FilterOperatorPrev) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::FilterOperatorPrev,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::FilterOperatorPrev)
-            } else if consume_local_shortcut(i, LocalShortcut::FilterLogicToggle) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::FilterLogicToggle,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::FilterLogicToggle)
-            } else if consume_local_shortcut(i, LocalShortcut::FilterFocusInput) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::FilterFocusInput,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::FilterFocusInput)
-            } else if consume_local_shortcut(i, LocalShortcut::FilterCaseToggle) {
+            } else if consume_local_shortcut_with_text_priority(
+                i,
+                LocalShortcut::FilterCaseToggle,
+                text_entry_active,
+            ) {
                 Some(SidebarKeyAction::FilterCaseToggle)
             } else {
                 None
@@ -775,6 +907,32 @@ impl Sidebar {
 
             action
         })
+    }
+
+    fn detect_filter_input_exit(ctx: &egui::Context) -> bool {
+        ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, Key::Escape))
+    }
+
+    fn detect_filter_list_back(ctx: &egui::Context) -> bool {
+        ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, Key::Escape))
+    }
+
+    fn remove_selected_filter(
+        selected_index: &mut usize,
+        filters: &mut Vec<crate::ui::ColumnFilter>,
+        actions: &mut SidebarActions,
+    ) {
+        if *selected_index >= filters.len() {
+            return;
+        }
+
+        filters.remove(*selected_index);
+        if filters.is_empty() {
+            *selected_index = 0;
+        } else if *selected_index >= filters.len() {
+            *selected_index = filters.len() - 1;
+        }
+        actions.filter_changed = true;
     }
 
     /// 处理删除操作
@@ -812,64 +970,86 @@ impl Sidebar {
 
     /// 显示面板可见性控制工具栏
     fn show_visibility_toolbar(ui: &mut egui::Ui, panel_state: &mut SidebarPanelState) {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
+        let toggle_chip = |ui: &mut egui::Ui,
+                           label: &str,
+                           active: bool,
+                           tooltip: &str,
+                           accent: Color32|
+         -> bool {
+            let text_color = if active {
+                accent
+            } else {
+                Color32::from_gray(130)
+            };
+            let fill = if active {
+                Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 36)
+            } else {
+                Color32::from_rgba_unmultiplied(60, 60, 68, 20)
+            };
 
-            // 无边框图标按钮
-            let icon_toggle =
-                |ui: &mut egui::Ui, icon: &str, active: bool, tooltip: &str| -> bool {
-                    let color = if active {
-                        Color32::from_rgb(100, 200, 150)
-                    } else {
-                        Color32::from_gray(100)
-                    };
-                    ui.add(
-                        egui::Button::new(egui::RichText::new(icon).size(14.0).color(color))
-                            .frame(false)
-                            .min_size(egui::Vec2::new(22.0, 22.0)),
-                    )
-                    .on_hover_text(tooltip)
-                    .clicked()
-                };
+            ui.add(
+                egui::Button::new(egui::RichText::new(label).size(11.0).color(text_color))
+                    .fill(fill)
+                    .stroke(egui::Stroke::NONE)
+                    .corner_radius(CornerRadius::same(255))
+                    .min_size(egui::Vec2::new(0.0, 22.0)),
+            )
+            .on_hover_text(tooltip)
+            .clicked()
+        };
 
-            // 1. 连接面板
-            if icon_toggle(
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(6.0, 4.0);
+
+            ui.label(
+                egui::RichText::new("工作区")
+                    .small()
+                    .color(Color32::from_gray(120)),
+            );
+
+            if toggle_chip(
                 ui,
-                "🔗",
+                "连接",
                 panel_state.show_connections,
-                &shortcut_tooltip("切换连接面板", &["Ctrl+1"]),
+                &shortcut_tooltip("切换连接工作区", &["Ctrl+1"]),
+                Color32::from_rgb(100, 200, 150),
             ) {
                 panel_state.show_connections = !panel_state.show_connections;
             }
 
-            // 2-3. 数据库和表在连接面板内，无需单独按钮
-
-            // 4. 筛选面板
-            if icon_toggle(
+            if toggle_chip(
                 ui,
-                "🔍",
+                "筛选",
                 panel_state.show_filters,
-                &shortcut_tooltip("切换筛选面板", &["Ctrl+4"]),
+                &shortcut_tooltip("切换筛选工作区", &["Ctrl+4"]),
+                Color32::from_rgb(120, 185, 255),
             ) {
                 panel_state.show_filters = !panel_state.show_filters;
             }
 
-            // 5. 触发器面板
-            if icon_toggle(
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new("高级")
+                    .small()
+                    .color(Color32::from_gray(110)),
+            );
+
+            if toggle_chip(
                 ui,
-                "⚡",
+                "触发器",
                 panel_state.show_triggers,
                 &shortcut_tooltip("切换触发器面板", &["Ctrl+5"]),
+                Color32::from_rgb(230, 180, 90),
             ) {
                 panel_state.show_triggers = !panel_state.show_triggers;
             }
 
-            // 6. 存储过程面板
-            if icon_toggle(
+            if toggle_chip(
                 ui,
-                "📦",
+                "过程",
                 panel_state.show_routines,
                 &shortcut_tooltip("切换存储过程面板", &["Ctrl+6"]),
+                Color32::from_rgb(170, 150, 220),
             ) {
                 panel_state.show_routines = !panel_state.show_routines;
             }
@@ -878,23 +1058,38 @@ impl Sidebar {
         ui.separator();
     }
 
-    fn sidebar_flow_state(
+    fn sidebar_workflow_context(
         panel_state: &SidebarPanelState,
         connection_manager: &ConnectionManager,
-    ) -> SidebarFlowState {
+    ) -> SidebarWorkflowContext {
         let active_connection = connection_manager.get_active();
 
-        SidebarFlowState {
-            show_connections: panel_state.show_connections,
-            show_filters: panel_state.show_filters,
-            show_triggers: panel_state.show_triggers,
-            show_routines: panel_state.show_routines,
-            has_databases: active_connection
+        SidebarWorkflowContext::new(
+            panel_state.show_connections,
+            panel_state.show_filters,
+            panel_state.show_triggers,
+            panel_state.show_routines,
+            active_connection
                 .map(|connection| !connection.databases.is_empty())
                 .unwrap_or(false),
-            has_tables: active_connection
+            active_connection
                 .map(|connection| !connection.tables.is_empty())
                 .unwrap_or(false),
+        )
+    }
+
+    fn apply_workflow_reduction(actions: &mut SidebarActions, reduction: SidebarWorkflowReduction) {
+        match reduction.effect {
+            Some(SidebarWorkflowEffect::SectionChanged(section)) => {
+                actions.section_change = Some(section);
+            }
+            Some(SidebarWorkflowEffect::FocusFilterInput(index)) => {
+                actions.focus_filter_input = Some(index);
+            }
+            Some(SidebarWorkflowEffect::FocusTransferToDataGrid) => {
+                actions.focus_transfer = Some(SidebarFocusTransfer::ToDataGrid);
+            }
+            None => {}
         }
     }
 }
@@ -959,263 +1154,304 @@ fn prev_operator(current: &crate::ui::FilterOperator) -> crate::ui::FilterOperat
     }
 }
 
-fn next_section_in_flow(current: SidebarSection, flow: SidebarFlowState) -> Option<SidebarSection> {
-    match current {
-        SidebarSection::Connections => {
-            if flow.show_connections && flow.has_databases {
-                Some(SidebarSection::Databases)
-            } else if flow.show_connections && flow.has_tables {
-                Some(SidebarSection::Tables)
-            } else if flow.show_filters {
-                Some(SidebarSection::Filters)
-            } else if flow.show_triggers {
-                Some(SidebarSection::Triggers)
-            } else if flow.show_routines {
-                Some(SidebarSection::Routines)
-            } else {
-                None
-            }
-        }
-        SidebarSection::Databases => {
-            if flow.show_connections && flow.has_tables {
-                Some(SidebarSection::Tables)
-            } else if flow.show_filters {
-                Some(SidebarSection::Filters)
-            } else if flow.show_triggers {
-                Some(SidebarSection::Triggers)
-            } else if flow.show_routines {
-                Some(SidebarSection::Routines)
-            } else {
-                None
-            }
-        }
-        SidebarSection::Tables => {
-            if flow.show_filters {
-                Some(SidebarSection::Filters)
-            } else if flow.show_triggers {
-                Some(SidebarSection::Triggers)
-            } else if flow.show_routines {
-                Some(SidebarSection::Routines)
-            } else {
-                None
-            }
-        }
-        SidebarSection::Filters => {
-            if flow.show_triggers {
-                Some(SidebarSection::Triggers)
-            } else if flow.show_routines {
-                Some(SidebarSection::Routines)
-            } else {
-                None
-            }
-        }
-        SidebarSection::Triggers => {
-            if flow.show_routines {
-                Some(SidebarSection::Routines)
-            } else {
-                None
-            }
-        }
-        SidebarSection::Routines => None,
-    }
-}
-
-fn move_right_target(current: SidebarSection, flow: SidebarFlowState) -> SidebarMoveRightTarget {
-    match current {
-        SidebarSection::Connections => {
-            if flow.show_connections && flow.has_databases {
-                SidebarMoveRightTarget::Section(SidebarSection::Databases)
-            } else if flow.show_connections && flow.has_tables {
-                SidebarMoveRightTarget::Section(SidebarSection::Tables)
-            } else {
-                SidebarMoveRightTarget::DataGrid
-            }
-        }
-        SidebarSection::Databases => {
-            if flow.show_connections && flow.has_tables {
-                SidebarMoveRightTarget::Section(SidebarSection::Tables)
-            } else {
-                SidebarMoveRightTarget::DataGrid
-            }
-        }
-        SidebarSection::Tables
-        | SidebarSection::Filters
-        | SidebarSection::Triggers
-        | SidebarSection::Routines => SidebarMoveRightTarget::DataGrid,
-    }
-}
-
-fn previous_section_in_flow(
-    current: SidebarSection,
-    flow: SidebarFlowState,
-) -> Option<SidebarSection> {
-    match current {
-        SidebarSection::Connections => None,
-        SidebarSection::Databases => {
-            if flow.show_connections {
-                Some(SidebarSection::Connections)
-            } else {
-                None
-            }
-        }
-        SidebarSection::Tables => {
-            if flow.show_connections && flow.has_databases {
-                Some(SidebarSection::Databases)
-            } else if flow.show_connections {
-                Some(SidebarSection::Connections)
-            } else {
-                None
-            }
-        }
-        SidebarSection::Filters => {
-            if flow.show_connections && flow.has_tables {
-                Some(SidebarSection::Tables)
-            } else if flow.show_connections && flow.has_databases {
-                Some(SidebarSection::Databases)
-            } else if flow.show_connections {
-                Some(SidebarSection::Connections)
-            } else {
-                None
-            }
-        }
-        SidebarSection::Triggers => {
-            if flow.show_filters {
-                Some(SidebarSection::Filters)
-            } else if flow.show_connections && flow.has_tables {
-                Some(SidebarSection::Tables)
-            } else if flow.show_connections && flow.has_databases {
-                Some(SidebarSection::Databases)
-            } else if flow.show_connections {
-                Some(SidebarSection::Connections)
-            } else {
-                None
-            }
-        }
-        SidebarSection::Routines => {
-            if flow.show_triggers {
-                Some(SidebarSection::Triggers)
-            } else if flow.show_filters {
-                Some(SidebarSection::Filters)
-            } else if flow.show_connections && flow.has_tables {
-                Some(SidebarSection::Tables)
-            } else if flow.show_connections && flow.has_databases {
-                Some(SidebarSection::Databases)
-            } else if flow.show_connections {
-                Some(SidebarSection::Connections)
-            } else {
-                None
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        SidebarFlowState, SidebarMoveRightTarget, move_right_target, next_section_in_flow,
-        previous_section_in_flow,
-    };
-    use crate::ui::SidebarSection;
+    use super::*;
+    use crate::database::{ConnectionConfig, ConnectionManager};
+    use crate::ui::{ColumnFilter, SidebarFilterWorkspaceMode};
+    use egui::{Context, Event, Key, Modifiers, RawInput};
 
-    #[test]
-    fn tables_move_down_into_filters_when_filter_panel_is_open() {
-        let flow = SidebarFlowState {
-            show_connections: true,
-            show_filters: true,
-            show_triggers: false,
-            show_routines: false,
-            has_databases: true,
-            has_tables: true,
+    fn key_event(key: Key) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }
+    }
+
+    fn key_event_with_modifiers(key: Key, modifiers: Modifiers) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }
+    }
+
+    fn run_sidebar_key(
+        event: Event,
+        focused_section: SidebarSection,
+        panel_state: &mut SidebarPanelState,
+        item_count: usize,
+        connection_manager: &ConnectionManager,
+        filters: &mut Vec<ColumnFilter>,
+    ) -> SidebarActions {
+        let modifiers = match &event {
+            Event::Key { modifiers, .. } => *modifiers,
+            _ => Modifiers::NONE,
         };
+        let ctx = Context::default();
+        ctx.begin_pass(RawInput {
+            events: vec![event],
+            modifiers,
+            ..Default::default()
+        });
 
-        assert_eq!(
-            next_section_in_flow(SidebarSection::Tables, flow),
-            Some(SidebarSection::Filters)
+        let mut actions = SidebarActions::default();
+        let mut selected_table = None;
+        Sidebar::handle_keyboard_navigation(
+            &ctx,
+            focused_section,
+            panel_state,
+            item_count,
+            connection_manager,
+            &mut selected_table,
+            filters,
+            &mut actions,
         );
+        let _ = ctx.end_pass();
+        actions
+    }
+
+    fn active_manager_with_tables() -> ConnectionManager {
+        let mut manager = ConnectionManager::default();
+        let config = ConnectionConfig {
+            name: "primary".to_string(),
+            ..ConnectionConfig::default()
+        };
+        manager.add(config);
+        manager.active = Some("primary".to_string());
+
+        let connection = manager
+            .connections
+            .get_mut("primary")
+            .expect("active connection");
+        connection.connected = true;
+        connection.databases = vec!["main".to_string()];
+        connection.selected_database = Some("main".to_string());
+        connection.tables = vec!["users".to_string(), "orders".to_string()];
+        manager
     }
 
     #[test]
-    fn tables_move_right_enters_data_grid_instead_of_next_sidebar_panel() {
-        let flow = SidebarFlowState {
-            show_connections: true,
-            show_filters: true,
-            show_triggers: true,
-            show_routines: false,
-            has_databases: true,
-            has_tables: true,
-        };
+    fn typing_plain_characters_in_filters_input_does_not_trigger_external_commands() {
+        let manager = ConnectionManager::default();
+        let mut panel_state = SidebarPanelState::default();
+        panel_state.workflow.filter_workspace = SidebarFilterWorkspaceMode::Input;
+        panel_state.filter_input_has_focus = true;
+        panel_state.selection.filters = 0;
+        let mut filters = vec![ColumnFilter::new("name".to_string())];
 
-        assert_eq!(
-            move_right_target(SidebarSection::Tables, flow),
-            SidebarMoveRightTarget::DataGrid
+        let actions = run_sidebar_key(
+            key_event(Key::A),
+            SidebarSection::Filters,
+            &mut panel_state,
+            filters.len(),
+            &manager,
+            &mut filters,
         );
+
+        assert!(!actions.has_action());
+        assert_eq!(filters.len(), 1);
+        assert_eq!(
+            panel_state.workflow.filter_workspace,
+            SidebarFilterWorkspaceMode::Input
+        );
+        assert!(panel_state.filter_input_has_focus);
     }
 
     #[test]
-    fn filters_move_right_enters_data_grid() {
-        let flow = SidebarFlowState {
-            show_connections: true,
-            show_filters: true,
-            show_triggers: true,
-            show_routines: true,
-            has_databases: true,
-            has_tables: true,
-        };
+    fn escape_in_filters_input_returns_to_filters_list() {
+        let manager = ConnectionManager::default();
+        let mut panel_state = SidebarPanelState::default();
+        panel_state.workflow.filter_workspace = SidebarFilterWorkspaceMode::Input;
+        panel_state.filter_input_has_focus = true;
+        panel_state.selection.filters = 0;
+        let mut filters = vec![ColumnFilter::new("name".to_string())];
 
-        assert_eq!(
-            move_right_target(SidebarSection::Filters, flow),
-            SidebarMoveRightTarget::DataGrid
+        let actions = run_sidebar_key(
+            key_event(Key::Escape),
+            SidebarSection::Filters,
+            &mut panel_state,
+            filters.len(),
+            &manager,
+            &mut filters,
         );
+
+        assert!(!actions.has_action());
+        assert_eq!(
+            panel_state.workflow.filter_workspace,
+            SidebarFilterWorkspaceMode::List
+        );
+        assert!(!panel_state.filter_input_has_focus);
     }
 
     #[test]
-    fn connections_move_right_prefers_database_hierarchy_before_grid() {
-        let flow = SidebarFlowState {
-            show_connections: true,
-            show_filters: true,
-            show_triggers: false,
-            show_routines: false,
-            has_databases: true,
-            has_tables: true,
-        };
+    fn escape_in_filters_list_moves_back_to_previous_layer() {
+        let manager = active_manager_with_tables();
+        let mut panel_state = SidebarPanelState::default();
+        panel_state.selection.filters = 0;
+        let mut filters = vec![ColumnFilter::new("name".to_string())];
 
-        assert_eq!(
-            move_right_target(SidebarSection::Connections, flow),
-            SidebarMoveRightTarget::Section(SidebarSection::Databases)
+        let actions = run_sidebar_key(
+            key_event(Key::Escape),
+            SidebarSection::Filters,
+            &mut panel_state,
+            filters.len(),
+            &manager,
+            &mut filters,
         );
+
+        assert_eq!(actions.section_change, Some(SidebarSection::Tables));
     }
 
     #[test]
-    fn filters_move_up_back_to_tables_in_default_learning_flow() {
-        let flow = SidebarFlowState {
-            show_connections: true,
-            show_filters: true,
-            show_triggers: false,
-            show_routines: false,
-            has_databases: true,
-            has_tables: true,
-        };
+    fn filters_keyboard_commands_cover_add_toggle_edit_and_remove() {
+        let manager = ConnectionManager::default();
 
-        assert_eq!(
-            previous_section_in_flow(SidebarSection::Filters, flow),
-            Some(SidebarSection::Tables)
+        let mut add_state = SidebarPanelState::default();
+        add_state.selection.filters = 0;
+        let mut add_filters = vec![ColumnFilter::new("name".to_string())];
+        let add_actions = run_sidebar_key(
+            key_event(Key::A),
+            SidebarSection::Filters,
+            &mut add_state,
+            add_filters.len(),
+            &manager,
+            &mut add_filters,
         );
+        assert_eq!(
+            add_actions.insert_filter,
+            Some(SidebarFilterInsertMode::BelowSelection)
+        );
+
+        let mut append_state = SidebarPanelState::default();
+        append_state.selection.filters = 0;
+        let mut append_filters = vec![ColumnFilter::new("name".to_string())];
+        let append_actions = run_sidebar_key(
+            key_event_with_modifiers(
+                Key::A,
+                Modifiers {
+                    shift: true,
+                    ..Modifiers::NONE
+                },
+            ),
+            SidebarSection::Filters,
+            &mut append_state,
+            append_filters.len(),
+            &manager,
+            &mut append_filters,
+        );
+        assert_eq!(
+            append_actions.insert_filter,
+            Some(SidebarFilterInsertMode::AppendEnd)
+        );
+
+        let mut toggle_state = SidebarPanelState::default();
+        toggle_state.selection.filters = 0;
+        let mut toggle_filters = vec![ColumnFilter::new("name".to_string())];
+        let toggle_actions = run_sidebar_key(
+            key_event(Key::Space),
+            SidebarSection::Filters,
+            &mut toggle_state,
+            toggle_filters.len(),
+            &manager,
+            &mut toggle_filters,
+        );
+        assert!(toggle_actions.filter_changed);
+        assert!(!toggle_filters[0].enabled);
+
+        let mut focus_state = SidebarPanelState::default();
+        focus_state.selection.filters = 0;
+        let mut focus_filters = vec![ColumnFilter::new("name".to_string())];
+        let focus_actions = run_sidebar_key(
+            key_event(Key::L),
+            SidebarSection::Filters,
+            &mut focus_state,
+            focus_filters.len(),
+            &manager,
+            &mut focus_filters,
+        );
+        assert_eq!(focus_actions.focus_filter_input, Some(0));
+        assert_eq!(
+            focus_state.workflow.filter_workspace,
+            SidebarFilterWorkspaceMode::Input
+        );
+
+        let mut delete_state = SidebarPanelState::default();
+        delete_state.selection.filters = 0;
+        let mut delete_filters = vec![ColumnFilter::new("name".to_string())];
+        let delete_actions = run_sidebar_key(
+            key_event(Key::X),
+            SidebarSection::Filters,
+            &mut delete_state,
+            delete_filters.len(),
+            &manager,
+            &mut delete_filters,
+        );
+        assert!(delete_actions.filter_changed);
+        assert!(delete_filters.is_empty());
     }
 
     #[test]
-    fn filters_fall_through_to_triggers_when_enabled() {
-        let flow = SidebarFlowState {
-            show_connections: true,
-            show_filters: true,
-            show_triggers: true,
-            show_routines: false,
-            has_databases: false,
-            has_tables: true,
-        };
+    fn filters_keyboard_commands_cover_column_and_operator_cycle() {
+        let manager = ConnectionManager::default();
 
+        let mut column_state = SidebarPanelState::default();
+        column_state.selection.filters = 0;
+        let mut column_filters = vec![ColumnFilter::new("name".to_string())];
+        let next_column_actions = run_sidebar_key(
+            key_event(Key::CloseBracket),
+            SidebarSection::Filters,
+            &mut column_state,
+            column_filters.len(),
+            &manager,
+            &mut column_filters,
+        );
+        assert_eq!(next_column_actions.cycle_filter_column, Some((0, true)));
+
+        let prev_column_actions = run_sidebar_key(
+            key_event(Key::OpenBracket),
+            SidebarSection::Filters,
+            &mut column_state,
+            column_filters.len(),
+            &manager,
+            &mut column_filters,
+        );
+        assert_eq!(prev_column_actions.cycle_filter_column, Some((0, false)));
+
+        let mut operator_state = SidebarPanelState::default();
+        operator_state.selection.filters = 0;
+        let mut operator_filters = vec![ColumnFilter::new("name".to_string())];
+        let operator_actions = run_sidebar_key(
+            key_event(Key::Equals),
+            SidebarSection::Filters,
+            &mut operator_state,
+            operator_filters.len(),
+            &manager,
+            &mut operator_filters,
+        );
+        assert!(operator_actions.filter_changed);
+        assert_ne!(
+            operator_filters[0].operator,
+            crate::ui::FilterOperator::Contains
+        );
+
+        let previous_actions = run_sidebar_key(
+            key_event(Key::Minus),
+            SidebarSection::Filters,
+            &mut operator_state,
+            operator_filters.len(),
+            &manager,
+            &mut operator_filters,
+        );
+        assert!(previous_actions.filter_changed);
         assert_eq!(
-            next_section_in_flow(SidebarSection::Filters, flow),
-            Some(SidebarSection::Triggers)
+            operator_filters[0].operator,
+            crate::ui::FilterOperator::Contains
         );
     }
 }

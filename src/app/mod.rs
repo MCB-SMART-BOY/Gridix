@@ -5,33 +5,20 @@
 //!
 //! ## 子模块
 //!
-//! - `database`: 数据库连接和查询操作
-//! - `dialogs`: 对话框渲染和处理
-//! - `er_diagram`: ER 关系图数据加载
-//! - `export`: 数据导出功能
-//! - `handler`: 异步消息处理
-//! - `import`: 数据导入功能
-//! - `keyboard`: 键盘快捷键处理
-//! - `message`: 异步消息定义
-//! - `render`: UI 渲染和操作处理
+//! - `action`: 应用动作语义和命令面板
+//! - `input`: focus-aware 输入路由和键盘兼容层
+//! - `runtime`: 数据库请求、异步消息、元数据和请求生命周期
+//! - `surfaces`: 主渲染循环、对话框和偏好设置
+//! - `workflow`: 导入导出、帮助和欢迎页用户流程
 //! - `state`: 应用状态定义
 
-mod database;
+mod action;
 mod dialogs;
-mod er_diagram;
-mod export;
-mod handler;
-mod help;
-mod import;
-mod input_router;
-mod keyboard;
-mod message;
-mod metadata;
-mod preferences;
-mod render;
-mod request_lifecycle;
+mod input;
+mod runtime;
 pub mod state;
-mod welcome;
+mod surfaces;
+mod workflow;
 
 use eframe::egui;
 use parking_lot::Mutex;
@@ -46,7 +33,17 @@ use crate::core::{
 use crate::database::{ConnectionConfig, ConnectionManager, DatabaseType, QueryResult};
 use crate::ui::{self, DdlDialogState, ExportConfig, KeyBindingsDialogState, QueryTabManager};
 
-use message::Message;
+use action::command_palette::CommandPaletteState;
+use runtime::message::Message;
+
+#[derive(Debug, Clone)]
+pub(in crate::app) struct GridSaveContext {
+    table_name: String,
+    tab_id: String,
+    cursor: (usize, usize),
+    search_text: String,
+    search_column: Option<String>,
+}
 
 /// 数据库管理器主应用结构体
 ///
@@ -108,6 +105,8 @@ pub struct DbManagerApp {
     next_connect_request_id: u64,
     /// 查询请求自增序列（用于丢弃过期回包）
     next_query_request_id: u64,
+    /// 表格保存请求自增序列（用于跟踪批量保存与刷新）
+    next_grid_save_request_id: u64,
     /// 元数据请求自增序列（触发器/存储过程）
     next_metadata_request_id: u64,
     /// 各连接最新连接请求 ID
@@ -124,6 +123,10 @@ pub struct DbManagerApp {
     pending_query_connections: HashMap<u64, String>,
     /// 查询取消信号发送器
     pending_query_cancellers: HashMap<u64, Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>>,
+    /// 进行中的表格保存请求上下文
+    pending_grid_save_requests: HashMap<u64, GridSaveContext>,
+    /// 表格刷新完成后需要恢复的视图上下文
+    pending_grid_refresh_restores: HashMap<u64, GridSaveContext>,
 
     // ==================== 配置和历史 ====================
     /// 应用程序配置（主题、UI 缩放等）
@@ -240,6 +243,8 @@ pub struct DbManagerApp {
     keybindings: KeyBindings,
     /// 快捷键设置对话框状态
     keybindings_dialog_state: KeyBindingsDialogState,
+    /// 命令面板状态
+    command_palette_state: CommandPaletteState,
     /// 中央面板左右分割比例 (0.0-1.0, 左侧占比)
     central_panel_ratio: f32,
     /// 是否显示 ER 图面板
@@ -274,7 +279,7 @@ impl DbManagerApp {
         ui::sync_runtime_local_shortcuts(&keybindings);
         let theme_manager = ThemeManager::new(app_config.theme_preset);
         let highlight_colors = HighlightColors::from_theme(&theme_manager.colors);
-        let query_history = QueryHistory::new(100);
+        let query_history = app_config.query_history.clone();
 
         // 应用主题
         theme_manager.apply(&cc.egui_ctx);
@@ -292,6 +297,9 @@ impl DbManagerApp {
         for config in &app_config.connections {
             manager.add(config.clone());
         }
+
+        let mut sidebar_panel_state = ui::SidebarPanelState::default();
+        sidebar_panel_state.workflow.edge_transfer = app_config.sidebar.edge_transfer;
 
         let mut app = Self {
             manager,
@@ -311,6 +319,7 @@ impl DbManagerApp {
             import_executing: false,
             next_connect_request_id: 0,
             next_query_request_id: 0,
+            next_grid_save_request_id: 0,
             next_metadata_request_id: 0,
             pending_connect_requests: HashMap::new(),
             pending_database_requests: HashMap::new(),
@@ -319,6 +328,8 @@ impl DbManagerApp {
             pending_query_tasks: HashMap::new(),
             pending_query_connections: HashMap::new(),
             pending_query_cancellers: HashMap::new(),
+            pending_grid_save_requests: HashMap::new(),
+            pending_grid_refresh_restores: HashMap::new(),
             app_config,
             query_history,
             command_history: Vec::new(),
@@ -355,7 +366,7 @@ impl DbManagerApp {
             focus_area: ui::FocusArea::DataGrid,
             toolbar_index: 0,
             sidebar_section: ui::SidebarSection::Connections,
-            sidebar_panel_state: ui::SidebarPanelState::default(),
+            sidebar_panel_state,
             sidebar_width: 280.0, // 默认侧边栏宽度
             welcome_status: ui::WelcomeStatusSummary::default(),
             show_welcome_setup_dialog: false,
@@ -371,6 +382,7 @@ impl DbManagerApp {
             create_user_dialog_state: ui::CreateUserDialogState::new(),
             keybindings,
             keybindings_dialog_state: KeyBindingsDialogState::default(),
+            command_palette_state: CommandPaletteState::default(),
             central_panel_ratio: 0.65,
             show_er_diagram: false,
             er_diagram_state: ui::ERDiagramState::new(),
@@ -404,8 +416,18 @@ impl DbManagerApp {
 
             if let Some(path) = file_dialog.save_file() {
                 // 使用导出模块执行导出
-                self.export_status =
-                    Some(export::execute_export(result, &table_name, &path, &config));
+                let db_type = self
+                    .manager
+                    .get_active()
+                    .map(|connection| connection.config.db_type)
+                    .unwrap_or(crate::database::DatabaseType::SQLite);
+                self.export_status = Some(workflow::export::execute_export(
+                    result,
+                    &table_name,
+                    &path,
+                    &config,
+                    db_type,
+                ));
             }
         }
     }

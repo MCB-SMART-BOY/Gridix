@@ -27,6 +27,9 @@ pub use error::DbError;
 
 // 配置
 pub use config::ConnectionConfig;
+pub(crate) use config::{
+    decrypt_password, delete_password_secret, load_password_secret, store_password_secret,
+};
 
 // 连接管理
 #[allow(unused_imports)] // Connection 公开 API

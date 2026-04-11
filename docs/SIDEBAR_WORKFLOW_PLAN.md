@@ -46,6 +46,9 @@ Rules:
 - `j/k`: move within current list
 - optional edge transfer: if cursor is already at boundary, `j/k` may transfer to next/previous panel
 
+This focus graph stops at the sidebar boundary. Grid and SQL editor keep their own local movement semantics and should not inherit sidebar traversal rules.
+这张焦点图只在侧边栏内部生效。数据表格和 SQL 编辑器保持各自的局部移动语义，不应继承侧边栏遍历规则。
+
 Edge transfer should be configurable.
 边界转移应可配置。
 
@@ -136,4 +139,3 @@ Target cleanup:
   用户无需鼠标即可从表列表进入筛选面板。
 - User can fully add/edit/remove filters by keyboard.
   用户可纯键盘完成筛选条件新增、编辑、删除。
-

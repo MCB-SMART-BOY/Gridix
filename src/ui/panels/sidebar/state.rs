@@ -1,6 +1,7 @@
 //! 侧边栏状态定义
 
 use crate::database::{RoutineInfo, TriggerInfo};
+use crate::ui::SidebarSection;
 
 /// 侧边栏各区域的选中索引
 #[derive(Debug, Clone, Default)]
@@ -33,6 +34,252 @@ impl SidebarSelectionState {
         self.tables = 0;
         self.triggers = 0;
         self.routines = 0;
+    }
+}
+
+/// 筛选工作区的局部模式
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SidebarFilterWorkspaceMode {
+    /// 在筛选规则列表中导航
+    #[default]
+    List,
+    /// 正在编辑筛选值输入框
+    Input,
+}
+
+/// 侧边栏工作流状态
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SidebarWorkflowState {
+    /// 是否允许在列表边界通过 `j/k` 跨 section 流转
+    pub edge_transfer: bool,
+    /// 当前筛选工作区局部模式
+    pub filter_workspace: SidebarFilterWorkspaceMode,
+}
+
+impl Default for SidebarWorkflowState {
+    fn default() -> Self {
+        Self {
+            edge_transfer: true,
+            filter_workspace: SidebarFilterWorkspaceMode::List,
+        }
+    }
+}
+
+/// 侧边栏工作流 reducer 所需的只读上下文。
+///
+/// 这里刻意只放影响 focus graph 的事实，避免 reducer 依赖 egui 或数据库管理器。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SidebarWorkflowContext {
+    pub show_connections: bool,
+    pub show_filters: bool,
+    pub show_triggers: bool,
+    pub show_routines: bool,
+    pub has_databases: bool,
+    pub has_tables: bool,
+}
+
+impl SidebarWorkflowContext {
+    pub const fn new(
+        show_connections: bool,
+        show_filters: bool,
+        show_triggers: bool,
+        show_routines: bool,
+        has_databases: bool,
+        has_tables: bool,
+    ) -> Self {
+        Self {
+            show_connections,
+            show_filters,
+            show_triggers,
+            show_routines,
+            has_databases,
+            has_tables,
+        }
+    }
+
+    fn section_is_available(self, section: SidebarSection) -> bool {
+        match section {
+            SidebarSection::Connections => self.show_connections,
+            SidebarSection::Databases => self.show_connections && self.has_databases,
+            SidebarSection::Tables => self.show_connections && self.has_tables,
+            SidebarSection::Filters => self.show_filters,
+            SidebarSection::Triggers => self.show_triggers,
+            SidebarSection::Routines => self.show_routines,
+        }
+    }
+
+    fn next_section(self, current: SidebarSection) -> Option<SidebarSection> {
+        let current_index = SIDEBAR_FOCUS_ORDER
+            .iter()
+            .position(|section| *section == current)?;
+
+        SIDEBAR_FOCUS_ORDER
+            .iter()
+            .copied()
+            .skip(current_index + 1)
+            .find(|section| self.section_is_available(*section))
+    }
+
+    fn previous_section(self, current: SidebarSection) -> Option<SidebarSection> {
+        let current_index = SIDEBAR_FOCUS_ORDER
+            .iter()
+            .position(|section| *section == current)?;
+
+        SIDEBAR_FOCUS_ORDER[..current_index]
+            .iter()
+            .rev()
+            .copied()
+            .find(|section| self.section_is_available(*section))
+    }
+}
+
+const SIDEBAR_FOCUS_ORDER: [SidebarSection; 6] = [
+    SidebarSection::Connections,
+    SidebarSection::Databases,
+    SidebarSection::Tables,
+    SidebarSection::Filters,
+    SidebarSection::Triggers,
+    SidebarSection::Routines,
+];
+
+/// 侧边栏工作流层动作。
+///
+/// UI 层负责把按键/点击翻译成这些动作；reducer 只负责 section、edge transfer
+/// 和 filters.list / filters.input 的状态语义。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarWorkflowAction {
+    FocusSection(SidebarSection),
+    MoveLeft {
+        current: SidebarSection,
+    },
+    MoveRight {
+        current: SidebarSection,
+        selected_filter_index: usize,
+        filter_needs_value: bool,
+    },
+    EdgeNext {
+        current: SidebarSection,
+    },
+    EdgePrevious {
+        current: SidebarSection,
+    },
+    EnterFilterInput {
+        index: usize,
+        filter_needs_value: bool,
+    },
+    ExitFilterInput,
+}
+
+/// reducer 输出的副作用请求，仍由现有 SidebarActions 兼容层执行。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarWorkflowEffect {
+    SectionChanged(SidebarSection),
+    FocusFilterInput(usize),
+    FocusTransferToDataGrid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SidebarWorkflowReduction {
+    pub effect: Option<SidebarWorkflowEffect>,
+}
+
+impl SidebarWorkflowReduction {
+    fn section_changed(section: SidebarSection) -> Self {
+        Self {
+            effect: Some(SidebarWorkflowEffect::SectionChanged(section)),
+        }
+    }
+
+    fn focus_filter_input(index: usize) -> Self {
+        Self {
+            effect: Some(SidebarWorkflowEffect::FocusFilterInput(index)),
+        }
+    }
+
+    fn focus_data_grid() -> Self {
+        Self {
+            effect: Some(SidebarWorkflowEffect::FocusTransferToDataGrid),
+        }
+    }
+}
+
+pub fn reduce_sidebar_workflow(
+    workflow: &mut SidebarWorkflowState,
+    context: SidebarWorkflowContext,
+    action: SidebarWorkflowAction,
+) -> SidebarWorkflowReduction {
+    match action {
+        SidebarWorkflowAction::FocusSection(section) => {
+            workflow.filter_workspace = SidebarFilterWorkspaceMode::List;
+            if context.section_is_available(section) {
+                SidebarWorkflowReduction::section_changed(section)
+            } else {
+                SidebarWorkflowReduction::default()
+            }
+        }
+        SidebarWorkflowAction::MoveLeft { current } => {
+            workflow.filter_workspace = SidebarFilterWorkspaceMode::List;
+            context
+                .previous_section(current)
+                .map(SidebarWorkflowReduction::section_changed)
+                .unwrap_or_default()
+        }
+        SidebarWorkflowAction::MoveRight {
+            current,
+            selected_filter_index,
+            filter_needs_value,
+        } => {
+            if current == SidebarSection::Filters && filter_needs_value {
+                workflow.filter_workspace = SidebarFilterWorkspaceMode::Input;
+                return SidebarWorkflowReduction::focus_filter_input(selected_filter_index);
+            }
+
+            workflow.filter_workspace = SidebarFilterWorkspaceMode::List;
+            if current == SidebarSection::Routines {
+                SidebarWorkflowReduction::focus_data_grid()
+            } else {
+                context
+                    .next_section(current)
+                    .map(SidebarWorkflowReduction::section_changed)
+                    .unwrap_or_else(SidebarWorkflowReduction::focus_data_grid)
+            }
+        }
+        SidebarWorkflowAction::EdgeNext { current } => {
+            if !workflow.edge_transfer {
+                return SidebarWorkflowReduction::default();
+            }
+
+            context
+                .next_section(current)
+                .map(SidebarWorkflowReduction::section_changed)
+                .unwrap_or_default()
+        }
+        SidebarWorkflowAction::EdgePrevious { current } => {
+            if !workflow.edge_transfer {
+                return SidebarWorkflowReduction::default();
+            }
+
+            context
+                .previous_section(current)
+                .map(SidebarWorkflowReduction::section_changed)
+                .unwrap_or_default()
+        }
+        SidebarWorkflowAction::EnterFilterInput {
+            index,
+            filter_needs_value,
+        } => {
+            if filter_needs_value {
+                workflow.filter_workspace = SidebarFilterWorkspaceMode::Input;
+                SidebarWorkflowReduction::focus_filter_input(index)
+            } else {
+                workflow.filter_workspace = SidebarFilterWorkspaceMode::List;
+                SidebarWorkflowReduction::default()
+            }
+        }
+        SidebarWorkflowAction::ExitFilterInput => {
+            workflow.filter_workspace = SidebarFilterWorkspaceMode::List;
+            SidebarWorkflowReduction::default()
+        }
     }
 }
 
@@ -78,12 +325,14 @@ pub struct SidebarPanelState {
     // ===== 其他状态 =====
     /// 各区域的选中状态
     pub selection: SidebarSelectionState,
-    /// 当前正在拖动的分割条索引 (0=连接/触发器, 1=触发器/存储过程)
+    /// 当前正在拖动的分割条索引 (0=连接/筛选, 1=筛选/触发器, 2=触发器/存储过程)
     pub dragging_divider: Option<usize>,
     /// 命令缓冲区（用于多键命令如 gs）
     pub command_buffer: String,
     /// 筛选值输入框当前是否持有文本焦点
     pub filter_input_has_focus: bool,
+    /// 侧边栏工作流状态
+    pub workflow: SidebarWorkflowState,
 }
 
 impl Default for SidebarPanelState {
@@ -115,11 +364,35 @@ impl Default for SidebarPanelState {
             dragging_divider: None,
             command_buffer: String::new(),
             filter_input_has_focus: false,
+            workflow: SidebarWorkflowState::default(),
         }
     }
 }
 
 impl SidebarPanelState {
+    /// 开始一个新的筛选工作区渲染周期
+    pub fn begin_filter_workspace_frame(&mut self) {
+        self.filter_input_has_focus = false;
+        self.workflow.filter_workspace = SidebarFilterWorkspaceMode::List;
+    }
+
+    /// 标记筛选输入框已获得焦点
+    pub fn mark_filter_input_focus(&mut self) {
+        self.filter_input_has_focus = true;
+        self.workflow.filter_workspace = SidebarFilterWorkspaceMode::Input;
+    }
+
+    /// 主动退出筛选输入模式
+    pub fn exit_filter_input(&mut self) {
+        self.filter_input_has_focus = false;
+        self.workflow.filter_workspace = SidebarFilterWorkspaceMode::List;
+    }
+
+    /// 当前筛选工作区是否处于输入模式
+    pub fn filter_input_mode(&self) -> bool {
+        self.workflow.filter_workspace == SidebarFilterWorkspaceMode::Input
+    }
+
     /// 清空触发器列表
     pub fn clear_triggers(&mut self) {
         self.triggers.clear();
@@ -153,7 +426,38 @@ impl SidebarPanelState {
 
 #[cfg(test)]
 mod tests {
-    use super::SidebarPanelState;
+    use super::{
+        SidebarFilterWorkspaceMode, SidebarPanelState, SidebarWorkflowAction,
+        SidebarWorkflowContext, SidebarWorkflowEffect, SidebarWorkflowState,
+        reduce_sidebar_workflow,
+    };
+    use crate::ui::SidebarSection;
+
+    fn flow(
+        show_connections: bool,
+        show_filters: bool,
+        show_triggers: bool,
+        show_routines: bool,
+        has_databases: bool,
+        has_tables: bool,
+    ) -> SidebarWorkflowContext {
+        SidebarWorkflowContext::new(
+            show_connections,
+            show_filters,
+            show_triggers,
+            show_routines,
+            has_databases,
+            has_tables,
+        )
+    }
+
+    fn reduce(
+        workflow: &mut SidebarWorkflowState,
+        action: SidebarWorkflowAction,
+        context: SidebarWorkflowContext,
+    ) -> Option<SidebarWorkflowEffect> {
+        reduce_sidebar_workflow(workflow, context, action).effect
+    }
 
     #[test]
     fn default_sidebar_layout_prioritizes_connections_and_filters() {
@@ -164,5 +468,349 @@ mod tests {
         assert!(!state.show_triggers);
         assert!(!state.show_routines);
         assert!(state.connections_ratio > state.filters_ratio);
+        assert!(state.workflow.edge_transfer);
+        assert_eq!(
+            state.workflow.filter_workspace,
+            SidebarFilterWorkspaceMode::List
+        );
+    }
+
+    #[test]
+    fn tables_edge_down_enters_filters_when_filter_panel_is_open() {
+        let mut workflow = SidebarWorkflowState::default();
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::EdgeNext {
+                    current: SidebarSection::Tables
+                },
+                flow(true, true, false, false, true, true),
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Filters
+            ))
+        );
+    }
+
+    #[test]
+    fn tables_move_right_enters_filters_when_filter_workspace_is_visible() {
+        let mut workflow = SidebarWorkflowState::default();
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::MoveRight {
+                    current: SidebarSection::Tables,
+                    selected_filter_index: 0,
+                    filter_needs_value: false,
+                },
+                flow(true, true, true, false, true, true),
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Filters
+            ))
+        );
+    }
+
+    #[test]
+    fn tables_move_right_enters_data_grid_when_filter_workspace_is_hidden() {
+        let mut workflow = SidebarWorkflowState::default();
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::MoveRight {
+                    current: SidebarSection::Tables,
+                    selected_filter_index: 0,
+                    filter_needs_value: false,
+                },
+                flow(true, false, false, false, true, true),
+            ),
+            Some(SidebarWorkflowEffect::FocusTransferToDataGrid)
+        );
+    }
+
+    #[test]
+    fn filters_move_right_prefers_value_input_when_rule_needs_text() {
+        let mut workflow = SidebarWorkflowState::default();
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::MoveRight {
+                    current: SidebarSection::Filters,
+                    selected_filter_index: 2,
+                    filter_needs_value: true,
+                },
+                flow(true, true, true, true, true, true),
+            ),
+            Some(SidebarWorkflowEffect::FocusFilterInput(2))
+        );
+        assert_eq!(workflow.filter_workspace, SidebarFilterWorkspaceMode::Input);
+    }
+
+    #[test]
+    fn filters_move_right_falls_through_to_next_advanced_section_when_no_value_is_needed() {
+        let mut workflow = SidebarWorkflowState::default();
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::MoveRight {
+                    current: SidebarSection::Filters,
+                    selected_filter_index: 0,
+                    filter_needs_value: false,
+                },
+                flow(true, true, true, false, true, true),
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Triggers
+            ))
+        );
+    }
+
+    #[test]
+    fn connections_move_right_falls_through_to_filters_without_database_hierarchy() {
+        let mut workflow = SidebarWorkflowState::default();
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::MoveRight {
+                    current: SidebarSection::Connections,
+                    selected_filter_index: 0,
+                    filter_needs_value: false,
+                },
+                flow(true, true, false, false, false, false),
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Filters
+            ))
+        );
+    }
+
+    #[test]
+    fn databases_move_right_falls_through_to_filters_when_tables_are_unavailable() {
+        let mut workflow = SidebarWorkflowState::default();
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::MoveRight {
+                    current: SidebarSection::Databases,
+                    selected_filter_index: 0,
+                    filter_needs_value: false,
+                },
+                flow(true, true, false, false, true, false),
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Filters
+            ))
+        );
+    }
+
+    #[test]
+    fn connections_move_right_prefers_database_hierarchy_before_grid() {
+        let mut workflow = SidebarWorkflowState::default();
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::MoveRight {
+                    current: SidebarSection::Connections,
+                    selected_filter_index: 0,
+                    filter_needs_value: false,
+                },
+                flow(true, true, false, false, true, true),
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Databases
+            ))
+        );
+    }
+
+    #[test]
+    fn sidebar_focus_graph_follows_expected_order() {
+        let context = flow(true, true, true, true, true, true);
+        let mut workflow = SidebarWorkflowState::default();
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::MoveRight {
+                    current: SidebarSection::Connections,
+                    selected_filter_index: 0,
+                    filter_needs_value: false,
+                },
+                context,
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Databases
+            ))
+        );
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::MoveRight {
+                    current: SidebarSection::Databases,
+                    selected_filter_index: 0,
+                    filter_needs_value: false,
+                },
+                context,
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Tables
+            ))
+        );
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::MoveRight {
+                    current: SidebarSection::Tables,
+                    selected_filter_index: 0,
+                    filter_needs_value: false,
+                },
+                context,
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Filters
+            ))
+        );
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::MoveRight {
+                    current: SidebarSection::Filters,
+                    selected_filter_index: 0,
+                    filter_needs_value: false,
+                },
+                context,
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Triggers
+            ))
+        );
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::MoveRight {
+                    current: SidebarSection::Triggers,
+                    selected_filter_index: 0,
+                    filter_needs_value: false,
+                },
+                context,
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Routines
+            ))
+        );
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::MoveLeft {
+                    current: SidebarSection::Routines
+                },
+                context,
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Triggers
+            ))
+        );
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::MoveLeft {
+                    current: SidebarSection::Triggers
+                },
+                context,
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Filters
+            ))
+        );
+    }
+
+    #[test]
+    fn filters_edge_up_back_to_tables_in_default_learning_flow() {
+        let mut workflow = SidebarWorkflowState::default();
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::EdgePrevious {
+                    current: SidebarSection::Filters
+                },
+                flow(true, true, false, false, true, true),
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Tables
+            ))
+        );
+    }
+
+    #[test]
+    fn filters_fall_through_to_triggers_when_enabled() {
+        let mut workflow = SidebarWorkflowState::default();
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::EdgeNext {
+                    current: SidebarSection::Filters
+                },
+                flow(true, true, true, false, false, true),
+            ),
+            Some(SidebarWorkflowEffect::SectionChanged(
+                SidebarSection::Triggers
+            ))
+        );
+    }
+
+    #[test]
+    fn edge_transfer_can_be_disabled() {
+        let mut workflow = SidebarWorkflowState {
+            edge_transfer: false,
+            filter_workspace: SidebarFilterWorkspaceMode::List,
+        };
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::EdgeNext {
+                    current: SidebarSection::Tables
+                },
+                flow(true, true, false, false, true, true),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn explicit_filter_input_actions_switch_modes() {
+        let mut workflow = SidebarWorkflowState::default();
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::EnterFilterInput {
+                    index: 1,
+                    filter_needs_value: true,
+                },
+                flow(true, true, false, false, true, true),
+            ),
+            Some(SidebarWorkflowEffect::FocusFilterInput(1))
+        );
+        assert_eq!(workflow.filter_workspace, SidebarFilterWorkspaceMode::Input);
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::ExitFilterInput,
+                flow(true, true, false, false, true, true),
+            ),
+            None
+        );
+        assert_eq!(workflow.filter_workspace, SidebarFilterWorkspaceMode::List);
     }
 }
