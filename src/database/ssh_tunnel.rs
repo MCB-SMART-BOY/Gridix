@@ -31,6 +31,17 @@ pub enum SshError {
     Key(String),
 }
 
+fn sha256_hex(input: &str) -> String {
+    use ring::digest::{SHA256, digest};
+
+    let hash = digest(&SHA256, input.as_bytes());
+    let mut out = String::with_capacity(hash.as_ref().len() * 2);
+    for byte in hash.as_ref() {
+        out.push_str(&format!("{:02x}", byte));
+    }
+    out
+}
+
 // ============================================================================
 // SSH 隧道配置
 // ============================================================================
@@ -51,6 +62,13 @@ impl SshAuthMethod {
         match self {
             Self::Password => "密码",
             Self::PrivateKey => "私钥",
+        }
+    }
+
+    pub(crate) fn cache_key(&self) -> &'static str {
+        match self {
+            Self::Password => "password",
+            Self::PrivateKey => "private_key",
         }
     }
 
@@ -103,11 +121,31 @@ impl SshTunnelConfig {
         format!("{}:{}", self.ssh_host, self.ssh_port)
     }
 
+    fn auth_fingerprint(&self) -> String {
+        let material = match self.auth_method {
+            SshAuthMethod::Password => {
+                format!("password:{}:{}", self.ssh_username, self.ssh_password)
+            }
+            SshAuthMethod::PrivateKey => format!(
+                "private_key:{}:{}:{}",
+                self.ssh_username, self.private_key_path, self.private_key_passphrase
+            ),
+        };
+        sha256_hex(&material)
+    }
+
     /// 获取隧道唯一名称（用于复用与回收）
     pub fn tunnel_name(&self) -> String {
         format!(
-            "{}:{}->{}:{}",
-            self.ssh_host, self.ssh_port, self.remote_host, self.remote_port
+            "{}:{}:{}:{}:{}:{}->{}:{}",
+            self.ssh_host,
+            self.ssh_port,
+            self.ssh_username,
+            self.auth_method.cache_key(),
+            self.auth_fingerprint(),
+            self.local_port,
+            self.remote_host,
+            self.remote_port
         )
     }
 

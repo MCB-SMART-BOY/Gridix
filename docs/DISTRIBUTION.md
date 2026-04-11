@@ -1,6 +1,6 @@
 # Distribution Guide | 多平台分发指南
 
-This guide describes how to sync a released Gridix version to AUR, Homebrew, and nixpkgs.  
+This guide describes how to sync a released Gridix version to AUR, Homebrew, and nixpkgs.
 本文说明 Gridix 发布后如何同步到 AUR、Homebrew 与 nixpkgs。
 
 ## 1. Prerequisites | 前置条件
@@ -25,10 +25,13 @@ This guide describes how to sync a released Gridix version to AUR, Homebrew, and
 ## 2. Get Checksums | 获取校验和
 
 ```bash
-VERSION=3.8.0
+VERSION=4.0.0
 gh release download "v${VERSION}" -p "SHA256SUMS.txt" -D /tmp/gridix-release
 cat /tmp/gridix-release/SHA256SUMS.txt
 ```
+
+Do not update packaged formula hashes before the `v${VERSION}` artifacts exist.
+在 `v${VERSION}` 制品生成前，不要提前改包管理器模板中的哈希。
 
 Also fetch source tarball hash:
 同时获取源码包哈希：

@@ -1834,7 +1834,7 @@ dependencies = [
 
 [[package]]
 name = "gridix"
-version = "3.8.0"
+version = "4.0.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1847,6 +1847,7 @@ dependencies = [
  "futures-util",
  "hostname",
  "image",
+ "keyring",
  "lazy_static",
  "mysql_async",
  "native-tls",
@@ -2329,6 +2330,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ee7893dab2e44ae5f9d0173f26ff4aa327c10b01b06a72b52dd9405b628640d"
 dependencies = [
  "indexmap",
+]
+
+[[package]]
+name = "keyring"
+version = "3.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eebcc3aff044e5944a8fbaf69eb277d11986064cba30c468730e8b9909fb551c"
+dependencies = [
+ "log",
+ "zeroize",
 ]
 
 [[package]]

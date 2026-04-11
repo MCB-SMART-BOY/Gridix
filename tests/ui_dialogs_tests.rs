@@ -104,9 +104,11 @@ fn test_data_dialog_state() {
 
 #[test]
 fn test_dialog_style() {
-    assert_eq!(DialogStyle::SMALL.width, 320.0);
-    assert_eq!(DialogStyle::MEDIUM.width, 420.0);
-    assert_eq!(DialogStyle::LARGE.width, 520.0);
+    assert_eq!(DialogStyle::SMALL.min_width, 300.0);
+    assert_eq!(DialogStyle::SMALL.default_width, 360.0);
+    assert_eq!(DialogStyle::MEDIUM.default_width, 520.0);
+    assert_eq!(DialogStyle::LARGE.default_width, 700.0);
+    assert_eq!(DialogStyle::WORKSPACE.max_width, 1480.0);
 }
 
 #[test]

@@ -67,7 +67,7 @@ mod identifier_escape {
     fn test_escape_value() {
         assert_eq!(escape_value("hello"), "'hello'");
         assert_eq!(escape_value("it's"), "'it''s'");
-        assert_eq!(escape_value("NULL"), "NULL");
+        assert_eq!(escape_value("NULL"), "'NULL'");
         assert_eq!(escape_value("O'Brien"), "'O''Brien'");
     }
 }

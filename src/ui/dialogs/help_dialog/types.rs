@@ -1,7 +1,15 @@
 use crate::core::KeyBindings;
+use crate::ui::dialogs::picker_shell::PickerPaneFocus;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HelpTab {
+    #[default]
+    ToolQuickStart,
+    DatabaseLearning,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum HelpPickerRoot {
     #[default]
     ToolQuickStart,
     DatabaseLearning,
@@ -41,11 +49,23 @@ pub(crate) enum LearningView {
     TopicDetail,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum HelpPickerItem {
+    #[default]
+    ToolQuickStartGuide,
+    LearningOverview,
+    LearningRoadmap,
+    LearningTopic(LearningTopic),
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct HelpState {
     pub(crate) active_tab: HelpTab,
     pub(crate) learning_view: LearningView,
     pub(crate) learning_topic: LearningTopic,
+    pub(crate) picker_root: HelpPickerRoot,
+    pub(crate) picker_item: HelpPickerItem,
+    pub(crate) picker_focus: PickerPaneFocus,
 }
 
 #[derive(Debug, Clone, Default)]

@@ -17,11 +17,17 @@ Main layers:
 
 Recent `app/` split highlights:
 `app/` 近期拆分重点：
-- `request_lifecycle.rs`: request id generation, pending task tracking, cancel flow.
+- `runtime/request_lifecycle.rs`: request id generation, pending task tracking, cancel flow.
   `request_lifecycle.rs`：请求 ID 生成、任务跟踪、取消流程。
-- `preferences.rs`: UI/theme/config preference update flow.
+- `dialogs/host.rs`: active dialog ownership, modal priority, and single dialog input owner.
+  `dialogs/host.rs`：当前对话框所有权、模态优先级和单一对话框输入归属。
+- `input/owner.rs`: frame-level keyboard owner (`modal`, `text_entry`, `command`, `recording`, `disabled`).
+  `input/owner.rs`：每帧键盘所有者（`modal`、`text_entry`、`command`、`recording`、`disabled`）。
+- `core/commands.rs`: scoped command metadata registry used by local shortcut compatibility, keymap settings, and tooltips.
+  `core/commands.rs`：作用域命令元数据注册表，供局部快捷键兼容层、键位设置与提示使用。
+- `surfaces/preferences.rs`: UI/theme/config preference update flow.
   `preferences.rs`：UI/主题/配置偏好更新流程。
-- `metadata.rs`: metadata load request pipeline and stale-response guard.
+- `runtime/metadata.rs`: metadata load request pipeline and stale-response guard.
   `metadata.rs`：元数据加载请求链路与过期响应保护。
 
 ## 2. Runtime Model | 运行时模型
@@ -34,7 +40,7 @@ Recent `app/` split highlights:
   结果通过 `std::sync::mpsc` 消息回传。
 
 Message types are defined in:
-- `src/app/message.rs`
+- `src/app/runtime/message.rs`
 
 ## 3. Query Execution Flow | 查询执行流程
 
@@ -49,22 +55,38 @@ Message types are defined in:
 5. UI applies result only if request id matches latest context.
    UI 仅在请求 ID 匹配最新上下文时应用结果（避免过期回包污染）。
 
-## 4. Focus & Keyboard Routing | 焦点与键盘路由
+## 4. Focus, Dialog Ownership & Keyboard Routing | 焦点、对话框所有权与键盘路由
 
-- Global shortcuts are handled in `src/app/keyboard.rs`.
-  全局快捷键处理在 `src/app/keyboard.rs`。
+- Frame input ownership is resolved before command dispatch.
+  每帧会先解析输入所有者，再分发命令。
+- Active modal ownership is derived by `src/app/dialogs/host.rs`.
+  当前模态所有权由 `src/app/dialogs/host.rs` 推导。
+- Scoped routing lives in `src/app/input/input_router.rs` and `src/app/input/owner.rs`.
+  作用域路由位于 `src/app/input/input_router.rs` 与 `src/app/input/owner.rs`。
+- Scoped local command metadata lives in `src/core/commands.rs`.
+  作用域局部命令元数据位于 `src/core/commands.rs`。
+- Dialog-local command dispatch goes through `ui::DialogShortcutContext`, which now supports direct command ids while keeping `LocalShortcut` as a compatibility adapter.
+  对话框局部命令分发经由 `ui::DialogShortcutContext`，现在支持直接 command id，同时保留 `LocalShortcut` 作为兼容适配层。
 - Local area handling:
   - DataGrid: `src/ui/components/grid/keyboard.rs`
   - SQL editor: `src/ui/components/sql_editor.rs`
   - Query tabs/toolbar/sidebar each handle local navigation.
 
 Design rule:
+- Active modal/dialog wins before workspace commands.
+  当前模态对话框优先于工作区命令。
+- Text entry wins over normal command keys.
+  文本输入优先于普通命令键。
 - Global `Tab` focus cycle is blocked when SQL editor completion is active.
   当 SQL 编辑器补全激活时，全局 `Tab` 焦点循环会被阻止。
 
 Current limitation:
-- The routing model is still partly global-first and will be redesigned toward scope-based dispatch.
-  当前路由模型仍部分是全局优先，后续将重构为基于作用域的分发模型。
+- Grid, SQL editor, sidebar, toolbar, and several dialogs still keep compatibility handlers while scoped dispatch is being migrated.
+  表格、SQL 编辑器、侧边栏、工具栏和部分对话框仍保留兼容 handler，后续会继续迁移到作用域化分发。
+- `ui::LocalShortcut` is now a compatibility enum backed by the scoped command registry rather than the source of local command metadata.
+  `ui::LocalShortcut` 现在是由作用域命令注册表驱动的兼容枚举，不再是局部命令元数据的唯一来源。
+- The import/export dialogs already use command-id resolution for keyboard input, while keeping legacy helper calls for shortcut display text.
+  导入/导出对话框的键盘输入已改为 command-id 解析，快捷键展示文案仍暂时复用遗留 helper。
 
 Planning docs:
 - [KEYBOARD_FOCUS_RFC.md](KEYBOARD_FOCUS_RFC.md)

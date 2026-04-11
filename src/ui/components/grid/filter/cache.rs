@@ -5,7 +5,7 @@
 
 use super::condition::ColumnFilter;
 use super::logic::FilterLogic;
-use super::operators::check_filter_match;
+use super::operators::check_filter_match_with_null;
 use crate::core::constants;
 use crate::database::QueryResult;
 use rayon::prelude::*;
@@ -113,6 +113,8 @@ pub fn filter_rows_cached<'a>(
 
 /// 检查单行是否匹配筛选条件
 fn row_matches_filter(
+    result: &QueryResult,
+    row_idx: usize,
     row: &[String],
     search_text: &str,
     search_lower: &str,
@@ -150,8 +152,9 @@ fn row_matches_filter(
     for (i, filter) in active_filters.iter().enumerate() {
         let filter_match = if let Some(Some(idx)) = filter_col_indices.get(i) {
             if let Some(cell) = row.get(*idx) {
-                check_filter_match(
+                check_filter_match_with_null(
                     cell,
+                    result.is_null(row_idx, *idx),
                     &filter.operator,
                     &filter.value,
                     &filter.value2,
@@ -209,8 +212,10 @@ fn filter_rows_internal<'a>(
             .rows
             .par_iter()
             .enumerate()
-            .filter(|(_, row)| {
+            .filter(|(idx, row)| {
                 row_matches_filter(
+                    result,
+                    *idx,
                     row,
                     search_text,
                     &search_lower,
@@ -225,8 +230,10 @@ fn filter_rows_internal<'a>(
             .rows
             .iter()
             .enumerate()
-            .filter(|(_, row)| {
+            .filter(|(idx, row)| {
                 row_matches_filter(
+                    result,
+                    *idx,
                     row,
                     search_text,
                     &search_lower,

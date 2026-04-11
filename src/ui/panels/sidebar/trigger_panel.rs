@@ -3,7 +3,7 @@
 use super::SidebarPanelState;
 use crate::database::TriggerInfo;
 use crate::ui::SidebarSection;
-use crate::ui::styles::{GRAY, MARGIN_SM, MUTED, SPACING_LG, SPACING_SM, SUCCESS};
+use crate::ui::styles::{GRAY, MARGIN_SM, MUTED, SPACING_LG, SPACING_SM, SUCCESS, theme_text};
 use egui::{self, Color32, CornerRadius, RichText, Vec2};
 
 /// 触发器面板
@@ -142,7 +142,7 @@ impl TriggerPanel {
                     egui::Button::new(
                         RichText::new("📋 复制")
                             .size(13.0)
-                            .color(Color32::LIGHT_GRAY),
+                            .color(theme_text(ui.visuals())),
                     )
                     .frame(false)
                     .min_size(Vec2::new(0.0, 24.0)),

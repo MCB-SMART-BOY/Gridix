@@ -5,6 +5,7 @@ use crate::core::{Action, KeyBindings};
 use crate::database::ConnectionManager;
 use crate::ui::styles::{
     DANGER, GRAY, MARGIN_MD, MARGIN_SM, MUTED, SPACING_LG, SPACING_MD, SPACING_SM, SUCCESS,
+    theme_text,
 };
 use crate::ui::{SidebarSection, action_tooltip};
 use egui::{self, Color32, CornerRadius, RichText, Vec2};
@@ -141,7 +142,9 @@ impl ConnectionList {
                         if ui
                             .add(
                                 egui::Button::new(
-                                    RichText::new("+").size(15.0).color(Color32::LIGHT_GRAY),
+                                    RichText::new("+")
+                                        .size(15.0)
+                                        .color(theme_text(ui.visuals())),
                                 )
                                 .frame(false)
                                 .min_size(Vec2::new(24.0, 24.0)),
@@ -190,7 +193,7 @@ impl ConnectionList {
                     egui::Button::new(
                         RichText::new("+ 新建连接")
                             .size(14.0)
-                            .color(Color32::LIGHT_GRAY),
+                            .color(theme_text(ui.visuals())),
                     )
                     .frame(false)
                     .min_size(Vec2::new(0.0, 24.0)),
@@ -415,11 +418,11 @@ impl ConnectionList {
             };
 
             if is_active {
-                if icon_btn(ui, "⏏", "断开连接", Color32::LIGHT_GRAY) {
+                if icon_btn(ui, "⏏", "断开连接", theme_text(ui.visuals())) {
                     actions.disconnect = Some(name.to_string());
                     *selected_table = None;
                 }
-            } else if icon_btn(ui, "🔗", "连接", Color32::LIGHT_GRAY) {
+            } else if icon_btn(ui, "🔗", "连接", theme_text(ui.visuals())) {
                 actions.connect = Some(name.to_string());
             }
 

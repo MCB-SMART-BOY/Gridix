@@ -5,9 +5,12 @@
 //! - `j` / `k` - 滚动内容
 //! - `Ctrl+d` / `Ctrl+u` - 快速滚动
 
+use super::common::{DialogContent, DialogShortcutContext, DialogStyle, DialogWindow};
+use super::picker_shell::{PickerDialogShell, PickerNavAction, PickerPaneFocus};
 use crate::core::Action;
-use crate::ui::{LocalShortcut, consume_local_shortcut, local_shortcuts_text};
-use egui::{self, Color32, RichText, ScrollArea, Vec2};
+use crate::ui::styles::{theme_accent, theme_muted_text, theme_warn};
+use crate::ui::{LocalShortcut, local_shortcuts_text};
+use egui::{self, Color32, Key, Modifiers, RichText, ScrollArea, Vec2};
 
 #[path = "help_dialog/learning.rs"]
 mod learning;
@@ -22,14 +25,41 @@ pub use self::types::{
     HelpAction, HelpContext, HelpOnboardingStep, HelpState, HelpTab, LearningTopic,
 };
 
-use self::types::LearningStage;
+use self::types::{HelpPickerItem, HelpPickerRoot};
+use self::types::{LearningStage, LearningView, TOPIC_DEFINITIONS};
 
 pub struct HelpDialog;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HelpNavigationAction {
+    SetLearningView(LearningView),
+    SelectTopic(LearningTopic),
+}
+
+#[derive(Debug, Clone)]
+enum HelpUiAction {
+    Navigate(HelpNavigationAction),
+    Dispatch(HelpAction),
+    NavigateAndDispatch {
+        navigation: HelpNavigationAction,
+        action: HelpAction,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HelpFrameAction {
+    Close,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HelpPickerUiAction {
+    OpenRoot(HelpPickerRoot),
+    OpenItem(HelpPickerItem),
+}
 
 impl HelpDialog {
     const WINDOW_WIDTH: f32 = 920.0;
     const WINDOW_HEIGHT: f32 = 680.0;
-    const CONTENT_WIDTH: f32 = 780.0;
     const LEARNING_SEQUENCE: [LearningTopic; 21] = [
         LearningTopic::Foundations,
         LearningTopic::DataTypes,
@@ -64,22 +94,23 @@ impl HelpDialog {
 
     /// 显示帮助对话框
     fn consume_scroll_delta(ctx: &egui::Context) -> f32 {
-        ctx.input_mut(|i| {
-            let mut delta = 0.0f32;
-            if consume_local_shortcut(i, LocalShortcut::HelpScrollUp) {
-                delta -= 50.0;
-            }
-            if consume_local_shortcut(i, LocalShortcut::HelpScrollDown) {
-                delta += 50.0;
-            }
-            if consume_local_shortcut(i, LocalShortcut::HelpPageUp) {
-                delta -= 300.0;
-            }
-            if consume_local_shortcut(i, LocalShortcut::HelpPageDown) {
-                delta += 300.0;
-            }
-            delta
-        })
+        let shortcuts = DialogShortcutContext::new(ctx);
+        let mut delta = 0.0f32;
+
+        if shortcuts.consume(LocalShortcut::HelpScrollUp) {
+            delta -= 50.0;
+        }
+        if shortcuts.consume(LocalShortcut::HelpScrollDown) {
+            delta += 50.0;
+        }
+        if shortcuts.consume(LocalShortcut::HelpPageUp) {
+            delta -= 300.0;
+        }
+        if shortcuts.consume(LocalShortcut::HelpPageDown) {
+            delta += 300.0;
+        }
+
+        delta
     }
 
     pub fn show_with_scroll(
@@ -93,23 +124,32 @@ impl HelpDialog {
             return None;
         }
 
-        if ctx.input_mut(|i| consume_local_shortcut(i, LocalShortcut::Dismiss)) {
+        let mut action = None;
+        Self::sync_picker_from_navigation(state);
+        let snapshot = state.clone();
+        let mut content_ui_action = None;
+        let mut root_picker_action = None;
+        let mut item_picker_action = None;
+
+        if matches!(
+            Self::handle_keyboard_input(ctx, state),
+            Some(HelpFrameAction::Close)
+        ) {
             *open = false;
             return None;
         }
 
-        let mut action = None;
-
-        egui::Window::new("帮助与学习")
-            .open(open)
-            .collapsible(false)
-            .resizable(true)
-            .default_size([Self::WINDOW_WIDTH, Self::WINDOW_HEIGHT])
-            .default_pos(egui::pos2(96.0, 72.0))
-            .min_width(760.0)
-            .min_height(460.0)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
+        DialogWindow::fixed_style(
+            ctx,
+            "帮助与学习",
+            &DialogStyle::WORKSPACE,
+            Self::WINDOW_WIDTH,
+            Self::WINDOW_HEIGHT,
+        )
+        .open(open)
+        .show(ctx, |ui| {
+            DialogContent::toolbar(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(12.0, 0.0);
                     let help_binding = context.keybindings.display(Action::ShowHelp);
                     Self::hint(
@@ -119,8 +159,14 @@ impl HelpDialog {
                             LocalShortcut::HelpScrollDown,
                         ])
                         .as_str(),
-                        "滚动",
+                        if snapshot.picker_focus == PickerPaneFocus::Detail {
+                            "详情滚动"
+                        } else {
+                            "层级移动"
+                        },
                     );
+                    Self::hint(ui, "H / L / Enter", "返回 / 打开");
+                    Self::hint(ui, "Tab", "切换列焦点");
                     Self::hint(
                         ui,
                         local_shortcuts_text(&[LocalShortcut::Dismiss]).as_str(),
@@ -145,92 +191,500 @@ impl HelpDialog {
                         "切换帮助",
                     );
                 });
-                ui.add_space(10.0);
-
-                Self::show_tabs(ui, state);
-
                 ui.add_space(8.0);
-                ui.separator();
-
-                ScrollArea::vertical()
-                    .id_salt("help_scroll")
-                    .auto_shrink([true, false])
-                    .show(ui, |ui| {
-                        let content_width = Self::CONTENT_WIDTH.min(ui.available_width());
-                        let total_delta = Self::consume_scroll_delta(ctx);
-                        if total_delta != 0.0 {
-                            ui.scroll_with_delta(Vec2::new(0.0, -total_delta));
-                        }
-
-                        ui.add_space(12.0);
-
-                        ui.horizontal(|ui| {
-                            let offset = ((ui.available_width() - content_width) / 2.0).max(0.0);
-                            ui.add_space(offset);
-
-                            ui.allocate_ui_with_layout(
-                                Vec2::new(content_width, 0.0),
-                                egui::Layout::top_down(egui::Align::Min),
-                                |ui| {
-                                    ui.set_min_width(content_width);
-                                    ui.set_max_width(content_width);
-
-                                    match state.active_tab {
-                                        HelpTab::ToolQuickStart => {
-                                            Self::show_tool_guide(ui, &context.keybindings)
-                                        }
-                                        HelpTab::DatabaseLearning => Self::show_learning_guide(
-                                            ui,
-                                            state,
-                                            context,
-                                            &mut action,
-                                        ),
-                                    }
-                                },
-                            );
-                        });
-
-                        ui.add_space(20.0);
-                    });
+                DialogContent::mouse_hint(
+                    ui,
+                    &[
+                        ("单击左侧导航", "切换帮助区域"),
+                        ("单击知识点", "直接进入对应课程"),
+                        ("单击卡片按钮", "执行示例或继续学习"),
+                    ],
+                );
             });
+            ui.add_space(10.0);
+
+            DialogContent::toolbar(ui, |ui| {
+                PickerDialogShell::breadcrumb(ui, &Self::breadcrumb_segments(&snapshot));
+                ui.add_space(6.0);
+                DialogContent::mouse_hint(
+                    ui,
+                    &[
+                        ("单击左列", "打开帮助主线"),
+                        ("单击中列", "打开当前主题"),
+                        ("滚轮 / 拖动", "浏览右列内容"),
+                    ],
+                );
+            });
+
+            ui.add_space(8.0);
+
+            PickerDialogShell::split(
+                ui,
+                220.0,
+                280.0,
+                |ui| Self::show_root_pane(ui, &snapshot, &mut root_picker_action),
+                |ui| Self::show_item_pane(ui, &snapshot, &mut item_picker_action),
+                |ui| Self::show_detail_pane(ui, ctx, &snapshot, context, &mut content_ui_action),
+            );
+        });
+
+        if let Some(ui_action) = content_ui_action {
+            action = Self::apply_ui_action(state, ui_action);
+        }
+
+        if let Some(picker_action) = item_picker_action.or(root_picker_action) {
+            Self::apply_picker_ui_action(state, picker_action);
+        }
 
         action
     }
 
-    fn show_tabs(ui: &mut egui::Ui, state: &mut HelpState) {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 10.0;
+    fn handle_keyboard_input(
+        ctx: &egui::Context,
+        state: &mut HelpState,
+    ) -> Option<HelpFrameAction> {
+        let shortcuts = DialogShortcutContext::new(ctx);
+        if shortcuts.consume(LocalShortcut::Dismiss) {
+            return Some(HelpFrameAction::Close);
+        }
 
-            Self::tab_button(
-                ui,
-                &mut state.active_tab,
-                HelpTab::ToolQuickStart,
-                "工具快速使用指南",
-                "已经了解数据库，只想快速上手 Gridix",
-            );
-            Self::tab_button(
-                ui,
-                &mut state.active_tab,
-                HelpTab::DatabaseLearning,
-                "数据库相关知识点学习指南",
-                "通过示例库学习数据库概念与基础操作",
-            );
-        });
+        let nav_action = if state.picker_focus == PickerPaneFocus::Detail {
+            Self::consume_detail_nav_action(ctx)
+        } else {
+            PickerDialogShell::consume_nav_action(ctx)
+        };
+
+        if let Some(action) = nav_action {
+            Self::apply_picker_nav_action(state, action);
+        }
+
+        None
     }
 
-    fn tab_button(
-        ui: &mut egui::Ui,
-        current: &mut HelpTab,
-        target: HelpTab,
-        label: &str,
-        tooltip: &str,
-    ) {
-        let selected = *current == target;
-        let response = ui.selectable_label(selected, label);
-        if response.clicked() {
-            *current = target;
+    fn consume_detail_nav_action(ctx: &egui::Context) -> Option<PickerNavAction> {
+        ctx.input_mut(|input| {
+            if input.consume_key(Modifiers::SHIFT, Key::Tab) {
+                Some(PickerNavAction::FocusPrev)
+            } else if input.consume_key(Modifiers::NONE, Key::Tab) {
+                Some(PickerNavAction::FocusNext)
+            } else if input.consume_key(Modifiers::NONE, Key::ArrowLeft)
+                || input.consume_key(Modifiers::NONE, Key::H)
+            {
+                Some(PickerNavAction::Back)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn apply_ui_action(state: &mut HelpState, action: HelpUiAction) -> Option<HelpAction> {
+        match action {
+            HelpUiAction::Navigate(navigation) => {
+                Self::apply_navigation_action(state, navigation);
+                None
+            }
+            HelpUiAction::Dispatch(action) => Some(action),
+            HelpUiAction::NavigateAndDispatch { navigation, action } => {
+                Self::apply_navigation_action(state, navigation);
+                Some(action)
+            }
         }
-        response.on_hover_text(tooltip);
+    }
+
+    fn apply_navigation_action(state: &mut HelpState, action: HelpNavigationAction) {
+        match action {
+            HelpNavigationAction::SetLearningView(view) => {
+                state.active_tab = HelpTab::DatabaseLearning;
+                state.learning_view = view;
+            }
+            HelpNavigationAction::SelectTopic(topic) => {
+                state.active_tab = HelpTab::DatabaseLearning;
+                state.learning_view = LearningView::TopicDetail;
+                state.learning_topic = topic;
+            }
+        }
+
+        Self::sync_picker_from_navigation(state);
+    }
+
+    fn apply_picker_ui_action(state: &mut HelpState, action: HelpPickerUiAction) {
+        match action {
+            HelpPickerUiAction::OpenRoot(root) => {
+                Self::select_picker_root(state, root);
+                state.picker_focus = PickerPaneFocus::Items;
+            }
+            HelpPickerUiAction::OpenItem(item) => {
+                Self::select_picker_item(state, item);
+                state.picker_focus = PickerPaneFocus::Detail;
+            }
+        }
+    }
+
+    fn apply_picker_nav_action(state: &mut HelpState, action: PickerNavAction) {
+        match action {
+            PickerNavAction::MovePrev => match state.picker_focus {
+                PickerPaneFocus::Navigator => Self::move_root_selection(state, -1),
+                PickerPaneFocus::Items => Self::move_item_selection(state, -1),
+                PickerPaneFocus::Detail => {}
+            },
+            PickerNavAction::MoveNext => match state.picker_focus {
+                PickerPaneFocus::Navigator => Self::move_root_selection(state, 1),
+                PickerPaneFocus::Items => Self::move_item_selection(state, 1),
+                PickerPaneFocus::Detail => {}
+            },
+            PickerNavAction::Open => match state.picker_focus {
+                PickerPaneFocus::Navigator => {
+                    Self::select_picker_root(state, state.picker_root);
+                    state.picker_focus = PickerPaneFocus::Items;
+                }
+                PickerPaneFocus::Items => {
+                    Self::select_picker_item(state, state.picker_item);
+                    state.picker_focus = PickerPaneFocus::Detail;
+                }
+                PickerPaneFocus::Detail => {}
+            },
+            PickerNavAction::Back => match state.picker_focus {
+                PickerPaneFocus::Navigator => {}
+                PickerPaneFocus::Items => state.picker_focus = PickerPaneFocus::Navigator,
+                PickerPaneFocus::Detail => state.picker_focus = PickerPaneFocus::Items,
+            },
+            PickerNavAction::FocusNext => {
+                state.picker_focus = PickerDialogShell::next_focus(state.picker_focus);
+            }
+            PickerNavAction::FocusPrev => {
+                state.picker_focus = PickerDialogShell::prev_focus(state.picker_focus);
+            }
+        }
+    }
+
+    fn sync_picker_from_navigation(state: &mut HelpState) {
+        match state.active_tab {
+            HelpTab::ToolQuickStart => {
+                state.picker_root = HelpPickerRoot::ToolQuickStart;
+                state.picker_item = HelpPickerItem::ToolQuickStartGuide;
+            }
+            HelpTab::DatabaseLearning => {
+                state.picker_root = HelpPickerRoot::DatabaseLearning;
+                state.picker_item = match state.learning_view {
+                    LearningView::Overview => HelpPickerItem::LearningOverview,
+                    LearningView::Roadmap => HelpPickerItem::LearningRoadmap,
+                    LearningView::TopicDetail => {
+                        HelpPickerItem::LearningTopic(state.learning_topic)
+                    }
+                };
+            }
+        }
+    }
+
+    fn select_picker_root(state: &mut HelpState, root: HelpPickerRoot) {
+        match root {
+            HelpPickerRoot::ToolQuickStart => {
+                Self::select_picker_item(state, HelpPickerItem::ToolQuickStartGuide);
+            }
+            HelpPickerRoot::DatabaseLearning => {
+                let item = match state.picker_item {
+                    HelpPickerItem::LearningOverview
+                    | HelpPickerItem::LearningRoadmap
+                    | HelpPickerItem::LearningTopic(_) => state.picker_item,
+                    HelpPickerItem::ToolQuickStartGuide => HelpPickerItem::LearningOverview,
+                };
+                Self::select_picker_item(state, item);
+            }
+        }
+    }
+
+    fn select_picker_item(state: &mut HelpState, item: HelpPickerItem) {
+        match item {
+            HelpPickerItem::ToolQuickStartGuide => {
+                state.active_tab = HelpTab::ToolQuickStart;
+                state.picker_root = HelpPickerRoot::ToolQuickStart;
+                state.picker_item = HelpPickerItem::ToolQuickStartGuide;
+            }
+            HelpPickerItem::LearningOverview => {
+                state.active_tab = HelpTab::DatabaseLearning;
+                state.learning_view = LearningView::Overview;
+                state.picker_root = HelpPickerRoot::DatabaseLearning;
+                state.picker_item = HelpPickerItem::LearningOverview;
+            }
+            HelpPickerItem::LearningRoadmap => {
+                state.active_tab = HelpTab::DatabaseLearning;
+                state.learning_view = LearningView::Roadmap;
+                state.picker_root = HelpPickerRoot::DatabaseLearning;
+                state.picker_item = HelpPickerItem::LearningRoadmap;
+            }
+            HelpPickerItem::LearningTopic(topic) => {
+                state.active_tab = HelpTab::DatabaseLearning;
+                state.learning_view = LearningView::TopicDetail;
+                state.learning_topic = topic;
+                state.picker_root = HelpPickerRoot::DatabaseLearning;
+                state.picker_item = HelpPickerItem::LearningTopic(topic);
+            }
+        }
+    }
+
+    fn move_root_selection(state: &mut HelpState, direction: isize) {
+        let roots = [
+            HelpPickerRoot::ToolQuickStart,
+            HelpPickerRoot::DatabaseLearning,
+        ];
+        let Some(current_index) = roots.iter().position(|root| *root == state.picker_root) else {
+            return;
+        };
+        let next_index = current_index as isize + direction;
+        if !(0..roots.len() as isize).contains(&next_index) {
+            return;
+        }
+
+        Self::select_picker_root(state, roots[next_index as usize]);
+    }
+
+    fn move_item_selection(state: &mut HelpState, direction: isize) {
+        let items = Self::picker_items(state.picker_root);
+        let Some(current_index) = items.iter().position(|item| *item == state.picker_item) else {
+            return;
+        };
+        let next_index = current_index as isize + direction;
+        if !(0..items.len() as isize).contains(&next_index) {
+            return;
+        }
+
+        Self::select_picker_item(state, items[next_index as usize]);
+    }
+
+    fn picker_items(root: HelpPickerRoot) -> Vec<HelpPickerItem> {
+        match root {
+            HelpPickerRoot::ToolQuickStart => vec![HelpPickerItem::ToolQuickStartGuide],
+            HelpPickerRoot::DatabaseLearning => {
+                let mut items = vec![
+                    HelpPickerItem::LearningOverview,
+                    HelpPickerItem::LearningRoadmap,
+                ];
+                for definition in TOPIC_DEFINITIONS {
+                    items.push(HelpPickerItem::LearningTopic(definition.topic));
+                }
+                items
+            }
+        }
+    }
+
+    fn picker_root_label(root: HelpPickerRoot) -> &'static str {
+        match root {
+            HelpPickerRoot::ToolQuickStart => "工具快速使用指南",
+            HelpPickerRoot::DatabaseLearning => "数据库相关知识点学习",
+        }
+    }
+
+    fn picker_root_meta(root: HelpPickerRoot) -> &'static str {
+        match root {
+            HelpPickerRoot::ToolQuickStart => "Gridix 工作流 / 焦点 / 常用动作",
+            HelpPickerRoot::DatabaseLearning => "总览 / 路线图 / 主题课程",
+        }
+    }
+
+    fn picker_item_label(item: HelpPickerItem) -> &'static str {
+        match item {
+            HelpPickerItem::ToolQuickStartGuide => "工具快速使用指南",
+            HelpPickerItem::LearningOverview => "学习总览",
+            HelpPickerItem::LearningRoadmap => "学习路线图",
+            HelpPickerItem::LearningTopic(topic) => Self::topic_definition(topic).short_title,
+        }
+    }
+
+    fn picker_item_detail(item: HelpPickerItem) -> &'static str {
+        match item {
+            HelpPickerItem::ToolQuickStartGuide => {
+                "面向已经理解数据库概念、只想快速上手 Gridix 的用户。"
+            }
+            HelpPickerItem::LearningOverview => "先理解学习主线，再决定从哪一课开始。",
+            HelpPickerItem::LearningRoadmap => "查看推荐依赖关系与完整知识地图。",
+            HelpPickerItem::LearningTopic(topic) => Self::topic_definition(topic).summary,
+        }
+    }
+
+    fn breadcrumb_segments(state: &HelpState) -> Vec<String> {
+        let mut segments = vec![
+            "帮助与学习".to_string(),
+            Self::picker_root_label(state.picker_root).to_string(),
+        ];
+        if state.picker_root == HelpPickerRoot::DatabaseLearning {
+            segments.push(Self::picker_item_label(state.picker_item).to_string());
+        }
+        segments
+    }
+
+    fn show_root_pane(
+        ui: &mut egui::Ui,
+        state: &HelpState,
+        pending_action: &mut Option<HelpPickerUiAction>,
+    ) {
+        PickerDialogShell::pane(
+            ui,
+            "导航",
+            "左列选择帮助主线；j/k 移动，l 或 Enter 打开。",
+            state.picker_focus == PickerPaneFocus::Navigator,
+            |ui| {
+                ScrollArea::vertical()
+                    .id_salt("help_picker_roots")
+                    .show(ui, |ui| {
+                        for root in [
+                            HelpPickerRoot::ToolQuickStart,
+                            HelpPickerRoot::DatabaseLearning,
+                        ] {
+                            if PickerDialogShell::entry(
+                                ui,
+                                format!("help_root::{root:?}"),
+                                state.picker_root == root,
+                                state.picker_root == root
+                                    && state.picker_focus == PickerPaneFocus::Navigator,
+                                Self::picker_root_label(root),
+                                Some(Self::picker_root_meta(root)),
+                                None,
+                            )
+                            .clicked()
+                            {
+                                *pending_action = Some(HelpPickerUiAction::OpenRoot(root));
+                            }
+                            ui.add_space(6.0);
+                        }
+                    });
+            },
+        );
+    }
+
+    fn show_item_pane(
+        ui: &mut egui::Ui,
+        state: &HelpState,
+        pending_action: &mut Option<HelpPickerUiAction>,
+    ) {
+        PickerDialogShell::pane(
+            ui,
+            "当前层级",
+            "中列浏览当前主线内容；j/k 移动，l 或 Enter 打开。",
+            state.picker_focus == PickerPaneFocus::Items,
+            |ui| {
+                ScrollArea::vertical()
+                    .id_salt("help_picker_items")
+                    .show(ui, |ui| match state.picker_root {
+                        HelpPickerRoot::ToolQuickStart => {
+                            let item = HelpPickerItem::ToolQuickStartGuide;
+                            if PickerDialogShell::entry(
+                                ui,
+                                "help_item::tool_quick_start",
+                                state.picker_item == item,
+                                state.picker_item == item
+                                    && state.picker_focus == PickerPaneFocus::Items,
+                                Self::picker_item_label(item),
+                                Some("焦点 / 工作流 / 表格 / SQL 编辑器"),
+                                Some(Self::picker_item_detail(item)),
+                            )
+                            .clicked()
+                            {
+                                *pending_action = Some(HelpPickerUiAction::OpenItem(item));
+                            }
+                        }
+                        HelpPickerRoot::DatabaseLearning => {
+                            PickerDialogShell::section_label(ui, "入口");
+                            for item in [
+                                HelpPickerItem::LearningOverview,
+                                HelpPickerItem::LearningRoadmap,
+                            ] {
+                                if PickerDialogShell::entry(
+                                    ui,
+                                    format!("help_item::{item:?}"),
+                                    state.picker_item == item,
+                                    state.picker_item == item
+                                        && state.picker_focus == PickerPaneFocus::Items,
+                                    Self::picker_item_label(item),
+                                    None,
+                                    Some(Self::picker_item_detail(item)),
+                                )
+                                .clicked()
+                                {
+                                    *pending_action = Some(HelpPickerUiAction::OpenItem(item));
+                                }
+                                ui.add_space(6.0);
+                            }
+
+                            PickerDialogShell::section_label(ui, "知识点");
+                            for definition in TOPIC_DEFINITIONS {
+                                let item = HelpPickerItem::LearningTopic(definition.topic);
+                                if PickerDialogShell::entry(
+                                    ui,
+                                    format!("help_item::topic::{:?}", definition.topic),
+                                    state.picker_item == item,
+                                    state.picker_item == item
+                                        && state.picker_focus == PickerPaneFocus::Items,
+                                    definition.short_title,
+                                    Some(definition.dependency_text),
+                                    Some(definition.summary),
+                                )
+                                .clicked()
+                                {
+                                    *pending_action = Some(HelpPickerUiAction::OpenItem(item));
+                                }
+                                ui.add_space(6.0);
+                            }
+                        }
+                    });
+            },
+        );
+    }
+
+    fn show_detail_pane(
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        state: &HelpState,
+        context: &HelpContext,
+        pending_ui_action: &mut Option<HelpUiAction>,
+    ) {
+        PickerDialogShell::pane(
+            ui,
+            Self::picker_item_label(state.picker_item),
+            "右列显示正文；h 返回上一列，滚轮或 Ctrl+d / Ctrl+u 继续浏览。",
+            state.picker_focus == PickerPaneFocus::Detail,
+            |ui| {
+                ScrollArea::vertical()
+                    .id_salt("help_picker_detail")
+                    .auto_shrink([true, false])
+                    .show(ui, |ui| {
+                        if state.picker_focus == PickerPaneFocus::Detail {
+                            let total_delta = Self::consume_scroll_delta(ctx);
+                            if total_delta != 0.0 {
+                                ui.scroll_with_delta(Vec2::new(0.0, -total_delta));
+                            }
+                        }
+
+                        ui.add_space(6.0);
+                        match state.picker_item {
+                            HelpPickerItem::ToolQuickStartGuide => {
+                                Self::show_tool_guide(ui, &context.keybindings);
+                            }
+                            HelpPickerItem::LearningOverview
+                            | HelpPickerItem::LearningRoadmap
+                            | HelpPickerItem::LearningTopic(_) => {
+                                Self::show_learning_guide(ui, state, context, pending_ui_action);
+                            }
+                        }
+                        ui.add_space(20.0);
+                    });
+            },
+        );
+    }
+
+    fn accent_color(ui: &egui::Ui) -> Color32 {
+        theme_accent(ui.visuals())
+    }
+
+    fn body_text_color(ui: &egui::Ui) -> Color32 {
+        ui.visuals().text_color()
+    }
+
+    fn muted_text_color(ui: &egui::Ui) -> Color32 {
+        theme_muted_text(ui.visuals())
+    }
+
+    fn key_text_color(ui: &egui::Ui) -> Color32 {
+        theme_warn(ui.visuals())
     }
 
     fn hint(ui: &mut egui::Ui, key: &str, desc: &str) {
@@ -238,8 +692,120 @@ impl HelpDialog {
             RichText::new(key)
                 .monospace()
                 .small()
-                .color(Color32::from_rgb(255, 200, 100)),
+                .color(Self::key_text_color(ui)),
         );
-        ui.label(RichText::new(desc).small().color(Color32::GRAY));
+        ui.label(
+            RichText::new(desc)
+                .small()
+                .color(Self::muted_text_color(ui)),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        HelpDialog, HelpNavigationAction, HelpPickerItem, HelpPickerRoot, HelpState, HelpTab,
+        HelpUiAction, LearningTopic, LearningView,
+    };
+    use crate::ui::dialogs::HelpAction;
+    use crate::ui::dialogs::picker_shell::{PickerNavAction, PickerPaneFocus};
+
+    #[test]
+    fn navigation_action_sets_learning_view() {
+        let mut state = HelpState::default();
+        HelpDialog::apply_navigation_action(
+            &mut state,
+            HelpNavigationAction::SetLearningView(LearningView::Roadmap),
+        );
+
+        assert_eq!(state.learning_view, LearningView::Roadmap);
+        assert_eq!(state.picker_root, HelpPickerRoot::DatabaseLearning);
+        assert_eq!(state.picker_item, HelpPickerItem::LearningRoadmap);
+    }
+
+    #[test]
+    fn navigation_action_select_topic_enters_learning_detail() {
+        let mut state = HelpState {
+            active_tab: HelpTab::ToolQuickStart,
+            ..Default::default()
+        };
+
+        HelpDialog::apply_navigation_action(
+            &mut state,
+            HelpNavigationAction::SelectTopic(LearningTopic::Join),
+        );
+
+        assert_eq!(state.active_tab, HelpTab::DatabaseLearning);
+        assert_eq!(state.learning_view, LearningView::TopicDetail);
+        assert_eq!(state.learning_topic, LearningTopic::Join);
+        assert_eq!(state.picker_root, HelpPickerRoot::DatabaseLearning);
+        assert_eq!(
+            state.picker_item,
+            HelpPickerItem::LearningTopic(LearningTopic::Join)
+        );
+    }
+
+    #[test]
+    fn ui_action_dispatch_returns_business_action_without_mutating_state() {
+        let mut state = HelpState::default();
+
+        let action = HelpDialog::apply_ui_action(
+            &mut state,
+            HelpUiAction::Dispatch(HelpAction::EnsureLearningSample { reset: true }),
+        );
+
+        assert!(matches!(
+            action,
+            Some(HelpAction::EnsureLearningSample { reset: true })
+        ));
+        assert_eq!(state.active_tab, HelpTab::ToolQuickStart);
+        assert_eq!(state.learning_view, LearningView::Overview);
+    }
+
+    #[test]
+    fn ui_action_navigate_and_dispatch_updates_state_and_returns_action() {
+        let mut state = HelpState::default();
+
+        let action = HelpDialog::apply_ui_action(
+            &mut state,
+            HelpUiAction::NavigateAndDispatch {
+                navigation: HelpNavigationAction::SelectTopic(LearningTopic::Foundations),
+                action: HelpAction::EnsureLearningSample { reset: false },
+            },
+        );
+
+        assert!(matches!(
+            action,
+            Some(HelpAction::EnsureLearningSample { reset: false })
+        ));
+        assert_eq!(state.active_tab, HelpTab::DatabaseLearning);
+        assert_eq!(state.learning_view, LearningView::TopicDetail);
+        assert_eq!(state.learning_topic, LearningTopic::Foundations);
+        assert_eq!(
+            state.picker_item,
+            HelpPickerItem::LearningTopic(LearningTopic::Foundations)
+        );
+    }
+
+    #[test]
+    fn picker_nav_moves_between_root_item_and_detail_focus() {
+        let mut state = HelpState::default();
+
+        HelpDialog::apply_picker_nav_action(&mut state, PickerNavAction::MoveNext);
+        assert_eq!(state.picker_root, HelpPickerRoot::DatabaseLearning);
+        assert_eq!(state.picker_item, HelpPickerItem::LearningOverview);
+
+        HelpDialog::apply_picker_nav_action(&mut state, PickerNavAction::Open);
+        assert_eq!(state.picker_focus, PickerPaneFocus::Items);
+
+        HelpDialog::apply_picker_nav_action(&mut state, PickerNavAction::MoveNext);
+        assert_eq!(state.picker_item, HelpPickerItem::LearningRoadmap);
+
+        HelpDialog::apply_picker_nav_action(&mut state, PickerNavAction::Open);
+        assert_eq!(state.picker_focus, PickerPaneFocus::Detail);
+
+        HelpDialog::apply_picker_nav_action(&mut state, PickerNavAction::Back);
+        assert_eq!(state.picker_focus, PickerPaneFocus::Items);
     }
 }

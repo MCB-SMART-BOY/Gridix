@@ -35,7 +35,7 @@ pub use state::DataGridState;
 
 use crate::core::{Action, KeyBindings, constants};
 use crate::database::QueryResult;
-use crate::ui::styles::GRAY;
+use crate::ui::styles::{GRAY, theme_disabled_text, theme_text};
 use crate::ui::{
     LocalShortcut, action_tooltip_with_extras, local_shortcut_pressed, local_shortcut_tooltip,
     shortcut_tooltip,
@@ -266,6 +266,7 @@ impl DataGrid {
                                                 render::render_editable_cell(
                                                     ui,
                                                     cell,
+                                                    result.is_null(*original_idx, col_idx),
                                                     *original_idx,
                                                     col_idx,
                                                     is_cursor_row,
@@ -423,9 +424,7 @@ impl DataGrid {
                     )
                     .sense(egui::Sense::click()),
                 )
-                .on_hover_text(action_tooltip_with_extras(
-                    keybindings,
-                    Action::AddFilter,
+                .on_hover_text(shortcut_tooltip(
                     "打开筛选面板",
                     &shortcut_refs(&keyboard::grid_command_shortcuts(
                         keybindings,
@@ -486,9 +485,9 @@ impl DataGrid {
 
                 let has_changes = state.has_changes();
                 let save_color = if has_changes {
-                    Color32::LIGHT_GRAY
+                    theme_text(ui.visuals())
                 } else {
-                    Color32::from_gray(60)
+                    theme_disabled_text(ui.visuals())
                 };
                 if ui
                     .add_enabled(
@@ -513,9 +512,9 @@ impl DataGrid {
                 }
 
                 let discard_color = if has_changes {
-                    Color32::LIGHT_GRAY
+                    theme_text(ui.visuals())
                 } else {
-                    Color32::from_gray(60)
+                    theme_disabled_text(ui.visuals())
                 };
                 if ui
                     .add_enabled(
@@ -706,7 +705,7 @@ impl DataGrid {
                             egui::Button::new(
                                 RichText::new("↵ 跳转")
                                     .size(13.0)
-                                    .color(Color32::LIGHT_GRAY),
+                                    .color(theme_text(ui.visuals())),
                             )
                             .frame(false)
                             .min_size(Vec2::new(0.0, 24.0)),
@@ -726,7 +725,7 @@ impl DataGrid {
                             egui::Button::new(
                                 RichText::new("✕ 取消")
                                     .size(13.0)
-                                    .color(Color32::LIGHT_GRAY),
+                                    .color(theme_text(ui.visuals())),
                             )
                             .frame(false)
                             .min_size(Vec2::new(0.0, 24.0)),
@@ -828,7 +827,7 @@ impl DataGrid {
                                 egui::Button::new(
                                     RichText::new("✕ 取消")
                                         .size(13.0)
-                                        .color(Color32::LIGHT_GRAY),
+                                        .color(theme_text(ui.visuals())),
                                 )
                                 .frame(false)
                                 .min_size(Vec2::new(0.0, 24.0)),

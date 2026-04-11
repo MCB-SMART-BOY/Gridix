@@ -810,13 +810,17 @@ mod tests {
 /// 构建查询成功的结果
 #[inline]
 pub(crate) fn query_result(columns: Vec<String>, rows: Vec<Vec<String>>) -> QueryResult {
-    QueryResult {
-        columns,
-        rows,
-        affected_rows: 0,
-        truncated: false,
-        original_row_count: None,
-    }
+    QueryResult::with_rows(columns, rows)
+}
+
+/// 构建带空值标记的查询结果
+#[inline]
+pub(crate) fn query_result_with_null_flags(
+    columns: Vec<String>,
+    rows: Vec<Vec<String>>,
+    null_flags: Vec<Vec<bool>>,
+) -> QueryResult {
+    QueryResult::with_rows_and_null_flags(columns, rows, null_flags)
 }
 
 /// 构建执行成功的结果
@@ -825,6 +829,7 @@ pub(crate) fn exec_result(affected: u64) -> QueryResult {
     QueryResult {
         columns: vec![],
         rows: vec![],
+        null_flags: vec![],
         affected_rows: affected,
         truncated: false,
         original_row_count: None,
@@ -837,6 +842,7 @@ pub(crate) fn empty_result() -> QueryResult {
     QueryResult {
         columns: vec![],
         rows: vec![],
+        null_flags: vec![],
         affected_rows: 0,
         truncated: false,
         original_row_count: None,

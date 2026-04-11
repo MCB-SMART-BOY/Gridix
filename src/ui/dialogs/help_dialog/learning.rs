@@ -8,28 +8,30 @@ use egui::Stroke;
 impl HelpDialog {
     pub(super) fn show_learning_guide(
         ui: &mut egui::Ui,
-        state: &mut HelpState,
+        state: &HelpState,
         context: &HelpContext,
-        action: &mut Option<HelpAction>,
+        pending_ui_action: &mut Option<HelpUiAction>,
     ) {
         match state.learning_view {
-            LearningView::Overview => Self::show_learning_overview(ui, state, context, action),
-            LearningView::Roadmap => Self::show_learning_roadmap(ui, state),
+            LearningView::Overview => {
+                Self::show_learning_overview(ui, state, context, pending_ui_action)
+            }
+            LearningView::Roadmap => Self::show_learning_roadmap(ui, state, pending_ui_action),
             LearningView::TopicDetail => {
-                Self::show_learning_topic_detail(ui, state, context, action)
+                Self::show_learning_topic_detail(ui, state, context, pending_ui_action)
             }
         }
     }
 
     fn show_learning_overview(
         ui: &mut egui::Ui,
-        state: &mut HelpState,
+        _state: &HelpState,
         context: &HelpContext,
-        action: &mut Option<HelpAction>,
+        pending_ui_action: &mut Option<HelpUiAction>,
     ) {
-        let accent = Color32::from_rgb(130, 180, 255);
-        let text = Color32::from_rgb(220, 220, 220);
-        let muted = Color32::from_rgb(145, 145, 155);
+        let accent = Self::accent_color(ui);
+        let text = Self::body_text_color(ui);
+        let muted = Self::muted_text_color(ui);
 
         ui.label(
             RichText::new("数据库相关知识点学习指南")
@@ -46,7 +48,7 @@ impl HelpDialog {
         );
         ui.add_space(16.0);
 
-        Self::show_onboarding_flow_card(ui, context, action);
+        Self::show_onboarding_flow_card(ui, context, pending_ui_action);
         ui.add_space(14.0);
 
         Self::learning_status_card(ui, context);
@@ -84,7 +86,9 @@ impl HelpDialog {
             &["核心依赖图", "完整知识地图", "可学习 / 规划中 / 进阶主题"],
             "进入路线图",
         ) {
-            state.learning_view = LearningView::Roadmap;
+            *pending_ui_action = Some(HelpUiAction::Navigate(
+                HelpNavigationAction::SetLearningView(LearningView::Roadmap),
+            ));
         }
 
         ui.add_space(12.0);
@@ -101,9 +105,10 @@ impl HelpDialog {
             ],
             "打开示例并开始第一课",
         ) {
-            state.learning_topic = LearningTopic::Foundations;
-            state.learning_view = LearningView::TopicDetail;
-            *action = Some(HelpAction::EnsureLearningSample { reset: false });
+            *pending_ui_action = Some(HelpUiAction::NavigateAndDispatch {
+                navigation: HelpNavigationAction::SelectTopic(LearningTopic::Foundations),
+                action: HelpAction::EnsureLearningSample { reset: false },
+            });
         }
 
         ui.add_space(10.0);
@@ -116,15 +121,18 @@ impl HelpDialog {
         );
     }
 
-    fn show_learning_roadmap(ui: &mut egui::Ui, state: &mut HelpState) {
-        let muted = Color32::from_rgb(145, 145, 155);
+    fn show_learning_roadmap(
+        ui: &mut egui::Ui,
+        state: &HelpState,
+        pending_ui_action: &mut Option<HelpUiAction>,
+    ) {
+        let muted = Self::muted_text_color(ui);
 
-        Self::learning_nav(ui, state, "数据库知识点路线图");
+        Self::learning_nav(ui, state, "数据库知识点路线图", pending_ui_action);
         ui.add_space(12.0);
 
         ui.label(
-            RichText::new("先看核心依赖图，再看完整知识地图。")
-                .color(Color32::from_rgb(220, 220, 220)),
+            RichText::new("先看核心依赖图，再看完整知识地图。").color(Self::body_text_color(ui)),
         );
         ui.add_space(6.0);
         ui.label(
@@ -138,16 +146,17 @@ impl HelpDialog {
         ui.add_space(12.0);
         Self::roadmap_summary_strip(ui);
         ui.add_space(12.0);
-        if let Some(topic) = Self::core_roadmap_graph(ui, &mut state.learning_topic) {
-            state.learning_topic = topic;
-            state.learning_view = LearningView::TopicDetail;
+        if let Some(topic) = Self::core_roadmap_graph(ui, state.learning_topic) {
+            *pending_ui_action = Some(HelpUiAction::Navigate(HelpNavigationAction::SelectTopic(
+                topic,
+            )));
         }
         ui.add_space(18.0);
 
         ui.label(
             RichText::new("完整知识地图")
                 .strong()
-                .color(Color32::from_rgb(220, 225, 235)),
+                .color(Self::body_text_color(ui)),
         );
         ui.add_space(6.0);
         ui.label(
@@ -160,9 +169,10 @@ impl HelpDialog {
         ui.add_space(12.0);
 
         for stage in Self::ROADMAP_STAGES {
-            if let Some(topic) = Self::roadmap_stage_card(ui, stage, &mut state.learning_topic) {
-                state.learning_topic = topic;
-                state.learning_view = LearningView::TopicDetail;
+            if let Some(topic) = Self::roadmap_stage_card(ui, stage, state.learning_topic) {
+                *pending_ui_action = Some(HelpUiAction::Navigate(
+                    HelpNavigationAction::SelectTopic(topic),
+                ));
             }
             ui.add_space(12.0);
         }
@@ -171,19 +181,24 @@ impl HelpDialog {
         ui.label(
             RichText::new("连线代表推荐依赖关系；上面的主干图讲“先学什么”，下面的完整地图讲“后面还能学什么”。")
                 .small()
-                .color(Color32::from_rgb(130, 180, 255)),
+                .color(Self::accent_color(ui)),
         );
     }
 
     fn show_learning_topic_detail(
         ui: &mut egui::Ui,
-        state: &mut HelpState,
+        state: &HelpState,
         context: &HelpContext,
-        action: &mut Option<HelpAction>,
+        pending_ui_action: &mut Option<HelpUiAction>,
     ) {
-        let muted = Color32::from_rgb(145, 145, 155);
+        let muted = Self::muted_text_color(ui);
 
-        Self::learning_nav(ui, state, Self::topic_title(state.learning_topic));
+        Self::learning_nav(
+            ui,
+            state,
+            Self::topic_title(state.learning_topic),
+            pending_ui_action,
+        );
         ui.add_space(12.0);
         Self::learning_status_card(ui, context);
         ui.add_space(16.0);
@@ -191,19 +206,21 @@ impl HelpDialog {
         ui.add_space(16.0);
 
         match state.learning_topic {
-            LearningTopic::Foundations => Self::show_foundations_topic(ui, action),
-            LearningTopic::DataTypes => Self::show_data_types_topic(ui, action),
-            LearningTopic::NullHandling => Self::show_null_handling_topic(ui, action),
-            LearningTopic::SelectBasics => Self::show_select_topic(ui, context, action),
-            LearningTopic::FilterAndSort => Self::show_filter_sort_topic(ui, action),
-            LearningTopic::LikePattern => Self::show_like_topic(ui, action),
-            LearningTopic::Aggregate => Self::show_aggregate_topic(ui, action),
-            LearningTopic::Relationships => Self::show_relationships_topic(ui, context, action),
-            LearningTopic::Join => Self::show_join_topic(ui, action),
-            LearningTopic::InsertData => Self::show_insert_topic(ui, action),
-            LearningTopic::Constraints => Self::show_constraints_topic(ui, action),
-            LearningTopic::UpdateDelete => Self::show_update_delete_topic(ui, action),
-            LearningTopic::Transactions => Self::show_transactions_topic(ui, action),
+            LearningTopic::Foundations => Self::show_foundations_topic(ui, pending_ui_action),
+            LearningTopic::DataTypes => Self::show_data_types_topic(ui, pending_ui_action),
+            LearningTopic::NullHandling => Self::show_null_handling_topic(ui, pending_ui_action),
+            LearningTopic::SelectBasics => Self::show_select_topic(ui, context, pending_ui_action),
+            LearningTopic::FilterAndSort => Self::show_filter_sort_topic(ui, pending_ui_action),
+            LearningTopic::LikePattern => Self::show_like_topic(ui, pending_ui_action),
+            LearningTopic::Aggregate => Self::show_aggregate_topic(ui, pending_ui_action),
+            LearningTopic::Relationships => {
+                Self::show_relationships_topic(ui, context, pending_ui_action)
+            }
+            LearningTopic::Join => Self::show_join_topic(ui, pending_ui_action),
+            LearningTopic::InsertData => Self::show_insert_topic(ui, pending_ui_action),
+            LearningTopic::Constraints => Self::show_constraints_topic(ui, pending_ui_action),
+            LearningTopic::UpdateDelete => Self::show_update_delete_topic(ui, pending_ui_action),
+            LearningTopic::Transactions => Self::show_transactions_topic(ui, pending_ui_action),
             LearningTopic::SchemaDesign
             | LearningTopic::Views
             | LearningTopic::Indexes
@@ -217,7 +234,7 @@ impl HelpDialog {
         }
 
         ui.add_space(16.0);
-        Self::topic_navigation_row(ui, state);
+        Self::topic_navigation_row(ui, state, pending_ui_action);
         ui.add_space(12.0);
 
         match Self::topic_definition(state.learning_topic).status {
@@ -238,17 +255,26 @@ impl HelpDialog {
         }
     }
 
-    fn learning_nav(ui: &mut egui::Ui, state: &mut HelpState, title: &str) {
+    fn learning_nav(
+        ui: &mut egui::Ui,
+        _state: &HelpState,
+        title: &str,
+        pending_ui_action: &mut Option<HelpUiAction>,
+    ) {
         let accent = Color32::from_rgb(130, 180, 255);
 
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = Vec2::new(10.0, 8.0);
 
             if Self::nav_button(ui, "返回总览") {
-                state.learning_view = LearningView::Overview;
+                *pending_ui_action = Some(HelpUiAction::Navigate(
+                    HelpNavigationAction::SetLearningView(LearningView::Overview),
+                ));
             }
             if Self::nav_button(ui, "查看学习路线图") {
-                state.learning_view = LearningView::Roadmap;
+                *pending_ui_action = Some(HelpUiAction::Navigate(
+                    HelpNavigationAction::SetLearningView(LearningView::Roadmap),
+                ));
             }
 
             ui.label(RichText::new(">").color(Color32::GRAY));
@@ -292,13 +318,13 @@ impl HelpDialog {
                 ui.label(
                     RichText::new("路线图总览")
                         .strong()
-                        .color(Color32::from_rgb(220, 225, 235)),
+                        .color(Self::body_text_color(ui)),
                 );
                 ui.add_space(6.0);
                 ui.label(
                     RichText::new("先看主干，再决定是否延伸到设计、性能和系统主题。")
                         .small()
-                        .color(Color32::from_rgb(182, 186, 194)),
+                        .color(Self::muted_text_color(ui)),
                 );
                 ui.add_space(10.0);
                 ui.horizontal_wrapped(|ui| {
@@ -312,10 +338,7 @@ impl HelpDialog {
             });
     }
 
-    fn core_roadmap_graph(
-        ui: &mut egui::Ui,
-        selected: &mut LearningTopic,
-    ) -> Option<LearningTopic> {
+    fn core_roadmap_graph(ui: &mut egui::Ui, selected: LearningTopic) -> Option<LearningTopic> {
         let desired_size = Vec2::new(ui.available_width().min(760.0), 500.0);
         let mut clicked_topic = None;
 
@@ -331,7 +354,7 @@ impl HelpDialog {
                 ui.label(
                     RichText::new("核心依赖路线图")
                         .strong()
-                        .color(Color32::from_rgb(220, 225, 235)),
+                        .color(Self::body_text_color(ui)),
                 );
                 ui.add_space(6.0);
                 ui.label(
@@ -339,7 +362,7 @@ impl HelpDialog {
                         "这张图只画当前主干课，目的是先把数据库入门最关键的一条路径看清楚。",
                     )
                     .small()
-                    .color(Color32::from_rgb(180, 184, 194)),
+                    .color(Self::muted_text_color(ui)),
                 );
                 ui.add_space(14.0);
 
@@ -417,7 +440,7 @@ impl HelpDialog {
                             _ => "",
                         },
                         egui::FontId::proportional(12.0),
-                        Color32::from_rgb(186, 190, 198),
+                        Self::muted_text_color(ui),
                     );
 
                     nodes.extend(Self::roadmap_lane_nodes(lane_rect, topics));
@@ -468,7 +491,7 @@ impl HelpDialog {
 
                 for (topic, node_rect) in nodes {
                     let definition = Self::topic_definition(topic);
-                    let is_selected = *selected == topic;
+                    let is_selected = selected == topic;
                     let (fill, stroke) =
                         Self::topic_fill_and_stroke(definition.status, is_selected);
 
@@ -477,7 +500,7 @@ impl HelpDialog {
                         egui::Button::new(
                             RichText::new(definition.short_title)
                                 .strong()
-                                .color(Color32::from_rgb(235, 238, 245)),
+                                .color(Self::body_text_color(ui)),
                         )
                         .fill(fill)
                         .stroke(Stroke::new(1.0, stroke))
@@ -486,7 +509,6 @@ impl HelpDialog {
                     let response = Self::topic_hover_preview(response, topic);
 
                     if response.clicked() {
-                        *selected = topic;
                         clicked_topic = Some(topic);
                     }
                 }
@@ -533,7 +555,7 @@ impl HelpDialog {
     fn roadmap_stage_card(
         ui: &mut egui::Ui,
         stage: LearningStage,
-        selected: &mut LearningTopic,
+        selected: LearningTopic,
     ) -> Option<LearningTopic> {
         let mut clicked_topic = None;
         let (fill, stroke, accent) = Self::stage_palette(stage);
@@ -558,19 +580,16 @@ impl HelpDialog {
                 ui.label(
                     RichText::new(Self::stage_summary(stage))
                         .small()
-                        .color(Color32::from_rgb(180, 184, 194)),
+                        .color(Self::muted_text_color(ui)),
                 );
                 ui.add_space(12.0);
 
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(10.0, 10.0);
                     for definition in TOPIC_DEFINITIONS.iter().filter(|item| item.stage == stage) {
-                        if let Some(topic) = Self::roadmap_topic_button(
-                            ui,
-                            definition,
-                            *selected == definition.topic,
-                        ) {
-                            *selected = topic;
+                        if let Some(topic) =
+                            Self::roadmap_topic_button(ui, definition, selected == definition.topic)
+                        {
                             clicked_topic = Some(topic);
                         }
                     }
@@ -594,7 +613,7 @@ impl HelpDialog {
             egui::Button::new(
                 RichText::new(definition.short_title)
                     .strong()
-                    .color(Color32::from_rgb(235, 238, 245)),
+                    .color(Self::body_text_color(ui)),
             )
             .fill(fill)
             .stroke(Stroke::new(1.0, stroke))
@@ -629,7 +648,7 @@ impl HelpDialog {
                         ui.label(
                             RichText::new(definition.title)
                                 .strong()
-                                .color(Color32::from_rgb(228, 232, 240)),
+                                .color(Self::body_text_color(ui)),
                         );
                         Self::status_chip(ui, definition.status);
                         Self::stage_chip(ui, definition.stage);
@@ -638,19 +657,17 @@ impl HelpDialog {
                     ui.label(
                         RichText::new(Self::topic_stage_label(topic))
                             .small()
-                            .color(Color32::from_rgb(186, 190, 198)),
+                            .color(Self::muted_text_color(ui)),
                     );
                     ui.add_space(8.0);
                     ui.label(RichText::new("摘要").small().strong().color(accent));
-                    ui.label(
-                        RichText::new(definition.summary).color(Color32::from_rgb(210, 214, 222)),
-                    );
+                    ui.label(RichText::new(definition.summary).color(Self::muted_text_color(ui)));
                     ui.add_space(8.0);
                     ui.label(RichText::new("依赖").small().strong().color(accent));
                     ui.label(
                         RichText::new(definition.dependency_text)
                             .small()
-                            .color(Color32::from_rgb(186, 190, 198)),
+                            .color(Self::muted_text_color(ui)),
                     );
                     ui.add_space(8.0);
                     Self::topic_relation_chip_row(ui, "前置", Self::topic_prerequisites(topic));
@@ -660,7 +677,7 @@ impl HelpDialog {
                     ui.label(
                         RichText::new(definition.follow_up_text)
                             .small()
-                            .color(Color32::from_rgb(186, 190, 198)),
+                            .color(Self::muted_text_color(ui)),
                     );
                     ui.add_space(8.0);
                     ui.label(RichText::new("点击直接进入").small().strong().color(accent));
@@ -762,7 +779,7 @@ impl HelpDialog {
                 RichText::new(label)
                     .small()
                     .strong()
-                    .color(Color32::from_rgb(235, 238, 245)),
+                    .color(Self::body_text_color(ui)),
             )
             .fill(Color32::from_rgba_unmultiplied(120, 120, 130, 24))
             .corner_radius(egui::CornerRadius::same(8)),
@@ -792,22 +809,20 @@ impl HelpDialog {
                 ui.add_space(8.0);
                 ui.label(
                     RichText::new(Self::topic_status_label(topic))
-                        .color(Color32::from_rgb(205, 208, 216)),
+                        .color(Self::muted_text_color(ui)),
                 );
                 ui.add_space(4.0);
                 ui.label(
-                    RichText::new(Self::topic_stage_label(topic))
-                        .color(Color32::from_rgb(205, 208, 216)),
+                    RichText::new(Self::topic_stage_label(topic)).color(Self::muted_text_color(ui)),
                 );
                 ui.add_space(4.0);
                 ui.label(
                     RichText::new(format!("学习目标：{}", definition.summary))
-                        .color(Color32::from_rgb(205, 208, 216)),
+                        .color(Self::muted_text_color(ui)),
                 );
                 ui.add_space(4.0);
                 ui.label(
-                    RichText::new(definition.dependency_text)
-                        .color(Color32::from_rgb(205, 208, 216)),
+                    RichText::new(definition.dependency_text).color(Self::muted_text_color(ui)),
                 );
                 ui.add_space(8.0);
                 Self::topic_relation_chip_row(ui, "前置知识", Self::topic_prerequisites(topic));
@@ -815,31 +830,40 @@ impl HelpDialog {
                 Self::topic_relation_chip_row(ui, "后续延伸", Self::topic_next_topics(topic));
                 ui.add_space(8.0);
                 ui.label(
-                    RichText::new(definition.follow_up_text)
-                        .color(Color32::from_rgb(205, 208, 216)),
+                    RichText::new(definition.follow_up_text).color(Self::muted_text_color(ui)),
                 );
             });
     }
 
-    fn topic_navigation_row(ui: &mut egui::Ui, state: &mut HelpState) {
+    fn topic_navigation_row(
+        ui: &mut egui::Ui,
+        state: &HelpState,
+        pending_ui_action: &mut Option<HelpUiAction>,
+    ) {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = Vec2::new(10.0, 10.0);
 
             if let Some(previous) = Self::topic_previous(state.learning_topic) {
                 let label = format!("上一课：{}", Self::topic_short_title(previous));
                 if Self::action_button(ui, &label, false) {
-                    state.learning_topic = previous;
+                    *pending_ui_action = Some(HelpUiAction::Navigate(
+                        HelpNavigationAction::SelectTopic(previous),
+                    ));
                 }
             }
 
             if Self::action_button(ui, "返回路线图", false) {
-                state.learning_view = LearningView::Roadmap;
+                *pending_ui_action = Some(HelpUiAction::Navigate(
+                    HelpNavigationAction::SetLearningView(LearningView::Roadmap),
+                ));
             }
 
             if let Some(next) = Self::topic_next(state.learning_topic) {
                 let label = format!("下一课：{}", Self::topic_short_title(next));
                 if Self::action_button(ui, &label, true) {
-                    state.learning_topic = next;
+                    *pending_ui_action = Some(HelpUiAction::Navigate(
+                        HelpNavigationAction::SelectTopic(next),
+                    ));
                 }
             }
         });
@@ -868,14 +892,13 @@ impl HelpDialog {
                 ui.label(
                     RichText::new(title)
                         .strong()
-                        .color(Color32::from_rgb(220, 225, 235)),
+                        .color(Self::body_text_color(ui)),
                 );
                 ui.add_space(8.0);
 
                 for item in items {
                     ui.label(
-                        RichText::new(format!("• {}", item))
-                            .color(Color32::from_rgb(205, 208, 216)),
+                        RichText::new(format!("• {}", item)).color(Self::muted_text_color(ui)),
                     );
                     ui.add_space(4.0);
                 }
@@ -904,7 +927,7 @@ impl HelpDialog {
                 ui.label(
                     RichText::new("推荐学习流程")
                         .strong()
-                        .color(Color32::from_rgb(220, 225, 235)),
+                        .color(Self::body_text_color(ui)),
                 );
                 ui.add_space(8.0);
 
@@ -924,7 +947,7 @@ impl HelpDialog {
     fn show_onboarding_flow_card(
         ui: &mut egui::Ui,
         context: &HelpContext,
-        action: &mut Option<HelpAction>,
+        pending_ui_action: &mut Option<HelpUiAction>,
     ) {
         let width = ui.available_width();
         let mut steps = vec![
@@ -982,18 +1005,18 @@ impl HelpDialog {
                     RichText::new("新手上手闭环流程")
                         .size(17.0)
                         .strong()
-                        .color(Color32::from_rgb(220, 225, 235)),
+                        .color(Self::body_text_color(ui)),
                 );
                 ui.add_space(6.0);
                 ui.label(
                     RichText::new("这一段原先在欢迎页。为了避免欢迎页拥挤，已迁到学习指南总览。")
-                        .color(Color32::from_rgb(205, 208, 216)),
+                        .color(Self::muted_text_color(ui)),
                 );
                 ui.add_space(8.0);
                 ui.label(
                     RichText::new(format!("已完成 {}/{} 步", completed, total))
                         .small()
-                        .color(Color32::from_rgb(145, 145, 155)),
+                        .color(Self::muted_text_color(ui)),
                 );
                 ui.add_space(6.0);
 
@@ -1019,7 +1042,8 @@ impl HelpDialog {
                 if let Some(step) = next_step {
                     ui.add_space(12.0);
                     if Self::action_button(ui, Self::onboarding_action_label(step), true) {
-                        *action = Some(HelpAction::ContinueOnboarding(step));
+                        *pending_ui_action =
+                            Some(HelpUiAction::Dispatch(HelpAction::ContinueOnboarding(step)));
                     }
                 } else {
                     ui.add_space(8.0);
@@ -1069,10 +1093,10 @@ impl HelpDialog {
                     RichText::new(title)
                         .size(17.0)
                         .strong()
-                        .color(Color32::from_rgb(220, 225, 235)),
+                        .color(Self::body_text_color(ui)),
                 );
                 ui.add_space(6.0);
-                ui.label(RichText::new(summary).color(Color32::from_rgb(205, 208, 216)));
+                ui.label(RichText::new(summary).color(Self::muted_text_color(ui)));
                 ui.add_space(10.0);
 
                 ui.horizontal_wrapped(|ui| {
@@ -1105,7 +1129,7 @@ impl HelpDialog {
                     RichText::new(label)
                         .small()
                         .strong()
-                        .color(Color32::from_rgb(216, 220, 230)),
+                        .color(Self::body_text_color(ui)),
                 );
             });
     }
@@ -1321,7 +1345,7 @@ impl HelpDialog {
                 RichText::new(label)
                     .small()
                     .strong()
-                    .color(Color32::from_rgb(200, 204, 214)),
+                    .color(Self::muted_text_color(ui)),
             );
 
             if topics.is_empty() {

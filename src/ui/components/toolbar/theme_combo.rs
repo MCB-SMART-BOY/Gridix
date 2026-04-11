@@ -1,6 +1,6 @@
 use crate::core::ThemePreset;
 use crate::ui::shortcut_tooltip;
-use crate::ui::styles::MUTED;
+use crate::ui::styles::{MUTED, theme_text};
 use egui::{Color32, CornerRadius, Id, Key, RichText, Vec2};
 
 use super::actions::ThemeComboState;
@@ -69,7 +69,7 @@ pub fn helix_theme_combo_simple(
             egui::Button::new(
                 RichText::new(display_text)
                     .size(13.0)
-                    .color(Color32::LIGHT_GRAY),
+                    .color(theme_text(ui.visuals())),
             )
             .frame(false)
             .min_size(Vec2::new(0.0, 24.0)),

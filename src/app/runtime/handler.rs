@@ -29,6 +29,20 @@ fn is_cancelled_query_error(err: &str) -> bool {
         || lower.contains("query execution was interrupted")
 }
 
+fn clamp_grid_cursor_for_result(
+    cursor: (usize, usize),
+    result: &crate::database::QueryResult,
+) -> (usize, usize) {
+    if result.rows.is_empty() || result.columns.is_empty() {
+        return (0, 0);
+    }
+
+    (
+        cursor.0.min(result.rows.len().saturating_sub(1)),
+        cursor.1.min(result.columns.len().saturating_sub(1)),
+    )
+}
+
 impl DbManagerApp {
     /// 处理异步消息
     ///
@@ -60,6 +74,9 @@ impl DbManagerApp {
                 }
                 Message::ImportDone(result, elapsed_ms) => {
                     self.handle_import_done(ctx, result, elapsed_ms);
+                }
+                Message::GridSaveDone(request_id, result, elapsed_ms) => {
+                    self.handle_grid_save_done(ctx, request_id, result, elapsed_ms);
                 }
                 Message::PrimaryKeyFetched(table_name, pk_column) => {
                     self.handle_primary_key_fetched(ctx, table_name, pk_column);
@@ -313,6 +330,7 @@ impl DbManagerApp {
                     if is_drop_table {
                         self.pending_drop_requests.remove(&request_id);
                     }
+                    self.pending_grid_refresh_restores.remove(&request_id);
                     tracing::debug!(
                         tab_id = %tab_id,
                         request_id,
@@ -374,8 +392,25 @@ impl DbManagerApp {
                         }
 
                         self.result = Some(res.clone());
+
+                        if let Some(restore) =
+                            self.pending_grid_refresh_restores.remove(&request_id)
+                        {
+                            self.selected_table = Some(restore.table_name);
+                            self.search_text = restore.search_text;
+                            self.search_column = restore.search_column;
+                            self.grid_state.cursor =
+                                clamp_grid_cursor_for_result(restore.cursor, &res);
+                            self.grid_state.scroll_to_row = Some(self.grid_state.cursor.0);
+                            self.grid_state.scroll_to_col = Some(self.grid_state.cursor.1);
+                            self.grid_state.focused = true;
+                            self.set_focus_area(ui::FocusArea::DataGrid);
+                        }
+                    } else {
+                        self.pending_grid_refresh_restores.remove(&request_id);
                     }
                 } else {
+                    self.pending_grid_refresh_restores.remove(&request_id);
                     tracing::debug!(tab_id = %tab_id, "查询回包对应的标签页已不存在");
                 }
 
@@ -408,6 +443,7 @@ impl DbManagerApp {
                     if is_drop_table {
                         self.pending_drop_requests.remove(&request_id);
                     }
+                    self.pending_grid_refresh_restores.remove(&request_id);
                     tracing::debug!(
                         tab_id = %tab_id,
                         request_id,
@@ -424,6 +460,7 @@ impl DbManagerApp {
                     if is_drop_table {
                         self.pending_drop_requests.remove(&request_id);
                     }
+                    self.pending_grid_refresh_restores.remove(&request_id);
                     self.refresh_executing_flag();
                     ctx.request_repaint();
                     return;
@@ -454,6 +491,7 @@ impl DbManagerApp {
                         self.result = Some(crate::database::QueryResult::default());
                     }
                 }
+                self.pending_grid_refresh_restores.remove(&request_id);
 
                 if is_drop_table {
                     self.pending_drop_requests.remove(&request_id);
@@ -461,6 +499,48 @@ impl DbManagerApp {
             }
         }
         self.refresh_executing_flag();
+        ctx.request_repaint();
+    }
+
+    fn handle_grid_save_done(
+        &mut self,
+        ctx: &egui::Context,
+        request_id: u64,
+        result: Result<crate::database::ImportExecutionReport, String>,
+        elapsed_ms: u64,
+    ) {
+        let Some(context) = self.pending_grid_save_requests.remove(&request_id) else {
+            tracing::debug!(request_id, "忽略未知的表格保存回包");
+            return;
+        };
+        self.refresh_executing_flag();
+
+        match result {
+            Ok(report) => {
+                if report.failed == 0 {
+                    self.grid_state.clear_edits();
+                    self.grid_state.pending_sql.clear();
+                    self.grid_state.pending_save = false;
+                    self.grid_state.show_save_confirm = false;
+                    self.notifications.success(format!(
+                        "表格保存完成：成功 {} / {} 条 ({}ms)",
+                        report.succeeded, report.total, elapsed_ms
+                    ));
+                    self.refresh_table_after_grid_save(ctx, context);
+                    return;
+                }
+
+                let detail = report.first_error.as_deref().unwrap_or("部分 SQL 执行失败");
+                self.notifications.error(format!(
+                    "表格保存失败：成功 {}，失败 {}，总计 {} 条 ({}ms)。首个错误: {}",
+                    report.succeeded, report.failed, report.total, elapsed_ms, detail
+                ));
+            }
+            Err(error) => {
+                self.notifications.error(format!("表格保存失败: {}", error));
+            }
+        }
+
         ctx.request_repaint();
     }
 
@@ -761,7 +841,8 @@ impl DbManagerApp {
 
 #[cfg(test)]
 mod tests {
-    use super::is_cancelled_query_error;
+    use super::{clamp_grid_cursor_for_result, is_cancelled_query_error};
+    use crate::database::QueryResult;
 
     #[test]
     fn test_is_cancelled_query_error_chinese() {
@@ -781,5 +862,27 @@ mod tests {
     #[test]
     fn test_is_cancelled_query_error_negative_case() {
         assert!(!is_cancelled_query_error("syntax error near from"));
+    }
+
+    #[test]
+    fn clamp_grid_cursor_for_result_respects_result_bounds() {
+        let result = QueryResult::with_rows(
+            vec!["id".to_string(), "name".to_string()],
+            vec![
+                vec!["1".to_string(), "alice".to_string()],
+                vec!["2".to_string(), "bob".to_string()],
+            ],
+        );
+
+        assert_eq!(clamp_grid_cursor_for_result((8, 5), &result), (1, 1));
+        assert_eq!(clamp_grid_cursor_for_result((0, 1), &result), (0, 1));
+    }
+
+    #[test]
+    fn clamp_grid_cursor_for_result_falls_back_to_origin_for_empty_result() {
+        assert_eq!(
+            clamp_grid_cursor_for_result((4, 2), &QueryResult::default()),
+            (0, 0)
+        );
     }
 }

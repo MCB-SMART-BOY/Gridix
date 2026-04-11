@@ -9,6 +9,15 @@ pub enum SidebarFocusTransfer {
     ToDataGrid,
 }
 
+/// 新增筛选条件的位置
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarFilterInsertMode {
+    /// 在当前选中项后方插入
+    BelowSelection,
+    /// 追加到列表末尾
+    AppendEnd,
+}
+
 /// 侧边栏操作
 #[derive(Default)]
 pub struct SidebarActions {
@@ -35,7 +44,7 @@ pub struct SidebarActions {
     /// 筛选条件已更改
     pub filter_changed: bool,
     /// 添加新的筛选条件
-    pub add_filter: bool,
+    pub insert_filter: Option<SidebarFilterInsertMode>,
     /// 清空所有筛选条件
     pub clear_filters: bool,
     /// 切换筛选条件的逻辑运算符 (AND/OR)
@@ -65,7 +74,7 @@ impl SidebarActions {
             || self.rename_item.is_some()
             || self.refresh
             || self.filter_changed
-            || self.add_filter
+            || self.insert_filter.is_some()
             || self.clear_filters
             || self.toggle_filter_logic.is_some()
             || self.focus_filter_input.is_some()

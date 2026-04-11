@@ -63,8 +63,8 @@ More flake usage / 更多 Flake 用法: [NIX_FLAKE.md](NIX_FLAKE.md)
    在侧边栏选表，或保持默认查询标签页。
 2. Press `Ctrl+J` to show SQL editor.
    按 `Ctrl+J` 打开 SQL 编辑器。
-3. Type SQL and run with `Ctrl+Enter` (or `F5` when editor focused).
-   输入 SQL 后按 `Ctrl+Enter` 执行（编辑器焦点下也可 `F5`）。
+3. Type SQL and run with `Ctrl+Enter` (or `F5` when the SQL editor owns focus).
+   输入 SQL 后按 `Ctrl+Enter` 执行（仅当 SQL 编辑器拥有焦点时也可使用 `F5`）。
 4. Use DataGrid for edits, then save with `Ctrl+S`.
    在数据表格中编辑后，按 `Ctrl+S` 保存。
 

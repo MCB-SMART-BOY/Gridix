@@ -6,23 +6,21 @@ Gridix does not store database password as plain text in config.
 Gridix 不以明文形式在配置中存储数据库密码。
 
 Current implementation:
-- Password field is serialized with encryption helpers in `src/database/config.rs`.
-  密码字段通过 `src/database/config.rs` 的加密函数序列化。
-- Encryption algorithm: `AES-256-GCM` (via `ring::aead`).
-  加密算法：`AES-256-GCM`（基于 `ring::aead`）。
-- Encrypted payload is stored with `v1:` prefix and Base64 encoding.
-  密文使用 `v1:` 前缀并进行 Base64 编码。
+- Connection config stores only a `password_ref` pointer in `config.toml`.
+  连接配置仅在 `config.toml` 中保存 `password_ref` 引用。
+- Actual secrets are written to the OS keyring via the `keyring` crate.
+  实际密码通过 `keyring` crate 写入操作系统密钥链。
+- If keyring lookup fails or the secret is missing, the connection is kept but password must be re-entered.
+  如果密钥链读取失败或秘密缺失，连接配置仍会保留，但需要重新输入密码。
 
-## 2. Machine-Bound Key Derivation | 机器绑定密钥派生
+## 2. Legacy Password Migration | 旧版密码迁移
 
-- Encryption key is derived from hostname/user fallback + fixed salt.
-  加密密钥由主机名（失败时退化为用户名）和固定盐派生。
-- Legacy key path fallback is kept for backward compatibility.
-  保留旧版密钥派生路径作为兼容回退。
-
-Operational note:
-- Config copied to another machine may fail to decrypt passwords.
-  配置迁移到其他机器后，密码可能无法解密。
+- Legacy encrypted `password` fields are still readable for backward compatibility.
+  为兼容旧版本，历史加密 `password` 字段仍可读取。
+- On successful load, Gridix migrates the secret into the OS keyring and rewrites config without embedding the password.
+  旧密码读取成功后，Gridix 会迁移到系统密钥链，并在后续保存时移除配置中的嵌入密码。
+- Legacy decryption still supports the previous machine-bound AES-GCM scheme and config-dir fallback.
+  旧版解密仍兼容此前基于机器信息派生的 AES-GCM 方案及旧配置目录回退逻辑。
 
 ## 3. Config File Permissions | 配置文件权限
 

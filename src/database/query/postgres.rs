@@ -2,7 +2,7 @@
 
 use super::{
     ColumnInfo, ForeignKeyInfo, ImportExecutionReport, RoutineInfo, RoutineType, TriggerInfo,
-    empty_result, exec_result, is_query_statement, query_result,
+    empty_result, exec_result, is_query_statement, query_result_with_null_flags,
 };
 use crate::core::constants;
 use crate::database::{
@@ -154,6 +154,7 @@ async fn execute_with_client(
 
         let mut columns: Vec<String> = Vec::new();
         let mut rows: Vec<Vec<String>> = Vec::new();
+        let mut null_flags: Vec<Vec<bool>> = Vec::new();
         let mut total_rows = 0usize;
         let max_rows = constants::database::MAX_RESULT_SET_ROWS;
 
@@ -171,10 +172,22 @@ async fn execute_with_client(
 
                     total_rows += 1;
                     if rows.len() < max_rows {
-                        let row_values: Vec<String> = (0..row.len())
-                            .map(|i| row.get(i).unwrap_or("NULL").to_string())
-                            .collect();
+                        let mut row_values = Vec::with_capacity(row.len());
+                        let mut row_nulls = Vec::with_capacity(row.len());
+                        for i in 0..row.len() {
+                            match row.get(i) {
+                                Some(value) => {
+                                    row_values.push(value.to_string());
+                                    row_nulls.push(false);
+                                }
+                                None => {
+                                    row_values.push(String::new());
+                                    row_nulls.push(true);
+                                }
+                            }
+                        }
                         rows.push(row_values);
+                        null_flags.push(row_nulls);
                     }
                 }
                 SimpleQueryMessage::CommandComplete(_) => {}
@@ -186,7 +199,7 @@ async fn execute_with_client(
             return Ok(empty_result());
         }
 
-        let mut query_result = query_result(columns, rows);
+        let mut query_result = query_result_with_null_flags(columns, rows, null_flags);
         if total_rows > max_rows {
             query_result.truncated = true;
             query_result.original_row_count = Some(total_rows);

@@ -10,7 +10,7 @@ pub struct QueryHistoryItem {
     pub rows_affected: Option<u64>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct QueryHistory {
     items: Vec<QueryHistoryItem>,
     max_size: usize,

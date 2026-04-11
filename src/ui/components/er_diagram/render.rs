@@ -3,6 +3,7 @@
 use super::state::{ERDiagramState, ERTable, RelationType};
 use crate::core::ThemePreset;
 use crate::ui::shortcut_tooltip;
+use crate::ui::styles::theme_text;
 use egui::{self, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 
 /// ER 图渲染响应
@@ -81,13 +82,14 @@ impl ERDiagramState {
     pub fn show(&mut self, ui: &mut egui::Ui, theme: &ThemePreset) -> ERDiagramResponse {
         let mut response = ERDiagramResponse::default();
         let colors = RenderColors::from_theme(theme);
+        let toolbar_text = theme_text(ui.visuals());
 
         // 工具栏 - 无边框图标样式
         ui.horizontal(|ui| {
             // 刷新按钮
             if ui
                 .add(
-                    egui::Button::new(RichText::new("🔄").size(14.0).color(Color32::LIGHT_GRAY))
+                    egui::Button::new(RichText::new("🔄").size(14.0).color(toolbar_text))
                         .frame(false)
                         .min_size(Vec2::new(26.0, 26.0)),
                 )
@@ -100,7 +102,7 @@ impl ERDiagramState {
             // 布局按钮
             if ui
                 .add(
-                    egui::Button::new(RichText::new("⊞").size(14.0).color(Color32::LIGHT_GRAY))
+                    egui::Button::new(RichText::new("⊞").size(14.0).color(toolbar_text))
                         .frame(false)
                         .min_size(Vec2::new(26.0, 26.0)),
                 )
@@ -113,7 +115,7 @@ impl ERDiagramState {
             // 适应视图按钮
             if ui
                 .add(
-                    egui::Button::new(RichText::new("⛶").size(14.0).color(Color32::LIGHT_GRAY))
+                    egui::Button::new(RichText::new("⛶").size(14.0).color(toolbar_text))
                         .frame(false)
                         .min_size(Vec2::new(26.0, 26.0)),
                 )
@@ -128,7 +130,7 @@ impl ERDiagramState {
             // 缩放控制
             if ui
                 .add(
-                    egui::Button::new(RichText::new("+").size(14.0).color(Color32::LIGHT_GRAY))
+                    egui::Button::new(RichText::new("+").size(14.0).color(toolbar_text))
                         .frame(false)
                         .min_size(Vec2::new(22.0, 22.0)),
                 )
@@ -146,7 +148,7 @@ impl ERDiagramState {
 
             if ui
                 .add(
-                    egui::Button::new(RichText::new("−").size(14.0).color(Color32::LIGHT_GRAY))
+                    egui::Button::new(RichText::new("−").size(14.0).color(toolbar_text))
                         .frame(false)
                         .min_size(Vec2::new(22.0, 22.0)),
                 )
@@ -159,7 +161,7 @@ impl ERDiagramState {
             // 重置视图按钮
             if ui
                 .add(
-                    egui::Button::new(RichText::new("↺").size(14.0).color(Color32::LIGHT_GRAY))
+                    egui::Button::new(RichText::new("↺").size(14.0).color(toolbar_text))
                         .frame(false)
                         .min_size(Vec2::new(26.0, 26.0)),
                 )

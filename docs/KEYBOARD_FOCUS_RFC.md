@@ -1,19 +1,31 @@
 # Keyboard Focus RFC | 焦点驱动键盘系统 RFC
 
-This document defines the target input model for Gridix.  
+This document defines the target input model for Gridix.
 本文定义 Gridix 未来的目标输入模型。
+
+Status for `v4.0.0`: the input owner, dialog host, and scope-aware keymap router are implemented. The remaining high-risk gaps are local grid/editor semantics, not a global-first router.
+`v4.0.0` 状态：输入所有者、对话框宿主和 scope-aware keymap router 已经落地。当前剩余的高风险缺口主要在 grid/editor 的局部语义，而不是 global-first 路由本身。
+
+Implemented foundation:
+已落地基础：
+- `src/app/dialogs/host.rs` derives a single active dialog owner from legacy dialog flags.
+  `src/app/dialogs/host.rs` 从遗留对话框状态中推导唯一 active dialog。
+- `src/app/input/owner.rs` names frame-level keyboard owners: modal, text entry, select, command, recording, disabled.
+  `src/app/input/owner.rs` 明确每帧键盘所有者：模态、文本输入、选择、命令、录制、禁用。
+- `src/app/input/input_router.rs` consumes the active dialog owner before scoped keymap dispatch.
+  `src/app/input/input_router.rs` 在作用域 keymap 分发前消费 active dialog owner。
 
 ## 1. Problem Statement | 问题定义
 
-Current keyboard handling is still largely global-first:
-当前键盘处理仍然基本是“全局优先”：
+The global-first router problem is mostly addressed, but local semantics still need discipline:
+全局优先的路由问题已经基本处理完，但局部语义仍需要继续收口：
 
-- Global actions are checked in `src/app/keyboard.rs`.
-  全局动作在 `src/app/keyboard.rs` 中优先判定。
-- Local navigation is split across sidebar, grid, editor, and dialog modules.
-  局部导航又分散在侧边栏、表格、编辑器、对话框各模块。
-- The same key may be interpreted differently by multiple layers.
-  同一个按键可能被多个层同时解释。
+- Grid edge behavior can accidentally look like panel traversal if left implicit in local handlers.
+  如果继续把 grid 边界行为藏在局部 handler 里，就容易让它看起来像跨面板跳转。
+- Editor-local execution/completion handling must not fall back to hard-coded keys outside the editor scope.
+  编辑器局部的执行/补全处理不能再退回到 editor scope 之外的硬编码按键。
+- The same key may still drift semantically if scope responsibility is not kept explicit.
+  如果不继续保持作用域职责明确，同一个按键的语义仍可能再次漂移。
 
 Observed failures:
 已观察到的问题：
@@ -156,6 +168,7 @@ Explicit non-global examples:
   - text editing
   - autocomplete acceptance/navigation
   - `Esc` exits completion first, then mode
+  - execute/explain keys only work while the editor owns input
 
 ## 6. State Model Changes | 状态模型改造
 
@@ -195,7 +208,8 @@ This should replace scattered booleans over time.
 ### Phase 3: Grid/editor convergence | 第三阶段：表格与编辑器收敛
 
 - Normalize editor and grid mode transitions.
-- Make edge focus transfer explicit, not hidden in local handlers.
+- Keep grid `h/j/k/l` local to the table, and make any remaining cross-area transfer explicit and narrow.
+- Keep editor execute/explain/completion inside editor-local handling instead of hidden fallbacks.
 
 ### Phase 4: Dialog unification | 第四阶段：对话框统一
 
@@ -226,4 +240,3 @@ This should replace scattered booleans over time.
 
 - [KEYMAP_TOML_SPEC.md](KEYMAP_TOML_SPEC.md)
 - [SIDEBAR_WORKFLOW_PLAN.md](SIDEBAR_WORKFLOW_PLAN.md)
-

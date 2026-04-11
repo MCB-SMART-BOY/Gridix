@@ -2,7 +2,9 @@
 //!
 //! 统一生成“功能 + 快捷键”的悬停提示，避免快捷键改配置后 UI 文案失真。
 
-use crate::core::{Action, KeyBinding, KeyBindings, KeyCode, KeyModifiers};
+use crate::core::{
+    Action, KeyBinding, KeyBindings, KeyCode, KeyModifiers, ScopedCommandBinding, scoped_command,
+};
 use egui::InputState;
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -23,6 +25,10 @@ impl LocalBinding {
         Self::new(binding.key, binding.modifiers)
     }
 
+    pub fn from_scoped_binding(binding: ScopedCommandBinding) -> Self {
+        Self::new(binding.key, binding.modifiers)
+    }
+
     fn key_binding(self) -> KeyBinding {
         KeyBinding::new(self.key, self.modifiers)
     }
@@ -37,6 +43,10 @@ impl LocalBinding {
 
     pub fn consume(self, input: &mut InputState) -> bool {
         input.consume_key(self.modifiers.to_egui(), self.key.to_egui_key())
+    }
+
+    fn conflicts_with_text_entry(self) -> bool {
+        self.key_binding().conflicts_with_text_entry()
     }
 }
 
@@ -257,14 +267,14 @@ impl LocalShortcut {
             LocalShortcut::ExportColumnEnd => "dialog.export.column_end",
             LocalShortcut::ExportColumnToggle => "dialog.export.column_toggle",
             LocalShortcut::ExportColumnsToggleAll => "dialog.export.columns_toggle_all",
-            LocalShortcut::SqlExecute => "editor.sql.execute",
-            LocalShortcut::SqlExplain => "editor.sql.explain",
-            LocalShortcut::SqlClear => "editor.sql.clear",
-            LocalShortcut::SqlAutocompleteTrigger => "editor.sql.autocomplete_trigger",
-            LocalShortcut::SqlAutocompleteConfirm => "editor.sql.autocomplete_confirm",
-            LocalShortcut::SqlHistoryPrev => "editor.sql.history_prev",
-            LocalShortcut::SqlHistoryNext => "editor.sql.history_next",
-            LocalShortcut::SqlHistoryBrowse => "editor.sql.history_browse",
+            LocalShortcut::SqlExecute => "editor.insert.execute",
+            LocalShortcut::SqlExplain => "editor.insert.explain",
+            LocalShortcut::SqlClear => "editor.insert.clear",
+            LocalShortcut::SqlAutocompleteTrigger => "editor.insert.trigger_completion",
+            LocalShortcut::SqlAutocompleteConfirm => "editor.insert.confirm_completion",
+            LocalShortcut::SqlHistoryPrev => "editor.insert.history_prev",
+            LocalShortcut::SqlHistoryNext => "editor.insert.history_next",
+            LocalShortcut::SqlHistoryBrowse => "editor.insert.history_browse",
             LocalShortcut::ImportRefresh => "dialog.import.refresh",
             LocalShortcut::ImportFormatSql => "dialog.import.format_sql",
             LocalShortcut::ImportFormatCsv => "dialog.import.format_csv",
@@ -298,6 +308,14 @@ impl LocalShortcut {
         }
     }
 
+    pub fn description(self) -> &'static str {
+        self.command().description
+    }
+
+    pub fn category(self) -> &'static str {
+        self.command().category
+    }
+
     pub fn bindings(self) -> Vec<LocalBinding> {
         if let Some(bindings) = current_local_shortcut_overrides()
             .read()
@@ -327,298 +345,26 @@ impl LocalShortcut {
     }
 
     fn default_bindings(self) -> Vec<LocalBinding> {
-        match self {
-            LocalShortcut::Confirm => vec![LocalBinding::new(KeyCode::Enter, KeyModifiers::NONE)],
-            LocalShortcut::Cancel => vec![LocalBinding::new(KeyCode::Escape, KeyModifiers::NONE)],
-            LocalShortcut::Dismiss => vec![
-                LocalBinding::new(KeyCode::Escape, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::Q, KeyModifiers::NONE),
-            ],
-            LocalShortcut::DangerConfirm => vec![
-                LocalBinding::new(KeyCode::Enter, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::Y, KeyModifiers::NONE),
-            ],
-            LocalShortcut::DangerCancel => vec![
-                LocalBinding::new(KeyCode::Escape, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::N, KeyModifiers::NONE),
-            ],
-            LocalShortcut::HelpScrollUp => vec![
-                LocalBinding::new(KeyCode::K, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowUp, KeyModifiers::NONE),
-            ],
-            LocalShortcut::HelpScrollDown => vec![
-                LocalBinding::new(KeyCode::J, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowDown, KeyModifiers::NONE),
-            ],
-            LocalShortcut::HelpPageUp => vec![
-                LocalBinding::new(KeyCode::PageUp, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::U, KeyModifiers::CTRL),
-            ],
-            LocalShortcut::HelpPageDown => vec![
-                LocalBinding::new(KeyCode::PageDown, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::D, KeyModifiers::CTRL),
-            ],
-            LocalShortcut::SidebarItemPrev => vec![
-                LocalBinding::new(KeyCode::K, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowUp, KeyModifiers::NONE),
-            ],
-            LocalShortcut::SidebarItemNext => vec![
-                LocalBinding::new(KeyCode::J, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowDown, KeyModifiers::NONE),
-            ],
-            LocalShortcut::SidebarItemStart => {
-                vec![LocalBinding::new(KeyCode::Home, KeyModifiers::NONE)]
-            }
-            LocalShortcut::SidebarItemEnd => vec![
-                LocalBinding::new(KeyCode::G, KeyModifiers::SHIFT),
-                LocalBinding::new(KeyCode::End, KeyModifiers::NONE),
-            ],
-            LocalShortcut::SidebarMoveLeft => vec![
-                LocalBinding::new(KeyCode::H, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowLeft, KeyModifiers::NONE),
-            ],
-            LocalShortcut::SidebarMoveRight => vec![
-                LocalBinding::new(KeyCode::L, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowRight, KeyModifiers::NONE),
-            ],
-            LocalShortcut::SidebarToggle => {
-                vec![LocalBinding::new(KeyCode::Space, KeyModifiers::NONE)]
-            }
-            LocalShortcut::SidebarDelete => {
-                vec![LocalBinding::new(KeyCode::D, KeyModifiers::NONE)]
-            }
-            LocalShortcut::SidebarEdit => {
-                vec![LocalBinding::new(KeyCode::E, KeyModifiers::NONE)]
-            }
-            LocalShortcut::SidebarRename => {
-                vec![LocalBinding::new(KeyCode::R, KeyModifiers::NONE)]
-            }
-            LocalShortcut::SidebarRefresh => {
-                vec![LocalBinding::new(KeyCode::R, KeyModifiers::SHIFT)]
-            }
-            LocalShortcut::SidebarActivate => {
-                vec![LocalBinding::new(KeyCode::Enter, KeyModifiers::NONE)]
-            }
-            LocalShortcut::FilterAdd => vec![
-                LocalBinding::new(KeyCode::A, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::O, KeyModifiers::NONE),
-            ],
-            LocalShortcut::FilterDelete => {
-                vec![LocalBinding::new(KeyCode::X, KeyModifiers::NONE)]
-            }
-            LocalShortcut::FilterClearAll => {
-                vec![LocalBinding::new(KeyCode::C, KeyModifiers::NONE)]
-            }
-            LocalShortcut::FilterColumnNext => {
-                vec![LocalBinding::new(KeyCode::W, KeyModifiers::NONE)]
-            }
-            LocalShortcut::FilterColumnPrev => {
-                vec![LocalBinding::new(KeyCode::B, KeyModifiers::NONE)]
-            }
-            LocalShortcut::FilterOperatorNext => {
-                vec![LocalBinding::new(KeyCode::N, KeyModifiers::NONE)]
-            }
-            LocalShortcut::FilterOperatorPrev => {
-                vec![LocalBinding::new(KeyCode::N, KeyModifiers::SHIFT)]
-            }
-            LocalShortcut::FilterLogicToggle => {
-                vec![LocalBinding::new(KeyCode::T, KeyModifiers::NONE)]
-            }
-            LocalShortcut::FilterFocusInput => {
-                vec![LocalBinding::new(KeyCode::I, KeyModifiers::NONE)]
-            }
-            LocalShortcut::FilterCaseToggle => {
-                vec![LocalBinding::new(KeyCode::S, KeyModifiers::NONE)]
-            }
-            LocalShortcut::ExportFormatCsv => {
-                vec![LocalBinding::new(KeyCode::Num1, KeyModifiers::NONE)]
-            }
-            LocalShortcut::ExportFormatTsv => {
-                vec![LocalBinding::new(KeyCode::Num2, KeyModifiers::NONE)]
-            }
-            LocalShortcut::ExportFormatSql => {
-                vec![LocalBinding::new(KeyCode::Num3, KeyModifiers::NONE)]
-            }
-            LocalShortcut::ExportFormatJson => {
-                vec![LocalBinding::new(KeyCode::Num4, KeyModifiers::NONE)]
-            }
-            LocalShortcut::ExportCyclePrev => vec![
-                LocalBinding::new(KeyCode::H, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowLeft, KeyModifiers::NONE),
-            ],
-            LocalShortcut::ExportCycleNext => vec![
-                LocalBinding::new(KeyCode::L, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowRight, KeyModifiers::NONE),
-            ],
-            LocalShortcut::ExportColumnPrev => vec![
-                LocalBinding::new(KeyCode::K, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowUp, KeyModifiers::NONE),
-            ],
-            LocalShortcut::ExportColumnNext => vec![
-                LocalBinding::new(KeyCode::J, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowDown, KeyModifiers::NONE),
-            ],
-            LocalShortcut::ExportColumnStart => vec![
-                LocalBinding::new(KeyCode::G, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::Home, KeyModifiers::NONE),
-            ],
-            LocalShortcut::ExportColumnEnd => vec![
-                LocalBinding::new(KeyCode::G, KeyModifiers::SHIFT),
-                LocalBinding::new(KeyCode::End, KeyModifiers::NONE),
-            ],
-            LocalShortcut::ExportColumnToggle => {
-                vec![LocalBinding::new(KeyCode::Space, KeyModifiers::NONE)]
-            }
-            LocalShortcut::ExportColumnsToggleAll => {
-                vec![LocalBinding::new(KeyCode::A, KeyModifiers::NONE)]
-            }
-            LocalShortcut::SqlExecute => vec![
-                LocalBinding::new(KeyCode::Enter, KeyModifiers::CTRL),
-                LocalBinding::new(KeyCode::F5, KeyModifiers::NONE),
-            ],
-            LocalShortcut::SqlExplain => vec![LocalBinding::new(KeyCode::F6, KeyModifiers::NONE)],
-            LocalShortcut::SqlClear => vec![LocalBinding::new(KeyCode::D, KeyModifiers::SHIFT)],
-            LocalShortcut::SqlAutocompleteTrigger => vec![
-                LocalBinding::new(KeyCode::Space, KeyModifiers::CTRL),
-                LocalBinding::new(KeyCode::L, KeyModifiers::ALT),
-            ],
-            LocalShortcut::SqlAutocompleteConfirm => vec![
-                LocalBinding::new(KeyCode::Tab, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::Enter, KeyModifiers::NONE),
-            ],
-            LocalShortcut::SqlHistoryPrev => vec![
-                LocalBinding::new(KeyCode::ArrowUp, KeyModifiers::SHIFT),
-                LocalBinding::new(KeyCode::K, KeyModifiers::SHIFT),
-            ],
-            LocalShortcut::SqlHistoryNext => vec![
-                LocalBinding::new(KeyCode::ArrowDown, KeyModifiers::SHIFT),
-                LocalBinding::new(KeyCode::J, KeyModifiers::SHIFT),
-            ],
-            LocalShortcut::SqlHistoryBrowse => vec![
-                LocalBinding::new(KeyCode::ArrowUp, KeyModifiers::SHIFT),
-                LocalBinding::new(KeyCode::ArrowDown, KeyModifiers::SHIFT),
-                LocalBinding::new(KeyCode::K, KeyModifiers::SHIFT),
-                LocalBinding::new(KeyCode::J, KeyModifiers::SHIFT),
-            ],
-            LocalShortcut::ImportRefresh => {
-                vec![LocalBinding::new(KeyCode::R, KeyModifiers::CTRL)]
-            }
-            LocalShortcut::ImportFormatSql => {
-                vec![LocalBinding::new(KeyCode::Num1, KeyModifiers::NONE)]
-            }
-            LocalShortcut::ImportFormatCsv => {
-                vec![LocalBinding::new(KeyCode::Num2, KeyModifiers::NONE)]
-            }
-            LocalShortcut::ImportFormatTsv => {
-                vec![LocalBinding::new(KeyCode::Num3, KeyModifiers::NONE)]
-            }
-            LocalShortcut::ImportFormatJson => {
-                vec![LocalBinding::new(KeyCode::Num4, KeyModifiers::NONE)]
-            }
-            LocalShortcut::ImportCyclePrev => vec![
-                LocalBinding::new(KeyCode::H, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowLeft, KeyModifiers::NONE),
-            ],
-            LocalShortcut::ImportCycleNext => vec![
-                LocalBinding::new(KeyCode::L, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowRight, KeyModifiers::NONE),
-            ],
-            LocalShortcut::ConnectionTypeSqlite => {
-                vec![LocalBinding::new(KeyCode::Num1, KeyModifiers::NONE)]
-            }
-            LocalShortcut::ConnectionTypePostgres => {
-                vec![LocalBinding::new(KeyCode::Num2, KeyModifiers::NONE)]
-            }
-            LocalShortcut::ConnectionTypeMySql => {
-                vec![LocalBinding::new(KeyCode::Num3, KeyModifiers::NONE)]
-            }
-            LocalShortcut::ConnectionTypePrev => vec![
-                LocalBinding::new(KeyCode::H, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowLeft, KeyModifiers::NONE),
-            ],
-            LocalShortcut::ConnectionTypeNext => vec![
-                LocalBinding::new(KeyCode::L, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowRight, KeyModifiers::NONE),
-            ],
-            LocalShortcut::DdlColumnPrev => vec![
-                LocalBinding::new(KeyCode::K, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowUp, KeyModifiers::NONE),
-            ],
-            LocalShortcut::DdlColumnNext => vec![
-                LocalBinding::new(KeyCode::J, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowDown, KeyModifiers::NONE),
-            ],
-            LocalShortcut::DdlColumnStart => vec![
-                LocalBinding::new(KeyCode::G, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::Home, KeyModifiers::NONE),
-            ],
-            LocalShortcut::DdlColumnEnd => vec![
-                LocalBinding::new(KeyCode::G, KeyModifiers::SHIFT),
-                LocalBinding::new(KeyCode::End, KeyModifiers::NONE),
-            ],
-            LocalShortcut::DdlColumnDelete => vec![
-                LocalBinding::new(KeyCode::D, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::Delete, KeyModifiers::NONE),
-            ],
-            LocalShortcut::DdlColumnAddBelow => {
-                vec![LocalBinding::new(KeyCode::O, KeyModifiers::NONE)]
-            }
-            LocalShortcut::DdlColumnAddAbove => {
-                vec![LocalBinding::new(KeyCode::O, KeyModifiers::SHIFT)]
-            }
-            LocalShortcut::DdlColumnTogglePrimaryKey => {
-                vec![LocalBinding::new(KeyCode::Space, KeyModifiers::NONE)]
-            }
-            LocalShortcut::SqliteBrowseFile => {
-                vec![LocalBinding::new(KeyCode::O, KeyModifiers::CTRL)]
-            }
-            LocalShortcut::FormatSelectionCycle => vec![
-                LocalBinding::new(KeyCode::Num1, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::Num2, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::Num3, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::Num4, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::H, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::L, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowLeft, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowRight, KeyModifiers::NONE),
-            ],
-            LocalShortcut::HistoryClear => {
-                vec![LocalBinding::new(KeyCode::Delete, KeyModifiers::CTRL)]
-            }
-            LocalShortcut::HistoryPrev => vec![
-                LocalBinding::new(KeyCode::K, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowUp, KeyModifiers::NONE),
-            ],
-            LocalShortcut::HistoryNext => vec![
-                LocalBinding::new(KeyCode::J, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::ArrowDown, KeyModifiers::NONE),
-            ],
-            LocalShortcut::HistoryStart => vec![
-                LocalBinding::new(KeyCode::G, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::Home, KeyModifiers::NONE),
-            ],
-            LocalShortcut::HistoryEnd => vec![
-                LocalBinding::new(KeyCode::G, KeyModifiers::SHIFT),
-                LocalBinding::new(KeyCode::End, KeyModifiers::NONE),
-            ],
-            LocalShortcut::HistoryPageUp => vec![
-                LocalBinding::new(KeyCode::PageUp, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::U, KeyModifiers::CTRL),
-            ],
-            LocalShortcut::HistoryPageDown => vec![
-                LocalBinding::new(KeyCode::PageDown, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::D, KeyModifiers::CTRL),
-            ],
-            LocalShortcut::HistoryUse => vec![
-                LocalBinding::new(KeyCode::Enter, KeyModifiers::NONE),
-                LocalBinding::new(KeyCode::L, KeyModifiers::NONE),
-            ],
-        }
+        self.command()
+            .default_bindings
+            .iter()
+            .copied()
+            .map(LocalBinding::from_scoped_binding)
+            .collect()
+    }
+
+    fn command(self) -> &'static crate::core::ScopedCommand {
+        scoped_command(self.config_key()).unwrap_or_else(|| {
+            panic!(
+                "LocalShortcut {:?} is missing from the scoped command registry",
+                self
+            )
+        })
     }
 }
 
-fn current_local_shortcut_overrides() -> &'static RwLock<HashMap<&'static str, Vec<LocalBinding>>> {
-    static LOCAL_SHORTCUT_OVERRIDES: OnceLock<RwLock<HashMap<&'static str, Vec<LocalBinding>>>> =
+fn current_local_shortcut_overrides() -> &'static RwLock<HashMap<String, Vec<LocalBinding>>> {
+    static LOCAL_SHORTCUT_OVERRIDES: OnceLock<RwLock<HashMap<String, Vec<LocalBinding>>>> =
         OnceLock::new();
     LOCAL_SHORTCUT_OVERRIDES.get_or_init(|| RwLock::new(HashMap::new()))
 }
@@ -632,7 +378,7 @@ pub fn sync_runtime_local_shortcuts(keybindings: &KeyBindings) {
                 .map(LocalBinding::from_key_binding)
                 .collect::<Vec<_>>();
             if !local_bindings.is_empty() {
-                overrides.insert(shortcut.config_key(), local_bindings);
+                overrides.insert(shortcut.config_key().to_string(), local_bindings);
             }
         }
     }
@@ -681,6 +427,10 @@ pub fn local_shortcut_text(shortcut: LocalShortcut) -> String {
     local_bindings_text(shortcut.bindings())
 }
 
+pub fn scoped_command_text(command_id: &'static str) -> String {
+    local_bindings_text(scoped_command_bindings(command_id))
+}
+
 pub fn local_shortcuts_text(shortcuts: &[LocalShortcut]) -> String {
     let mut values: Vec<String> = Vec::new();
     for shortcut in shortcuts {
@@ -716,11 +466,53 @@ pub fn local_shortcut_pressed(ctx: &egui::Context, shortcut: LocalShortcut) -> b
         .any(|binding| binding.is_pressed(ctx))
 }
 
+pub fn text_entry_has_priority(ctx: &egui::Context) -> bool {
+    ctx.memory(|memory| memory.focused().is_some()) && ctx.egui_wants_keyboard_input()
+}
+
 pub fn consume_local_shortcut(input: &mut InputState, shortcut: LocalShortcut) -> bool {
     shortcut
         .bindings()
         .into_iter()
         .any(|binding| binding.consume(input))
+}
+
+pub fn consume_local_shortcut_with_text_priority(
+    input: &mut InputState,
+    shortcut: LocalShortcut,
+    text_entry_active: bool,
+) -> bool {
+    consume_scoped_command_with_text_priority(input, shortcut.config_key(), text_entry_active)
+}
+
+pub fn consume_scoped_command_with_text_priority(
+    input: &mut InputState,
+    command_id: &'static str,
+    text_entry_active: bool,
+) -> bool {
+    scoped_command_bindings(command_id)
+        .into_iter()
+        .any(|binding| {
+            if text_entry_active && binding.conflicts_with_text_entry() {
+                return false;
+            }
+
+            binding.consume(input)
+        })
+}
+
+fn scoped_command_bindings(command_id: &'static str) -> Vec<LocalBinding> {
+    if let Some(bindings) = current_local_shortcut_overrides().read().get(command_id) {
+        return bindings.clone();
+    }
+
+    scoped_command(command_id)
+        .unwrap_or_else(|| panic!("missing scoped command registry entry for {command_id}"))
+        .default_bindings
+        .iter()
+        .copied()
+        .map(LocalBinding::from_scoped_binding)
+        .collect()
 }
 
 fn local_binding_strings(bindings: Vec<LocalBinding>) -> Vec<String> {
@@ -745,7 +537,7 @@ mod tests {
         local_shortcut_tooltip, local_shortcuts_text, local_shortcuts_tooltip, shortcut_tooltip,
         sync_runtime_local_shortcuts,
     };
-    use crate::core::{Action, KeyBinding, KeyBindings, KeyCode};
+    use crate::core::{Action, KeyBinding, KeyBindings, KeyCode, scoped_command};
 
     #[test]
     fn action_tooltip_appends_current_binding() {
@@ -770,6 +562,20 @@ mod tests {
         let text = local_shortcut_text(LocalShortcut::SqlExecute);
 
         assert_eq!(text, "Ctrl+Enter / F5");
+    }
+
+    #[test]
+    fn every_local_shortcut_has_registry_metadata() {
+        for shortcut in LocalShortcut::all() {
+            let command =
+                scoped_command(shortcut.config_key()).expect("local shortcut registry entry");
+            assert_eq!(shortcut.description(), command.description);
+            assert_eq!(shortcut.category(), command.category);
+            assert_eq!(
+                shortcut.default_keybindings().len(),
+                command.default_bindings.len()
+            );
+        }
     }
 
     #[test]

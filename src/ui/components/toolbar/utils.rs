@@ -1,4 +1,7 @@
-use crate::ui::styles::MUTED;
+use crate::ui::styles::{
+    MUTED, theme_accent, theme_disabled_text, theme_muted_text, theme_selection_fill,
+    theme_subtle_stroke, theme_text, theme_warn,
+};
 use egui::{Color32, RichText, Vec2};
 
 /// 无边框图标按钮 - 统一样式
@@ -16,12 +19,13 @@ pub fn icon_button_with_focus(
     enabled: bool,
     is_selected: bool,
 ) -> bool {
+    let visuals = ui.visuals();
     let color = if is_selected {
-        Color32::from_rgb(130, 180, 255) // 选中时高亮蓝色
+        theme_accent(visuals)
     } else if enabled {
-        Color32::LIGHT_GRAY
+        theme_text(visuals)
     } else {
-        Color32::from_gray(60)
+        theme_disabled_text(visuals)
     };
 
     let button = egui::Button::new(RichText::new(icon).size(15.0).color(color))
@@ -29,7 +33,7 @@ pub fn icon_button_with_focus(
 
     // 选中时显示边框
     let button = if is_selected {
-        button.stroke(egui::Stroke::new(1.0, Color32::from_rgb(100, 149, 237)))
+        button.stroke(egui::Stroke::new(1.0, theme_accent(visuals)))
     } else {
         button.frame(false)
     };
@@ -41,10 +45,11 @@ pub fn icon_button_with_focus(
 
 /// 纯文字按钮（无边框）
 pub fn text_button(ui: &mut egui::Ui, text: &str, tooltip: &str, enabled: bool) -> bool {
+    let visuals = ui.visuals();
     let color = if enabled {
-        Color32::LIGHT_GRAY
+        theme_text(visuals)
     } else {
-        Color32::from_gray(60)
+        theme_disabled_text(visuals)
     };
     ui.add_enabled(
         enabled,
@@ -65,7 +70,7 @@ pub fn separator(ui: &mut egui::Ui) {
     ui.painter().vline(
         rect.left(),
         (y_center - height / 2.0)..=(y_center + height / 2.0),
-        egui::Stroke::new(1.0, Color32::from_white_alpha(30)),
+        egui::Stroke::new(1.0, theme_subtle_stroke(ui.visuals())),
     );
     ui.add_space(2.0);
 }
@@ -78,18 +83,24 @@ pub fn render_menu_item(
     is_selected: bool,
     enabled: bool,
 ) -> egui::Response {
+    let visuals = ui.visuals();
+    let is_dark = visuals.dark_mode;
+    let accent_color = theme_accent(visuals);
+    let enabled_text_color = theme_text(visuals);
+    let muted_text_color = theme_muted_text(visuals);
+    let disabled_text_color = theme_disabled_text(visuals);
     let bg_color = if is_selected {
-        Color32::from_rgba_unmultiplied(100, 140, 200, 40)
+        theme_selection_fill(visuals, if is_dark { 40 } else { 28 })
     } else {
         Color32::TRANSPARENT
     };
 
     let text_color = if !enabled {
-        Color32::from_gray(100)
+        disabled_text_color
     } else if is_selected {
-        Color32::from_rgb(200, 220, 255)
+        enabled_text_color
     } else {
-        Color32::from_rgb(180, 180, 190)
+        muted_text_color
     };
 
     let frame_response = egui::Frame::NONE
@@ -101,11 +112,7 @@ pub fn render_menu_item(
             ui.horizontal(|ui| {
                 // 选中指示器
                 let indicator = if is_selected { ">" } else { " " };
-                ui.label(
-                    RichText::new(indicator)
-                        .color(Color32::from_rgb(130, 180, 255))
-                        .monospace(),
-                );
+                ui.label(RichText::new(indicator).color(accent_color).monospace());
 
                 // 标签
                 ui.label(RichText::new(label).color(text_color));
@@ -127,8 +134,14 @@ pub fn render_combo_item(
     is_hover: bool,
     is_light_theme: bool,
 ) -> egui::Response {
+    let visuals = ui.visuals();
+    let is_dark = visuals.dark_mode;
+    let accent_color = theme_accent(visuals);
+    let hover_text_color = theme_text(visuals);
+    let muted_text_color = theme_muted_text(visuals);
+    let warn_color = theme_warn(visuals);
     let bg_color = if is_hover {
-        Color32::from_rgba_unmultiplied(100, 140, 200, 40)
+        theme_selection_fill(visuals, if is_dark { 40 } else { 28 })
     } else {
         Color32::TRANSPARENT
     };
@@ -142,28 +155,20 @@ pub fn render_combo_item(
             ui.horizontal(|ui| {
                 // 选中指示器
                 let indicator = if is_hover { ">" } else { " " };
-                ui.label(
-                    RichText::new(indicator)
-                        .color(Color32::from_rgb(130, 180, 255))
-                        .monospace(),
-                );
+                ui.label(RichText::new(indicator).color(accent_color).monospace());
 
                 // 主题名称
                 let text_color = if is_hover {
-                    Color32::from_rgb(200, 220, 255)
+                    hover_text_color
                 } else {
-                    Color32::from_rgb(180, 180, 190)
+                    muted_text_color
                 };
                 ui.label(RichText::new(text).color(text_color));
 
                 // 浅色主题标识
                 if is_light_theme {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(
-                            RichText::new("日")
-                                .small()
-                                .color(Color32::from_rgb(255, 200, 100)),
-                        );
+                        ui.label(RichText::new("日").small().color(warn_color));
                     });
                 }
             });

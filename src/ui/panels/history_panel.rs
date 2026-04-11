@@ -1,7 +1,7 @@
 use crate::core::QueryHistory;
 use crate::ui::styles::{DANGER, GRAY, SUCCESS};
 use crate::ui::{
-    LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
+    DialogShortcutContext, LocalShortcut, local_shortcut_text, local_shortcut_tooltip,
     local_shortcuts_text, local_shortcuts_tooltip,
 };
 use egui::{self, RichText};
@@ -15,7 +15,6 @@ pub struct HistoryPanel;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HistoryKeyAction {
-    Close,
     Clear,
     Prev,
     Next,
@@ -28,36 +27,16 @@ enum HistoryKeyAction {
 
 impl HistoryPanel {
     fn detect_key_action(ctx: &egui::Context) -> Option<HistoryKeyAction> {
-        ctx.input_mut(|i| {
-            if consume_local_shortcut(i, LocalShortcut::Dismiss) {
-                return Some(HistoryKeyAction::Close);
-            }
-            if consume_local_shortcut(i, LocalShortcut::HistoryClear) {
-                return Some(HistoryKeyAction::Clear);
-            }
-            if consume_local_shortcut(i, LocalShortcut::HistoryPrev) {
-                return Some(HistoryKeyAction::Prev);
-            }
-            if consume_local_shortcut(i, LocalShortcut::HistoryNext) {
-                return Some(HistoryKeyAction::Next);
-            }
-            if consume_local_shortcut(i, LocalShortcut::HistoryStart) {
-                return Some(HistoryKeyAction::Start);
-            }
-            if consume_local_shortcut(i, LocalShortcut::HistoryEnd) {
-                return Some(HistoryKeyAction::End);
-            }
-            if consume_local_shortcut(i, LocalShortcut::HistoryPageUp) {
-                return Some(HistoryKeyAction::PageUp);
-            }
-            if consume_local_shortcut(i, LocalShortcut::HistoryPageDown) {
-                return Some(HistoryKeyAction::PageDown);
-            }
-            if consume_local_shortcut(i, LocalShortcut::HistoryUse) {
-                return Some(HistoryKeyAction::UseSelected);
-            }
-            None
-        })
+        DialogShortcutContext::new(ctx).resolve(&[
+            (LocalShortcut::HistoryClear, HistoryKeyAction::Clear),
+            (LocalShortcut::HistoryPrev, HistoryKeyAction::Prev),
+            (LocalShortcut::HistoryNext, HistoryKeyAction::Next),
+            (LocalShortcut::HistoryStart, HistoryKeyAction::Start),
+            (LocalShortcut::HistoryEnd, HistoryKeyAction::End),
+            (LocalShortcut::HistoryPageUp, HistoryKeyAction::PageUp),
+            (LocalShortcut::HistoryPageDown, HistoryKeyAction::PageDown),
+            (LocalShortcut::HistoryUse, HistoryKeyAction::UseSelected),
+        ])
     }
 
     pub fn show(
@@ -80,10 +59,6 @@ impl HistoryPanel {
         }
 
         match Self::detect_key_action(ctx) {
-            Some(HistoryKeyAction::Close) => {
-                *show = false;
-                return;
-            }
             Some(HistoryKeyAction::Clear) => {
                 *clear_history = true;
             }

@@ -4,11 +4,11 @@ use crate::ui::{LocalShortcut, local_shortcut_text};
 
 impl HelpDialog {
     pub(super) fn show_tool_guide(ui: &mut egui::Ui, keybindings: &KeyBindings) {
-        let accent = Color32::from_rgb(130, 180, 255);
-        let highlight = Color32::from_rgb(180, 230, 140);
-        let key_color = Color32::from_rgb(255, 200, 100);
-        let text = Color32::from_rgb(220, 220, 220);
-        let muted = Color32::from_rgb(150, 150, 160);
+        let accent = Self::accent_color(ui);
+        let highlight = ui.visuals().selection.stroke.color;
+        let key_color = Self::key_text_color(ui);
+        let text = Self::body_text_color(ui);
+        let muted = Self::muted_text_color(ui);
         let new_connection = Self::binding_or(keybindings, Action::NewConnection, "Ctrl+N");
         let toggle_sidebar = Self::binding_or(keybindings, Action::ToggleSidebar, "Ctrl+B");
         let toggle_editor = Self::binding_or(keybindings, Action::ToggleEditor, "Ctrl+J");
@@ -25,8 +25,8 @@ impl HelpDialog {
         let next_tab = Self::binding_or(keybindings, Action::NextTab, "Ctrl+Tab");
         let prev_tab = Self::binding_or(keybindings, Action::PrevTab, "Ctrl+Shift+Tab");
         let save = Self::binding_or(keybindings, Action::Save, "Ctrl+S");
-        let add_filter = Self::binding_or(keybindings, Action::AddFilter, "Ctrl+F");
-        let clear_filters = Self::binding_or(keybindings, Action::ClearFilters, "Ctrl+Shift+F");
+        let add_filter = local_shortcut_text(LocalShortcut::FilterAdd);
+        let clear_filters = local_shortcut_text(LocalShortcut::FilterClearAll);
         let goto_line = Self::binding_or(keybindings, Action::GotoLine, "Ctrl+G");
         let zoom_in = Self::binding_or(keybindings, Action::ZoomIn, "Ctrl++");
         let zoom_out = Self::binding_or(keybindings, Action::ZoomOut, "Ctrl+-");

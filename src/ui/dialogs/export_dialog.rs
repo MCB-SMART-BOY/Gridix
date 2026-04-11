@@ -10,12 +10,19 @@
 //! - `Space` - 切换当前列的选中状态
 //! - `a` - 全选/取消全选列
 
-use crate::core::ExportFormat;
-use crate::database::QueryResult;
-use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_MD, SPACING_SM, SUCCESS};
+use super::common::{
+    DialogContent, DialogFooter, DialogShortcutContext, DialogStatus, DialogStyle, DialogWindow,
+};
+use crate::core::{
+    ExportFormat, SqlDialect, TransferDelimitedOptions, TransferDirection, TransferFormatOptions,
+    TransferJsonOptions, TransferMapping, TransferRowWindow, TransferSchema, TransferSession,
+    TransferSqlOptions, preview_export_transfer,
+};
+use crate::database::{DatabaseType, QueryResult};
+use crate::ui::styles::{GRAY, MUTED, SPACING_SM};
 use crate::ui::{
-    LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
-    local_shortcuts_text, local_shortcuts_tooltip,
+    LocalShortcut, local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text,
+    local_shortcuts_tooltip,
 };
 use egui::{self, Color32, CornerRadius, RichText, ScrollArea, TextEdit};
 
@@ -92,6 +99,59 @@ impl ExportConfig {
     pub fn selected_column_count(&self) -> usize {
         self.selected_columns.iter().filter(|&&s| s).count()
     }
+
+    /// 转换为统一传输会话，缺失的列选择按“选中”处理，避免旧配置静默丢列。
+    pub fn to_transfer_session(
+        &self,
+        result: &QueryResult,
+        table_name: &str,
+        db_type: DatabaseType,
+    ) -> TransferSession {
+        let selected_columns: Vec<usize> = if self.selected_columns.is_empty() {
+            (0..result.columns.len()).collect()
+        } else {
+            (0..result.columns.len())
+                .filter(|&idx| self.selected_columns.get(idx).copied().unwrap_or(true))
+                .collect()
+        };
+
+        TransferSession {
+            direction: TransferDirection::Export,
+            format: self.format.into(),
+            schema: TransferSchema::from_columns(
+                Some(table_name.to_string()),
+                Some(table_name.to_string()),
+                &result.columns,
+                Some(result.rows.len()),
+            ),
+            mapping: TransferMapping::from_selection(&result.columns, &selected_columns),
+            row_window: TransferRowWindow {
+                start_row: self.start_row,
+                row_limit: self.row_limit,
+                preview_rows: 10,
+            },
+            options: match self.format {
+                ExportFormat::Csv | ExportFormat::Tsv => {
+                    TransferFormatOptions::Delimited(TransferDelimitedOptions {
+                        delimiter: self.csv_delimiter,
+                        quote_char: self.csv_quote_char,
+                        include_header: self.csv_include_header,
+                        ..Default::default()
+                    })
+                }
+                ExportFormat::Sql => TransferFormatOptions::Sql(TransferSqlOptions {
+                    use_transaction: self.sql_use_transaction,
+                    batch_size: self.sql_batch_size,
+                    dialect: SqlDialect::from(db_type),
+                    ..Default::default()
+                }),
+                ExportFormat::Json => TransferFormatOptions::Json(TransferJsonOptions {
+                    pretty: self.json_pretty,
+                    ..Default::default()
+                }),
+            },
+        }
+    }
 }
 
 pub struct ExportDialog;
@@ -110,6 +170,21 @@ enum ExportKeyAction {
     ToggleCurrentColumn,
     ToggleAllColumns,
 }
+
+const CMD_DIALOG_DISMISS: &str = "dialog.common.dismiss";
+const CMD_DIALOG_CONFIRM: &str = "dialog.common.confirm";
+const CMD_EXPORT_FORMAT_CSV: &str = "dialog.export.format_csv";
+const CMD_EXPORT_FORMAT_TSV: &str = "dialog.export.format_tsv";
+const CMD_EXPORT_FORMAT_SQL: &str = "dialog.export.format_sql";
+const CMD_EXPORT_FORMAT_JSON: &str = "dialog.export.format_json";
+const CMD_EXPORT_CYCLE_PREV: &str = "dialog.export.cycle_prev";
+const CMD_EXPORT_CYCLE_NEXT: &str = "dialog.export.cycle_next";
+const CMD_EXPORT_COLUMN_PREV: &str = "dialog.export.column_prev";
+const CMD_EXPORT_COLUMN_NEXT: &str = "dialog.export.column_next";
+const CMD_EXPORT_COLUMN_START: &str = "dialog.export.column_start";
+const CMD_EXPORT_COLUMN_END: &str = "dialog.export.column_end";
+const CMD_EXPORT_COLUMN_TOGGLE: &str = "dialog.export.column_toggle";
+const CMD_EXPORT_COLUMNS_TOGGLE_ALL: &str = "dialog.export.columns_toggle_all";
 
 impl ExportDialog {
     fn set_format(config: &mut ExportConfig, format: ExportFormat) {
@@ -144,59 +219,69 @@ impl ExportDialog {
         has_columns: bool,
         can_export: bool,
     ) -> Option<ExportKeyAction> {
-        ctx.input_mut(|i| {
-            if consume_local_shortcut(i, LocalShortcut::Dismiss) {
-                return Some(ExportKeyAction::Close);
-            }
-            if can_export && consume_local_shortcut(i, LocalShortcut::Confirm) {
-                return Some(ExportKeyAction::Confirm);
-            }
-            if consume_local_shortcut(i, LocalShortcut::ExportFormatCsv) {
-                return Some(ExportKeyAction::SetFormat(ExportFormat::Csv));
-            }
-            if consume_local_shortcut(i, LocalShortcut::ExportFormatTsv) {
-                return Some(ExportKeyAction::SetFormat(ExportFormat::Tsv));
-            }
-            if consume_local_shortcut(i, LocalShortcut::ExportFormatSql) {
-                return Some(ExportKeyAction::SetFormat(ExportFormat::Sql));
-            }
-            if consume_local_shortcut(i, LocalShortcut::ExportFormatJson) {
-                return Some(ExportKeyAction::SetFormat(ExportFormat::Json));
-            }
-            if consume_local_shortcut(i, LocalShortcut::ExportCyclePrev) {
-                return Some(ExportKeyAction::CycleFormatPrev);
-            }
-            if consume_local_shortcut(i, LocalShortcut::ExportCycleNext) {
-                return Some(ExportKeyAction::CycleFormatNext);
-            }
-            if has_columns && consume_local_shortcut(i, LocalShortcut::ExportColumnPrev) {
-                return Some(ExportKeyAction::SelectPreviousColumn);
-            }
-            if has_columns && consume_local_shortcut(i, LocalShortcut::ExportColumnNext) {
-                return Some(ExportKeyAction::SelectNextColumn);
-            }
-            if has_columns && consume_local_shortcut(i, LocalShortcut::ExportColumnStart) {
-                return Some(ExportKeyAction::SelectFirstColumn);
-            }
-            if has_columns && consume_local_shortcut(i, LocalShortcut::ExportColumnEnd) {
-                return Some(ExportKeyAction::SelectLastColumn);
-            }
-            if has_columns && consume_local_shortcut(i, LocalShortcut::ExportColumnToggle) {
-                return Some(ExportKeyAction::ToggleCurrentColumn);
-            }
-            if has_columns && consume_local_shortcut(i, LocalShortcut::ExportColumnsToggleAll) {
-                return Some(ExportKeyAction::ToggleAllColumns);
-            }
-            None
-        })
+        let shortcuts = DialogShortcutContext::new(ctx);
+
+        if shortcuts.consume_command(CMD_DIALOG_DISMISS) {
+            return Some(ExportKeyAction::Close);
+        }
+        if can_export && shortcuts.consume_command(CMD_DIALOG_CONFIRM) {
+            return Some(ExportKeyAction::Confirm);
+        }
+
+        if let Some(action) = shortcuts.resolve_commands(&[
+            (
+                CMD_EXPORT_FORMAT_CSV,
+                ExportKeyAction::SetFormat(ExportFormat::Csv),
+            ),
+            (
+                CMD_EXPORT_FORMAT_TSV,
+                ExportKeyAction::SetFormat(ExportFormat::Tsv),
+            ),
+            (
+                CMD_EXPORT_FORMAT_SQL,
+                ExportKeyAction::SetFormat(ExportFormat::Sql),
+            ),
+            (
+                CMD_EXPORT_FORMAT_JSON,
+                ExportKeyAction::SetFormat(ExportFormat::Json),
+            ),
+            (CMD_EXPORT_CYCLE_PREV, ExportKeyAction::CycleFormatPrev),
+            (CMD_EXPORT_CYCLE_NEXT, ExportKeyAction::CycleFormatNext),
+        ]) {
+            return Some(action);
+        }
+
+        if has_columns {
+            return shortcuts.resolve_commands(&[
+                (
+                    CMD_EXPORT_COLUMN_PREV,
+                    ExportKeyAction::SelectPreviousColumn,
+                ),
+                (CMD_EXPORT_COLUMN_NEXT, ExportKeyAction::SelectNextColumn),
+                (CMD_EXPORT_COLUMN_START, ExportKeyAction::SelectFirstColumn),
+                (CMD_EXPORT_COLUMN_END, ExportKeyAction::SelectLastColumn),
+                (
+                    CMD_EXPORT_COLUMN_TOGGLE,
+                    ExportKeyAction::ToggleCurrentColumn,
+                ),
+                (
+                    CMD_EXPORT_COLUMNS_TOGGLE_ALL,
+                    ExportKeyAction::ToggleAllColumns,
+                ),
+            ]);
+        }
+
+        None
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn show(
         ctx: &egui::Context,
         show: &mut bool,
         config: &mut ExportConfig,
         table_name: &str,
         data: Option<&QueryResult>,
+        db_type: DatabaseType,
         on_export: &mut Option<ExportConfig>,
         status_message: &Option<Result<String, String>>,
     ) {
@@ -204,7 +289,6 @@ impl ExportDialog {
             return;
         }
 
-        // 初始化列选择
         if let Some(result) = data {
             config.init_columns(result.columns.len());
         }
@@ -213,10 +297,7 @@ impl ExportDialog {
         let col_count = data.map(|d| d.columns.len()).unwrap_or(0);
         let can_export = config.selected_column_count() > 0 && row_count > 0;
 
-        // 处理键盘快捷键（仅当没有文本输入焦点时）
-        if !ctx.memory(|mem| mem.focused().is_some())
-            && let Some(key_action) = Self::detect_key_action(ctx, col_count > 0, can_export)
-        {
+        if let Some(key_action) = Self::detect_key_action(ctx, col_count > 0, can_export) {
             match key_action {
                 ExportKeyAction::Close => {
                     *show = false;
@@ -266,68 +347,102 @@ impl ExportDialog {
             }
         }
 
-        egui::Window::new("📤 导出数据")
-            .collapsible(false)
-            .resizable(false)
-            .min_width(320.0)
-            .max_width(400.0)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
-                ui.add_space(SPACING_SM);
+        let style = DialogStyle::MEDIUM;
+        DialogWindow::standard(ctx, "📤 导出数据", &style).show(ctx, |ui| {
+            ui.add_space(SPACING_SM);
 
-                // 顶部信息栏
+            DialogContent::toolbar(ui, |ui| {
                 Self::show_info_bar(ui, table_name, row_count, col_count, config);
-
                 ui.add_space(SPACING_SM);
-                ui.separator();
-                ui.add_space(SPACING_SM);
+                DialogContent::shortcut_hint(
+                    ui,
+                    &[
+                        (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
+                        (local_shortcut_text(LocalShortcut::Confirm).as_str(), "导出"),
+                        (
+                            local_shortcuts_text(&[
+                                LocalShortcut::ExportCyclePrev,
+                                LocalShortcut::ExportCycleNext,
+                            ])
+                            .as_str(),
+                            "切换格式",
+                        ),
+                    ],
+                );
+            });
 
-                // 格式选择（紧凑版）
-                Self::show_format_selector(ui, config);
+            DialogContent::section_with_description(
+                ui,
+                "导出格式",
+                "格式切换、快捷键提示和真实导出逻辑保持一致。",
+                |ui| Self::show_format_selector(ui, config),
+            );
 
-                ui.add_space(SPACING_MD);
+            ScrollArea::vertical()
+                .max_height(DialogContent::adaptive_height(ui, 0.74, 220.0, 430.0))
+                .show(ui, |ui| {
+                    DialogContent::section_with_description(
+                        ui,
+                        "导出范围",
+                        "控制起始行与数量，0 表示导出全部。",
+                        |ui| Self::show_row_range(ui, config, row_count),
+                    );
 
-                // 使用折叠面板组织选项
-                ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-                    // 导出范围
-                    Self::show_row_range(ui, config, row_count);
-
-                    ui.add_space(SPACING_SM);
-
-                    // 列选择（折叠）
                     if let Some(result) = data {
-                        Self::show_column_selector(ui, config, &result.columns);
+                        DialogContent::section_with_description(
+                            ui,
+                            "列选择",
+                            "保留导航高亮，避免列很多时失去上下文。",
+                            |ui| Self::show_column_selector(ui, config, &result.columns),
+                        );
                     }
 
-                    ui.add_space(SPACING_SM);
+                    DialogContent::section_with_description(
+                        ui,
+                        "格式选项",
+                        Self::format_options_description(config.format),
+                        |ui| Self::show_format_options(ui, config),
+                    );
 
-                    // 格式特定选项（折叠）
-                    Self::show_format_options(ui, config);
-
-                    ui.add_space(SPACING_SM);
-
-                    // 导出预览（折叠）
                     if let Some(result) = data {
-                        Self::show_preview(ui, config, result);
+                        DialogContent::section_with_description(
+                            ui,
+                            "导出预览",
+                            "预览与实际导出共用核心渲染，不再出现样式和方言偏差。",
+                            |ui| Self::show_preview(ui, config, result, table_name, db_type),
+                        );
                     }
                 });
 
+            if let Some(result) = status_message {
+                Self::show_status_message(ui, result);
                 ui.add_space(SPACING_SM);
+            }
 
-                // 状态消息
-                if let Some(result) = status_message {
-                    Self::show_status_message(ui, result);
-                    ui.add_space(SPACING_SM);
-                }
-
-                ui.separator();
+            if let Some(reason) = Self::disabled_reason(config, row_count) {
+                DialogContent::warning_text(ui, reason);
                 ui.add_space(SPACING_SM);
+            }
 
-                // 底部按钮
-                Self::show_buttons(ui, show, config, on_export, row_count);
+            let footer = DialogFooter::show(
+                ui,
+                &format!(
+                    "导出 {} [{}]",
+                    config.format.display_name(),
+                    local_shortcut_text(LocalShortcut::Confirm)
+                ),
+                &format!("取消 [{}]", local_shortcut_text(LocalShortcut::Dismiss)),
+                can_export,
+                &style,
+            );
 
-                ui.add_space(SPACING_SM);
-            });
+            if footer.confirmed {
+                *on_export = Some(config.clone());
+            }
+            if footer.cancelled {
+                *show = false;
+            }
+        });
     }
 
     /// 信息栏（紧凑版）
@@ -338,14 +453,11 @@ impl ExportDialog {
         col_count: usize,
         config: &ExportConfig,
     ) {
-        ui.horizontal(|ui| {
-            // 表名
-            ui.label(RichText::new("表:").small().color(GRAY));
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            ui.label(RichText::new("表").small().color(GRAY));
             ui.label(RichText::new(table_name).strong());
 
-            ui.separator();
-
-            // 统计信息
             let selected_cols = config.selected_column_count();
             let export_rows = if config.row_limit > 0 {
                 config
@@ -356,13 +468,17 @@ impl ExportDialog {
             };
 
             ui.label(
-                RichText::new(format!("导出: {}列 × {}行", selected_cols, export_rows))
+                RichText::new(format!("{} 列 × {} 行", selected_cols, export_rows))
                     .small()
                     .color(MUTED),
             );
-
             ui.label(
-                RichText::new(format!("(共{}×{})", col_count, row_count))
+                RichText::new(format!("共 {} 列 × {} 行", col_count, row_count))
+                    .small()
+                    .color(MUTED),
+            );
+            ui.label(
+                RichText::new(format!("当前格式: {}", config.format.display_name()))
                     .small()
                     .color(MUTED),
             );
@@ -376,7 +492,8 @@ impl ExportDialog {
             LocalShortcut::ExportCycleNext,
         ]);
 
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
             ui.label(RichText::new("格式:").color(GRAY));
 
             for (fmt, icon, name, shortcut) in [
@@ -426,9 +543,8 @@ impl ExportDialog {
                 }
             }
 
-            ui.separator();
             ui.label(
-                RichText::new(format!("{format_cycle_text} 切换"))
+                RichText::new(format!("{} 切换", format_cycle_text))
                     .small()
                     .color(GRAY),
             );
@@ -437,10 +553,10 @@ impl ExportDialog {
 
     /// 导出范围
     fn show_row_range(ui: &mut egui::Ui, config: &mut ExportConfig, total_rows: usize) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
             ui.label(RichText::new("行数:").color(GRAY));
 
-            // 快捷按钮
             for (label, limit) in [("全部", 0), ("100", 100), ("1000", 1000)] {
                 if ui
                     .selectable_label(config.row_limit == limit && config.start_row == 0, label)
@@ -451,9 +567,6 @@ impl ExportDialog {
                 }
             }
 
-            ui.separator();
-
-            // 自定义行数
             ui.label(RichText::new("自定义:").small().color(GRAY));
             let mut limit_str = if config.row_limit == 0 {
                 String::new()
@@ -463,7 +576,7 @@ impl ExportDialog {
             if ui
                 .add(
                     TextEdit::singleline(&mut limit_str)
-                        .desired_width(50.0)
+                        .desired_width(60.0)
                         .hint_text("全部"),
                 )
                 .changed()
@@ -472,7 +585,7 @@ impl ExportDialog {
             }
 
             ui.label(
-                RichText::new(format!("/{}", total_rows))
+                RichText::new(format!("/ {} 行", total_rows))
                     .small()
                     .color(MUTED),
             );
@@ -481,11 +594,6 @@ impl ExportDialog {
 
     /// 列选择器（折叠面板）
     fn show_column_selector(ui: &mut egui::Ui, config: &mut ExportConfig, columns: &[String]) {
-        let header = format!(
-            "选择列 ({}/{})",
-            config.selected_column_count(),
-            columns.len()
-        );
         let navigation_text = local_shortcuts_text(&[
             LocalShortcut::ExportColumnPrev,
             LocalShortcut::ExportColumnNext,
@@ -497,113 +605,106 @@ impl ExportDialog {
         let toggle_text = local_shortcut_text(LocalShortcut::ExportColumnToggle);
         let toggle_all_text = local_shortcut_text(LocalShortcut::ExportColumnsToggleAll);
 
-        egui::CollapsingHeader::new(header)
-            .default_open(true)
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let all_selected = config.all_columns_selected();
-                    if ui
-                        .button(if all_selected {
-                            format!("取消全选 [{toggle_all_text}]")
-                        } else {
-                            format!("全选 [{toggle_all_text}]")
-                        })
-                        .on_hover_text(local_shortcut_tooltip(
-                            "切换全部列的选择状态",
-                            LocalShortcut::ExportColumnsToggleAll,
-                        ))
-                        .clicked()
-                    {
-                        let new_state = !all_selected;
-                        for s in &mut config.selected_columns {
-                            *s = new_state;
+        ui.horizontal_wrapped(|ui| {
+            let all_selected = config.all_columns_selected();
+            ui.label(
+                RichText::new(format!(
+                    "已选 {}/{} 列",
+                    config.selected_column_count(),
+                    columns.len()
+                ))
+                .small()
+                .color(MUTED),
+            );
+
+            if ui
+                .button(if all_selected {
+                    format!("取消全选 [{}]", toggle_all_text)
+                } else {
+                    format!("全选 [{}]", toggle_all_text)
+                })
+                .on_hover_text(local_shortcut_tooltip(
+                    "切换全部列的选择状态",
+                    LocalShortcut::ExportColumnsToggleAll,
+                ))
+                .clicked()
+            {
+                let new_state = !all_selected;
+                for selected in &mut config.selected_columns {
+                    *selected = new_state;
+                }
+            }
+
+            ui.label(
+                RichText::new(format!(
+                    "{} 导航 · {} 跳首末 · {} 切换",
+                    navigation_text, range_text, toggle_text
+                ))
+                .small()
+                .color(GRAY),
+            );
+        });
+
+        ui.add_space(4.0);
+
+        DialogContent::card(ui, None, |ui| {
+            ScrollArea::vertical()
+                .max_height(DialogContent::adaptive_height(ui, 0.5, 120.0, 220.0))
+                .show(ui, |ui| {
+                    for (i, col_name) in columns.iter().enumerate() {
+                        if i >= config.selected_columns.len() {
+                            continue;
                         }
+
+                        let is_nav_selected = i == config.nav_column_index;
+                        let display_name = if col_name.len() > 28 {
+                            format!("{}…", &col_name[..26])
+                        } else {
+                            col_name.clone()
+                        };
+                        let bg_color = if is_nav_selected {
+                            Color32::from_rgba_unmultiplied(100, 150, 255, 60)
+                        } else {
+                            Color32::TRANSPARENT
+                        };
+
+                        egui::Frame::NONE
+                            .fill(bg_color)
+                            .corner_radius(CornerRadius::same(4))
+                            .inner_margin(egui::Margin::symmetric(6, 3))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    if is_nav_selected {
+                                        ui.label(
+                                            RichText::new("▶")
+                                                .small()
+                                                .color(Color32::from_rgb(100, 180, 255)),
+                                        );
+                                    } else {
+                                        ui.label(RichText::new(" ").small());
+                                    }
+
+                                    if ui
+                                        .checkbox(&mut config.selected_columns[i], &display_name)
+                                        .clicked()
+                                    {
+                                        config.nav_column_index = i;
+                                    }
+                                });
+                            });
                     }
-
-                    ui.separator();
-                    ui.label(
-                        RichText::new(format!(
-                            "{} 导航, {} 跳首末, {} 切换",
-                            navigation_text, range_text, toggle_text
-                        ))
-                        .small()
-                        .color(GRAY),
-                    );
                 });
-
-                ui.add_space(4.0);
-
-                // 列复选框（垂直列表，支持键盘导航高亮）
-                egui::Frame::NONE
-                    .fill(Color32::from_rgba_unmultiplied(60, 60, 70, 30))
-                    .corner_radius(CornerRadius::same(4))
-                    .inner_margin(egui::Margin::symmetric(8, 6))
-                    .show(ui, |ui| {
-                        ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
-                            for (i, col_name) in columns.iter().enumerate() {
-                                if i < config.selected_columns.len() {
-                                    let is_nav_selected = i == config.nav_column_index;
-                                    let display_name = if col_name.len() > 20 {
-                                        format!("{}…", &col_name[..18])
-                                    } else {
-                                        col_name.clone()
-                                    };
-
-                                    // 键盘导航高亮
-                                    let bg_color = if is_nav_selected {
-                                        Color32::from_rgba_unmultiplied(100, 150, 255, 60)
-                                    } else {
-                                        Color32::TRANSPARENT
-                                    };
-
-                                    egui::Frame::NONE
-                                        .fill(bg_color)
-                                        .corner_radius(CornerRadius::same(2))
-                                        .inner_margin(egui::Margin::symmetric(4, 1))
-                                        .show(ui, |ui| {
-                                            ui.horizontal(|ui| {
-                                                if is_nav_selected {
-                                                    ui.label(
-                                                        RichText::new(">").small().color(
-                                                            Color32::from_rgb(100, 180, 255),
-                                                        ),
-                                                    );
-                                                }
-                                                if ui
-                                                    .checkbox(
-                                                        &mut config.selected_columns[i],
-                                                        &display_name,
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    config.nav_column_index = i;
-                                                }
-                                            });
-                                        });
-                                }
-                            }
-                        });
-                    });
-            });
+        });
     }
 
     /// 格式特定选项（折叠面板）
     fn show_format_options(ui: &mut egui::Ui, config: &mut ExportConfig) {
-        let header = match config.format {
-            ExportFormat::Csv => "CSV 选项",
-            ExportFormat::Tsv => "TSV 选项",
-            ExportFormat::Sql => "SQL 选项",
-            ExportFormat::Json => "JSON 选项",
-        };
-
-        egui::CollapsingHeader::new(header)
-            .default_open(false)
-            .show(ui, |ui| match config.format {
-                ExportFormat::Csv => Self::show_csv_options(ui, config),
-                ExportFormat::Tsv => Self::show_tsv_options(ui, config),
-                ExportFormat::Sql => Self::show_sql_options(ui, config),
-                ExportFormat::Json => Self::show_json_options(ui, config),
-            });
+        match config.format {
+            ExportFormat::Csv => Self::show_csv_options(ui, config),
+            ExportFormat::Tsv => Self::show_tsv_options(ui, config),
+            ExportFormat::Sql => Self::show_sql_options(ui, config),
+            ExportFormat::Json => Self::show_json_options(ui, config),
+        }
     }
 
     /// CSV 选项
@@ -672,214 +773,121 @@ impl ExportDialog {
     }
 
     /// 导出预览（折叠面板）
-    fn show_preview(ui: &mut egui::Ui, config: &ExportConfig, data: &QueryResult) {
-        egui::CollapsingHeader::new("预览")
-            .default_open(false)
-            .show(ui, |ui| {
-                let preview_text = Self::generate_preview(config, data);
+    fn show_preview(
+        ui: &mut egui::Ui,
+        config: &ExportConfig,
+        data: &QueryResult,
+        table_name: &str,
+        db_type: DatabaseType,
+    ) {
+        let mut session = config.to_transfer_session(data, table_name, db_type);
+        session.row_window.preview_rows = 3;
+        let preview_text = preview_export_transfer(data, &session)
+            .ok()
+            .and_then(|preview| preview.rendered_text)
+            .unwrap_or_else(|| "（预览失败）".to_string());
 
-                egui::Frame::NONE
-                    .fill(Color32::from_rgba_unmultiplied(40, 40, 50, 60))
-                    .corner_radius(CornerRadius::same(4))
-                    .inner_margin(egui::Margin::symmetric(8, 6))
-                    .show(ui, |ui| {
-                        ScrollArea::horizontal().max_height(100.0).show(ui, |ui| {
-                            ui.label(
-                                RichText::new(&preview_text)
-                                    .monospace()
-                                    .size(10.0)
-                                    .color(Color32::from_rgb(180, 180, 190)),
-                            );
-                        });
-                    });
-            });
-    }
-
-    /// 生成预览文本
-    fn generate_preview(config: &ExportConfig, data: &QueryResult) -> String {
-        let selected_indices = config.get_selected_column_indices();
-        if selected_indices.is_empty() {
-            return "（未选择任何列）".to_string();
-        }
-
-        let preview_rows = 3.min(data.rows.len());
-        let selected_cols: Vec<&String> = selected_indices
-            .iter()
-            .filter_map(|&i| data.columns.get(i))
-            .collect();
-
-        match config.format {
-            ExportFormat::Csv | ExportFormat::Tsv => {
-                let mut lines = Vec::new();
-                let delimiter = config.csv_delimiter.to_string();
-                if config.csv_include_header {
-                    lines.push(
-                        selected_cols
-                            .iter()
-                            .map(|s| s.as_str())
-                            .collect::<Vec<_>>()
-                            .join(&delimiter),
-                    );
-                }
-                for row in data.rows.iter().skip(config.start_row).take(preview_rows) {
-                    let values: Vec<&str> = selected_indices
-                        .iter()
-                        .filter_map(|&i| row.get(i).map(|s| s.as_str()))
-                        .collect();
-                    lines.push(values.join(&delimiter));
-                }
-                if data.rows.len() > preview_rows {
-                    lines.push(format!("... (+{} 行)", data.rows.len() - preview_rows));
-                }
-                lines.join("\n")
-            }
-            ExportFormat::Sql => {
-                let mut lines = Vec::new();
-                let cols_str = selected_cols
-                    .iter()
-                    .map(|c| format!("`{}`", c))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                for row in data
-                    .rows
-                    .iter()
-                    .skip(config.start_row)
-                    .take(preview_rows.min(2))
-                {
-                    let values: Vec<String> = selected_indices
-                        .iter()
-                        .filter_map(|&i| row.get(i))
-                        .map(|v| {
-                            if v == "NULL" {
-                                "NULL".to_string()
-                            } else {
-                                format!("'{}'", v)
-                            }
-                        })
-                        .collect();
-                    lines.push(format!(
-                        "INSERT INTO `t` ({}) VALUES ({});",
-                        cols_str,
-                        values.join(", ")
-                    ));
-                }
-                if data.rows.len() > 2 {
-                    lines.push(format!("... (+{} 条)", data.rows.len() - 2));
-                }
-                lines.join("\n")
-            }
-            ExportFormat::Json => {
-                let mut items = Vec::new();
-                for row in data.rows.iter().skip(config.start_row).take(2) {
-                    let obj: Vec<String> = selected_indices
-                        .iter()
-                        .zip(selected_cols.iter())
-                        .filter_map(|(&i, col)| {
-                            row.get(i).map(|v| {
-                                if v == "NULL" {
-                                    format!("\"{}\": null", col)
-                                } else {
-                                    format!("\"{}\": \"{}\"", col, v)
-                                }
-                            })
-                        })
-                        .collect();
-                    items.push(format!("{{ {} }}", obj.join(", ")));
-                }
-                if data.rows.len() > 2 {
-                    items.push(format!("... (+{} 条)", data.rows.len() - 2));
-                }
-                format!("[{}]", items.join(", "))
-            }
-        }
+        DialogContent::code_block(
+            ui,
+            &preview_text,
+            DialogContent::adaptive_height(ui, 0.45, 120.0, 220.0),
+        );
     }
 
     /// 状态消息
     fn show_status_message(ui: &mut egui::Ui, result: &Result<String, String>) {
-        let (icon, message, color, bg_color) = match result {
-            Ok(msg) => (
-                "[OK]",
-                msg.as_str(),
-                SUCCESS,
-                Color32::from_rgba_unmultiplied(82, 196, 106, 25),
-            ),
-            Err(msg) => (
-                "[X]",
-                msg.as_str(),
-                DANGER,
-                Color32::from_rgba_unmultiplied(235, 87, 87, 25),
-            ),
-        };
-
-        egui::Frame::NONE
-            .fill(bg_color)
-            .corner_radius(CornerRadius::same(4))
-            .inner_margin(egui::Margin::symmetric(8, 4))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(icon).color(color));
-                    ui.label(RichText::new(message).small().color(color));
-                });
-            });
+        DialogStatus::show(ui, result);
     }
 
-    /// 底部按钮
-    fn show_buttons(
-        ui: &mut egui::Ui,
-        show: &mut bool,
-        config: &ExportConfig,
-        on_export: &mut Option<ExportConfig>,
-        row_count: usize,
-    ) {
-        let can_export = config.selected_column_count() > 0 && row_count > 0;
+    fn format_options_description(format: ExportFormat) -> &'static str {
+        match format {
+            ExportFormat::Csv => "控制分隔符和表头输出。",
+            ExportFormat::Tsv => "TSV 固定使用制表符，仍可控制表头输出。",
+            ExportFormat::Sql => "控制事务包裹和批量插入策略。",
+            ExportFormat::Json => "控制 JSON 是否美化输出。",
+        }
+    }
 
-        ui.horizontal(|ui| {
-            if ui
-                .button(format!(
-                    "取消 [{}]",
-                    local_shortcut_text(LocalShortcut::Dismiss)
-                ))
-                .on_hover_text(local_shortcut_tooltip(
-                    "关闭导出对话框",
-                    LocalShortcut::Dismiss,
-                ))
-                .clicked()
-            {
-                *show = false;
-            }
+    fn disabled_reason(config: &ExportConfig, row_count: usize) -> Option<&'static str> {
+        if row_count == 0 {
+            Some("当前结果集没有可导出的行。")
+        } else if config.selected_column_count() == 0 {
+            Some("请至少选择一列再执行导出。")
+        } else {
+            None
+        }
+    }
+}
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let btn_text = format!(
-                    "导出 {} [{}]",
-                    config.format.display_name(),
-                    local_shortcut_text(LocalShortcut::Confirm)
-                );
-                let export_btn = egui::Button::new(RichText::new(&btn_text).color(if can_export {
-                    Color32::WHITE
-                } else {
-                    GRAY
-                }))
-                .fill(if can_export {
-                    SUCCESS
-                } else {
-                    Color32::from_rgb(80, 80, 90)
-                });
+#[cfg(test)]
+mod tests {
+    use super::{ExportDialog, ExportKeyAction};
+    use crate::core::ExportFormat;
+    use egui::{Event, Key, Modifiers, RawInput};
 
-                if ui
-                    .add_enabled(can_export, export_btn)
-                    .on_hover_text(local_shortcut_tooltip(
-                        "导出当前结果",
-                        LocalShortcut::Confirm,
-                    ))
-                    .clicked()
-                {
-                    *on_export = Some(config.clone());
-                }
+    fn key_event(key: Key) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }
+    }
 
-                if !can_export {
-                    ui.label(RichText::new("请选择列").small().color(DANGER));
-                }
-            });
+    fn begin_key_pass(ctx: &egui::Context, key: Key) {
+        ctx.begin_pass(RawInput {
+            events: vec![key_event(key)],
+            modifiers: Modifiers::NONE,
+            ..Default::default()
         });
+    }
+
+    fn focus_text_input(ctx: &egui::Context) {
+        let mut text = String::new();
+        ctx.begin_pass(RawInput::default());
+        egui::Window::new("export dialog shortcut test input").show(ctx, |ui| {
+            let response =
+                ui.add(egui::TextEdit::singleline(&mut text).id_salt("export_shortcut_text_input"));
+            response.request_focus();
+        });
+        let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn export_dialog_detects_format_shortcut_through_scoped_command_id() {
+        let ctx = egui::Context::default();
+        begin_key_pass(&ctx, Key::Num4);
+
+        let action = ExportDialog::detect_key_action(&ctx, false, false);
+
+        assert_eq!(action, Some(ExportKeyAction::SetFormat(ExportFormat::Json)));
+
+        let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn export_dialog_confirm_requires_exportable_selection() {
+        let ctx = egui::Context::default();
+        begin_key_pass(&ctx, Key::Enter);
+
+        let action = ExportDialog::detect_key_action(&ctx, true, false);
+
+        assert_eq!(action, None);
+
+        let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn export_dialog_blocks_column_text_conflicts_when_text_input_is_focused() {
+        let ctx = egui::Context::default();
+        focus_text_input(&ctx);
+        begin_key_pass(&ctx, Key::J);
+
+        let action = ExportDialog::detect_key_action(&ctx, true, true);
+
+        assert_eq!(action, None);
+
+        let _ = ctx.end_pass();
     }
 }

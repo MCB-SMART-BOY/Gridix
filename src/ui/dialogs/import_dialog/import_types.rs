@@ -1,5 +1,10 @@
 //! 导入相关类型定义
 
+use crate::core::{
+    SqlDialect, TransferDelimitedOptions, TransferDirection, TransferFormat as CoreTransferFormat,
+    TransferFormatOptions, TransferJsonOptions, TransferPreview as CoreTransferPreview,
+    TransferRowWindow, TransferSchema, TransferSession, TransferSqlOptions,
+};
 use std::path::PathBuf;
 
 /// 导入格式
@@ -13,6 +18,15 @@ pub enum ImportFormat {
 }
 
 impl ImportFormat {
+    pub const fn to_transfer_format(self) -> CoreTransferFormat {
+        match self {
+            ImportFormat::Sql => CoreTransferFormat::Sql,
+            ImportFormat::Csv => CoreTransferFormat::Csv,
+            ImportFormat::Tsv => CoreTransferFormat::Tsv,
+            ImportFormat::Json => CoreTransferFormat::Json,
+        }
+    }
+
     pub fn previous(self) -> Self {
         match self {
             ImportFormat::Sql => ImportFormat::Json,
@@ -160,6 +174,24 @@ pub struct ImportPreview {
     pub sql_statements: Vec<String>,
 }
 
+impl ImportPreview {
+    pub fn from_transfer_preview(preview: CoreTransferPreview) -> Self {
+        Self {
+            columns: preview
+                .schema
+                .fields
+                .iter()
+                .map(|field| field.name.clone())
+                .collect(),
+            preview_rows: preview.sample_rows,
+            total_rows: preview.total_rows,
+            statement_count: preview.statement_count,
+            warnings: preview.warnings,
+            sql_statements: preview.sql_statements,
+        }
+    }
+}
+
 /// 导入状态
 #[derive(Debug, Clone, Default)]
 pub struct ImportState {
@@ -186,6 +218,69 @@ pub struct ImportState {
 impl ImportState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn to_transfer_session(&self, use_mysql_syntax: bool) -> TransferSession {
+        let source_name = self
+            .file_path
+            .as_ref()
+            .map(|path| path.display().to_string());
+        let target_name = match self.format {
+            ImportFormat::Sql => None,
+            ImportFormat::Csv | ImportFormat::Tsv => Some(self.csv_config.table_name.clone()),
+            ImportFormat::Json => Some(self.json_config.table_name.clone()),
+        };
+        let dialect = if use_mysql_syntax {
+            SqlDialect::MySql
+        } else {
+            SqlDialect::Standard
+        };
+
+        TransferSession {
+            direction: TransferDirection::Import,
+            format: self.format.to_transfer_format(),
+            schema: TransferSchema {
+                source_name,
+                target_name,
+                fields: Vec::new(),
+                total_rows: None,
+            },
+            mapping: Default::default(),
+            row_window: TransferRowWindow {
+                preview_rows: 10,
+                ..Default::default()
+            },
+            options: match self.format {
+                ImportFormat::Sql => TransferFormatOptions::Sql(TransferSqlOptions {
+                    use_transaction: self.sql_config.use_transaction,
+                    batch_size: 0,
+                    strip_comments: self.sql_config.strip_comments,
+                    strip_empty_lines: self.sql_config.strip_empty_lines,
+                    stop_on_error: self.sql_config.stop_on_error,
+                    dialect,
+                }),
+                ImportFormat::Csv | ImportFormat::Tsv => {
+                    TransferFormatOptions::Delimited(TransferDelimitedOptions {
+                        delimiter: self.csv_config.delimiter,
+                        quote_char: self.csv_config.quote_char,
+                        has_header: self.csv_config.has_header,
+                        skip_rows: self.csv_config.skip_rows,
+                        max_rows: 0,
+                        include_header: false,
+                    })
+                }
+                ImportFormat::Json => TransferFormatOptions::Json(TransferJsonOptions {
+                    pretty: true,
+                    json_path: if self.json_config.json_path.trim().is_empty() {
+                        None
+                    } else {
+                        Some(self.json_config.json_path.clone())
+                    },
+                    flatten_nested: self.json_config.flatten_nested,
+                    max_rows: 0,
+                }),
+            },
+        }
     }
 
     pub fn set_file(&mut self, path: PathBuf) {

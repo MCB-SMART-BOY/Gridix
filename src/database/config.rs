@@ -49,6 +49,35 @@ fn sha256_hex(input: &str) -> String {
     out
 }
 
+const KEYRING_SERVICE: &str = "gridix";
+
+fn password_entry(secret_ref: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYRING_SERVICE, secret_ref).map_err(|e| e.to_string())
+}
+
+pub(crate) fn load_password_secret(secret_ref: &str) -> Result<Option<String>, String> {
+    let entry = password_entry(secret_ref)?;
+    match entry.get_password() {
+        Ok(password) => Ok(Some(password)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+pub(crate) fn store_password_secret(secret_ref: &str, password: &str) -> Result<(), String> {
+    let entry = password_entry(secret_ref)?;
+    entry.set_password(password).map_err(|e| e.to_string())
+}
+
+pub(crate) fn delete_password_secret(secret_ref: &str) -> Result<(), String> {
+    let entry = password_entry(secret_ref)?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 // ============================================================================
 // 密码加密
 // ============================================================================
@@ -110,41 +139,6 @@ fn get_legacy_machine_key() -> [u8; 32] {
     key
 }
 
-/// 使用 AES-GCM 加密密码
-fn encrypt_password(password: &str) -> Result<String, String> {
-    use base64::{Engine, engine::general_purpose::STANDARD};
-    use ring::aead::{AES_256_GCM, Aad, LessSafeKey, Nonce, UnboundKey};
-    use ring::rand::{SecureRandom, SystemRandom};
-
-    if password.is_empty() {
-        return Ok(String::new());
-    }
-
-    let key_bytes = get_machine_key();
-    let unbound_key =
-        UnboundKey::new(&AES_256_GCM, &key_bytes).map_err(|_| "Failed to create encryption key")?;
-    let key = LessSafeKey::new(unbound_key);
-
-    // 生成随机 nonce
-    let rng = SystemRandom::new();
-    let mut nonce_bytes = [0u8; 12];
-    rng.fill(&mut nonce_bytes)
-        .map_err(|_| "Failed to generate nonce")?;
-    let nonce = Nonce::assume_unique_for_key(nonce_bytes);
-
-    // 加密
-    let mut in_out = password.as_bytes().to_vec();
-    key.seal_in_place_append_tag(nonce, Aad::empty(), &mut in_out)
-        .map_err(|_| "Encryption failed")?;
-
-    // 将 nonce 和密文组合后 base64 编码
-    let mut result = nonce_bytes.to_vec();
-    result.extend(in_out);
-
-    // 添加版本前缀以区分加密格式
-    Ok(format!("v1:{}", STANDARD.encode(&result)))
-}
-
 /// 使用指定密钥尝试解密
 fn try_decrypt_with_key(combined: &[u8], key_bytes: [u8; 32]) -> Result<String, String> {
     use ring::aead::{AES_256_GCM, Aad, LessSafeKey, Nonce, UnboundKey};
@@ -172,7 +166,7 @@ fn try_decrypt_with_key(combined: &[u8], key_bytes: [u8; 32]) -> Result<String, 
 }
 
 /// 解密密码
-fn decrypt_password(encrypted: &str) -> Result<String, String> {
+pub(crate) fn decrypt_password(encrypted: &str) -> Result<String, String> {
     use base64::{Engine, engine::general_purpose::STANDARD};
 
     if encrypted.is_empty() {
@@ -212,36 +206,6 @@ fn decrypt_password(encrypted: &str) -> Result<String, String> {
     }
 }
 
-/// 将密码加密后存储
-fn encode_password<S>(password: &str, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    use serde::ser::Error;
-
-    if password.is_empty() {
-        serializer.serialize_str("")
-    } else {
-        let encrypted = encrypt_password(password).map_err(S::Error::custom)?;
-        serializer.serialize_str(&encrypted)
-    }
-}
-
-/// 解密密码
-fn decode_password<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::Error;
-
-    let s: String = String::deserialize(deserializer)?;
-    if s.is_empty() {
-        return Ok(String::new());
-    }
-
-    decrypt_password(&s).map_err(D::Error::custom)
-}
-
 // ============================================================================
 // 连接配置
 // ============================================================================
@@ -254,14 +218,12 @@ pub struct ConnectionConfig {
     pub host: String,
     pub port: u16,
     pub username: String,
-    /// 密码使用 base64 编码存储，避免明文
-    #[serde(
-        default,
-        skip_serializing_if = "String::is_empty",
-        serialize_with = "encode_password",
-        deserialize_with = "decode_password"
-    )]
+    /// 运行时明文密码，仅保存在内存中，不写入配置文件
+    #[serde(default, skip_serializing)]
     pub password: String,
+    /// 系统密钥链中的密码引用
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password_ref: Option<String>,
     /// 数据库名（SQLite 为文件路径，MySQL/PostgreSQL 为可选的默认数据库）
     #[serde(default)]
     pub database: String,
@@ -336,6 +298,14 @@ impl ConnectionConfig {
         }
     }
 
+    fn pool_route_key_material(&self) -> String {
+        if self.db_type.requires_network() && self.ssh_config.enabled {
+            format!("ssh:{}", self.ssh_config.tunnel_name())
+        } else {
+            format!("direct:{}:{}", self.host, self.port)
+        }
+    }
+
     /// 生成唯一的连接标识符（用于连接池缓存，按用户+主机+数据库区分）
     pub fn pool_key(&self) -> String {
         match self.db_type {
@@ -344,11 +314,9 @@ impl ConnectionConfig {
                 format!("sqlite:{}", sha256_hex(&material))
             }
             DatabaseType::PostgreSQL => {
-                // 包含认证和 SSL 参数，避免配置变更后误复用旧连接
                 let material = format!(
-                    "pg:{}:{}:{}:{}:{}:{:?}:{}",
-                    self.host,
-                    self.port,
+                    "pg:{}:{}:{}:{}:{:?}:{}",
+                    self.pool_route_key_material(),
                     self.username,
                     self.database,
                     self.password,
@@ -358,11 +326,9 @@ impl ConnectionConfig {
                 format!("pg:{}", sha256_hex(&material))
             }
             DatabaseType::MySQL => {
-                // 包含认证和 SSL 参数，避免配置变更后误复用旧连接
                 let material = format!(
-                    "mysql:{}:{}:{}:{}:{}:{:?}:{}",
-                    self.host,
-                    self.port,
+                    "mysql:{}:{}:{}:{}:{:?}:{}",
+                    self.pool_route_key_material(),
                     self.username,
                     self.database,
                     self.password,
