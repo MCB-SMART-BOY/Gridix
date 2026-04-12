@@ -1,7 +1,7 @@
-use super::common::DialogContent;
+use super::common::{DialogContent, DialogShortcutContext};
+use crate::ui::LocalShortcut;
 use crate::ui::styles::theme_muted_text;
-use crate::ui::text_entry_has_priority;
-use eframe::egui::{self, Color32, Key, Modifiers, RichText, Stroke, Vec2};
+use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
 use std::hash::Hash;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -25,37 +25,42 @@ pub enum PickerNavAction {
 pub struct PickerDialogShell;
 
 impl PickerDialogShell {
-    pub fn consume_nav_action(ctx: &egui::Context) -> Option<PickerNavAction> {
-        if text_entry_has_priority(ctx) {
-            return None;
+    fn split_widths(available_width: f32, left_width: f32, middle_width: f32) -> (f32, f32, f32) {
+        let spacing = 12.0;
+        let content_width = (available_width.max(0.0) - spacing * 2.0).max(0.0);
+        if content_width <= 0.0 {
+            return (0.0, 0.0, 0.0);
         }
 
-        ctx.input_mut(|input| {
-            if input.consume_key(Modifiers::SHIFT, Key::Tab) {
-                Some(PickerNavAction::FocusPrev)
-            } else if input.consume_key(Modifiers::NONE, Key::Tab) {
-                Some(PickerNavAction::FocusNext)
-            } else if input.consume_key(Modifiers::NONE, Key::ArrowUp)
-                || input.consume_key(Modifiers::NONE, Key::K)
-            {
-                Some(PickerNavAction::MovePrev)
-            } else if input.consume_key(Modifiers::NONE, Key::ArrowDown)
-                || input.consume_key(Modifiers::NONE, Key::J)
-            {
-                Some(PickerNavAction::MoveNext)
-            } else if input.consume_key(Modifiers::NONE, Key::ArrowRight)
-                || input.consume_key(Modifiers::NONE, Key::L)
-                || input.consume_key(Modifiers::NONE, Key::Enter)
-            {
-                Some(PickerNavAction::Open)
-            } else if input.consume_key(Modifiers::NONE, Key::ArrowLeft)
-                || input.consume_key(Modifiers::NONE, Key::H)
-            {
-                Some(PickerNavAction::Back)
-            } else {
-                None
-            }
-        })
+        let total = (left_width + middle_width + 360.0).max(1.0);
+        let left_ratio = (left_width / total).clamp(0.18, 0.3);
+        let middle_ratio = (middle_width / total).clamp(0.24, 0.38);
+
+        let left_width = (content_width * left_ratio).clamp(0.0, content_width);
+        let middle_width =
+            (content_width * middle_ratio).clamp(0.0, (content_width - left_width).max(0.0));
+        let right_width = (content_width - left_width - middle_width).max(0.0);
+
+        (left_width, middle_width, right_width)
+    }
+
+    pub fn consume_nav_action(ctx: &egui::Context) -> Option<PickerNavAction> {
+        DialogShortcutContext::new(ctx).resolve(&[
+            (LocalShortcut::PickerFocusPrev, PickerNavAction::FocusPrev),
+            (LocalShortcut::PickerFocusNext, PickerNavAction::FocusNext),
+            (LocalShortcut::PickerMovePrev, PickerNavAction::MovePrev),
+            (LocalShortcut::PickerMoveNext, PickerNavAction::MoveNext),
+            (LocalShortcut::PickerOpen, PickerNavAction::Open),
+            (LocalShortcut::PickerBack, PickerNavAction::Back),
+        ])
+    }
+
+    pub fn consume_detail_nav_action(ctx: &egui::Context) -> Option<PickerNavAction> {
+        DialogShortcutContext::new(ctx).resolve(&[
+            (LocalShortcut::PickerFocusPrev, PickerNavAction::FocusPrev),
+            (LocalShortcut::PickerFocusNext, PickerNavAction::FocusNext),
+            (LocalShortcut::PickerBack, PickerNavAction::Back),
+        ])
     }
 
     pub fn next_focus(current: PickerPaneFocus) -> PickerPaneFocus {
@@ -94,16 +99,10 @@ impl PickerDialogShell {
         middle: impl FnOnce(&mut egui::Ui),
         right: impl FnOnce(&mut egui::Ui),
     ) {
-        let available_width = ui.available_width().max(420.0);
+        let available_width = ui.available_width();
         let spacing = 12.0;
-        let content_width = (available_width - spacing * 2.0).max(300.0);
-
-        let left_ratio = (left_width / (left_width + middle_width + 360.0)).clamp(0.18, 0.3);
-        let middle_ratio = (middle_width / (left_width + middle_width + 360.0)).clamp(0.24, 0.38);
-
-        let left_width = content_width * left_ratio;
-        let middle_width = content_width * middle_ratio;
-        let right_width = (content_width - left_width - middle_width).max(0.0);
+        let (left_width, middle_width, right_width) =
+            Self::split_widths(available_width, left_width, middle_width);
 
         ui.horizontal_top(|ui| {
             ui.allocate_ui_with_layout(
@@ -272,5 +271,38 @@ impl PickerDialogShell {
                 .interact(egui::Sense::click())
         })
         .inner
+    }
+
+    pub fn reveal_selected(response: &egui::Response, selected: bool) {
+        if selected {
+            response.scroll_to_me(Some(egui::Align::Center));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PickerDialogShell;
+
+    #[test]
+    fn split_widths_never_exceed_available_width_when_narrow() {
+        let available_width = 320.0;
+        let (left, middle, right) = PickerDialogShell::split_widths(available_width, 220.0, 280.0);
+
+        assert!(left >= 0.0);
+        assert!(middle >= 0.0);
+        assert!(right >= 0.0);
+        assert!(left + middle + right + 24.0 <= available_width + f32::EPSILON);
+    }
+
+    #[test]
+    fn split_widths_preserve_three_panes_without_forcing_growth() {
+        let available_width = 960.0;
+        let (left, middle, right) = PickerDialogShell::split_widths(available_width, 250.0, 330.0);
+
+        assert!(left > 0.0);
+        assert!(middle > 0.0);
+        assert!(right > 0.0);
+        assert!(left + middle + right + 24.0 <= available_width + f32::EPSILON);
     }
 }

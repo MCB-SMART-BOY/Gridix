@@ -82,6 +82,56 @@ pub async fn get_tables(config: &ConnectionConfig, database: &str) -> Result<Vec
     Ok(tables)
 }
 
+/// 删除 MySQL 数据库。
+pub async fn drop_database(config: &ConnectionConfig, database: &str) -> Result<(), DbError> {
+    let sql = format!("DROP DATABASE {}", quote_mysql_identifier(database));
+    let mut last_error = None;
+
+    for maintenance_db in mysql_maintenance_databases(config, database) {
+        let mut maintenance_config = config.clone();
+        maintenance_config.database = maintenance_db;
+
+        match POOL_MANAGER.get_mysql_pool(&maintenance_config).await {
+            Ok(pool) => match pool.get_conn().await {
+                Ok(mut conn) => {
+                    return conn
+                        .query_drop(sql.clone())
+                        .await
+                        .map_err(|e| DbError::Query(e.to_string()));
+                }
+                Err(error) => {
+                    last_error = Some(format!("MySQL 获取连接失败: {}", error));
+                }
+            },
+            Err(error) => {
+                last_error = Some(format!("MySQL 维护连接失败: {}", error));
+            }
+        }
+    }
+
+    Err(DbError::Connection(last_error.unwrap_or_else(|| {
+        "未找到可用的 MySQL 维护数据库来执行 DROP DATABASE".to_string()
+    })))
+}
+
+fn mysql_maintenance_databases(config: &ConnectionConfig, target_database: &str) -> Vec<String> {
+    let mut databases = Vec::new();
+    for candidate in [
+        config.database.as_str(),
+        "mysql",
+        "sys",
+        "information_schema",
+        "",
+    ] {
+        let trimmed = candidate.trim();
+        if trimmed == target_database || databases.iter().any(|db| db == trimmed) {
+            continue;
+        }
+        databases.push(trimmed.to_string());
+    }
+    databases
+}
+
 /// 获取 MySQL 表的主键列名
 pub async fn get_primary_key(
     config: &ConnectionConfig,
@@ -744,9 +794,9 @@ pub async fn get_routines(config: &ConnectionConfig) -> Result<Vec<RoutineInfo>,
 mod tests {
     use super::{
         DbError, await_cancellable_query, build_kill_query_sql, format_cancel_message,
-        quote_mysql_identifier,
+        mysql_maintenance_databases, quote_mysql_identifier,
     };
-    use crate::database::query::query_result;
+    use crate::database::{ConnectionConfig, DatabaseType, query::query_result};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
@@ -778,6 +828,27 @@ mod tests {
     fn test_format_cancel_message_with_detail() {
         let msg = format_cancel_message(Some("权限不足".to_string()));
         assert_eq!(msg, "查询已取消（权限不足）");
+    }
+
+    #[test]
+    fn test_mysql_drop_database_uses_maintenance_candidates() {
+        let mut config = ConnectionConfig {
+            db_type: DatabaseType::MySQL,
+            ..Default::default()
+        };
+        config.database = "app_db".to_string();
+
+        let candidates = mysql_maintenance_databases(&config, "app_db");
+
+        assert_eq!(
+            candidates,
+            vec![
+                "mysql".to_string(),
+                "sys".to_string(),
+                "information_schema".to_string(),
+                "".to_string(),
+            ]
+        );
     }
 
     #[tokio::test]

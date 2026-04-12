@@ -10,7 +10,7 @@ use super::picker_shell::{PickerDialogShell, PickerNavAction, PickerPaneFocus};
 use crate::core::Action;
 use crate::ui::styles::{theme_accent, theme_muted_text, theme_warn};
 use crate::ui::{LocalShortcut, local_shortcuts_text};
-use egui::{self, Color32, Key, Modifiers, RichText, ScrollArea, Vec2};
+use egui::{self, Color32, RichText, ScrollArea, Vec2};
 
 #[path = "help_dialog/learning.rs"]
 mod learning;
@@ -58,8 +58,8 @@ enum HelpPickerUiAction {
 }
 
 impl HelpDialog {
-    const WINDOW_WIDTH: f32 = 920.0;
-    const WINDOW_HEIGHT: f32 = 680.0;
+    const WINDOW_WIDTH: f32 = 860.0;
+    const WINDOW_HEIGHT: f32 = 620.0;
     const LEARNING_SEQUENCE: [LearningTopic; 21] = [
         LearningTopic::Foundations,
         LearningTopic::DataTypes,
@@ -139,7 +139,10 @@ impl HelpDialog {
             return None;
         }
 
-        DialogWindow::fixed_style(
+        let (nav_width, item_width, compact_nav, compact_items) =
+            Self::pane_layout_for_state(&snapshot);
+
+        DialogWindow::workspace(
             ctx,
             "帮助与学习",
             &DialogStyle::WORKSPACE,
@@ -220,10 +223,10 @@ impl HelpDialog {
 
             PickerDialogShell::split(
                 ui,
-                220.0,
-                280.0,
-                |ui| Self::show_root_pane(ui, &snapshot, &mut root_picker_action),
-                |ui| Self::show_item_pane(ui, &snapshot, &mut item_picker_action),
+                nav_width,
+                item_width,
+                |ui| Self::show_root_pane(ui, &snapshot, compact_nav, &mut root_picker_action),
+                |ui| Self::show_item_pane(ui, &snapshot, compact_items, &mut item_picker_action),
                 |ui| Self::show_detail_pane(ui, ctx, &snapshot, context, &mut content_ui_action),
             );
         });
@@ -262,19 +265,15 @@ impl HelpDialog {
     }
 
     fn consume_detail_nav_action(ctx: &egui::Context) -> Option<PickerNavAction> {
-        ctx.input_mut(|input| {
-            if input.consume_key(Modifiers::SHIFT, Key::Tab) {
-                Some(PickerNavAction::FocusPrev)
-            } else if input.consume_key(Modifiers::NONE, Key::Tab) {
-                Some(PickerNavAction::FocusNext)
-            } else if input.consume_key(Modifiers::NONE, Key::ArrowLeft)
-                || input.consume_key(Modifiers::NONE, Key::H)
-            {
-                Some(PickerNavAction::Back)
-            } else {
-                None
-            }
-        })
+        PickerDialogShell::consume_detail_nav_action(ctx)
+    }
+
+    fn pane_layout_for_state(state: &HelpState) -> (f32, f32, bool, bool) {
+        match state.picker_focus {
+            PickerPaneFocus::Navigator => (220.0, 280.0, false, false),
+            PickerPaneFocus::Items => (132.0, 250.0, true, false),
+            PickerPaneFocus::Detail => (104.0, 176.0, true, true),
+        }
     }
 
     fn apply_ui_action(state: &mut HelpState, action: HelpUiAction) -> Option<HelpAction> {
@@ -515,12 +514,17 @@ impl HelpDialog {
     fn show_root_pane(
         ui: &mut egui::Ui,
         state: &HelpState,
+        compact: bool,
         pending_action: &mut Option<HelpPickerUiAction>,
     ) {
         PickerDialogShell::pane(
             ui,
             "导航",
-            "左列选择帮助主线；j/k 移动，l 或 Enter 打开。",
+            if compact {
+                "已选主线会收窄；h 返回，单击重新展开。"
+            } else {
+                "左列选择帮助主线；j/k 移动，l 或 Enter 打开。"
+            },
             state.picker_focus == PickerPaneFocus::Navigator,
             |ui| {
                 ScrollArea::vertical()
@@ -530,18 +534,21 @@ impl HelpDialog {
                             HelpPickerRoot::ToolQuickStart,
                             HelpPickerRoot::DatabaseLearning,
                         ] {
-                            if PickerDialogShell::entry(
+                            let is_selected = state.picker_root == root;
+                            let response = PickerDialogShell::entry(
                                 ui,
                                 format!("help_root::{root:?}"),
-                                state.picker_root == root,
-                                state.picker_root == root
-                                    && state.picker_focus == PickerPaneFocus::Navigator,
+                                is_selected,
+                                is_selected && state.picker_focus == PickerPaneFocus::Navigator,
                                 Self::picker_root_label(root),
-                                Some(Self::picker_root_meta(root)),
+                                (!compact).then_some(Self::picker_root_meta(root)),
                                 None,
-                            )
-                            .clicked()
-                            {
+                            );
+                            PickerDialogShell::reveal_selected(
+                                &response,
+                                is_selected && state.picker_focus == PickerPaneFocus::Navigator,
+                            );
+                            if response.clicked() {
                                 *pending_action = Some(HelpPickerUiAction::OpenRoot(root));
                             }
                             ui.add_space(6.0);
@@ -554,12 +561,17 @@ impl HelpDialog {
     fn show_item_pane(
         ui: &mut egui::Ui,
         state: &HelpState,
+        compact: bool,
         pending_action: &mut Option<HelpPickerUiAction>,
     ) {
         PickerDialogShell::pane(
             ui,
             "当前层级",
-            "中列浏览当前主线内容；j/k 移动，l 或 Enter 打开。",
+            if compact {
+                "选中后自动收窄，让正文拿到更多空间。"
+            } else {
+                "中列浏览当前主线内容；j/k 移动，l 或 Enter 打开。"
+            },
             state.picker_focus == PickerPaneFocus::Items,
             |ui| {
                 ScrollArea::vertical()
@@ -567,18 +579,21 @@ impl HelpDialog {
                     .show(ui, |ui| match state.picker_root {
                         HelpPickerRoot::ToolQuickStart => {
                             let item = HelpPickerItem::ToolQuickStartGuide;
-                            if PickerDialogShell::entry(
+                            let is_selected = state.picker_item == item;
+                            let response = PickerDialogShell::entry(
                                 ui,
                                 "help_item::tool_quick_start",
-                                state.picker_item == item,
-                                state.picker_item == item
-                                    && state.picker_focus == PickerPaneFocus::Items,
+                                is_selected,
+                                is_selected && state.picker_focus == PickerPaneFocus::Items,
                                 Self::picker_item_label(item),
-                                Some("焦点 / 工作流 / 表格 / SQL 编辑器"),
-                                Some(Self::picker_item_detail(item)),
-                            )
-                            .clicked()
-                            {
+                                (!compact).then_some("焦点 / 工作流 / 表格 / SQL 编辑器"),
+                                (!compact).then_some(Self::picker_item_detail(item)),
+                            );
+                            PickerDialogShell::reveal_selected(
+                                &response,
+                                is_selected && state.picker_focus == PickerPaneFocus::Items,
+                            );
+                            if response.clicked() {
                                 *pending_action = Some(HelpPickerUiAction::OpenItem(item));
                             }
                         }
@@ -588,18 +603,21 @@ impl HelpDialog {
                                 HelpPickerItem::LearningOverview,
                                 HelpPickerItem::LearningRoadmap,
                             ] {
-                                if PickerDialogShell::entry(
+                                let is_selected = state.picker_item == item;
+                                let response = PickerDialogShell::entry(
                                     ui,
                                     format!("help_item::{item:?}"),
-                                    state.picker_item == item,
-                                    state.picker_item == item
-                                        && state.picker_focus == PickerPaneFocus::Items,
+                                    is_selected,
+                                    is_selected && state.picker_focus == PickerPaneFocus::Items,
                                     Self::picker_item_label(item),
                                     None,
-                                    Some(Self::picker_item_detail(item)),
-                                )
-                                .clicked()
-                                {
+                                    (!compact).then_some(Self::picker_item_detail(item)),
+                                );
+                                PickerDialogShell::reveal_selected(
+                                    &response,
+                                    is_selected && state.picker_focus == PickerPaneFocus::Items,
+                                );
+                                if response.clicked() {
                                     *pending_action = Some(HelpPickerUiAction::OpenItem(item));
                                 }
                                 ui.add_space(6.0);
@@ -608,18 +626,21 @@ impl HelpDialog {
                             PickerDialogShell::section_label(ui, "知识点");
                             for definition in TOPIC_DEFINITIONS {
                                 let item = HelpPickerItem::LearningTopic(definition.topic);
-                                if PickerDialogShell::entry(
+                                let is_selected = state.picker_item == item;
+                                let response = PickerDialogShell::entry(
                                     ui,
                                     format!("help_item::topic::{:?}", definition.topic),
-                                    state.picker_item == item,
-                                    state.picker_item == item
-                                        && state.picker_focus == PickerPaneFocus::Items,
+                                    is_selected,
+                                    is_selected && state.picker_focus == PickerPaneFocus::Items,
                                     definition.short_title,
-                                    Some(definition.dependency_text),
-                                    Some(definition.summary),
-                                )
-                                .clicked()
-                                {
+                                    (!compact).then_some(definition.dependency_text),
+                                    (!compact).then_some(definition.summary),
+                                );
+                                PickerDialogShell::reveal_selected(
+                                    &response,
+                                    is_selected && state.picker_focus == PickerPaneFocus::Items,
+                                );
+                                if response.clicked() {
                                     *pending_action = Some(HelpPickerUiAction::OpenItem(item));
                                 }
                                 ui.add_space(6.0);
@@ -807,5 +828,19 @@ mod tests {
 
         HelpDialog::apply_picker_nav_action(&mut state, PickerNavAction::Back);
         assert_eq!(state.picker_focus, PickerPaneFocus::Items);
+    }
+
+    #[test]
+    fn detail_focus_uses_compact_picker_layout() {
+        let mut state = HelpState::default();
+        let navigator_layout = HelpDialog::pane_layout_for_state(&state);
+
+        state.picker_focus = PickerPaneFocus::Detail;
+        let detail_layout = HelpDialog::pane_layout_for_state(&state);
+
+        assert!(detail_layout.0 < navigator_layout.0);
+        assert!(detail_layout.1 < navigator_layout.1);
+        assert!(detail_layout.2);
+        assert!(detail_layout.3);
     }
 }

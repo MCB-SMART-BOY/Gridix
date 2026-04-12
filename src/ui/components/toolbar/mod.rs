@@ -9,7 +9,10 @@ pub use actions::{ToolbarActions, ToolbarFocusTransfer};
 
 use crate::core::{Action, KeyBindings, ProgressManager, ThemeManager};
 use crate::ui::styles::{MARGIN_MD, MARGIN_SM};
-use crate::ui::{action_tooltip, action_tooltip_with_extras, shortcut_tooltip};
+use crate::ui::{
+    LocalShortcut, action_tooltip, action_tooltip_with_extras, consume_local_shortcut,
+    shortcut_tooltip,
+};
 use egui::{Color32, Vec2};
 
 use super::ProgressIndicator;
@@ -333,12 +336,16 @@ impl Toolbar {
         ui.add_space(4.0);
 
         // 操作下拉菜单 (索引 3)
-        show_actions_dropdown(ui, keybindings, has_result, actions);
+        let force_open = actions.open_actions_dropdown;
+        show_actions_dropdown(ui, keybindings, has_result, force_open, actions);
+        actions.open_actions_dropdown = false;
 
         ui.add_space(4.0);
 
         // 新建下拉菜单 (索引 4)
-        show_create_dropdown(ui, keybindings, actions);
+        let force_open = actions.open_create_dropdown;
+        show_create_dropdown(ui, keybindings, force_open, actions);
+        actions.open_create_dropdown = false;
 
         ui.add_space(4.0);
         separator(ui);
@@ -348,7 +355,7 @@ impl Toolbar {
         if icon_button_with_focus(
             ui,
             "⌨",
-            &shortcut_tooltip("打开快捷键设置", &["Alt+K"]),
+            &action_tooltip(keybindings, Action::OpenKeybindingsDialog),
             true,
             is_focused && selected_index == 5,
         ) {
@@ -380,44 +387,83 @@ impl Toolbar {
         // 工具栏项目列表 (简化版本，主要支持导航)
         const TOOLBAR_ITEMS: usize = 7; // 侧边栏、编辑器、刷新、操作、新建、快捷键、帮助
 
-        ui.input(|i| {
-            // h/左箭头: 向左移动
-            if (i.key_pressed(egui::Key::H) || i.key_pressed(egui::Key::ArrowLeft))
-                && *toolbar_index > 0
-            {
+        ui.input_mut(|i| {
+            if consume_local_shortcut(i, LocalShortcut::ToolbarPrev) && *toolbar_index > 0 {
                 *toolbar_index -= 1;
-            }
-
-            // l/右箭头: 向右移动
-            if (i.key_pressed(egui::Key::L) || i.key_pressed(egui::Key::ArrowRight))
+            } else if consume_local_shortcut(i, LocalShortcut::ToolbarNext)
                 && *toolbar_index < TOOLBAR_ITEMS - 1
             {
                 *toolbar_index += 1;
-            }
-
-            // j/下箭头: 向下进入Tab栏
-            if i.key_pressed(egui::Key::J) || i.key_pressed(egui::Key::ArrowDown) {
+            } else if consume_local_shortcut(i, LocalShortcut::ToolbarToQueryTabs) {
                 actions.focus_transfer = Some(actions::ToolbarFocusTransfer::ToQueryTabs);
-            }
-
-            // Enter: 激活当前选中项
-            if i.key_pressed(egui::Key::Enter) {
+            } else if consume_local_shortcut(i, LocalShortcut::ToolbarActivate) {
                 match *toolbar_index {
                     0 => actions.toggle_sidebar = true,
                     1 => actions.toggle_editor = true,
                     2 => actions.refresh_tables = true,
-                    3 => { /* 操作下拉菜单 - 暂不支持 */ }
-                    4 => { /* 新建下拉菜单 - 暂不支持 */ }
+                    3 => actions.open_actions_dropdown = true,
+                    4 => actions.open_create_dropdown = true,
                     5 => actions.show_keybindings = true,
                     6 => actions.show_help = true,
                     _ => {}
                 }
-            }
-
-            // Escape: 返回Tab栏
-            if i.key_pressed(egui::Key::Escape) {
+            } else if consume_local_shortcut(i, LocalShortcut::ToolbarDismiss) {
                 actions.focus_transfer = Some(actions::ToolbarFocusTransfer::ToQueryTabs);
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{Area, Context, Event, Id, Key, Modifiers, RawInput};
+
+    fn key_event(key: Key) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }
+    }
+
+    fn run_toolbar_key(key: Key, toolbar_index: &mut usize, actions: &mut ToolbarActions) {
+        let ctx = Context::default();
+        ctx.begin_pass(RawInput {
+            events: vec![key_event(key)],
+            modifiers: Modifiers::NONE,
+            ..Default::default()
+        });
+        Area::new(Id::new("toolbar_keyboard_test")).show(&ctx, |ui| {
+            Toolbar::handle_keyboard(ui, toolbar_index, actions);
+        });
+        let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn toolbar_keyboard_activate_opens_action_dropdown_when_selected() {
+        let mut index = 3;
+        let mut actions = ToolbarActions::default();
+
+        run_toolbar_key(Key::Enter, &mut index, &mut actions);
+
+        assert!(actions.open_actions_dropdown);
+    }
+
+    #[test]
+    fn toolbar_keyboard_uses_local_shortcuts_for_navigation() {
+        let mut index = 1;
+        let mut actions = ToolbarActions::default();
+
+        run_toolbar_key(Key::L, &mut index, &mut actions);
+        assert_eq!(index, 2);
+
+        run_toolbar_key(Key::J, &mut index, &mut actions);
+        assert_eq!(
+            actions.focus_transfer,
+            Some(actions::ToolbarFocusTransfer::ToQueryTabs)
+        );
     }
 }

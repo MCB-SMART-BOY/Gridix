@@ -5,6 +5,6 @@ mod sidebar;
 
 pub use history_panel::{HistoryPanel, HistoryPanelState};
 pub use sidebar::{
-    Sidebar, SidebarActions, SidebarFilterInsertMode, SidebarFilterWorkspaceMode,
-    SidebarFocusTransfer, SidebarPanelState, SidebarWorkflowState,
+    Sidebar, SidebarActions, SidebarDeleteTarget, SidebarFilterInsertMode,
+    SidebarFilterWorkspaceMode, SidebarFocusTransfer, SidebarPanelState, SidebarWorkflowState,
 };

@@ -9,7 +9,8 @@ use super::{
     COLOR_VISUAL_SELECT,
 };
 use crate::ui::styles::{GRAY, theme_text};
-use egui::{self, Color32, Key, RichText, Sense, TextEdit, Vec2};
+use crate::ui::{LocalShortcut, consume_local_shortcut};
+use egui::{self, Color32, RichText, Sense, TextEdit, Vec2};
 
 // NULL 值颜色
 const COLOR_NULL: Color32 = Color32::from_rgb(120, 120, 140);
@@ -221,7 +222,7 @@ fn render_editing_cell(
             .font(egui::TextStyle::Monospace),
     );
 
-    let should_exit = ui.input(|i| i.key_pressed(Key::Escape) || i.key_pressed(Key::Enter));
+    let should_exit = consume_grid_edit_finish(ui);
 
     if should_exit || response.lost_focus() {
         if state.edit_text != state.original_value {
@@ -379,7 +380,7 @@ fn render_new_row_editing_cell(
             .font(egui::TextStyle::Monospace),
     );
 
-    let should_exit = ui.input(|i| i.key_pressed(Key::Escape) || i.key_pressed(Key::Enter));
+    let should_exit = consume_grid_edit_finish(ui);
 
     if should_exit || response.lost_focus() {
         // 计算新增行的索引（row_idx - 原始结果行数）
@@ -455,4 +456,45 @@ fn render_new_row_display_cell(
             ui.close();
         }
     });
+}
+
+fn consume_grid_edit_finish(ui: &mut egui::Ui) -> bool {
+    ui.input_mut(|input| consume_local_shortcut(input, LocalShortcut::GridEditFinish))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::consume_grid_edit_finish;
+    use eframe::egui::{Area, Context, Event, Id, Key, Modifiers, RawInput};
+
+    fn key_event(key: Key) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }
+    }
+
+    fn run_finish_key(key: Key) -> bool {
+        let ctx = Context::default();
+        ctx.begin_pass(RawInput {
+            events: vec![key_event(key)],
+            modifiers: Modifiers::NONE,
+            ..Default::default()
+        });
+        let mut consumed = false;
+        Area::new(Id::new("grid_inline_edit_key_test")).show(&ctx, |ui| {
+            consumed = consume_grid_edit_finish(ui);
+        });
+        let _ = ctx.end_pass();
+        consumed
+    }
+
+    #[test]
+    fn grid_inline_edit_finish_uses_local_shortcut_bindings() {
+        assert!(run_finish_key(Key::Enter));
+        assert!(run_finish_key(Key::Escape));
+    }
 }

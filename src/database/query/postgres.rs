@@ -45,6 +45,30 @@ fn parse_table_ref(table: &str) -> (Option<String>, String) {
     }
 }
 
+fn quote_postgres_identifier(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+
+fn postgres_maintenance_databases(config: &ConnectionConfig, target_database: &str) -> Vec<String> {
+    let mut databases = Vec::new();
+    for candidate in [
+        config.database.as_str(),
+        "postgres",
+        "template1",
+        "defaultdb",
+    ] {
+        let trimmed = candidate.trim();
+        if trimmed.is_empty()
+            || trimmed == target_database
+            || databases.iter().any(|db| db == trimmed)
+        {
+            continue;
+        }
+        databases.push(trimmed.to_string());
+    }
+    databases
+}
+
 /// 获取 PostgreSQL 数据库列表
 pub async fn get_databases(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
     let client = POOL_MANAGER.get_pg_client(config).await?;
@@ -78,6 +102,36 @@ pub async fn get_tables(config: &ConnectionConfig, database: &str) -> Result<Vec
         .map_err(|e| DbError::Query(e.to_string()))?;
 
     Ok(rows.iter().map(|r| r.get(0)).collect())
+}
+
+/// 删除 PostgreSQL 数据库。
+pub async fn drop_database(config: &ConnectionConfig, database: &str) -> Result<(), DbError> {
+    let quoted_database = quote_postgres_identifier(database);
+    let maintenance_dbs = postgres_maintenance_databases(config, database);
+    let mut last_error = None;
+
+    for maintenance_db in maintenance_dbs {
+        let mut maintenance_config = config.clone();
+        maintenance_config.database = maintenance_db.clone();
+
+        match POOL_MANAGER.get_pg_client(&maintenance_config).await {
+            Ok(client) => {
+                let sql = format!("DROP DATABASE {}", quoted_database);
+                return client
+                    .execute(sql.as_str(), &[])
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| DbError::Query(format!("删除数据库失败: {}", e)));
+            }
+            Err(error) => {
+                last_error = Some(format!("连接维护数据库 {} 失败: {}", maintenance_db, error));
+            }
+        }
+    }
+
+    Err(DbError::Connection(last_error.unwrap_or_else(|| {
+        "未找到可用的 PostgreSQL 维护数据库来执行 DROP DATABASE".to_string()
+    })))
 }
 
 /// 获取 PostgreSQL 表的主键列名

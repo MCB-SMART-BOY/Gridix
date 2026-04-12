@@ -1,7 +1,10 @@
 use crate::core::ThemePreset;
-use crate::ui::shortcut_tooltip;
 use crate::ui::styles::{MUTED, theme_text};
-use egui::{Color32, CornerRadius, Id, Key, RichText, Vec2};
+use crate::ui::{
+    LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
+    local_shortcuts_text,
+};
+use egui::{Color32, CornerRadius, Id, RichText, Vec2};
 
 use super::actions::ThemeComboState;
 use super::utils::render_combo_item;
@@ -74,7 +77,10 @@ pub fn helix_theme_combo_simple(
             .frame(false)
             .min_size(Vec2::new(0.0, 24.0)),
         )
-        .on_hover_text(shortcut_tooltip("选择主题", &["Ctrl+Shift+T"]));
+        .on_hover_text(local_shortcut_tooltip(
+            "选择主题",
+            LocalShortcut::ToolbarActivate,
+        ));
 
     if response.clicked() {
         state.is_open = !state.is_open;
@@ -101,38 +107,30 @@ pub fn helix_theme_combo_simple(
                         let themes_len = themes.len();
 
                         // 键盘处理
-                        let input_result = ui.input(|i| {
+                        let input_result = ui.input_mut(|i| {
                             let mut close = false;
                             let mut confirm = false;
                             let mut new_idx: Option<usize> = None;
 
-                            if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown) {
+                            if consume_local_shortcut(i, LocalShortcut::ToolbarThemeNext) {
                                 let next = state.selected_index.saturating_add(1);
                                 if next < themes_len {
                                     new_idx = Some(next);
                                 }
-                            }
-
-                            if (i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp))
+                            } else if consume_local_shortcut(i, LocalShortcut::ToolbarThemePrev)
                                 && state.selected_index > 0
                             {
                                 new_idx = Some(state.selected_index - 1);
-                            }
-
-                            if i.key_pressed(Key::Enter) || i.key_pressed(Key::L) {
+                            } else if consume_local_shortcut(i, LocalShortcut::ToolbarThemeConfirm)
+                            {
                                 confirm = true;
                                 close = true;
-                            }
-
-                            if i.key_pressed(Key::Escape) || i.key_pressed(Key::H) {
+                            } else if consume_local_shortcut(i, LocalShortcut::ToolbarThemeDismiss)
+                            {
                                 close = true;
-                            }
-
-                            if i.key_pressed(Key::G) && !i.modifiers.shift {
+                            } else if consume_local_shortcut(i, LocalShortcut::ToolbarThemeStart) {
                                 new_idx = Some(0);
-                            }
-
-                            if i.key_pressed(Key::G) && i.modifiers.shift {
+                            } else if consume_local_shortcut(i, LocalShortcut::ToolbarThemeEnd) {
                                 new_idx = Some(themes_len.saturating_sub(1));
                             }
 
@@ -186,9 +184,17 @@ pub fn helix_theme_combo_simple(
                         ui.horizontal(|ui| {
                             ui.add_space(8.0);
                             ui.label(
-                                RichText::new("j/k 选择  Enter 确认  Esc 取消")
-                                    .small()
-                                    .color(MUTED),
+                                RichText::new(format!(
+                                    "{} 选择  {} 确认  {} 取消",
+                                    local_shortcuts_text(&[
+                                        LocalShortcut::ToolbarThemePrev,
+                                        LocalShortcut::ToolbarThemeNext,
+                                    ]),
+                                    local_shortcut_text(LocalShortcut::ToolbarThemeConfirm),
+                                    local_shortcut_text(LocalShortcut::ToolbarThemeDismiss),
+                                ))
+                                .small()
+                                .color(MUTED),
                             );
                         });
                         ui.add_space(4.0);

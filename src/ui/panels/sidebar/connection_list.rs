@@ -1,6 +1,9 @@
 //! 连接列表渲染
 
-use super::{DatabaseList, SidebarActions, SidebarPanelState, SidebarSelectionState, TableList};
+use super::{
+    DatabaseList, SidebarActions, SidebarDeleteTarget, SidebarPanelState, SidebarSelectionState,
+    TableList,
+};
 use crate::core::{Action, KeyBindings};
 use crate::database::ConnectionManager;
 use crate::ui::styles::{
@@ -26,6 +29,65 @@ pub(crate) struct ConnectionItemData {
 pub struct ConnectionList;
 
 impl ConnectionList {
+    pub(super) fn delete_targets_for_context(
+        connection_name: &str,
+        selected_database: Option<&str>,
+    ) -> Vec<SidebarDeleteTarget> {
+        let mut targets = Vec::new();
+        if let Some(database) = selected_database
+            .map(str::trim)
+            .filter(|database| !database.is_empty())
+        {
+            targets.push(SidebarDeleteTarget::Database {
+                connection_name: connection_name.to_string(),
+                database_name: database.to_string(),
+            });
+        }
+        targets.push(SidebarDeleteTarget::Connection(connection_name.to_string()));
+        targets
+    }
+
+    pub(super) fn show_delete_targets_menu(
+        ui: &mut egui::Ui,
+        connection_name: &str,
+        selected_database: Option<&str>,
+        actions: &mut SidebarActions,
+    ) {
+        for target in Self::delete_targets_for_context(connection_name, selected_database) {
+            let (label, target) = match target {
+                SidebarDeleteTarget::Database {
+                    connection_name,
+                    database_name,
+                } => (
+                    format!("🗑 删除数据库 {}", database_name),
+                    SidebarDeleteTarget::Database {
+                        connection_name,
+                        database_name,
+                    },
+                ),
+                SidebarDeleteTarget::Connection(connection) => (
+                    format!("🗑 删除连接 {}", connection),
+                    SidebarDeleteTarget::Connection(connection),
+                ),
+                SidebarDeleteTarget::Table {
+                    connection_name,
+                    table_name,
+                } => (
+                    format!("🗑 删除表 {}", table_name),
+                    SidebarDeleteTarget::Table {
+                        connection_name,
+                        table_name,
+                    },
+                ),
+            };
+
+            if ui.button(RichText::new(label).color(DANGER)).clicked() {
+                actions.delete = Some(target);
+                ui.close();
+            }
+        }
+    }
+
     /// 显示上部面板（连接/数据库/表）
     #[allow(clippy::too_many_arguments)]
     pub fn show(
@@ -261,77 +323,101 @@ impl ConnectionList {
             .inner_margin(egui::Margin::symmetric(MARGIN_SM, 2))
             .show(ui, |ui| {
                 // 连接头部
-                let header_response =
-                    egui::collapsing_header::CollapsingHeader::new(Self::connection_header_text(
-                        name,
+                let header_id = ui.make_persistent_id(("sidebar_connection", name));
+                let mut collapsing_state =
+                    egui::collapsing_header::CollapsingState::load_with_default_open(
+                        ui.ctx(),
+                        header_id,
                         conn_data.is_active,
-                        conn_data.is_connected,
-                        is_nav_selected,
-                    ))
-                    .default_open(conn_data.is_active)
-                    .show(ui, |ui| {
+                    );
+                let mut label_clicked = false;
+
+                let header_response = ui
+                    .horizontal(|ui| {
+                        let toggle_response = collapsing_state
+                            .show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
+                        let label_response = ui.add(
+                            egui::Label::new(Self::connection_header_text(
+                                name,
+                                conn_data.is_active,
+                                conn_data.is_connected,
+                                is_nav_selected,
+                            ))
+                            .sense(egui::Sense::click()),
+                        );
+                        if label_response.clicked() {
+                            collapsing_state.toggle(ui);
+                            label_clicked = true;
+                        }
+
                         ui.add_space(SPACING_SM);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            Self::show_connection_header_actions(
+                                ui,
+                                name,
+                                conn_data.is_active,
+                                conn_data.selected_database.as_deref(),
+                                selected_table,
+                                actions,
+                            );
+                        });
 
-                        // 连接信息
-                        Self::show_connection_info(ui, &conn_data.db_type, &conn_data.host);
+                        (toggle_response, label_response)
+                    })
+                    .response;
 
-                        ui.add_space(SPACING_SM);
+                collapsing_state.show_body_unindented(ui, |ui| {
+                    ui.add_space(SPACING_SM);
 
-                        // 操作按钮
-                        Self::show_connection_buttons(
+                    // 连接信息
+                    Self::show_connection_info(ui, &conn_data.db_type, &conn_data.host);
+
+                    ui.add_space(SPACING_MD);
+
+                    // 如果有数据库列表（MySQL/PostgreSQL），显示数据库列表
+                    if conn_data.is_connected && !conn_data.databases.is_empty() {
+                        DatabaseList::show(
                             ui,
                             name,
-                            conn_data.is_active,
+                            &conn_data.databases,
+                            conn_data.selected_database.as_deref(),
+                            &conn_data.tables,
+                            connection_manager,
                             selected_table,
                             actions,
+                            is_focused,
+                            focused_section,
+                            selection,
                         );
+                    } else if conn_data.is_connected {
+                        // SQLite 模式：直接显示表列表
+                        TableList::show(
+                            ui,
+                            name,
+                            &conn_data.tables,
+                            connection_manager,
+                            selected_table,
+                            actions,
+                            is_focused,
+                            focused_section,
+                            selection,
+                        );
+                    }
 
-                        ui.add_space(SPACING_MD);
+                    // 错误显示
+                    if let Some(error) = &conn_data.error {
+                        ui.add_space(SPACING_SM);
+                        Self::show_error(ui, error);
+                    }
+                });
 
-                        // 如果有数据库列表（MySQL/PostgreSQL），显示数据库列表
-                        if conn_data.is_connected && !conn_data.databases.is_empty() {
-                            DatabaseList::show(
-                                ui,
-                                name,
-                                &conn_data.databases,
-                                conn_data.selected_database.as_deref(),
-                                &conn_data.tables,
-                                connection_manager,
-                                selected_table,
-                                actions,
-                                is_focused,
-                                focused_section,
-                                selection,
-                            );
-                        } else if conn_data.is_connected {
-                            // SQLite 模式：直接显示表列表
-                            TableList::show(
-                                ui,
-                                name,
-                                &conn_data.tables,
-                                connection_manager,
-                                selected_table,
-                                actions,
-                                is_focused,
-                                focused_section,
-                                selection,
-                            );
-                        }
-
-                        // 错误显示
-                        if let Some(error) = &conn_data.error {
-                            ui.add_space(SPACING_SM);
-                            Self::show_error(ui, error);
-                        }
-                    });
-
-                if header_response.header_response.clicked() {
+                if label_clicked {
                     actions.section_change = Some(SidebarSection::Connections);
                 }
 
                 // 右键菜单
                 let is_active_for_menu = conn_data.is_active;
-                header_response.header_response.context_menu(|ui| {
+                header_response.context_menu(|ui| {
                     if is_active_for_menu {
                         if ui.button("断开连接").clicked() {
                             actions.disconnect = Some(name.to_string());
@@ -342,10 +428,12 @@ impl ConnectionList {
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button(RichText::new("🗑 删除").color(DANGER)).clicked() {
-                        actions.delete = Some(name.to_string());
-                        ui.close();
-                    }
+                    Self::show_delete_targets_menu(
+                        ui,
+                        name,
+                        conn_data.selected_database.as_deref(),
+                        actions,
+                    );
                 });
             });
     }
@@ -396,10 +484,11 @@ impl ConnectionList {
     }
 
     /// 显示连接操作按钮
-    fn show_connection_buttons(
+    fn show_connection_header_actions(
         ui: &mut egui::Ui,
         name: &str,
         is_active: bool,
+        selected_database: Option<&str>,
         selected_table: &mut Option<String>,
         actions: &mut SidebarActions,
     ) {
@@ -426,8 +515,32 @@ impl ConnectionList {
                 actions.connect = Some(name.to_string());
             }
 
-            if icon_btn(ui, "🗑", "删除连接", DANGER) {
-                actions.delete = Some(name.to_string());
+            if let Some(database) = selected_database
+                .map(str::trim)
+                .filter(|database| !database.is_empty())
+                && ui
+                    .add(
+                        egui::Button::new(RichText::new("删库").small().color(DANGER))
+                            .min_size(Vec2::new(44.0, 22.0)),
+                    )
+                    .on_hover_text(format!("删除数据库 {}", database))
+                    .clicked()
+            {
+                actions.delete = Some(SidebarDeleteTarget::Database {
+                    connection_name: name.to_string(),
+                    database_name: database.to_string(),
+                });
+            }
+
+            if ui
+                .add(
+                    egui::Button::new(RichText::new("删连").small().color(DANGER))
+                        .min_size(Vec2::new(44.0, 22.0)),
+                )
+                .on_hover_text(format!("删除连接 {}", name))
+                .clicked()
+            {
+                actions.delete = Some(SidebarDeleteTarget::Connection(name.to_string()));
             }
         });
     }
@@ -457,5 +570,35 @@ fn truncate_error(error: &str) -> String {
         format!("{}...", &error[..47])
     } else {
         error.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConnectionList;
+    use crate::ui::panels::sidebar::SidebarDeleteTarget;
+
+    #[test]
+    fn delete_targets_include_selected_database_and_connection() {
+        let targets = ConnectionList::delete_targets_for_context("prod", Some("analytics"));
+        assert_eq!(
+            targets,
+            vec![
+                SidebarDeleteTarget::Database {
+                    connection_name: "prod".to_string(),
+                    database_name: "analytics".to_string(),
+                },
+                SidebarDeleteTarget::Connection("prod".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn delete_targets_without_selected_database_only_include_connection() {
+        let targets = ConnectionList::delete_targets_for_context("sqlite", None);
+        assert_eq!(
+            targets,
+            vec![SidebarDeleteTarget::Connection("sqlite".to_string())]
+        );
     }
 }

@@ -31,7 +31,9 @@ mod state;
 mod table_list;
 mod trigger_panel;
 
-pub use actions::{SidebarActions, SidebarFilterInsertMode, SidebarFocusTransfer};
+pub use actions::{
+    SidebarActions, SidebarDeleteTarget, SidebarFilterInsertMode, SidebarFocusTransfer,
+};
 pub use filter_panel::FilterPanel;
 pub use state::{
     SidebarFilterWorkspaceMode, SidebarPanelState, SidebarSelectionState, SidebarWorkflowState,
@@ -948,14 +950,27 @@ impl Sidebar {
                 let mut names: Vec<_> = connection_manager.connections.keys().cloned().collect();
                 names.sort_unstable();
                 if let Some(name) = names.get(selected_index) {
-                    actions.delete = Some(name.clone());
+                    actions.delete = Some(SidebarDeleteTarget::Connection(name.clone()));
                 }
             }
             SidebarSection::Tables => {
                 if let Some(conn) = connection_manager.get_active()
                     && let Some(table) = conn.tables.get(selected_index)
                 {
-                    actions.delete = Some(format!("table:{}", table));
+                    actions.delete = Some(SidebarDeleteTarget::Table {
+                        connection_name: conn.config.name.clone(),
+                        table_name: table.clone(),
+                    });
+                }
+            }
+            SidebarSection::Databases => {
+                if let Some(conn) = connection_manager.get_active()
+                    && let Some(database) = conn.databases.get(selected_index)
+                {
+                    actions.delete = Some(SidebarDeleteTarget::Database {
+                        connection_name: conn.config.name.clone(),
+                        database_name: database.clone(),
+                    });
                 }
             }
             SidebarSection::Filters => {
@@ -998,61 +1013,66 @@ impl Sidebar {
             .clicked()
         };
 
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(6.0, 4.0);
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(0.0, 6.0);
 
-            ui.label(
-                egui::RichText::new("工作区")
-                    .small()
-                    .color(Color32::from_gray(120)),
-            );
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
+                ui.label(
+                    egui::RichText::new("工作区")
+                        .small()
+                        .color(Color32::from_gray(120)),
+                );
 
-            if toggle_chip(
-                ui,
-                "连接",
-                panel_state.show_connections,
-                &shortcut_tooltip("切换连接工作区", &["Ctrl+1"]),
-                Color32::from_rgb(100, 200, 150),
-            ) {
-                panel_state.show_connections = !panel_state.show_connections;
-            }
+                if toggle_chip(
+                    ui,
+                    "连接",
+                    panel_state.show_connections,
+                    &shortcut_tooltip("切换连接工作区", &["Ctrl+1"]),
+                    Color32::from_rgb(100, 200, 150),
+                ) {
+                    panel_state.show_connections = !panel_state.show_connections;
+                }
 
-            if toggle_chip(
-                ui,
-                "筛选",
-                panel_state.show_filters,
-                &shortcut_tooltip("切换筛选工作区", &["Ctrl+4"]),
-                Color32::from_rgb(120, 185, 255),
-            ) {
-                panel_state.show_filters = !panel_state.show_filters;
-            }
+                if toggle_chip(
+                    ui,
+                    "筛选",
+                    panel_state.show_filters,
+                    &shortcut_tooltip("切换筛选工作区", &["Ctrl+4"]),
+                    Color32::from_rgb(120, 185, 255),
+                ) {
+                    panel_state.show_filters = !panel_state.show_filters;
+                }
+            });
 
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new("高级")
-                    .small()
-                    .color(Color32::from_gray(110)),
-            );
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
+                ui.label(
+                    egui::RichText::new("高级")
+                        .small()
+                        .color(Color32::from_gray(110)),
+                );
 
-            if toggle_chip(
-                ui,
-                "触发器",
-                panel_state.show_triggers,
-                &shortcut_tooltip("切换触发器面板", &["Ctrl+5"]),
-                Color32::from_rgb(230, 180, 90),
-            ) {
-                panel_state.show_triggers = !panel_state.show_triggers;
-            }
+                if toggle_chip(
+                    ui,
+                    "触发器",
+                    panel_state.show_triggers,
+                    &shortcut_tooltip("切换触发器面板", &["Ctrl+5"]),
+                    Color32::from_rgb(230, 180, 90),
+                ) {
+                    panel_state.show_triggers = !panel_state.show_triggers;
+                }
 
-            if toggle_chip(
-                ui,
-                "过程",
-                panel_state.show_routines,
-                &shortcut_tooltip("切换存储过程面板", &["Ctrl+6"]),
-                Color32::from_rgb(170, 150, 220),
-            ) {
-                panel_state.show_routines = !panel_state.show_routines;
-            }
+                if toggle_chip(
+                    ui,
+                    "过程",
+                    panel_state.show_routines,
+                    &shortcut_tooltip("切换存储过程面板", &["Ctrl+6"]),
+                    Color32::from_rgb(170, 150, 220),
+                ) {
+                    panel_state.show_routines = !panel_state.show_routines;
+                }
+            });
         });
 
         ui.separator();
@@ -1158,7 +1178,7 @@ fn prev_operator(current: &crate::ui::FilterOperator) -> crate::ui::FilterOperat
 mod tests {
     use super::*;
     use crate::database::{ConnectionConfig, ConnectionManager};
-    use crate::ui::{ColumnFilter, SidebarFilterWorkspaceMode};
+    use crate::ui::{ColumnFilter, SidebarDeleteTarget, SidebarFilterWorkspaceMode};
     use egui::{Context, Event, Key, Modifiers, RawInput};
 
     fn key_event(key: Key) -> Event {
@@ -1452,6 +1472,56 @@ mod tests {
         assert_eq!(
             operator_filters[0].operator,
             crate::ui::FilterOperator::Contains
+        );
+    }
+
+    #[test]
+    fn delete_in_databases_section_requests_database_target() {
+        let manager = active_manager_with_tables();
+        let mut panel_state = SidebarPanelState::default();
+        panel_state.selection.databases = 0;
+        let mut filters = Vec::new();
+
+        let actions = run_sidebar_key(
+            key_event(Key::D),
+            SidebarSection::Databases,
+            &mut panel_state,
+            1,
+            &manager,
+            &mut filters,
+        );
+
+        assert_eq!(
+            actions.delete,
+            Some(SidebarDeleteTarget::Database {
+                connection_name: "primary".to_string(),
+                database_name: "main".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn delete_in_tables_section_requests_table_target_with_connection_context() {
+        let manager = active_manager_with_tables();
+        let mut panel_state = SidebarPanelState::default();
+        panel_state.selection.tables = 0;
+        let mut filters = Vec::new();
+
+        let actions = run_sidebar_key(
+            key_event(Key::D),
+            SidebarSection::Tables,
+            &mut panel_state,
+            1,
+            &manager,
+            &mut filters,
+        );
+
+        assert_eq!(
+            actions.delete,
+            Some(SidebarDeleteTarget::Table {
+                connection_name: "primary".to_string(),
+                table_name: "users".to_string(),
+            })
         );
     }
 }

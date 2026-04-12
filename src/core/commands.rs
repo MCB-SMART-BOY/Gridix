@@ -111,6 +111,283 @@ pub const SCOPED_COMMANDS: &[ScopedCommand] = &[
         ],
     },
     ScopedCommand {
+        id: "dialog.picker.move_prev",
+        description: "分级选择器上一项",
+        category: "分级选择器",
+        default_bindings: &[
+            bind(KeyCode::K, KeyModifiers::NONE),
+            bind(KeyCode::ArrowUp, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "dialog.picker.move_next",
+        description: "分级选择器下一项",
+        category: "分级选择器",
+        default_bindings: &[
+            bind(KeyCode::J, KeyModifiers::NONE),
+            bind(KeyCode::ArrowDown, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "dialog.picker.open",
+        description: "分级选择器打开当前项",
+        category: "分级选择器",
+        default_bindings: &[
+            bind(KeyCode::L, KeyModifiers::NONE),
+            bind(KeyCode::ArrowRight, KeyModifiers::NONE),
+            bind(KeyCode::Enter, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "dialog.picker.back",
+        description: "分级选择器返回上一层",
+        category: "分级选择器",
+        default_bindings: &[
+            bind(KeyCode::H, KeyModifiers::NONE),
+            bind(KeyCode::ArrowLeft, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "dialog.picker.focus_next",
+        description: "分级选择器切到下一列",
+        category: "分级选择器",
+        default_bindings: &[bind(KeyCode::Tab, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "dialog.picker.focus_prev",
+        description: "分级选择器切到上一列",
+        category: "分级选择器",
+        default_bindings: &[bind(KeyCode::Tab, KeyModifiers::SHIFT)],
+    },
+    ScopedCommand {
+        id: "dialog.command_palette.prev",
+        description: "命令面板上一项",
+        category: "命令面板",
+        default_bindings: &[bind(KeyCode::ArrowUp, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "dialog.command_palette.next",
+        description: "命令面板下一项",
+        category: "命令面板",
+        default_bindings: &[bind(KeyCode::ArrowDown, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "dialog.command_palette.confirm",
+        description: "命令面板执行选中命令",
+        category: "命令面板",
+        default_bindings: &[bind(KeyCode::Enter, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "dialog.command_palette.dismiss",
+        description: "命令面板关闭",
+        category: "命令面板",
+        default_bindings: &[bind(KeyCode::Escape, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "toolbar.nav.prev",
+        description: "工具栏上一项",
+        category: "工具栏",
+        default_bindings: &[
+            bind(KeyCode::H, KeyModifiers::NONE),
+            bind(KeyCode::ArrowLeft, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "toolbar.nav.next",
+        description: "工具栏下一项",
+        category: "工具栏",
+        default_bindings: &[
+            bind(KeyCode::L, KeyModifiers::NONE),
+            bind(KeyCode::ArrowRight, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "toolbar.nav.to_query_tabs",
+        description: "工具栏切到查询标签栏",
+        category: "工具栏",
+        default_bindings: &[
+            bind(KeyCode::J, KeyModifiers::NONE),
+            bind(KeyCode::ArrowDown, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "toolbar.nav.activate",
+        description: "工具栏激活当前项",
+        category: "工具栏",
+        default_bindings: &[bind(KeyCode::Enter, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "toolbar.nav.dismiss",
+        description: "工具栏退出到查询标签栏",
+        category: "工具栏",
+        default_bindings: &[bind(KeyCode::Escape, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "toolbar.menu.prev",
+        description: "工具栏菜单上一项",
+        category: "工具栏菜单",
+        default_bindings: &[
+            bind(KeyCode::K, KeyModifiers::NONE),
+            bind(KeyCode::ArrowUp, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "toolbar.menu.next",
+        description: "工具栏菜单下一项",
+        category: "工具栏菜单",
+        default_bindings: &[
+            bind(KeyCode::J, KeyModifiers::NONE),
+            bind(KeyCode::ArrowDown, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "toolbar.menu.confirm",
+        description: "工具栏菜单确认",
+        category: "工具栏菜单",
+        default_bindings: &[bind(KeyCode::Enter, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "toolbar.menu.dismiss",
+        description: "工具栏菜单关闭",
+        category: "工具栏菜单",
+        default_bindings: &[bind(KeyCode::Escape, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "toolbar.theme.prev",
+        description: "主题列表上一项",
+        category: "主题选择",
+        default_bindings: &[
+            bind(KeyCode::K, KeyModifiers::NONE),
+            bind(KeyCode::ArrowUp, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "toolbar.theme.next",
+        description: "主题列表下一项",
+        category: "主题选择",
+        default_bindings: &[
+            bind(KeyCode::J, KeyModifiers::NONE),
+            bind(KeyCode::ArrowDown, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "toolbar.theme.confirm",
+        description: "主题列表确认",
+        category: "主题选择",
+        default_bindings: &[
+            bind(KeyCode::Enter, KeyModifiers::NONE),
+            bind(KeyCode::L, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "toolbar.theme.dismiss",
+        description: "主题列表关闭",
+        category: "主题选择",
+        default_bindings: &[
+            bind(KeyCode::Escape, KeyModifiers::NONE),
+            bind(KeyCode::H, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "toolbar.theme.start",
+        description: "主题列表跳到开头",
+        category: "主题选择",
+        default_bindings: &[bind(KeyCode::G, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "toolbar.theme.end",
+        description: "主题列表跳到结尾",
+        category: "主题选择",
+        default_bindings: &[bind(KeyCode::G, KeyModifiers::SHIFT)],
+    },
+    ScopedCommand {
+        id: "query_tabs.prev",
+        description: "查询标签切到前一个",
+        category: "查询标签",
+        default_bindings: &[
+            bind(KeyCode::H, KeyModifiers::NONE),
+            bind(KeyCode::ArrowLeft, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "query_tabs.next",
+        description: "查询标签切到后一个",
+        category: "查询标签",
+        default_bindings: &[
+            bind(KeyCode::L, KeyModifiers::NONE),
+            bind(KeyCode::ArrowRight, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "query_tabs.to_data_grid",
+        description: "查询标签切到结果表格",
+        category: "查询标签",
+        default_bindings: &[
+            bind(KeyCode::J, KeyModifiers::NONE),
+            bind(KeyCode::ArrowDown, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "query_tabs.to_toolbar",
+        description: "查询标签切到工具栏",
+        category: "查询标签",
+        default_bindings: &[
+            bind(KeyCode::K, KeyModifiers::NONE),
+            bind(KeyCode::ArrowUp, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "query_tabs.activate",
+        description: "查询标签打开当前标签内容",
+        category: "查询标签",
+        default_bindings: &[bind(KeyCode::Enter, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "query_tabs.close",
+        description: "查询标签关闭当前标签",
+        category: "查询标签",
+        default_bindings: &[bind(KeyCode::D, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "query_tabs.dismiss",
+        description: "查询标签退出到结果表格",
+        category: "查询标签",
+        default_bindings: &[bind(KeyCode::Escape, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "er_diagram.refresh",
+        description: "ER 图刷新数据",
+        category: "ER 图",
+        default_bindings: &[bind(KeyCode::R, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "er_diagram.layout",
+        description: "ER 图重新布局",
+        category: "ER 图",
+        default_bindings: &[bind(KeyCode::L, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "er_diagram.fit_view",
+        description: "ER 图适应视图",
+        category: "ER 图",
+        default_bindings: &[bind(KeyCode::F, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
+        id: "er_diagram.zoom_in",
+        description: "ER 图放大",
+        category: "ER 图",
+        default_bindings: &[
+            bind(KeyCode::Plus, KeyModifiers::NONE),
+            bind(KeyCode::Equals, KeyModifiers::NONE),
+        ],
+    },
+    ScopedCommand {
+        id: "er_diagram.zoom_out",
+        description: "ER 图缩小",
+        category: "ER 图",
+        default_bindings: &[bind(KeyCode::Minus, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
         id: "sidebar.list.prev",
         description: "侧边栏上一项",
         category: "侧边栏",
@@ -273,6 +550,12 @@ pub const SCOPED_COMMANDS: &[ScopedCommand] = &[
         default_bindings: &[bind(KeyCode::S, KeyModifiers::NONE)],
     },
     ScopedCommand {
+        id: "sidebar.filters.input.dismiss",
+        description: "筛选输入返回列表",
+        category: "筛选",
+        default_bindings: &[bind(KeyCode::Escape, KeyModifiers::NONE)],
+    },
+    ScopedCommand {
         id: "dialog.export.format_csv",
         description: "导出切到 CSV",
         category: "导出",
@@ -428,6 +711,15 @@ pub const SCOPED_COMMANDS: &[ScopedCommand] = &[
             bind(KeyCode::ArrowDown, KeyModifiers::SHIFT),
             bind(KeyCode::K, KeyModifiers::SHIFT),
             bind(KeyCode::J, KeyModifiers::SHIFT),
+        ],
+    },
+    ScopedCommand {
+        id: "grid.insert.finish_edit",
+        description: "表格结束单元格编辑",
+        category: "表格编辑",
+        default_bindings: &[
+            bind(KeyCode::Enter, KeyModifiers::NONE),
+            bind(KeyCode::Escape, KeyModifiers::NONE),
         ],
     },
     ScopedCommand {

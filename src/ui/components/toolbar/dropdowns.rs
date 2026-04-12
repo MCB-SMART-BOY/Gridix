@@ -1,7 +1,7 @@
 use crate::core::{Action, KeyBindings};
 use crate::ui::styles::theme_text;
-use crate::ui::{action_tooltip, shortcut_tooltip};
-use egui::{Color32, CornerRadius, Id, Key, RichText, Vec2};
+use crate::ui::{LocalShortcut, action_tooltip, consume_local_shortcut, local_shortcut_tooltip};
+use egui::{Color32, CornerRadius, Id, RichText, Vec2};
 
 use super::actions::{DropdownState, ToolbarActions};
 use super::utils::render_menu_item;
@@ -11,6 +11,7 @@ pub fn show_actions_dropdown(
     ui: &mut egui::Ui,
     keybindings: &KeyBindings,
     has_result: bool,
+    force_open: bool,
     actions: &mut ToolbarActions,
 ) {
     let id = Id::new("actions_dropdown");
@@ -30,7 +31,15 @@ pub fn show_actions_dropdown(
             .frame(false)
             .min_size(Vec2::new(24.0, 24.0)),
         )
-        .on_hover_text(shortcut_tooltip("打开操作菜单（工具栏焦点下）", &["Enter"]));
+        .on_hover_text(local_shortcut_tooltip(
+            "打开操作菜单（工具栏焦点在当前项时）",
+            LocalShortcut::ToolbarActivate,
+        ));
+
+    if force_open {
+        state.is_open = true;
+        state.selected_index = 0;
+    }
 
     if response.clicked() {
         state.is_open = !state.is_open;
@@ -61,30 +70,24 @@ pub fn show_actions_dropdown(
                         ui.set_min_width(140.0);
 
                         // 键盘导航
-                        let input_result = ui.input(|i| {
+                        let input_result = ui.input_mut(|i| {
                             let mut close = false;
                             let mut confirm = false;
                             let mut new_idx: Option<usize> = None;
 
-                            if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown) {
+                            if consume_local_shortcut(i, LocalShortcut::ToolbarMenuNext) {
                                 let next = state.selected_index.saturating_add(1);
                                 if next < menu_items.len() {
                                     new_idx = Some(next);
                                 }
-                            }
-
-                            if (i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp))
+                            } else if consume_local_shortcut(i, LocalShortcut::ToolbarMenuPrev)
                                 && state.selected_index > 0
                             {
                                 new_idx = Some(state.selected_index - 1);
-                            }
-
-                            if i.key_pressed(Key::Enter) {
+                            } else if consume_local_shortcut(i, LocalShortcut::ToolbarMenuConfirm) {
                                 confirm = true;
                                 close = true;
-                            }
-
-                            if i.key_pressed(Key::Escape) {
+                            } else if consume_local_shortcut(i, LocalShortcut::ToolbarMenuDismiss) {
                                 close = true;
                             }
 
@@ -166,6 +169,7 @@ pub fn show_actions_dropdown(
 pub fn show_create_dropdown(
     ui: &mut egui::Ui,
     keybindings: &KeyBindings,
+    force_open: bool,
     actions: &mut ToolbarActions,
 ) {
     let id = Id::new("create_dropdown");
@@ -185,7 +189,15 @@ pub fn show_create_dropdown(
             .frame(false)
             .min_size(Vec2::new(24.0, 24.0)),
         )
-        .on_hover_text(shortcut_tooltip("打开新建菜单（工具栏焦点下）", &["Enter"]));
+        .on_hover_text(local_shortcut_tooltip(
+            "打开新建菜单（工具栏焦点在当前项时）",
+            LocalShortcut::ToolbarActivate,
+        ));
+
+    if force_open {
+        state.is_open = true;
+        state.selected_index = 0;
+    }
 
     if response.clicked() {
         state.is_open = !state.is_open;
@@ -215,30 +227,24 @@ pub fn show_create_dropdown(
                         ui.set_min_width(160.0);
 
                         // 键盘导航
-                        let input_result = ui.input(|i| {
+                        let input_result = ui.input_mut(|i| {
                             let mut close = false;
                             let mut confirm = false;
                             let mut new_idx: Option<usize> = None;
 
-                            if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown) {
+                            if consume_local_shortcut(i, LocalShortcut::ToolbarMenuNext) {
                                 let next = state.selected_index.saturating_add(1);
                                 if next < menu_items.len() {
                                     new_idx = Some(next);
                                 }
-                            }
-
-                            if (i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp))
+                            } else if consume_local_shortcut(i, LocalShortcut::ToolbarMenuPrev)
                                 && state.selected_index > 0
                             {
                                 new_idx = Some(state.selected_index - 1);
-                            }
-
-                            if i.key_pressed(Key::Enter) {
+                            } else if consume_local_shortcut(i, LocalShortcut::ToolbarMenuConfirm) {
                                 confirm = true;
                                 close = true;
-                            }
-
-                            if i.key_pressed(Key::Escape) {
+                            } else if consume_local_shortcut(i, LocalShortcut::ToolbarMenuDismiss) {
                                 close = true;
                             }
 

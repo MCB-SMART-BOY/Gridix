@@ -288,7 +288,19 @@ impl DbManagerApp {
                                                     .color(self.highlight_colors.keyword),
                                             );
                                             ui.label(
-                                                egui::RichText::new(" h/l:移动 j:Tab栏 Enter:选择")
+                                                egui::RichText::new(format!(
+                                                    " {}:移动  {}:Tab栏  {}:选择",
+                                                    ui::local_shortcuts_text(&[
+                                                        ui::LocalShortcut::ToolbarPrev,
+                                                        ui::LocalShortcut::ToolbarNext,
+                                                    ]),
+                                                    ui::local_shortcut_text(
+                                                        ui::LocalShortcut::ToolbarToQueryTabs,
+                                                    ),
+                                                    ui::local_shortcut_text(
+                                                        ui::LocalShortcut::ToolbarActivate,
+                                                    ),
+                                                ))
                                                     .small()
                                                     .color(egui::Color32::GRAY),
                                             );
@@ -348,7 +360,22 @@ impl DbManagerApp {
                                             );
                                             ui.label(
                                                 egui::RichText::new(
-                                                    " h/l:切换 j:表格 k:工具栏 d:删除",
+                                                    format!(
+                                                        " {}:切换  {}:表格  {}:工具栏  {}:删除",
+                                                        ui::local_shortcuts_text(&[
+                                                            ui::LocalShortcut::QueryTabPrev,
+                                                            ui::LocalShortcut::QueryTabNext,
+                                                        ]),
+                                                        ui::local_shortcut_text(
+                                                            ui::LocalShortcut::QueryTabToDataGrid,
+                                                        ),
+                                                        ui::local_shortcut_text(
+                                                            ui::LocalShortcut::QueryTabToToolbar,
+                                                        ),
+                                                        ui::local_shortcut_text(
+                                                            ui::LocalShortcut::QueryTabClose,
+                                                        ),
+                                                    ),
                                                 )
                                                 .small()
                                                 .color(egui::Color32::GRAY),
@@ -864,7 +891,7 @@ impl DbManagerApp {
             && self.manager.active.as_deref() != Some(&conn_name)
         {
             self.connect(conn_name);
-            self.selected_table = None;
+            self.switch_grid_workspace(None);
             self.result = None;
             self.autocomplete.clear();
             self.sidebar_panel_state.clear_triggers();
@@ -1028,8 +1055,8 @@ impl DbManagerApp {
         }
 
         // 删除请求
-        if let Some(name) = actions.delete {
-            self.pending_delete_name = Some(name);
+        if let Some(target) = actions.delete {
+            self.pending_delete_target = Some(target);
             self.show_delete_confirm = true;
         }
 
@@ -1082,13 +1109,13 @@ impl DbManagerApp {
 
     /// 处理查看表结构
     fn handle_show_table_schema(&mut self, ctx: &egui::Context, table: String) {
-        self.selected_table = Some(table);
+        self.reset_grid_workspace_for_transient_surface(Some(table));
         self.dispatch_app_action(ctx, AppAction::ShowSelectedTableSchema);
     }
 
     /// 处理查询表数据
     fn handle_query_table(&mut self, ctx: &egui::Context, table: String) {
-        self.selected_table = Some(table);
+        self.switch_grid_workspace(Some(table));
         self.dispatch_app_action(ctx, AppAction::QuerySelectedTable);
     }
 

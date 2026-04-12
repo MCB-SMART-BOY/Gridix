@@ -5,6 +5,46 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [4.1.0]
+
+### Changed
+- Introduced a table-scoped `GridWorkspaceStore` and virtual-row model so pending new rows, filters, cursor state, and unsaved edits now stay attached to the current table workspace instead of leaking across table switches.
+  引入按表隔离的 `GridWorkspaceStore` 与虚拟行模型，使待保存的新行、筛选、光标状态和未保存编辑现在都绑定到当前表格工作区，不再在切表后泄漏。
+- Tightened sidebar layer traversal so `l` / Right now only enters deeper connection layers or filter value input, while cross-panel movement remains on vertical edge transfer.
+  收紧侧边栏层级遍历语义：`l` / 右箭头现在只负责进入更深的连接层级或筛选值输入，跨 panel 流转继续只保留给纵向边界移动。
+- Moved picker-style dialog navigation onto `dialog.picker.*` scoped commands so help and keybinding dialogs no longer hard-code raw `Tab/h/j/k/l/Enter` handling outside the keymap-aware dialog shortcut path.
+  将 picker 风格对话框的导航迁移到 `dialog.picker.*` scoped command，使帮助与快捷键设置不再在 keymap-aware 的对话框快捷键路径之外硬编码处理 `Tab/h/j/k/l/Enter`。
+- Moved toolbar, query-tab, and toolbar popup navigation onto scoped local commands, and restored keyboard opening for the toolbar action/create menus instead of leaving those slots outside the keyboard workflow.
+  将工具栏、查询标签栏以及工具栏弹层导航迁移到 scoped local command，并恢复工具栏“操作/新建”菜单的键盘打开能力，不再把这两个位置留在键盘工作流之外。
+- Moved command-palette and ER-diagram keyboard handling onto scoped local commands as well, so these overlays no longer keep a separate raw-key path outside the scope-aware shortcut system.
+  继续将命令面板与 ER 图的键盘处理迁移到 scoped local command，使这些浮层不再维护独立于 scope-aware 快捷键体系之外的 raw-key 路径。
+- Moved grid inline-edit finish and `sidebar.filters.input` escape handling onto scoped local commands too, so the remaining local edit-dismiss paths also run through the same keymap-aware shortcut layer.
+  继续将表格内联编辑结束键和 `sidebar.filters.input` 的返回键迁移到 scoped local command，使剩余的局部编辑退出路径也经过同一层 keymap-aware 快捷键语义。
+- Stopped picker-style dialogs from forcing their windows wider than the current viewport, and unified sidebar delete menus so “delete database” and “delete connection” are shown as separate targets in the same place.
+  修复 picker 风格对话框会把窗口自动撑大的问题，并统一侧边栏删除菜单，使“删除数据库”和“删除连接”以两个独立目标在同一位置展示。
+- Made connection-level destructive actions explicit again: the active connection strip now exposes separate `删库` / `删连` controls, and MySQL database deletion no longer depends on being connected to the target database itself.
+  恢复连接级危险操作的显式展示：活动连接条现在直接显示独立的 `删库` / `删连` 控件，同时 MySQL 删除数据库不再依赖“当前正连着目标数据库”这一脆弱前提。
+- Restored workspace-style help and keybinding dialogs as movable, resizable windows, and let help collapse the navigation/item panes once detail content is active so the reading area gets more width.
+  恢复帮助与快捷键设置对话框的可拖拽、可缩放窗口行为，并让帮助页在进入详情后自动收窄导航/层级列，把更多宽度让给正文。
+- Split the sidebar visibility toolbar into explicit “工作区” and “高级” rows so panel-group labels no longer wrap into a single mixed flow.
+  将侧边栏显隐工具条拆成明确的“工作区”和“高级”两行，避免分组标签和按钮继续混在同一条自动换行流里。
+
+### Fixed
+- Sidebar delete targets now carry connection context for database/table drops, so connection-header delete actions and table deletes no longer depend on whichever connection happens to be active.
+  侧边栏删除目标现在会携带连接上下文，数据库/表删除不再错误依赖“当前恰好处于 active 的连接”；连接头部的删除入口和删表动作因此恢复可靠。
+- Restored connection-row expansion and destructive controls after the custom header regression: clicking the connection label now expands/collapses the database/table stack again, and `删库 / 删连` are back as direct header actions instead of a hidden submenu path.
+  修复连接行自定义 header 带来的回归：点击连接标签现在会正常展开/折叠数据库与表列表，`删库 / 删连` 也恢复为头部的直接动作，不再藏在不稳定的子菜单路径里。
+- Counted grid navigation, insert-mode entry, and row copying now include pending new rows as first-class virtual rows, and `h` / Left at the first grid column transfers focus back to the sidebar again.
+  修复表格中的数字计数导航、进入编辑和复制整行逻辑，使未保存新行被视为一等虚拟行；同时恢复在首列按 `h` / 左箭头返回侧边栏。
+- Picker-style dialogs now auto-reveal the keyboard-selected entry inside their scroll areas, keeping help and keybinding lists in view during fully keyboard-driven navigation.
+  修复 picker 风格对话框在纯键盘导航下不会自动滚动的问题：帮助和快捷键设置中的当前选中项现在会自动滚动到可见区域。
+- Export dialog scroll regions and repeated widgets now use stable ids, which fixes the broken egui duplicate-id overlays and keeps large previews/column lists rendering normally.
+  为导出对话框的滚动区和重复控件补上稳定 id，修复 egui 重复 id 导致的异常叠层提示，并让大预览与列列表恢复正常渲染。
+- Deleting a database is now a first-class workflow separate from deleting a connection, with dedicated sidebar actions, confirmation copy, and MySQL/PostgreSQL runtime handling.
+  删除数据库现在成为独立于删除连接的一等工作流：拥有单独的侧边栏动作、确认文案以及 MySQL/PostgreSQL 运行时处理链路。
+- Removed the dead global filter-binding path from the scope-aware keymap: filter editing remains available through the sidebar filter workspace and command palette, but `Ctrl+F / Ctrl+Shift+F` are no longer advertised as routed top-level shortcuts that runtime rejects.
+  从 scope-aware keymap 中移除了失效的全局筛选绑定路径：筛选编辑仍可通过侧边栏筛选工作区和命令面板完成，但不再把运行时会拒绝的 `Ctrl+F / Ctrl+Shift+F` 宣传为顶层快捷键。
+
 ## [4.0.0]
 
 ### Changed

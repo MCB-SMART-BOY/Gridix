@@ -49,7 +49,7 @@ impl ColumnWidthCache {
 }
 
 /// 表格编辑状态
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DataGridState {
     /// 当前模式
     pub mode: GridMode,

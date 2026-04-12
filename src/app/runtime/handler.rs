@@ -59,6 +59,12 @@ impl DbManagerApp {
                 Message::DatabaseSelected(conn_name, db_name, request_id, result) => {
                     self.handle_database_selected(ctx, conn_name, db_name, request_id, result);
                 }
+                Message::DatabaseDropped(conn_name, db_name, result) => {
+                    self.handle_database_dropped(ctx, conn_name, db_name, result);
+                }
+                Message::TableDropped(conn_name, table_name, result) => {
+                    self.handle_table_dropped(ctx, conn_name, table_name, result);
+                }
                 Message::QueryDone(sql, conn_name, tab_id, request_id, result, elapsed_ms) => {
                     self.handle_query_done(
                         ctx,
@@ -250,7 +256,7 @@ impl DbManagerApp {
                         .reset_for_database_change();
                     self.load_triggers();
                     self.load_routines();
-                    self.selected_table = None;
+                    self.switch_grid_workspace(None);
                     self.result = None;
                 }
             }
@@ -260,6 +266,102 @@ impl DbManagerApp {
                 }
             }
         }
+        ctx.request_repaint();
+    }
+
+    /// 处理数据库删除完成消息
+    fn handle_database_dropped(
+        &mut self,
+        ctx: &egui::Context,
+        conn_name: String,
+        db_name: String,
+        result: Result<(), String>,
+    ) {
+        let is_active = self.manager.active.as_deref() == Some(conn_name.as_str());
+
+        match result {
+            Ok(()) => {
+                let mut dropped_selected_database = false;
+                if let Some(conn) = self.manager.connections.get_mut(&conn_name) {
+                    conn.databases.retain(|database| database != &db_name);
+                    if conn.selected_database.as_deref() == Some(db_name.as_str()) {
+                        conn.selected_database = None;
+                        conn.config.database.clear();
+                        conn.tables.clear();
+                        dropped_selected_database = true;
+                    }
+                }
+
+                self.remove_grid_workspaces_for_database(&db_name);
+                if is_active {
+                    self.sidebar_panel_state
+                        .selection
+                        .reset_for_database_change();
+                    if dropped_selected_database {
+                        self.switch_grid_workspace(None);
+                        self.result = None;
+                        self.selected_table = None;
+                        self.search_text.clear();
+                        self.search_column = None;
+                        self.autocomplete.clear();
+                        self.sidebar_panel_state.clear_triggers();
+                        self.sidebar_panel_state.clear_routines();
+                        self.sidebar_panel_state.loading_triggers = false;
+                        self.sidebar_panel_state.loading_routines = false;
+                        self.sidebar_section = ui::SidebarSection::Databases;
+                        self.set_focus_area(ui::FocusArea::Sidebar);
+                    }
+                }
+
+                self.notifications
+                    .success(format!("数据库 '{}' 已删除", db_name));
+            }
+            Err(error) => {
+                self.notifications
+                    .error(format!("删除数据库 '{}' 失败: {}", db_name, error));
+            }
+        }
+
+        ctx.request_repaint();
+    }
+
+    /// 处理表删除完成消息
+    fn handle_table_dropped(
+        &mut self,
+        ctx: &egui::Context,
+        conn_name: String,
+        table_name: String,
+        result: Result<(), String>,
+    ) {
+        let is_active = self.manager.active.as_deref() == Some(conn_name.as_str());
+
+        match result {
+            Ok(()) => {
+                if let Some(conn) = self.manager.connections.get_mut(&conn_name) {
+                    conn.tables.retain(|table| table != &table_name);
+                    if is_active {
+                        self.autocomplete.set_tables(conn.tables.clone());
+                    }
+                }
+
+                self.remove_grid_workspace_for_table(&table_name);
+                if is_active && self.selected_table.as_deref() == Some(table_name.as_str()) {
+                    self.switch_grid_workspace(None);
+                    self.result = None;
+                    self.selected_table = None;
+                    self.sidebar_section = ui::SidebarSection::Tables;
+                    self.set_focus_area(ui::FocusArea::Sidebar);
+                }
+
+                self.notifications
+                    .success(format!("表 '{}' 已删除", table_name));
+            }
+            Err(error) => {
+                self.notifications
+                    .error(format!("删除表 '{}' 失败: {}", table_name, error));
+            }
+        }
+
         ctx.request_repaint();
     }
 
@@ -396,7 +498,7 @@ impl DbManagerApp {
                         if let Some(restore) =
                             self.pending_grid_refresh_restores.remove(&request_id)
                         {
-                            self.selected_table = Some(restore.table_name);
+                            self.switch_grid_workspace(Some(restore.table_name.clone()));
                             self.search_text = restore.search_text;
                             self.search_column = restore.search_column;
                             self.grid_state.cursor =
@@ -429,7 +531,8 @@ impl DbManagerApp {
                     }
 
                     if is_current_active && self.selected_table.as_deref() == Some(&dropped_table) {
-                        self.selected_table = None;
+                        self.switch_grid_workspace(None);
+                        self.remove_grid_workspace_for_table(&dropped_table);
                         self.result = None;
                     }
                 }

@@ -184,7 +184,7 @@ impl ActionContext {
             show_sql_editor: app.show_sql_editor,
             show_er_diagram: app.show_er_diagram,
             can_confirm_pending_delete: app.show_delete_confirm
-                && app.pending_delete_name.is_some(),
+                && app.pending_delete_target.is_some(),
         }
     }
 
@@ -686,8 +686,6 @@ impl AppAction {
             ShortcutAction::NextTab => Self::NextQueryTab,
             ShortcutAction::PrevTab => Self::PrevQueryTab,
             ShortcutAction::Save => Self::SaveGridChanges,
-            ShortcutAction::AddFilter => Self::AddFilter,
-            ShortcutAction::ClearFilters => Self::ClearFilters,
             ShortcutAction::GotoLine => Self::GotoLine,
             ShortcutAction::ShowHelp => Self::ToggleHelpPanel,
             ShortcutAction::OpenThemeSelector
@@ -1180,7 +1178,7 @@ impl DbManagerApp {
         let Some(table) = self.selected_table.clone() else {
             return Vec::new();
         };
-        self.selected_table = Some(table.clone());
+        self.switch_grid_workspace(Some(table.clone()));
         if reset_primary_key {
             self.grid_state.primary_key_column = None;
         }

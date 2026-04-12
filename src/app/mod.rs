@@ -38,11 +38,59 @@ use runtime::message::Message;
 
 #[derive(Debug, Clone)]
 pub(in crate::app) struct GridSaveContext {
+    workspace_id: GridWorkspaceId,
     table_name: String,
     tab_id: String,
     cursor: (usize, usize),
     search_text: String,
     search_column: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(in crate::app) struct GridWorkspaceId {
+    connection_name: String,
+    database_name: Option<String>,
+    table_name: String,
+}
+
+#[derive(Default)]
+pub(in crate::app) struct GridWorkspaceStore {
+    states: HashMap<GridWorkspaceId, ui::DataGridState>,
+}
+
+impl GridWorkspaceStore {
+    fn save(&mut self, workspace_id: GridWorkspaceId, state: &ui::DataGridState) {
+        self.states.insert(workspace_id, state.clone());
+    }
+
+    fn load(&self, workspace_id: &GridWorkspaceId) -> Option<ui::DataGridState> {
+        self.states.get(workspace_id).cloned()
+    }
+
+    fn remove_connection(&mut self, connection_name: &str) {
+        self.states
+            .retain(|workspace_id, _| workspace_id.connection_name != connection_name);
+    }
+
+    fn remove_table(
+        &mut self,
+        connection_name: &str,
+        database_name: &Option<String>,
+        table_name: &str,
+    ) {
+        self.states.retain(|workspace_id, _| {
+            workspace_id.connection_name != connection_name
+                || &workspace_id.database_name != database_name
+                || workspace_id.table_name != table_name
+        });
+    }
+
+    fn remove_database(&mut self, connection_name: &str, database_name: &str) {
+        self.states.retain(|workspace_id, _| {
+            workspace_id.connection_name != connection_name
+                || workspace_id.database_name.as_deref() != Some(database_name)
+        });
+    }
 }
 
 /// 数据库管理器主应用结构体
@@ -155,6 +203,8 @@ pub struct DbManagerApp {
     selected_cell: Option<(usize, usize)>,
     /// 数据表格状态（筛选、排序、编辑等）
     grid_state: ui::DataGridState,
+    /// 按表实例隔离的表格工作区状态
+    grid_workspaces: GridWorkspaceStore,
 
     // ==================== 对话框状态 ====================
     /// 是否显示导出对话框
@@ -173,8 +223,8 @@ pub struct DbManagerApp {
     history_panel_state: ui::HistoryPanelState,
     /// 是否显示删除确认对话框
     show_delete_confirm: bool,
-    /// 待删除目标（连接名或 `table:<表名>`）
-    pending_delete_name: Option<String>,
+    /// 待删除目标（连接 / 数据库 / 表）
+    pending_delete_target: Option<ui::SidebarDeleteTarget>,
     /// 待处理的表删除（request_id -> (连接名, 表名)）
     pending_drop_requests: HashMap<u64, (String, String)>,
     /// 侧边栏请求聚焦的筛选输入框索引
@@ -342,6 +392,7 @@ impl DbManagerApp {
             selected_row: None,
             selected_cell: None,
             grid_state: ui::DataGridState::new(),
+            grid_workspaces: GridWorkspaceStore::default(),
             show_export_dialog: false,
             export_config: ExportConfig::default(),
             export_status: None,
@@ -350,7 +401,7 @@ impl DbManagerApp {
             show_history_panel: false,
             history_panel_state: ui::HistoryPanelState::default(),
             show_delete_confirm: false,
-            pending_delete_name: None,
+            pending_delete_target: None,
             pending_drop_requests: HashMap::new(),
             pending_filter_input_focus: None,
             theme_manager,
@@ -391,6 +442,82 @@ impl DbManagerApp {
         };
         app.refresh_welcome_environment_status();
         app
+    }
+
+    pub(in crate::app) fn grid_workspace_id_for_table(
+        &self,
+        table_name: &str,
+    ) -> Option<GridWorkspaceId> {
+        let connection_name = self.manager.active.clone()?;
+        let database_name = self
+            .manager
+            .get_active()
+            .and_then(|connection| connection.selected_database.clone());
+        Some(GridWorkspaceId {
+            connection_name,
+            database_name,
+            table_name: table_name.to_string(),
+        })
+    }
+
+    pub(in crate::app) fn active_grid_workspace_id(&self) -> Option<GridWorkspaceId> {
+        let table_name = self.selected_table.as_deref()?;
+        self.grid_workspace_id_for_table(table_name)
+    }
+
+    pub(in crate::app) fn persist_active_grid_workspace(&mut self) {
+        let Some(workspace_id) = self.active_grid_workspace_id() else {
+            return;
+        };
+        self.grid_workspaces.save(workspace_id, &self.grid_state);
+    }
+
+    fn sync_active_grid_focus(&mut self) {
+        self.grid_state.focused = self.focus_area == ui::FocusArea::DataGrid;
+    }
+
+    pub(in crate::app) fn switch_grid_workspace(&mut self, next_table: Option<String>) {
+        self.persist_active_grid_workspace();
+        self.selected_table = next_table;
+        self.grid_state = match self.active_grid_workspace_id() {
+            Some(workspace_id) => self.grid_workspaces.load(&workspace_id).unwrap_or_default(),
+            None => ui::DataGridState::new(),
+        };
+        self.sync_active_grid_focus();
+    }
+
+    pub(in crate::app) fn reset_grid_workspace_for_transient_surface(
+        &mut self,
+        selected_table: Option<String>,
+    ) {
+        self.persist_active_grid_workspace();
+        self.selected_table = selected_table;
+        self.grid_state = ui::DataGridState::new();
+        self.sync_active_grid_focus();
+    }
+
+    pub(in crate::app) fn remove_grid_workspaces_for_connection(&mut self, connection_name: &str) {
+        self.grid_workspaces.remove_connection(connection_name);
+    }
+
+    pub(in crate::app) fn remove_grid_workspace_for_table(&mut self, table_name: &str) {
+        let Some(connection_name) = self.manager.active.clone() else {
+            return;
+        };
+        let database_name = self
+            .manager
+            .get_active()
+            .and_then(|connection| connection.selected_database.clone());
+        self.grid_workspaces
+            .remove_table(&connection_name, &database_name, table_name);
+    }
+
+    pub(in crate::app) fn remove_grid_workspaces_for_database(&mut self, database_name: &str) {
+        let Some(connection_name) = self.manager.active.clone() else {
+            return;
+        };
+        self.grid_workspaces
+            .remove_database(&connection_name, database_name);
     }
 
     // 注意：connect, select_database, disconnect, delete_connection, execute,
@@ -458,5 +585,84 @@ impl eframe::App for DbManagerApp {
                 .await;
             crate::database::POOL_MANAGER.clear_all().await;
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GridWorkspaceId, GridWorkspaceStore};
+    use crate::ui::DataGridState;
+
+    fn workspace(connection: &str, database: Option<&str>, table: &str) -> GridWorkspaceId {
+        GridWorkspaceId {
+            connection_name: connection.to_string(),
+            database_name: database.map(str::to_string),
+            table_name: table.to_string(),
+        }
+    }
+
+    #[test]
+    fn grid_workspace_store_keeps_tables_isolated() {
+        let mut store = GridWorkspaceStore::default();
+        let mut users_state = DataGridState::new();
+        users_state.new_rows.push(vec!["draft-user".to_string()]);
+        users_state.cursor = (5, 0);
+
+        let mut orders_state = DataGridState::new();
+        orders_state
+            .new_rows
+            .push(vec!["draft-order".to_string(), "2".to_string()]);
+        orders_state.cursor = (8, 1);
+
+        let users_id = workspace("local", Some("main"), "users");
+        let orders_id = workspace("local", Some("main"), "orders");
+
+        store.save(users_id.clone(), &users_state);
+        store.save(orders_id.clone(), &orders_state);
+
+        let restored_users = store.load(&users_id).expect("users workspace should exist");
+        let restored_orders = store
+            .load(&orders_id)
+            .expect("orders workspace should exist");
+
+        assert_eq!(restored_users.new_rows.len(), 1);
+        assert_eq!(restored_users.new_rows[0].len(), 1);
+        assert_eq!(restored_users.cursor, (5, 0));
+        assert_eq!(restored_orders.new_rows.len(), 1);
+        assert_eq!(restored_orders.new_rows[0].len(), 2);
+        assert_eq!(restored_orders.cursor, (8, 1));
+    }
+
+    #[test]
+    fn grid_workspace_store_can_drop_whole_connection() {
+        let mut store = GridWorkspaceStore::default();
+        let state = DataGridState::new();
+        let left = workspace("left", Some("main"), "users");
+        let right = workspace("right", Some("main"), "users");
+
+        store.save(left.clone(), &state);
+        store.save(right.clone(), &state);
+        store.remove_connection("left");
+
+        assert!(store.load(&left).is_none());
+        assert!(store.load(&right).is_some());
+    }
+
+    #[test]
+    fn grid_workspace_store_can_drop_whole_database() {
+        let mut store = GridWorkspaceStore::default();
+        let state = DataGridState::new();
+        let users = workspace("local", Some("main"), "users");
+        let orders = workspace("local", Some("main"), "orders");
+        let analytics = workspace("local", Some("analytics"), "events");
+
+        store.save(users.clone(), &state);
+        store.save(orders.clone(), &state);
+        store.save(analytics.clone(), &state);
+        store.remove_database("local", "main");
+
+        assert!(store.load(&users).is_none());
+        assert!(store.load(&orders).is_none());
+        assert!(store.load(&analytics).is_some());
     }
 }

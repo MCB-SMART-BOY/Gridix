@@ -2,8 +2,10 @@
 
 use super::state::{ERDiagramState, ERTable, RelationType};
 use crate::core::ThemePreset;
-use crate::ui::shortcut_tooltip;
 use crate::ui::styles::theme_text;
+use crate::ui::{
+    LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
+};
 use egui::{self, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 
 /// ER 图渲染响应
@@ -15,6 +17,15 @@ pub struct ERDiagramResponse {
     pub layout_requested: bool,
     /// 是否需要适应视图
     pub fit_view_requested: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ERDiagramKeyAction {
+    Refresh,
+    Layout,
+    FitView,
+    ZoomIn,
+    ZoomOut,
 }
 
 /// 渲染颜色配置
@@ -93,7 +104,10 @@ impl ERDiagramState {
                         .frame(false)
                         .min_size(Vec2::new(26.0, 26.0)),
                 )
-                .on_hover_text(shortcut_tooltip("刷新数据", &["R"]))
+                .on_hover_text(local_shortcut_tooltip(
+                    "刷新数据",
+                    LocalShortcut::ErDiagramRefresh,
+                ))
                 .clicked()
             {
                 response.refresh_requested = true;
@@ -106,7 +120,10 @@ impl ERDiagramState {
                         .frame(false)
                         .min_size(Vec2::new(26.0, 26.0)),
                 )
-                .on_hover_text(shortcut_tooltip("重新布局", &["L"]))
+                .on_hover_text(local_shortcut_tooltip(
+                    "重新布局",
+                    LocalShortcut::ErDiagramLayout,
+                ))
                 .clicked()
             {
                 response.layout_requested = true;
@@ -119,7 +136,10 @@ impl ERDiagramState {
                         .frame(false)
                         .min_size(Vec2::new(26.0, 26.0)),
                 )
-                .on_hover_text(shortcut_tooltip("适应视图", &["F"]))
+                .on_hover_text(local_shortcut_tooltip(
+                    "适应视图",
+                    LocalShortcut::ErDiagramFitView,
+                ))
                 .clicked()
             {
                 response.fit_view_requested = true;
@@ -134,7 +154,10 @@ impl ERDiagramState {
                         .frame(false)
                         .min_size(Vec2::new(22.0, 22.0)),
                 )
-                .on_hover_text(shortcut_tooltip("放大视图", &["+"]))
+                .on_hover_text(local_shortcut_tooltip(
+                    "放大视图",
+                    LocalShortcut::ErDiagramZoomIn,
+                ))
                 .clicked()
             {
                 self.zoom_by(1.2);
@@ -152,7 +175,10 @@ impl ERDiagramState {
                         .frame(false)
                         .min_size(Vec2::new(22.0, 22.0)),
                 )
-                .on_hover_text(shortcut_tooltip("缩小视图", &["-"]))
+                .on_hover_text(local_shortcut_tooltip(
+                    "缩小视图",
+                    LocalShortcut::ErDiagramZoomOut,
+                ))
                 .clicked()
             {
                 self.zoom_by(0.8);
@@ -165,7 +191,11 @@ impl ERDiagramState {
                         .frame(false)
                         .min_size(Vec2::new(26.0, 26.0)),
                 )
-                .on_hover_text("重置视图")
+                .on_hover_text(format!(
+                    "重置视图\n缩放: {} / {}",
+                    local_shortcut_text(LocalShortcut::ErDiagramZoomIn),
+                    local_shortcut_text(LocalShortcut::ErDiagramZoomOut),
+                ))
                 .clicked()
             {
                 self.reset_view();
@@ -246,24 +276,16 @@ impl ERDiagramState {
         self.handle_interaction(ui, &canvas_response, canvas_rect);
 
         // 键盘快捷键
-        if canvas_response.has_focus() || canvas_response.hovered() {
-            ui.input(|i| {
-                if i.key_pressed(egui::Key::R) {
-                    response.refresh_requested = true;
-                }
-                if i.key_pressed(egui::Key::L) {
-                    response.layout_requested = true;
-                }
-                if i.key_pressed(egui::Key::F) {
-                    response.fit_view_requested = true;
-                }
-                if i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals) {
-                    self.zoom_by(1.2);
-                }
-                if i.key_pressed(egui::Key::Minus) {
-                    self.zoom_by(0.8);
-                }
-            });
+        if (canvas_response.has_focus() || canvas_response.hovered())
+            && let Some(action) = consume_er_diagram_key_action(ui)
+        {
+            match action {
+                ERDiagramKeyAction::Refresh => response.refresh_requested = true,
+                ERDiagramKeyAction::Layout => response.layout_requested = true,
+                ERDiagramKeyAction::FitView => response.fit_view_requested = true,
+                ERDiagramKeyAction::ZoomIn => self.zoom_by(1.2),
+                ERDiagramKeyAction::ZoomOut => self.zoom_by(0.8),
+            }
         }
 
         response
@@ -293,6 +315,24 @@ impl ERDiagramState {
     fn calculate_table_size(table: &mut ERTable) {
         calculate_table_size(table);
     }
+}
+
+fn consume_er_diagram_key_action(ui: &mut egui::Ui) -> Option<ERDiagramKeyAction> {
+    ui.input_mut(|input| {
+        if consume_local_shortcut(input, LocalShortcut::ErDiagramRefresh) {
+            Some(ERDiagramKeyAction::Refresh)
+        } else if consume_local_shortcut(input, LocalShortcut::ErDiagramLayout) {
+            Some(ERDiagramKeyAction::Layout)
+        } else if consume_local_shortcut(input, LocalShortcut::ErDiagramFitView) {
+            Some(ERDiagramKeyAction::FitView)
+        } else if consume_local_shortcut(input, LocalShortcut::ErDiagramZoomIn) {
+            Some(ERDiagramKeyAction::ZoomIn)
+        } else if consume_local_shortcut(input, LocalShortcut::ErDiagramZoomOut) {
+            Some(ERDiagramKeyAction::ZoomOut)
+        } else {
+            None
+        }
+    })
 }
 
 /// 计算表格尺寸（根据内容自适应宽度）
@@ -830,5 +870,51 @@ impl ERDiagramState {
         if response.drag_stopped() {
             self.end_drag();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ERDiagramKeyAction, consume_er_diagram_key_action};
+    use eframe::egui::{Area, Context, Event, Id, Key, Modifiers, RawInput};
+
+    fn key_event(key: Key) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }
+    }
+
+    fn run_diagram_key(key: Key) -> Option<ERDiagramKeyAction> {
+        let ctx = Context::default();
+        ctx.begin_pass(RawInput {
+            events: vec![key_event(key)],
+            modifiers: Modifiers::NONE,
+            ..Default::default()
+        });
+        let mut action = None;
+        Area::new(Id::new("er_diagram_key_test")).show(&ctx, |ui| {
+            action = consume_er_diagram_key_action(ui);
+        });
+        let _ = ctx.end_pass();
+        action
+    }
+
+    #[test]
+    fn er_diagram_shortcuts_use_local_command_bindings() {
+        assert_eq!(run_diagram_key(Key::R), Some(ERDiagramKeyAction::Refresh));
+        assert_eq!(run_diagram_key(Key::L), Some(ERDiagramKeyAction::Layout));
+        assert_eq!(run_diagram_key(Key::F), Some(ERDiagramKeyAction::FitView));
+        assert_eq!(
+            run_diagram_key(Key::Equals),
+            Some(ERDiagramKeyAction::ZoomIn)
+        );
+        assert_eq!(
+            run_diagram_key(Key::Minus),
+            Some(ERDiagramKeyAction::ZoomOut)
+        );
     }
 }

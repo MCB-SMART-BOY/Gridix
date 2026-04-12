@@ -65,15 +65,34 @@ impl DbManagerApp {
         // 删除确认对话框
         if active_dialog == Some(DialogId::DeleteConfirm) {
             let mut confirm_delete = false;
-            let (delete_title, delete_msg) = match self.pending_delete_name.as_deref() {
-                Some(raw) if raw.starts_with("table:") => {
-                    let table = raw.trim_start_matches("table:");
-                    (
-                        "删除表",
-                        format!("确定要删除表 '{}' 吗？该操作不可撤销。", table),
-                    )
-                }
-                Some(conn) => ("删除连接", format!("确定要删除连接 '{}' 吗？", conn)),
+            let (delete_title, delete_msg) = match self.pending_delete_target.as_ref() {
+                Some(ui::SidebarDeleteTarget::Connection(connection)) => (
+                    "删除连接",
+                    format!(
+                        "确定要删除连接 '{}' 吗？这只会移除保存的连接配置。",
+                        connection
+                    ),
+                ),
+                Some(ui::SidebarDeleteTarget::Database {
+                    connection_name,
+                    database_name,
+                }) => (
+                    "删除数据库",
+                    format!(
+                        "确定要删除连接 '{}' 下的数据库 '{}' 吗？这会真正执行 DROP DATABASE，且不可撤销。",
+                        connection_name, database_name
+                    ),
+                ),
+                Some(ui::SidebarDeleteTarget::Table {
+                    connection_name,
+                    table_name,
+                }) => (
+                    "删除表",
+                    format!(
+                        "确定要删除连接 '{}' 下的表 '{}' 吗？该操作不可撤销。",
+                        connection_name, table_name
+                    ),
+                ),
                 None => ("删除", String::new()),
             };
             ui::ConfirmDialog::show(
@@ -314,11 +333,23 @@ impl DbManagerApp {
 
     pub(in crate::app) fn confirm_pending_delete(&mut self) {
         self.show_delete_confirm = false;
-        if let Some(name) = self.pending_delete_name.take() {
-            if let Some(table) = name.strip_prefix("table:") {
-                self.delete_table(table);
-            } else {
-                self.delete_connection(&name);
+        if let Some(target) = self.pending_delete_target.take() {
+            match target {
+                ui::SidebarDeleteTarget::Connection(connection) => {
+                    self.delete_connection(&connection);
+                }
+                ui::SidebarDeleteTarget::Database {
+                    connection_name,
+                    database_name,
+                } => {
+                    self.delete_database(&connection_name, &database_name);
+                }
+                ui::SidebarDeleteTarget::Table {
+                    connection_name,
+                    table_name,
+                } => {
+                    self.delete_table(&connection_name, &table_name);
+                }
             }
         }
     }

@@ -379,6 +379,7 @@ impl ExportDialog {
             );
 
             ScrollArea::vertical()
+                .id_salt("export_main_scroll")
                 .max_height(DialogContent::adaptive_height(ui, 0.74, 220.0, 430.0))
                 .show(ui, |ui| {
                     DialogContent::section_with_description(
@@ -526,19 +527,22 @@ impl ExportDialog {
             {
                 let is_selected = config.format == *fmt;
                 let text = format!("{} {} [{}]", icon, name, local_shortcut_text(*shortcut));
+                let clicked = ui
+                    .push_id(format!("export_format::{fmt:?}"), |ui| {
+                        ui.selectable_label(is_selected, RichText::new(&text).strong())
+                            .on_hover_text(local_shortcuts_tooltip(
+                                &format!("切换到 {} 导出", name),
+                                &[
+                                    *shortcut,
+                                    LocalShortcut::ExportCyclePrev,
+                                    LocalShortcut::ExportCycleNext,
+                                ],
+                            ))
+                            .clicked()
+                    })
+                    .inner;
 
-                if ui
-                    .selectable_label(is_selected, RichText::new(&text).strong())
-                    .on_hover_text(local_shortcuts_tooltip(
-                        &format!("切换到 {} 导出", name),
-                        &[
-                            *shortcut,
-                            LocalShortcut::ExportCyclePrev,
-                            LocalShortcut::ExportCycleNext,
-                        ],
-                    ))
-                    .clicked()
-                {
+                if clicked {
                     Self::set_format(config, *fmt);
                 }
             }
@@ -576,6 +580,7 @@ impl ExportDialog {
             if ui
                 .add(
                     TextEdit::singleline(&mut limit_str)
+                        .id_salt("export_row_limit")
                         .desired_width(60.0)
                         .hint_text("全部"),
                 )
@@ -649,6 +654,7 @@ impl ExportDialog {
 
         DialogContent::card(ui, None, |ui| {
             ScrollArea::vertical()
+                .id_salt("export_columns_scroll")
                 .max_height(DialogContent::adaptive_height(ui, 0.5, 120.0, 220.0))
                 .show(ui, |ui| {
                     for (i, col_name) in columns.iter().enumerate() {
@@ -668,30 +674,35 @@ impl ExportDialog {
                             Color32::TRANSPARENT
                         };
 
-                        egui::Frame::NONE
-                            .fill(bg_color)
-                            .corner_radius(CornerRadius::same(4))
-                            .inner_margin(egui::Margin::symmetric(6, 3))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    if is_nav_selected {
-                                        ui.label(
-                                            RichText::new("▶")
-                                                .small()
-                                                .color(Color32::from_rgb(100, 180, 255)),
-                                        );
-                                    } else {
-                                        ui.label(RichText::new(" ").small());
-                                    }
+                        ui.push_id(format!("export_column::{i}"), |ui| {
+                            egui::Frame::NONE
+                                .fill(bg_color)
+                                .corner_radius(CornerRadius::same(4))
+                                .inner_margin(egui::Margin::symmetric(6, 3))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        if is_nav_selected {
+                                            ui.label(
+                                                RichText::new("▶")
+                                                    .small()
+                                                    .color(Color32::from_rgb(100, 180, 255)),
+                                            );
+                                        } else {
+                                            ui.label(RichText::new(" ").small());
+                                        }
 
-                                    if ui
-                                        .checkbox(&mut config.selected_columns[i], &display_name)
-                                        .clicked()
-                                    {
-                                        config.nav_column_index = i;
-                                    }
+                                        if ui
+                                            .checkbox(
+                                                &mut config.selected_columns[i],
+                                                &display_name,
+                                            )
+                                            .clicked()
+                                        {
+                                            config.nav_column_index = i;
+                                        }
+                                    });
                                 });
-                            });
+                        });
                     }
                 });
         });
@@ -787,8 +798,9 @@ impl ExportDialog {
             .and_then(|preview| preview.rendered_text)
             .unwrap_or_else(|| "（预览失败）".to_string());
 
-        DialogContent::code_block(
+        DialogContent::code_block_with_id(
             ui,
+            "export_preview_scroll",
             &preview_text,
             DialogContent::adaptive_height(ui, 0.45, 120.0, 220.0),
         );

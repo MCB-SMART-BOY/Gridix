@@ -11,6 +11,7 @@ use crate::ui::{
     text_entry_has_priority,
 };
 use egui::{self, Color32, CornerRadius, RichText, ScrollArea, Stroke, Vec2};
+use std::hash::Hash;
 
 /// 对话框样式预设
 #[derive(Debug, Clone, Copy)]
@@ -577,9 +578,43 @@ impl DialogContent {
         });
     }
 
+    /// 渲染统一的代码/预览容器，并允许显式指定滚动区 ID。
+    pub fn code_surface_with_id(
+        ui: &mut egui::Ui,
+        id_salt: impl Hash,
+        max_height: f32,
+        content: impl FnOnce(&mut egui::Ui),
+    ) {
+        let tint = if ui.visuals().dark_mode {
+            Color32::from_rgba_unmultiplied(36, 39, 45, 220)
+        } else {
+            Color32::from_rgba_unmultiplied(245, 247, 250, 255)
+        };
+
+        Self::card(ui, Some(tint), |ui| {
+            ScrollArea::both()
+                .id_salt(id_salt)
+                .auto_shrink([false, false])
+                .max_height(max_height)
+                .show(ui, content);
+        });
+    }
+
     /// 渲染统一的代码文本块。
     pub fn code_block(ui: &mut egui::Ui, text: &str, max_height: f32) {
         Self::code_surface(ui, max_height, |ui| {
+            ui.label(
+                RichText::new(text)
+                    .monospace()
+                    .small()
+                    .color(ui.visuals().text_color().gamma_multiply(0.9)),
+            );
+        });
+    }
+
+    /// 渲染带显式 ID 的统一代码文本块。
+    pub fn code_block_with_id(ui: &mut egui::Ui, id_salt: impl Hash, text: &str, max_height: f32) {
+        Self::code_surface_with_id(ui, id_salt, max_height, |ui| {
             ui.label(
                 RichText::new(text)
                     .monospace()
@@ -932,6 +967,37 @@ impl DialogWindow {
             .max_width(max_width)
             .max_height(max_height)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .frame(Self::frame(ctx, style))
+    }
+
+    /// 创建可拖拽、可调整大小的工作台型对话框窗口。
+    pub fn workspace<'a>(
+        ctx: &egui::Context,
+        title: &'a str,
+        style: &DialogStyle,
+        default_width: f32,
+        default_height: f32,
+    ) -> egui::Window<'a> {
+        let content_rect = ctx.input(|input| input.content_rect());
+        let (min_width, _, max_width) = style.responsive_widths(ctx);
+        let (min_height, _, max_height) = style.responsive_heights(ctx);
+        let default_size = Vec2::new(
+            default_width.clamp(min_width, max_width),
+            default_height.clamp(min_height, max_height),
+        );
+        let default_pos = content_rect.center() - default_size * 0.5;
+
+        egui::Window::new(title)
+            .collapsible(false)
+            .resizable(true)
+            .default_pos(default_pos)
+            .default_size(default_size)
+            .min_width(min_width)
+            .min_height(min_height)
+            .max_width(max_width)
+            .max_height(max_height)
+            .hscroll(false)
+            .vscroll(true)
             .frame(Self::frame(ctx, style))
     }
 

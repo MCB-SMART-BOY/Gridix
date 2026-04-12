@@ -6,7 +6,7 @@ use crate::core::KeyBindings;
 use crate::ui::styles::{GRAY, MUTED, SUCCESS};
 use crate::ui::{
     ColumnFilter, FilterLogic, FilterOperator, LocalShortcut, SidebarPanelState, SidebarSection,
-    local_shortcuts_tooltip,
+    consume_local_shortcut, local_shortcuts_tooltip,
 };
 use egui::{self, Color32, CornerRadius, RichText, TextEdit, Vec2};
 
@@ -378,9 +378,7 @@ impl FilterPanel {
                                                 if response.has_focus() {
                                                     panel_state.mark_filter_input_focus();
 
-                                                    if ui.input(|input| {
-                                                        input.key_pressed(egui::Key::Escape)
-                                                    }) {
+                                                    if consume_filter_input_dismiss(ui) {
                                                         response.surrender_focus();
                                                         panel_state.exit_filter_input();
                                                     }
@@ -481,11 +479,52 @@ impl FilterPanel {
     }
 }
 
+fn consume_filter_input_dismiss(ui: &mut egui::Ui) -> bool {
+    ui.input_mut(|input| consume_local_shortcut(input, LocalShortcut::FilterInputDismiss))
+}
+
 /// 截断字符串
 fn truncate_str(s: &str, max_len: usize) -> String {
     if s.chars().count() > max_len {
         format!("{}…", s.chars().take(max_len).collect::<String>())
     } else {
         s.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::consume_filter_input_dismiss;
+    use eframe::egui::{Area, Context, Event, Id, Key, Modifiers, RawInput};
+
+    fn key_event(key: Key) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }
+    }
+
+    fn run_filter_input_key(key: Key) -> bool {
+        let ctx = Context::default();
+        ctx.begin_pass(RawInput {
+            events: vec![key_event(key)],
+            modifiers: Modifiers::NONE,
+            ..Default::default()
+        });
+        let mut consumed = false;
+        Area::new(Id::new("filter_input_key_test")).show(&ctx, |ui| {
+            consumed = consume_filter_input_dismiss(ui);
+        });
+        let _ = ctx.end_pass();
+        consumed
+    }
+
+    #[test]
+    fn filter_input_dismiss_uses_local_shortcut_binding() {
+        assert!(run_filter_input_key(Key::Escape));
+        assert!(!run_filter_input_key(Key::Enter));
     }
 }

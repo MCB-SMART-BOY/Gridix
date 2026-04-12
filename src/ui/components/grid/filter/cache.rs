@@ -13,7 +13,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 /// 筛选缓存
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct FilterCache {
     /// 缓存是否有效
     pub valid: bool,

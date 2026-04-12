@@ -3,8 +3,8 @@
 This document defines the target input model for Gridix.
 本文定义 Gridix 未来的目标输入模型。
 
-Status for `v4.0.0`: the input owner, dialog host, and scope-aware keymap router are implemented. The remaining high-risk gaps are local grid/editor semantics, not a global-first router.
-`v4.0.0` 状态：输入所有者、对话框宿主和 scope-aware keymap router 已经落地。当前剩余的高风险缺口主要在 grid/editor 的局部语义，而不是 global-first 路由本身。
+Status for `v4.1.0`: the input owner, dialog host, and scope-aware keymap router are implemented. The remaining high-risk gaps are local grid/editor semantics, not a global-first router.
+`v4.1.0` 状态：输入所有者、对话框宿主和 scope-aware keymap router 已经落地。当前剩余的高风险缺口主要在 grid/editor 的局部语义，而不是 global-first 路由本身。
 
 Implemented foundation:
 已落地基础：
@@ -119,9 +119,14 @@ Allowed global actions:
 
 - `F1` help
 - `Ctrl+N` new connection
-- `Tab / Shift+Tab` major area switch
 - zoom actions
 - optional command palette
+
+`next_focus_area` / `prev_focus_area` are workspace-level fallback actions.
+`Tab / Shift+Tab` are only their default bindings and must not be treated as unconditional
+global-first keys.
+`next_focus_area` / `prev_focus_area` 是工作区级兜底动作。
+`Tab / Shift+Tab` 只是它们的默认绑定，不能再被实现为无条件的 global-first 按键。
 
 Everything else should belong to a scope.
 其余动作都应属于某个作用域。

@@ -94,8 +94,9 @@ pub use dialogs::{
     parse_sql_file,
 };
 pub use panels::{
-    HistoryPanel, HistoryPanelState, Sidebar, SidebarActions, SidebarFilterInsertMode,
-    SidebarFilterWorkspaceMode, SidebarFocusTransfer, SidebarPanelState, SidebarWorkflowState,
+    HistoryPanel, HistoryPanelState, Sidebar, SidebarActions, SidebarDeleteTarget,
+    SidebarFilterInsertMode, SidebarFilterWorkspaceMode, SidebarFocusTransfer, SidebarPanelState,
+    SidebarWorkflowState,
 };
 #[allow(unused_imports)] // 公开 API，供外部使用
 pub use shortcut_tooltip::{

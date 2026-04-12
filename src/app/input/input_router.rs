@@ -511,7 +511,6 @@ impl InputContextSnapshot {
             Action::ToggleEditor => self.allows_editor_visibility_toggle(),
             Action::ToggleSidebar => self.allows_panel_visibility_toggle(),
             Action::ClearSearch => self.allows_search_shortcuts(),
-            Action::AddFilter | Action::ClearFilters => false,
             Action::Save | Action::GotoLine => self.allows_data_grid_shortcuts(),
             Action::NewTab | Action::NextTab | Action::PrevTab | Action::CloseTab => {
                 self.allows_tab_management_shortcuts()
@@ -1647,7 +1646,10 @@ mod tests {
             context.resolve_shortcut_action(Action::CommandPalette),
             None
         );
-        assert_eq!(context.resolve_shortcut_action(Action::AddFilter), None);
+        assert_eq!(
+            context.resolve_shortcut_action(Action::OpenKeybindingsDialog),
+            None
+        );
     }
 
     #[test]

@@ -39,6 +39,8 @@ pub struct ToolbarActions {
     pub switch_table: Option<String>,
     // 快捷键触发的下拉框打开
     pub open_theme_selector: bool,
+    pub open_actions_dropdown: bool,
+    pub open_create_dropdown: bool,
     // 缩放操作
     pub zoom_in: bool,
     pub zoom_out: bool,

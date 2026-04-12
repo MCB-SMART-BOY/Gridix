@@ -1295,6 +1295,11 @@ fn scope_tree_entries() -> &'static [ScopeTreeEntry] {
         },
         ScopeTreeEntry {
             section: "对话框",
+            selection: ScopeTreeSelection::Scope("dialog.picker"),
+            title: "dialog.picker",
+        },
+        ScopeTreeEntry {
+            section: "对话框",
             selection: ScopeTreeSelection::Scope("dialog.export"),
             title: "dialog.export",
         },
@@ -1319,9 +1324,19 @@ fn scope_tree_entries() -> &'static [ScopeTreeEntry] {
             title: "dialog.history",
         },
         ScopeTreeEntry {
+            section: "对话框",
+            selection: ScopeTreeSelection::Scope("dialog.command_palette"),
+            title: "dialog.command_palette",
+        },
+        ScopeTreeEntry {
             section: "工作区动作",
             selection: ScopeTreeSelection::Scope("toolbar"),
             title: "toolbar",
+        },
+        ScopeTreeEntry {
+            section: "工作区动作",
+            selection: ScopeTreeSelection::Scope("er_diagram"),
+            title: "er_diagram",
         },
         ScopeTreeEntry {
             section: "工作区动作",
@@ -1436,8 +1451,8 @@ enum KeyBindingsDialogUiAction {
 }
 
 impl KeyBindingsDialog {
-    const WINDOW_WIDTH: f32 = 1040.0;
-    const WINDOW_HEIGHT: f32 = 720.0;
+    const WINDOW_WIDTH: f32 = 900.0;
+    const WINDOW_HEIGHT: f32 = 640.0;
 
     fn resolve_frame_action(
         actions: &[KeyBindingsDialogFrameAction],
@@ -1632,7 +1647,7 @@ impl KeyBindingsDialog {
         }
 
         let style = DialogStyle::WORKSPACE;
-        DialogWindow::fixed_style(
+        DialogWindow::workspace(
             ctx,
             "快捷键设置",
             &style,
@@ -1792,18 +1807,21 @@ impl KeyBindingsDialog {
                                 Some(format!("{} 项", state.filtered_count(entry.selection)))
                             };
 
-                            if PickerDialogShell::entry(
+                            let is_selected = state.current_tree == entry.selection;
+                            let response = PickerDialogShell::entry(
                                 ui,
                                 format!("nav::{:?}", entry.selection),
-                                state.current_tree == entry.selection,
-                                state.current_tree == entry.selection
-                                    && state.pane_focus == PickerPaneFocus::Navigator,
+                                is_selected,
+                                is_selected && state.pane_focus == PickerPaneFocus::Navigator,
                                 entry.title,
                                 meta.as_deref(),
                                 None,
-                            )
-                            .clicked()
-                            {
+                            );
+                            PickerDialogShell::reveal_selected(
+                                &response,
+                                is_selected && state.pane_focus == PickerPaneFocus::Navigator,
+                            );
+                            if response.clicked() {
                                 actions
                                     .push(KeyBindingsDialogUiAction::SelectTree(entry.selection));
                             }
@@ -1933,7 +1951,7 @@ impl KeyBindingsDialog {
             )
         };
 
-        if PickerDialogShell::entry(
+        let response = PickerDialogShell::entry(
             ui,
             selection.detail(),
             is_selected,
@@ -1941,9 +1959,12 @@ impl KeyBindingsDialog {
             selection.label(),
             Some(&meta),
             Some(&detail),
-        )
-        .clicked()
-        {
+        );
+        PickerDialogShell::reveal_selected(
+            &response,
+            is_selected && state.pane_focus == PickerPaneFocus::Items,
+        );
+        if response.clicked() {
             actions.push(KeyBindingsDialogUiAction::SelectBinding(selection));
         }
     }
@@ -1968,7 +1989,12 @@ impl KeyBindingsDialog {
                             DialogContent::card(ui, None, |ui| {
                                 ui.label(RichText::new("keymap.toml").small().strong());
                                 ui.add_space(4.0);
-                                ui.label(RichText::new(path.display().to_string()).monospace());
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(path.display().to_string()).monospace(),
+                                    )
+                                    .wrap(),
+                                );
                                 ui.add_space(6.0);
                                 if ui.button("复制路径").clicked() {
                                     *copied_text = Some(path.display().to_string());
@@ -2010,14 +2036,14 @@ impl KeyBindingsDialog {
                         }
 
                         if let Some(selection) = state.selected_binding {
-                            ui.horizontal_wrapped(|ui| {
+                            ui.vertical(|ui| {
                                 ui.label(RichText::new(selection.label()).strong());
                                 let detail = selection.detail();
-                                ui.label(
-                                    RichText::new(format!("({detail})"))
-                                        .small()
-                                        .weak()
-                                        .monospace(),
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(detail).small().weak().monospace(),
+                                    )
+                                    .wrap(),
                                 );
                             });
                         } else {
@@ -2030,15 +2056,23 @@ impl KeyBindingsDialog {
                             DialogContent::card(ui, None, |ui| {
                                 ui.label(RichText::new("当前绑定").small().strong());
                                 ui.add_space(4.0);
-                                ui.label(RichText::new(state.binding_text(selection)).monospace());
-                                ui.label(
-                                    RichText::new(format!(
-                                        "来源: {} · scope: {}",
-                                        state.binding_source(selection),
-                                        selection.scope_path()
-                                    ))
-                                    .small()
-                                    .weak(),
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(state.binding_text(selection)).monospace(),
+                                    )
+                                    .wrap(),
+                                );
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(format!(
+                                            "来源: {} · scope: {}",
+                                            state.binding_source(selection),
+                                            selection.scope_path()
+                                        ))
+                                        .small()
+                                        .weak(),
+                                    )
+                                    .wrap(),
                                 );
                             });
                             ui.add_space(8.0);
@@ -2309,6 +2343,43 @@ fn local_shortcut_scope_tags(shortcut: LocalShortcut) -> &'static [&'static str]
         | LocalShortcut::HelpScrollDown
         | LocalShortcut::HelpPageUp
         | LocalShortcut::HelpPageDown => &["dialog.help", "dialog.common"],
+        LocalShortcut::PickerMovePrev
+        | LocalShortcut::PickerMoveNext
+        | LocalShortcut::PickerOpen
+        | LocalShortcut::PickerBack
+        | LocalShortcut::PickerFocusNext
+        | LocalShortcut::PickerFocusPrev => &["dialog.picker"],
+        LocalShortcut::CommandPalettePrev
+        | LocalShortcut::CommandPaletteNext
+        | LocalShortcut::CommandPaletteConfirm
+        | LocalShortcut::CommandPaletteDismiss => &["dialog.command_palette"],
+        LocalShortcut::ToolbarPrev
+        | LocalShortcut::ToolbarNext
+        | LocalShortcut::ToolbarToQueryTabs
+        | LocalShortcut::ToolbarActivate
+        | LocalShortcut::ToolbarDismiss
+        | LocalShortcut::ToolbarMenuPrev
+        | LocalShortcut::ToolbarMenuNext
+        | LocalShortcut::ToolbarMenuConfirm
+        | LocalShortcut::ToolbarMenuDismiss
+        | LocalShortcut::ToolbarThemePrev
+        | LocalShortcut::ToolbarThemeNext
+        | LocalShortcut::ToolbarThemeConfirm
+        | LocalShortcut::ToolbarThemeDismiss
+        | LocalShortcut::ToolbarThemeStart
+        | LocalShortcut::ToolbarThemeEnd => &["toolbar"],
+        LocalShortcut::QueryTabPrev
+        | LocalShortcut::QueryTabNext
+        | LocalShortcut::QueryTabToDataGrid
+        | LocalShortcut::QueryTabToToolbar
+        | LocalShortcut::QueryTabActivate
+        | LocalShortcut::QueryTabClose
+        | LocalShortcut::QueryTabDismiss => &["query_tabs"],
+        LocalShortcut::ErDiagramRefresh
+        | LocalShortcut::ErDiagramLayout
+        | LocalShortcut::ErDiagramFitView
+        | LocalShortcut::ErDiagramZoomIn
+        | LocalShortcut::ErDiagramZoomOut => &["er_diagram"],
         LocalShortcut::SidebarItemPrev
         | LocalShortcut::SidebarItemNext
         | LocalShortcut::SidebarItemStart
@@ -2331,6 +2402,7 @@ fn local_shortcut_scope_tags(shortcut: LocalShortcut) -> &'static [&'static str]
         | LocalShortcut::FilterLogicToggle
         | LocalShortcut::FilterFocusInput
         | LocalShortcut::FilterCaseToggle => &["sidebar.filters.list", "sidebar.list"],
+        LocalShortcut::FilterInputDismiss => &["sidebar.filters.input"],
         LocalShortcut::ExportFormatCsv
         | LocalShortcut::ExportFormatTsv
         | LocalShortcut::ExportFormatSql
@@ -2351,6 +2423,7 @@ fn local_shortcut_scope_tags(shortcut: LocalShortcut) -> &'static [&'static str]
         | LocalShortcut::SqlHistoryPrev
         | LocalShortcut::SqlHistoryNext
         | LocalShortcut::SqlHistoryBrowse => &["editor.insert"],
+        LocalShortcut::GridEditFinish => &["grid.insert"],
         LocalShortcut::ImportRefresh
         | LocalShortcut::ImportFormatSql
         | LocalShortcut::ImportFormatCsv
@@ -2728,6 +2801,60 @@ mod tests {
     }
 
     #[test]
+    fn toolbar_scope_lists_toolbar_local_shortcuts() {
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&KeyBindings::default());
+        state.select_tree(ScopeTreeSelection::Scope("toolbar"));
+
+        let visible = state.visible_bindings();
+
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarPrev)));
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarMenuConfirm)));
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarThemeNext)));
+    }
+
+    #[test]
+    fn query_tabs_scope_lists_query_tab_local_shortcuts() {
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&KeyBindings::default());
+        state.select_tree(ScopeTreeSelection::Scope("query_tabs"));
+
+        let visible = state.visible_bindings();
+
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::QueryTabPrev)));
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::QueryTabClose)));
+        assert!(!visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarPrev)));
+    }
+
+    #[test]
+    fn command_palette_scope_lists_palette_local_shortcuts() {
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&KeyBindings::default());
+        state.select_tree(ScopeTreeSelection::Scope("dialog.command_palette"));
+
+        let visible = state.visible_bindings();
+
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::CommandPalettePrev)));
+        assert!(visible.contains(&BindingSelection::Local(
+            LocalShortcut::CommandPaletteConfirm
+        )));
+        assert!(!visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarPrev)));
+    }
+
+    #[test]
+    fn er_diagram_scope_lists_er_local_shortcuts() {
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&KeyBindings::default());
+        state.select_tree(ScopeTreeSelection::Scope("er_diagram"));
+
+        let visible = state.visible_bindings();
+
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ErDiagramRefresh)));
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ErDiagramZoomIn)));
+        assert!(!visible.contains(&BindingSelection::Local(LocalShortcut::QueryTabPrev)));
+    }
+
+    #[test]
     fn filters_scope_tree_uses_runtime_filters_list_scope() {
         let mut state = KeyBindingsDialogState::default();
         state.open(&KeyBindings::default());
@@ -2751,6 +2878,7 @@ mod tests {
             "sidebar.filters.input",
             crate::core::Action::ShowHelp,
         )));
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::FilterInputDismiss,)));
         assert!(!visible.contains(&BindingSelection::ScopedAction(
             "sidebar.filters.input",
             crate::core::Action::Refresh,
@@ -2775,6 +2903,18 @@ mod tests {
             "editor.insert",
             crate::core::Action::Refresh,
         )));
+    }
+
+    #[test]
+    fn grid_insert_scope_lists_grid_edit_local_shortcuts() {
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&KeyBindings::default());
+        state.select_tree(ScopeTreeSelection::Scope("grid.insert"));
+
+        let visible = state.visible_bindings();
+
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::GridEditFinish)));
+        assert!(!visible.contains(&BindingSelection::Local(LocalShortcut::SqlExecute)));
     }
 
     #[test]

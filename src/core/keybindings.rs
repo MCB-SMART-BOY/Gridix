@@ -761,10 +761,6 @@ pub enum Action {
     // === 编辑操作 ===
     /// 保存
     Save,
-    /// 添加筛选
-    AddFilter,
-    /// 清空筛选
-    ClearFilters,
     /// 跳转到行
     GotoLine,
 
@@ -820,8 +816,6 @@ impl Action {
             Action::NextTab,
             Action::PrevTab,
             Action::Save,
-            Action::AddFilter,
-            Action::ClearFilters,
             Action::GotoLine,
             Action::FocusSidebarConnections,
             Action::FocusSidebarDatabases,
@@ -863,8 +857,6 @@ impl Action {
             Action::NextTab => "下一个 Tab",
             Action::PrevTab => "上一个 Tab",
             Action::Save => "保存",
-            Action::AddFilter => "添加筛选",
-            Action::ClearFilters => "清空筛选",
             Action::GotoLine => "跳转到行",
             Action::FocusSidebarConnections => "聚焦连接分区",
             Action::FocusSidebarDatabases => "聚焦数据库分区",
@@ -898,7 +890,7 @@ impl Action {
             | Action::ClearSearch => "全局",
             Action::NewTable | Action::NewDatabase | Action::NewUser => "创建",
             Action::NewTab | Action::CloseTab | Action::NextTab | Action::PrevTab => "Tab",
-            Action::Save | Action::AddFilter | Action::ClearFilters | Action::GotoLine => "编辑",
+            Action::Save | Action::GotoLine => "编辑",
             Action::OpenThemeSelector | Action::ToggleDarkMode => "外观",
             Action::FocusSidebarConnections
             | Action::FocusSidebarDatabases
@@ -938,8 +930,6 @@ impl Action {
             Action::NextTab => "next_tab",
             Action::PrevTab => "prev_tab",
             Action::Save => "save",
-            Action::AddFilter => "add_filter",
-            Action::ClearFilters => "clear_filters",
             Action::GotoLine => "goto_line",
             Action::FocusSidebarConnections => "focus_sidebar_connections",
             Action::FocusSidebarDatabases => "focus_sidebar_databases",
@@ -980,8 +970,6 @@ impl Action {
             "next_tab" => Action::NextTab,
             "prev_tab" => Action::PrevTab,
             "save" => Action::Save,
-            "add_filter" => Action::AddFilter,
-            "clear_filters" => Action::ClearFilters,
             "goto_line" => Action::GotoLine,
             "focus_sidebar_connections" => Action::FocusSidebarConnections,
             "focus_sidebar_databases" => Action::FocusSidebarDatabases,
@@ -1064,8 +1052,6 @@ impl Default for KeyBindings {
 
         // 编辑操作
         bindings.insert(Action::Save, KeyBinding::ctrl(KeyCode::S));
-        bindings.insert(Action::AddFilter, KeyBinding::ctrl(KeyCode::F));
-        bindings.insert(Action::ClearFilters, KeyBinding::ctrl_shift(KeyCode::F));
         bindings.insert(Action::GotoLine, KeyBinding::ctrl(KeyCode::G));
 
         // 侧边栏焦点
@@ -1132,6 +1118,7 @@ impl KeyBindings {
         "dialog.keybindings",
         "dialog.command_palette",
         "dialog.generic",
+        "er_diagram",
     ];
 
     pub fn keymap_dir() -> Option<PathBuf> {
@@ -2343,7 +2330,7 @@ confirm_completion = "J"
 refresh = "R"
 
 [sidebar.tables]
-add_filter = "A"
+show_help = "A"
 
 [sidebar.filters.input]
 show_help = "Ctrl+H"
@@ -2357,11 +2344,11 @@ show_help = "Ctrl+H"
         assert_eq!(toolbar_refresh.len(), 1);
         assert_eq!(toolbar_refresh[0].display(), "R");
 
-        let sidebar_add_filter = loaded
-            .scoped_bindings_for_action("sidebar.tables", Action::AddFilter)
+        let sidebar_table_help = loaded
+            .scoped_bindings_for_action("sidebar.tables", Action::ShowHelp)
             .unwrap();
-        assert_eq!(sidebar_add_filter.len(), 1);
-        assert_eq!(sidebar_add_filter[0].display(), "A");
+        assert_eq!(sidebar_table_help.len(), 1);
+        assert_eq!(sidebar_table_help[0].display(), "A");
 
         let filters_input_help = loaded
             .scoped_bindings_for_action("sidebar.filters.input", Action::ShowHelp)

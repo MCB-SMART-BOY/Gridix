@@ -131,6 +131,21 @@ impl SidebarWorkflowContext {
             .copied()
             .find(|section| self.section_is_available(*section))
     }
+
+    fn layer_right_target(self, current: SidebarSection) -> Option<SidebarWorkflowEffect> {
+        match current {
+            SidebarSection::Connections if self.section_is_available(SidebarSection::Databases) => {
+                Some(SidebarWorkflowEffect::SectionChanged(
+                    SidebarSection::Databases,
+                ))
+            }
+            SidebarSection::Databases if self.section_is_available(SidebarSection::Tables) => Some(
+                SidebarWorkflowEffect::SectionChanged(SidebarSection::Tables),
+            ),
+            SidebarSection::Tables => Some(SidebarWorkflowEffect::FocusTransferToDataGrid),
+            _ => None,
+        }
+    }
 }
 
 const SIDEBAR_FOCUS_ORDER: [SidebarSection; 6] = [
@@ -195,12 +210,6 @@ impl SidebarWorkflowReduction {
             effect: Some(SidebarWorkflowEffect::FocusFilterInput(index)),
         }
     }
-
-    fn focus_data_grid() -> Self {
-        Self {
-            effect: Some(SidebarWorkflowEffect::FocusTransferToDataGrid),
-        }
-    }
 }
 
 pub fn reduce_sidebar_workflow(
@@ -235,14 +244,12 @@ pub fn reduce_sidebar_workflow(
             }
 
             workflow.filter_workspace = SidebarFilterWorkspaceMode::List;
-            if current == SidebarSection::Routines {
-                SidebarWorkflowReduction::focus_data_grid()
-            } else {
-                context
-                    .next_section(current)
-                    .map(SidebarWorkflowReduction::section_changed)
-                    .unwrap_or_else(SidebarWorkflowReduction::focus_data_grid)
-            }
+            context
+                .layer_right_target(current)
+                .map(|effect| SidebarWorkflowReduction {
+                    effect: Some(effect),
+                })
+                .unwrap_or_default()
         }
         SidebarWorkflowAction::EdgeNext { current } => {
             if !workflow.edge_transfer {
@@ -494,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn tables_move_right_enters_filters_when_filter_workspace_is_visible() {
+    fn tables_move_right_enters_data_grid_even_when_filters_are_visible() {
         let mut workflow = SidebarWorkflowState::default();
 
         assert_eq!(
@@ -507,9 +514,7 @@ mod tests {
                 },
                 flow(true, true, true, false, true, true),
             ),
-            Some(SidebarWorkflowEffect::SectionChanged(
-                SidebarSection::Filters
-            ))
+            Some(SidebarWorkflowEffect::FocusTransferToDataGrid)
         );
     }
 
@@ -551,7 +556,7 @@ mod tests {
     }
 
     #[test]
-    fn filters_move_right_falls_through_to_next_advanced_section_when_no_value_is_needed() {
+    fn filters_move_right_stays_local_when_no_value_is_needed() {
         let mut workflow = SidebarWorkflowState::default();
 
         assert_eq!(
@@ -564,14 +569,12 @@ mod tests {
                 },
                 flow(true, true, true, false, true, true),
             ),
-            Some(SidebarWorkflowEffect::SectionChanged(
-                SidebarSection::Triggers
-            ))
+            None
         );
     }
 
     #[test]
-    fn connections_move_right_falls_through_to_filters_without_database_hierarchy() {
+    fn connections_move_right_does_not_fall_through_to_filters_without_database_hierarchy() {
         let mut workflow = SidebarWorkflowState::default();
 
         assert_eq!(
@@ -584,14 +587,12 @@ mod tests {
                 },
                 flow(true, true, false, false, false, false),
             ),
-            Some(SidebarWorkflowEffect::SectionChanged(
-                SidebarSection::Filters
-            ))
+            None
         );
     }
 
     #[test]
-    fn databases_move_right_falls_through_to_filters_when_tables_are_unavailable() {
+    fn databases_move_right_does_not_fall_through_to_filters_when_tables_are_unavailable() {
         let mut workflow = SidebarWorkflowState::default();
 
         assert_eq!(
@@ -604,9 +605,7 @@ mod tests {
                 },
                 flow(true, true, false, false, true, false),
             ),
-            Some(SidebarWorkflowEffect::SectionChanged(
-                SidebarSection::Filters
-            ))
+            None
         );
     }
 
@@ -631,7 +630,7 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_focus_graph_follows_expected_order() {
+    fn sidebar_focus_graph_uses_move_right_only_for_layer_depth() {
         let context = flow(true, true, true, true, true, true);
         let mut workflow = SidebarWorkflowState::default();
 
@@ -673,9 +672,7 @@ mod tests {
                 },
                 context,
             ),
-            Some(SidebarWorkflowEffect::SectionChanged(
-                SidebarSection::Filters
-            ))
+            Some(SidebarWorkflowEffect::FocusTransferToDataGrid)
         );
         assert_eq!(
             reduce(
@@ -687,9 +684,7 @@ mod tests {
                 },
                 context,
             ),
-            Some(SidebarWorkflowEffect::SectionChanged(
-                SidebarSection::Triggers
-            ))
+            None
         );
         assert_eq!(
             reduce(
@@ -701,9 +696,7 @@ mod tests {
                 },
                 context,
             ),
-            Some(SidebarWorkflowEffect::SectionChanged(
-                SidebarSection::Routines
-            ))
+            None
         );
         assert_eq!(
             reduce(

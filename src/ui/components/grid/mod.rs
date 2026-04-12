@@ -18,6 +18,7 @@ pub(crate) mod keyboard;
 mod mode;
 mod render;
 mod state;
+mod view;
 
 pub use actions::{
     DataGridActions, FocusTransfer, escape_identifier, escape_value, quote_identifier,
@@ -32,6 +33,7 @@ pub(crate) use keyboard::{
 #[allow(unused_imports)] // 公开 API，供外部使用
 pub use mode::GridMode;
 pub use state::DataGridState;
+use view::{GridVirtualRow, GridVirtualRows};
 
 use crate::core::{Action, KeyBindings, constants};
 use crate::database::QueryResult;
@@ -87,9 +89,6 @@ impl DataGrid {
 
         ui.add_space(2.0);
 
-        // 显示跳转对话框
-        Self::show_goto_dialog(ui.ctx(), state, result.rows.len());
-
         // 显示保存确认对话框
         Self::show_save_confirm_dialog(ui.ctx(), state, &mut actions);
 
@@ -109,13 +108,22 @@ impl DataGrid {
             &state.filters,
             &mut state.filter_cache,
         );
-        // 总显示行数 = 筛选后的行 + 新增行
-        let new_rows_count = state.new_rows.len();
-        let filtered_count = filtered_rows.len() + new_rows_count;
-        let total_count = result.rows.len() + new_rows_count;
+        let keyboard_new_rows = state.new_rows.clone();
+        let keyboard_row_view =
+            GridVirtualRows::new(result.rows.len(), &filtered_rows, &keyboard_new_rows);
+
+        // 显示跳转对话框
+        Self::show_goto_dialog(ui.ctx(), state, &keyboard_row_view);
 
         // 处理键盘输入
-        keyboard::handle_keyboard(ui, state, result, &filtered_rows, keybindings, &mut actions);
+        keyboard::handle_keyboard(
+            ui,
+            state,
+            result,
+            &keyboard_row_view,
+            keybindings,
+            &mut actions,
+        );
 
         // 处理新增行的编辑
         if let Some((virtual_idx, col_idx, new_value)) = state.pending_new_row_edit.take() {
@@ -127,6 +135,12 @@ impl DataGrid {
                 row_data[col_idx] = new_value;
             }
         }
+
+        let render_new_rows = state.new_rows.clone();
+        let row_view = GridVirtualRows::new(result.rows.len(), &filtered_rows, &render_new_rows);
+        let new_rows_count = state.new_rows.len();
+        let filtered_count = row_view.len();
+        let total_count = result.rows.len() + new_rows_count;
 
         // 处理 Ctrl+S 保存请求
         if state.pending_save && state.has_changes() {
@@ -151,7 +165,10 @@ impl DataGrid {
         let mut columns_to_filter: Vec<String> = Vec::new();
 
         // 获取需要滚动到的行（表格内部处理垂直滚动）
-        let scroll_to_row = state.scroll_to_row.take();
+        let scroll_to_row = state
+            .scroll_to_row
+            .take()
+            .and_then(|row_key| row_view.display_index_for_row_key(row_key));
         let _ = state.scroll_to_col.take();
 
         // 获取可用宽度
@@ -233,85 +250,69 @@ impl DataGrid {
                             }
                         })
                         .body(|body| {
-                            let filtered_rows_len = filtered_rows.len();
                             body.rows(ROW_HEIGHT, filtered_count, |mut row| {
                                 let display_idx = row.index();
+                                if let Some(virtual_row) =
+                                    row_view.row_at_display_index(display_idx)
+                                {
+                                    match virtual_row {
+                                        GridVirtualRow::Existing { row_key, row_data } => {
+                                            let is_cursor_row = state.cursor.0 == row_key;
+                                            let is_row_deleted =
+                                                state.rows_to_delete.contains(&row_key);
 
-                                // 判断是显示已有数据还是新增行
-                                if display_idx < filtered_rows_len {
-                                    // 显示已有数据行
-                                    if let Some((original_idx, row_data)) =
-                                        filtered_rows.get(display_idx)
-                                    {
-                                        let is_cursor_row = state.cursor.0 == *original_idx;
-                                        let is_row_deleted =
-                                            state.rows_to_delete.contains(original_idx);
+                                            row.set_selected(is_cursor_row || is_row_deleted);
 
-                                        row.set_selected(is_cursor_row || is_row_deleted);
-
-                                        // 行号列
-                                        row.col(|ui| {
-                                            render::render_row_number(
-                                                ui,
-                                                *original_idx,
-                                                is_cursor_row,
-                                                is_row_deleted,
-                                                state,
-                                            );
-                                        });
-
-                                        // 数据列
-                                        for (col_idx, cell) in row_data.iter().enumerate() {
                                             row.col(|ui| {
-                                                render::render_editable_cell(
+                                                render::render_row_number(
                                                     ui,
-                                                    cell,
-                                                    result.is_null(*original_idx, col_idx),
-                                                    *original_idx,
-                                                    col_idx,
+                                                    row_key,
                                                     is_cursor_row,
                                                     is_row_deleted,
                                                     state,
                                                 );
                                             });
+
+                                            for (col_idx, cell) in row_data.iter().enumerate() {
+                                                row.col(|ui| {
+                                                    render::render_editable_cell(
+                                                        ui,
+                                                        cell,
+                                                        result.is_null(row_key, col_idx),
+                                                        row_key,
+                                                        col_idx,
+                                                        is_cursor_row,
+                                                        is_row_deleted,
+                                                        state,
+                                                    );
+                                                });
+                                            }
                                         }
-                                    }
-                                } else {
-                                    // 显示新增行（pending rows）
-                                    let new_row_idx = display_idx - filtered_rows_len;
-                                    // 新增行的虚拟原始索引 = 结果行数 + 新增行索引
-                                    let virtual_idx = result.rows.len() + new_row_idx;
-                                    let is_cursor_row = state.cursor.0 == virtual_idx;
+                                        GridVirtualRow::PendingNew { row_key, row_data } => {
+                                            let is_cursor_row = state.cursor.0 == row_key;
+                                            row.set_selected(is_cursor_row);
 
-                                    // 新增行使用特殊高亮
-                                    row.set_selected(is_cursor_row);
+                                            row.col(|ui| {
+                                                let text =
+                                                    RichText::new(format!("{}+", row_key + 1))
+                                                        .monospace()
+                                                        .color(Color32::from_rgb(100, 200, 100));
+                                                ui.label(text);
+                                            });
 
-                                    // 行号列 - 显示 "+" 标记表示新增行
-                                    row.col(|ui| {
-                                        let text = RichText::new(format!("{}+", virtual_idx + 1))
-                                            .monospace()
-                                            .color(Color32::from_rgb(100, 200, 100));
-                                        ui.label(text);
-                                    });
-
-                                    // 数据列 - 显示新增行的内容
-                                    // 先克隆数据避免借用冲突
-                                    let new_row_data: Vec<String> = state
-                                        .new_rows
-                                        .get(new_row_idx)
-                                        .cloned()
-                                        .unwrap_or_default();
-                                    for (col_idx, cell) in new_row_data.iter().enumerate() {
-                                        row.col(|ui| {
-                                            render::render_new_row_cell(
-                                                ui,
-                                                cell,
-                                                virtual_idx,
-                                                col_idx,
-                                                is_cursor_row,
-                                                state,
-                                            );
-                                        });
+                                            for (col_idx, cell) in row_data.iter().enumerate() {
+                                                row.col(|ui| {
+                                                    render::render_new_row_cell(
+                                                        ui,
+                                                        cell,
+                                                        row_key,
+                                                        col_idx,
+                                                        is_cursor_row,
+                                                        state,
+                                                    );
+                                                });
+                                            }
+                                        }
                                     }
                                 }
                             });
@@ -672,10 +673,16 @@ impl DataGrid {
     }
 
     /// 显示跳转对话框 (Ctrl+G)
-    fn show_goto_dialog(ctx: &egui::Context, state: &mut DataGridState, max_row: usize) {
+    fn show_goto_dialog(
+        ctx: &egui::Context,
+        state: &mut DataGridState,
+        row_view: &GridVirtualRows<'_>,
+    ) {
         if !state.show_goto_dialog {
             return;
         }
+
+        let max_row = row_view.len();
 
         egui::Window::new("跳转到行")
             .collapsible(false)
@@ -717,7 +724,7 @@ impl DataGrid {
                         .clicked();
 
                     if jump_clicked || confirm {
-                        Self::apply_goto_line(state, max_row);
+                        Self::apply_goto_line(state, row_view);
                     }
 
                     let cancel_clicked = ui
@@ -846,13 +853,14 @@ impl DataGrid {
             });
     }
 
-    fn apply_goto_line(state: &mut DataGridState, max_row: usize) {
+    fn apply_goto_line(state: &mut DataGridState, row_view: &GridVirtualRows<'_>) {
         if let Ok(line) = state.goto_input.trim().parse::<usize>()
             && line >= 1
-            && line <= max_row
+            && line <= row_view.len()
+            && let Some(row_key) = row_view.row_key_at_display_index(line - 1)
         {
-            state.cursor.0 = line - 1;
-            state.scroll_to_row = Some(state.cursor.0);
+            state.cursor.0 = row_key;
+            state.scroll_to_row = Some(row_key);
         }
         Self::close_goto_dialog(state);
     }

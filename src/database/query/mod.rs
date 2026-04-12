@@ -224,6 +224,20 @@ pub async fn execute_import_batch(
     }
 }
 
+/// 删除数据库。
+pub async fn drop_database(config: &ConnectionConfig, database: &str) -> Result<(), DbError> {
+    let (effective_config, _tunnel) = setup_ssh_tunnel_if_enabled(config).await?;
+    let database = database.to_string();
+
+    match effective_config.db_type {
+        DatabaseType::SQLite => Err(DbError::Query(
+            "SQLite 不支持独立删除数据库，请删除连接或数据库文件".to_string(),
+        )),
+        DatabaseType::PostgreSQL => postgres::drop_database(&effective_config, &database).await,
+        DatabaseType::MySQL => mysql::drop_database(&effective_config, &database).await,
+    }
+}
+
 // ============================================================================
 // 辅助函数
 // ============================================================================

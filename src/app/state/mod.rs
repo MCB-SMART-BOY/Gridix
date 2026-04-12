@@ -152,8 +152,8 @@ pub struct DialogState {
     pub history_panel_state: HistoryPanelState,
     /// 是否显示删除确认
     pub show_delete_confirm: bool,
-    /// 待删除的连接名
-    pub pending_delete_name: Option<String>,
+    /// 待删除目标（连接 / 数据库 / 表）
+    pub pending_delete_target: Option<crate::ui::SidebarDeleteTarget>,
     /// 是否显示帮助
     pub show_help: bool,
     /// 帮助滚动位置
@@ -182,7 +182,7 @@ impl DialogState {
             show_history: false,
             history_panel_state: HistoryPanelState::default(),
             show_delete_confirm: false,
-            pending_delete_name: None,
+            pending_delete_target: None,
             show_help: false,
             help_scroll_offset: 0.0,
             show_about: false,
