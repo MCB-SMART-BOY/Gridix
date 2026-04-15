@@ -33,7 +33,7 @@
 
 - 这份账本里已没有“未阻塞且应立即继续实现”的 active bug。
 - `G41-B007` 当前保留为 observation 条目；除非重新 live 复现，否则不再继续主动补丁。
-- 后续若没有新的 confirmed bug，主线应转入阶段收口和发布准备。
+- `v5.0.0` 已完成 GitHub release 与本轮下游同步；后续若没有新的 confirmed bug，主线保持在 observation / post-release follow-up，而不是重新开启无目标实现。
 
 ### G41-B007
 

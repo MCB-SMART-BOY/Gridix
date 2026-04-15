@@ -11,14 +11,18 @@ Current release gate:
 
 - Local AI / agent guidance is now treated as workstation-local material and should stay out of tracked repository policy docs.
 - The release/distribution sequence is already documented in [docs/RELEASE_PROCESS.md](../RELEASE_PROCESS.md) and [docs/DISTRIBUTION.md](../DISTRIBUTION.md).
-- The current recovery stream is now in **active release execution for `v5.0.0`**: there are no new unblocked active implementation workstreams left in the recovery ledger, and the remaining items have been reduced to `observation / live smoke / release closure`.
-- The crate version on this worktree is already bumped to `5.0.0`; commit / push / tag / GitHub release / downstream sync are still pending.
+- The current recovery stream has now completed **`v5.0.0` release execution**: there are no new unblocked active implementation workstreams left in the recovery ledger, and the remaining items have been reduced to `observation / live smoke / post-release follow-up`.
+- `v5.0.0` has already been committed, pushed, tagged, and published on GitHub Releases.
+- Downstream sync is also complete for the current release wave:
+  - AUR: `gridix`, `gridix-bin`, and `gridix-appimage` updated and pushed.
+  - Homebrew tap updated and pushed.
+  - nixpkgs sync moved onto a clean branch based on `nixos/master`, verified with `nix-instantiate` and `nix-build`, then pushed as `MCB-SMART-BOY:gridix-v5.0.0` with PR `NixOS/nixpkgs#510152`.
 - Current closure-review check status on this worktree:
   - `cargo fmt --check`: pass
   - `cargo test`: pass
   - `python scripts/check_doc_links.py`: pass
   - `cargo clippy --all-targets --all-features -- -D warnings`: pass
-- Therefore the current phase is **technically ready for commit / tag / release publication under the documented local checklist**, but the publication itself still requires a clean commit scope and the actual push/tag steps.
+- Therefore the current phase is no longer "ready for release closure review"; it is now **post-release closure**, with remaining work limited to observation, package-review follow-up, or newly confirmed bugs.
 
 ## A. Dependency Baseline
 
