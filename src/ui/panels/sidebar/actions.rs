@@ -18,12 +18,46 @@ pub enum SidebarFilterInsertMode {
     AppendEnd,
 }
 
+/// 侧边栏发起的删除目标。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SidebarDeleteTarget {
+    Connection(String),
+    Database {
+        connection_name: String,
+        database_name: String,
+    },
+    Table {
+        connection_name: String,
+        table_name: String,
+    },
+}
+
+impl SidebarDeleteTarget {
+    pub fn connection(connection_name: impl Into<String>) -> Self {
+        Self::Connection(connection_name.into())
+    }
+
+    pub fn database(connection_name: impl Into<String>, database_name: impl Into<String>) -> Self {
+        Self::Database {
+            connection_name: connection_name.into(),
+            database_name: database_name.into(),
+        }
+    }
+
+    pub fn table(connection_name: impl Into<String>, table_name: impl Into<String>) -> Self {
+        Self::Table {
+            connection_name: connection_name.into(),
+            table_name: table_name.into(),
+        }
+    }
+}
+
 /// 侧边栏操作
 #[derive(Default)]
 pub struct SidebarActions {
     pub connect: Option<String>,
     pub disconnect: Option<String>,
-    pub delete: Option<String>,
+    pub delete: Option<SidebarDeleteTarget>,
     pub select_database: Option<String>,
     pub show_table_schema: Option<String>,
     pub query_table: Option<String>,

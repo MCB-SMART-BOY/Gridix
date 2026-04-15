@@ -3,6 +3,17 @@
 This guide describes how to sync a released Gridix version to AUR, Homebrew, and nixpkgs.
 本文说明 Gridix 发布后如何同步到 AUR、Homebrew 与 nixpkgs。
 
+This guide is step 4 of the major-phase release flow:
+这份文档是“大阶段发布流程”的第 4 步：
+
+1. bump version
+2. commit + push branch
+3. publish GitHub release
+4. sync downstream package channels
+
+Do not update downstream package definitions before the GitHub release and checksums are final.
+在 GitHub release 和校验和最终确定之前，不要提前更新下游包定义。
+
 ## 1. Prerequisites | 前置条件
 
 - GitHub release for target version already exists (`vX.Y.Z`).
@@ -25,7 +36,7 @@ This guide describes how to sync a released Gridix version to AUR, Homebrew, and
 ## 2. Get Checksums | 获取校验和
 
 ```bash
-VERSION=4.0.0
+VERSION=5.0.0
 gh release download "v${VERSION}" -p "SHA256SUMS.txt" -D /tmp/gridix-release
 cat /tmp/gridix-release/SHA256SUMS.txt
 ```
@@ -84,18 +95,25 @@ git push origin master
 
 ## 5. Update nixpkgs | 更新 nixpkgs
 
-1. Update `pkgs/by-name/gr/gridix/package.nix`:
-   更新 `pkgs/by-name/gr/gridix/package.nix`：
+1. If Gridix already exists in nixpkgs, update `pkgs/by-name/gr/gridix/package.nix`:
+   如果 nixpkgs 已有 Gridix，则更新 `pkgs/by-name/gr/gridix/package.nix`：
    - `version`
    - `src.hash`
    - `cargoHash`
-2. Build-check locally:
+2. If Gridix does **not** yet exist on the target base branch, create a clean branch from `nixos/master` and add both:
+   如果目标基线分支上**还没有** Gridix，则从 `nixos/master` 切一条干净分支，并同时新增：
+   - `pkgs/by-name/gr/gridix/package.nix`
+   - `maintainers/maintainer-list.nix` entry for the package maintainer
+3. Build-check locally:
    本地构建检查：
    ```bash
    cd _work_nixpkgs
+   nix-instantiate -A gridix
    nix-build -A gridix
    ```
-3. Push branch to fork and update/create PR.
+   If `cargoHash` is wrong, trust the hash reported by Nix and rerun `nix-build`.
+   如果 `cargoHash` 不对，以 Nix 报出的哈希为准更新后再重跑。
+4. Push branch to fork and update/create PR.
    推送分支到 fork 并更新或新建 PR。
 
 ## 6. Verification Checklist | 校验清单

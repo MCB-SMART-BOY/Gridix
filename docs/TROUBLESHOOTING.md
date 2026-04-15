@@ -73,8 +73,8 @@
   ```sql
   SELECT 1 AS ok;
   ```
-- Clear filters (`Ctrl+Shift+F`) and rerun.
-  清空筛选（`Ctrl+Shift+F`）后重试。
+- Clear filters from the sidebar filter workspace and rerun.
+  在侧边栏筛选工作区中清空筛选后重试。
 
 ## 5. Connection Works Then Randomly Fails | 连接一会儿可用一会儿失败
 

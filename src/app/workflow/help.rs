@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use eframe::egui;
 use rusqlite::{Connection as SqliteConn, OptionalExtension, Transaction, params};
 
+use crate::app::input::input_router::ErDiagramVisibilityNotice;
 use crate::core::AppConfig;
 use crate::database::{ConnectionConfig, DatabaseType};
 use crate::ui;
@@ -71,14 +72,16 @@ impl DbManagerApp {
                 self.sql = sql.clone();
 
                 if let Some(table_name) = table {
-                    self.selected_table = Some(table_name.clone());
+                    self.switch_grid_workspace(Some(table_name.clone()));
                     self.grid_state.primary_key_column = None;
                     self.fetch_primary_key(&table_name);
                 }
 
                 if open_er_diagram {
-                    self.show_er_diagram = true;
-                    self.load_er_diagram_data();
+                    self.set_er_diagram_visible_with_notice(
+                        true,
+                        ErDiagramVisibilityNotice::Silent,
+                    );
                 }
 
                 let _ = self.execute(sql);
@@ -109,9 +112,10 @@ impl DbManagerApp {
                 self.show_sidebar = true;
                 self.sidebar_panel_state.show_connections = true;
                 self.sidebar_section = ui::SidebarSection::Tables;
-                self.show_er_diagram = true;
-                self.load_er_diagram_data();
-                self.notifications.info("学习示例库的 ER 图已打开");
+                self.set_er_diagram_visible_with_notice(
+                    true,
+                    ErDiagramVisibilityNotice::Custom("学习示例库的 ER 图已打开"),
+                );
             }
             ui::HelpAction::ContinueOnboarding(step) => {
                 let mapped = match step {
@@ -211,7 +215,7 @@ impl DbManagerApp {
         );
 
         if let Some(table_name) = preview_table {
-            self.selected_table = Some(table_name.clone());
+            self.switch_grid_workspace(Some(table_name.clone()));
             self.grid_state.primary_key_column = None;
             self.fetch_primary_key(&table_name);
         }

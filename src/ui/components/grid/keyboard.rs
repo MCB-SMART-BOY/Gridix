@@ -42,6 +42,7 @@ use super::actions::DataGridActions;
 use super::filter::ColumnFilter;
 use super::mode::GridMode;
 use super::state::DataGridState;
+use super::view::GridVirtualRows;
 use crate::core::{KeyBinding, KeyBindings, KeyCode, KeyModifiers};
 use crate::database::QueryResult;
 use egui::{self, Key};
@@ -730,13 +731,18 @@ fn mark_current_row_for_delete(
 
 fn copy_current_row(
     state: &mut DataGridState,
-    filtered_rows: &[(usize, &Vec<String>)],
+    row_view: &GridVirtualRows<'_>,
     actions: &mut DataGridActions,
 ) {
-    if let Some((_, row_data)) = filtered_rows.get(state.cursor.0) {
+    if let Some(row) = row_view.row_at_row_key(state.cursor.0) {
+        let row_data = row.row_data();
         let row_text = row_data.join("\t");
         state.clipboard = Some(row_text);
-        actions.message = Some(format!("已复制第 {} 行 (yy)", state.cursor.0 + 1));
+        let display_row = row_view
+            .display_index_for_row_key(state.cursor.0)
+            .map(|index| index + 1)
+            .unwrap_or(state.cursor.0 + 1);
+        actions.message = Some(format!("已复制第 {} 行 (yy)", display_row));
     }
 }
 
@@ -755,12 +761,6 @@ fn discard_all_changes(state: &mut DataGridState, actions: &mut DataGridActions,
     }
 }
 
-fn jump_to_counted_row(state: &mut DataGridState, count: usize, max_row: usize) {
-    let target_row = count.saturating_sub(1).min(max_row.saturating_sub(1));
-    state.cursor.0 = target_row;
-    state.scroll_to_row = Some(target_row);
-}
-
 fn clear_selected_cells(state: &mut DataGridState) -> Option<usize> {
     let ((min_r, min_c), (max_r, max_c)) = state.get_selection()?;
     for r in min_r..=max_r {
@@ -771,14 +771,12 @@ fn clear_selected_cells(state: &mut DataGridState) -> Option<usize> {
     Some((max_r - min_r + 1) * (max_c - min_c + 1))
 }
 
-fn copy_selected_cells(
-    state: &DataGridState,
-    filtered_rows: &[(usize, &Vec<String>)],
-) -> Option<String> {
+fn copy_selected_cells(state: &DataGridState, row_view: &GridVirtualRows<'_>) -> Option<String> {
     let ((min_r, min_c), (max_r, max_c)) = state.get_selection()?;
     let mut text = String::new();
-    for r in min_r..=max_r {
-        if let Some((_, row_data)) = filtered_rows.get(r) {
+    for row_key in min_r..=max_r {
+        if let Some(row) = row_view.row_at_row_key(row_key) {
+            let row_data = row.row_data();
             let row_text: Vec<&str> = (min_c..=max_c)
                 .filter_map(|c| row_data.get(c).map(|s| s.as_str()))
                 .collect();
@@ -797,11 +795,101 @@ fn exit_select_mode(state: &mut DataGridState, cmd: &mut CmdBuffer) {
     cmd.clear();
 }
 
+fn normalize_cursor_row_key(
+    state: &mut DataGridState,
+    row_view: &GridVirtualRows<'_>,
+) -> Option<usize> {
+    if row_view.is_empty() {
+        return None;
+    }
+
+    if row_view.display_index_for_row_key(state.cursor.0).is_some() {
+        return Some(state.cursor.0);
+    }
+
+    let clamped_display = state.cursor.0.min(row_view.len().saturating_sub(1));
+    let row_key = row_view.row_key_at_display_index(clamped_display)?;
+    state.cursor.0 = row_key;
+    Some(row_key)
+}
+
+fn move_cursor_by_display_offset(
+    state: &mut DataGridState,
+    row_view: &GridVirtualRows<'_>,
+    delta_row: isize,
+    delta_col: isize,
+    max_col: usize,
+) {
+    let Some(current_row_key) = normalize_cursor_row_key(state, row_view) else {
+        return;
+    };
+    let Some(current_display) = row_view.display_index_for_row_key(current_row_key) else {
+        return;
+    };
+
+    let count = state.count.unwrap_or(1) as isize;
+    let target_display = (current_display as isize + delta_row * count)
+        .clamp(0, row_view.len().saturating_sub(1) as isize) as usize;
+    let Some(target_row_key) = row_view.row_key_at_display_index(target_display) else {
+        return;
+    };
+
+    let target_col = (state.cursor.1 as isize + delta_col * count)
+        .clamp(0, max_col.saturating_sub(1) as isize) as usize;
+
+    state.cursor = (target_row_key, target_col);
+    state.count = None;
+    state.scroll_to_row = Some(target_row_key);
+    state.scroll_to_col = Some(target_col);
+}
+
+fn goto_first_visible_row(state: &mut DataGridState, row_view: &GridVirtualRows<'_>) {
+    if let Some(row_key) = row_view.row_key_at_display_index(0) {
+        state.cursor = (row_key, 0);
+        state.count = None;
+        state.command_buffer.clear();
+        state.scroll_to_row = Some(row_key);
+    }
+}
+
+fn goto_last_visible_row(state: &mut DataGridState, row_view: &GridVirtualRows<'_>) {
+    if let Some(row_key) = row_view.row_key_at_display_index(row_view.len().saturating_sub(1)) {
+        state.cursor.0 = row_key;
+        state.count = None;
+        state.scroll_to_row = Some(row_key);
+    }
+}
+
+fn jump_to_visible_row(state: &mut DataGridState, row_view: &GridVirtualRows<'_>, count: usize) {
+    let target_display = count
+        .saturating_sub(1)
+        .min(row_view.len().saturating_sub(1));
+    if let Some(row_key) = row_view.row_key_at_display_index(target_display) {
+        state.cursor.0 = row_key;
+        state.scroll_to_row = Some(row_key);
+    }
+}
+
+fn move_vertical_by_page(state: &mut DataGridState, row_view: &GridVirtualRows<'_>, delta: isize) {
+    let Some(current_row_key) = normalize_cursor_row_key(state, row_view) else {
+        return;
+    };
+    let Some(current_display) = row_view.display_index_for_row_key(current_row_key) else {
+        return;
+    };
+    let target_display = (current_display as isize + delta)
+        .clamp(0, row_view.len().saturating_sub(1) as isize) as usize;
+    if let Some(row_key) = row_view.row_key_at_display_index(target_display) {
+        state.cursor.0 = row_key;
+        state.scroll_to_row = Some(row_key);
+    }
+}
+
 pub fn handle_keyboard(
     ui: &mut egui::Ui,
     state: &mut DataGridState,
     result: &QueryResult,
-    filtered_rows: &[(usize, &Vec<String>)],
+    row_view: &GridVirtualRows<'_>,
     keybindings: &KeyBindings,
     actions: &mut DataGridActions,
 ) {
@@ -810,7 +898,7 @@ pub fn handle_keyboard(
         return;
     }
 
-    let max_row = filtered_rows.len();
+    let max_row = row_view.len();
     let max_col = result.columns.len();
 
     if max_row == 0 || max_col == 0 {
@@ -864,7 +952,7 @@ pub fn handle_keyboard(
                     i,
                     state,
                     result,
-                    filtered_rows,
+                    row_view,
                     keybindings,
                     actions,
                     max_row,
@@ -874,7 +962,7 @@ pub fn handle_keyboard(
                 );
             }
             GridMode::Select => {
-                handle_select_mode(i, state, filtered_rows, actions, max_row, max_col, &mut cmd);
+                handle_select_mode(i, state, row_view, actions, max_row, max_col, &mut cmd);
             }
             GridMode::Insert => {}
         }
@@ -927,7 +1015,7 @@ fn handle_normal_mode(
     i: &egui::InputState,
     state: &mut DataGridState,
     result: &QueryResult,
-    filtered_rows: &[(usize, &Vec<String>)],
+    row_view: &GridVirtualRows<'_>,
     keybindings: &KeyBindings,
     actions: &mut DataGridActions,
     max_row: usize,
@@ -952,17 +1040,8 @@ fn handle_normal_mode(
             }
             GridNormalInput::Action { action, sequence } => {
                 handle_detected_normal_action(
-                    action,
-                    &sequence,
-                    repeat,
-                    state,
-                    result,
-                    filtered_rows,
-                    actions,
-                    max_row,
-                    max_col,
-                    half_page,
-                    cmd,
+                    action, &sequence, repeat, state, result, row_view, actions, max_row, max_col,
+                    half_page, cmd,
                 );
                 return;
             }
@@ -971,17 +1050,7 @@ fn handle_normal_mode(
 
     if let Some(action) = detect_normal_key_action(i, cmd) {
         handle_detected_normal_action(
-            action,
-            "",
-            repeat,
-            state,
-            result,
-            filtered_rows,
-            actions,
-            max_row,
-            max_col,
-            half_page,
-            cmd,
+            action, "", repeat, state, result, row_view, actions, max_row, max_col, half_page, cmd,
         );
         return;
     }
@@ -995,7 +1064,7 @@ fn handle_detected_normal_action(
     repeat: usize,
     state: &mut DataGridState,
     result: &QueryResult,
-    filtered_rows: &[(usize, &Vec<String>)],
+    row_view: &GridVirtualRows<'_>,
     actions: &mut DataGridActions,
     max_row: usize,
     max_col: usize,
@@ -1006,60 +1075,68 @@ fn handle_detected_normal_action(
     match action {
         GridKeyAction::MoveLeft => {
             let _ = repeat;
-            state.move_cursor(0, -1, max_row, max_col);
+            if state.cursor.1 == 0 {
+                actions.focus_transfer = Some(super::actions::FocusTransfer::Sidebar);
+                state.scroll_to_row = Some(state.cursor.0);
+            } else {
+                move_cursor_by_display_offset(state, row_view, 0, -1, max_col);
+            }
         }
         GridKeyAction::MoveDown => {
-            if state.cursor.0 >= max_row.saturating_sub(1) {
-                state.cursor.0 = max_row.saturating_sub(1);
-                state.scroll_to_row = Some(state.cursor.0);
+            let current_display = normalize_cursor_row_key(state, row_view)
+                .and_then(|row_key| row_view.display_index_for_row_key(row_key))
+                .unwrap_or(0);
+            if current_display >= max_row.saturating_sub(1) {
+                if let Some(last_row_key) =
+                    row_view.row_key_at_display_index(max_row.saturating_sub(1))
+                {
+                    state.cursor.0 = last_row_key;
+                    state.scroll_to_row = Some(last_row_key);
+                }
                 actions.focus_transfer = Some(super::actions::FocusTransfer::SqlEditor);
             } else {
                 let _ = repeat;
-                state.move_cursor(1, 0, max_row, max_col);
+                move_cursor_by_display_offset(state, row_view, 1, 0, max_col);
             }
         }
         GridKeyAction::MoveUp => {
             let _ = repeat;
-            state.move_cursor(-1, 0, max_row, max_col);
+            move_cursor_by_display_offset(state, row_view, -1, 0, max_col);
         }
         GridKeyAction::MoveRight => {
             let _ = repeat;
-            state.move_cursor(0, 1, max_row, max_col);
+            move_cursor_by_display_offset(state, row_view, 0, 1, max_col);
         }
         GridKeyAction::MoveWordRight => {
             let _ = repeat;
-            state.move_cursor(0, 1, max_row, max_col);
+            move_cursor_by_display_offset(state, row_view, 0, 1, max_col);
         }
         GridKeyAction::MoveWordLeft => {
             let _ = repeat;
-            state.move_cursor(0, -1, max_row, max_col);
+            move_cursor_by_display_offset(state, row_view, 0, -1, max_col);
         }
         GridKeyAction::JumpLineEnd => state.goto_line_end(max_col),
         GridKeyAction::JumpLineStart => state.goto_line_start(),
-        GridKeyAction::JumpFileStart => state.goto_file_start(),
-        GridKeyAction::JumpFileEnd => state.goto_file_end(max_row),
+        GridKeyAction::JumpFileStart => goto_first_visible_row(state, row_view),
+        GridKeyAction::JumpFileEnd => goto_last_visible_row(state, row_view),
         GridKeyAction::JumpToCountedRow => {
-            jump_to_counted_row(state, repeat, max_row);
+            jump_to_visible_row(state, row_view, repeat);
         }
         GridKeyAction::HalfPageUp => {
             let delta = half_page * repeat;
-            state.cursor.0 = state.cursor.0.saturating_sub(delta);
-            state.scroll_to_row = Some(state.cursor.0);
+            move_vertical_by_page(state, row_view, -(delta as isize));
         }
         GridKeyAction::HalfPageDown => {
             let delta = half_page * repeat;
-            state.cursor.0 = (state.cursor.0 + delta).min(max_row.saturating_sub(1));
-            state.scroll_to_row = Some(state.cursor.0);
+            move_vertical_by_page(state, row_view, delta as isize);
         }
         GridKeyAction::PageUp => {
             let delta = half_page * repeat;
-            state.cursor.0 = state.cursor.0.saturating_sub(delta);
-            state.scroll_to_row = Some(state.cursor.0);
+            move_vertical_by_page(state, row_view, -(delta as isize));
         }
         GridKeyAction::PageDown => {
             let delta = half_page * repeat;
-            state.cursor.0 = (state.cursor.0 + delta).min(max_row.saturating_sub(1));
-            state.scroll_to_row = Some(state.cursor.0);
+            move_vertical_by_page(state, row_view, delta as isize);
         }
         GridKeyAction::OpenFilterPanel => {
             actions.open_filter_panel = true;
@@ -1106,14 +1183,14 @@ fn handle_detected_normal_action(
             actions.message = Some("刷新表格数据 (Ctrl+R)".to_string());
         }
         GridKeyAction::EnterInsert | GridKeyAction::AppendInsert => {
-            enter_insert_mode(state, filtered_rows);
+            enter_insert_mode(state, row_view);
         }
         GridKeyAction::ChangeCell => {
             state.mode = GridMode::Insert;
             state.editing_cell = Some(state.cursor);
             state.edit_text.clear();
-            if let Some((_, row_data)) = filtered_rows.get(state.cursor.0)
-                && let Some(cell) = row_data.get(state.cursor.1)
+            if let Some(row) = row_view.row_at_row_key(state.cursor.0)
+                && let Some(cell) = row.cell(state.cursor.1)
             {
                 state.original_value = cell.to_string();
             }
@@ -1138,7 +1215,10 @@ fn handle_detected_normal_action(
         GridKeyAction::SelectAll => {
             state.mode = GridMode::Select;
             state.select_anchor = Some((0, 0));
-            state.cursor = (max_row.saturating_sub(1), max_col.saturating_sub(1));
+            if let Some(last_row_key) = row_view.row_key_at_display_index(max_row.saturating_sub(1))
+            {
+                state.cursor = (last_row_key, max_col.saturating_sub(1));
+            }
             actions.message = Some("选择全部 (%)".to_string());
         }
         GridKeyAction::CollapseSelection => {
@@ -1184,7 +1264,7 @@ fn handle_detected_normal_action(
             mark_current_row_for_delete(state, actions, display_sequence(sequence, "dd"));
         }
         GridKeyAction::CopyRow => {
-            copy_current_row(state, filtered_rows, actions);
+            copy_current_row(state, row_view, actions);
             if let Some(message) = &mut actions.message {
                 *message =
                     message.replace("(yy)", &format!("({})", display_sequence(sequence, "yy")));
@@ -1208,25 +1288,25 @@ fn handle_detected_normal_action(
 fn handle_select_mode(
     i: &egui::InputState,
     state: &mut DataGridState,
-    filtered_rows: &[(usize, &Vec<String>)],
+    row_view: &GridVirtualRows<'_>,
     actions: &mut DataGridActions,
-    max_row: usize,
+    _max_row: usize,
     max_col: usize,
     cmd: &mut CmdBuffer,
 ) {
     if let Some(action) = detect_select_key_action(i) {
         match action {
             GridSelectAction::MoveLeft | GridSelectAction::MoveWordLeft => {
-                state.move_cursor(0, -1, max_row, max_col);
+                move_cursor_by_display_offset(state, row_view, 0, -1, max_col);
             }
             GridSelectAction::MoveDown => {
-                state.move_cursor(1, 0, max_row, max_col);
+                move_cursor_by_display_offset(state, row_view, 1, 0, max_col);
             }
             GridSelectAction::MoveUp => {
-                state.move_cursor(-1, 0, max_row, max_col);
+                move_cursor_by_display_offset(state, row_view, -1, 0, max_col);
             }
             GridSelectAction::MoveRight | GridSelectAction::MoveWordRight => {
-                state.move_cursor(0, 1, max_row, max_col);
+                move_cursor_by_display_offset(state, row_view, 0, 1, max_col);
             }
             GridSelectAction::DeleteSelection => {
                 if let Some(cell_count) = clear_selected_cells(state) {
@@ -1243,7 +1323,7 @@ fn handle_select_mode(
                 state.select_anchor = None;
             }
             GridSelectAction::CopySelection => {
-                if let Some(text) = copy_selected_cells(state, filtered_rows) {
+                if let Some(text) = copy_selected_cells(state, row_view) {
                     state.clipboard = Some(text);
                     actions.message = Some("已复制选中内容 (y)".to_string());
                 }
@@ -1260,12 +1340,12 @@ fn handle_select_mode(
     }
 }
 
-fn enter_insert_mode(state: &mut DataGridState, filtered_rows: &[(usize, &Vec<String>)]) {
+fn enter_insert_mode(state: &mut DataGridState, row_view: &GridVirtualRows<'_>) {
     state.mode = GridMode::Insert;
     state.editing_cell = Some(state.cursor);
 
-    if let Some((_, row_data)) = filtered_rows.get(state.cursor.0)
-        && let Some(cell) = row_data.get(state.cursor.1)
+    if let Some(row) = row_view.row_at_row_key(state.cursor.0)
+        && let Some(cell) = row.cell(state.cursor.1)
     {
         state.edit_text = state
             .modified_cells
@@ -1287,6 +1367,7 @@ mod tests {
     use crate::ui::DataGridState;
     use crate::ui::components::grid::GridMode;
     use crate::ui::components::grid::actions::DataGridActions;
+    use crate::ui::components::grid::view::GridVirtualRows;
     use egui::{Event, Key, Modifiers};
 
     fn key_event(key: Key) -> Event {
@@ -1357,11 +1438,13 @@ mod tests {
             ..Default::default()
         };
         let filtered_rows: Vec<(usize, &Vec<String>)> = result.rows.iter().enumerate().collect();
+        let new_rows_snapshot = state.new_rows.clone();
+        let row_view = GridVirtualRows::new(result.rows.len(), &filtered_rows, &new_rows_snapshot);
         let mut actions = DataGridActions::default();
 
         ctx.begin_pass(raw_input);
         egui::Area::new(egui::Id::new("grid_keyboard_test_area")).show(&ctx, |ui| {
-            handle_keyboard(ui, state, result, &filtered_rows, keybindings, &mut actions);
+            handle_keyboard(ui, state, result, &row_view, keybindings, &mut actions);
         });
         let _ = ctx.end_pass();
 
@@ -1450,8 +1533,10 @@ mod tests {
             "a@example.com".to_string(),
         ];
         let filtered_rows = vec![(0usize, &row1), (1usize, &row2)];
+        let new_rows = Vec::new();
+        let row_view = GridVirtualRows::new(2, &filtered_rows, &new_rows);
 
-        let copied = copy_selected_cells(&state, &filtered_rows);
+        let copied = copy_selected_cells(&state, &row_view);
 
         assert_eq!(copied.as_deref(), Some("name\temail\nalice\ta@example.com"));
     }
@@ -1545,7 +1630,7 @@ mod tests {
     }
 
     #[test]
-    fn move_left_on_first_column_stays_in_grid() {
+    fn move_left_on_first_column_transfers_to_sidebar() {
         let mut state = DataGridState::new();
         state.cursor = (1, 0);
         let result = sample_result();
@@ -1553,7 +1638,10 @@ mod tests {
         let actions = send_key(&mut state, &result, key_event(Key::H));
 
         assert_eq!(state.cursor, (1, 0));
-        assert_eq!(actions.focus_transfer, None);
+        assert_eq!(
+            actions.focus_transfer,
+            Some(crate::ui::FocusTransfer::Sidebar)
+        );
     }
 
     #[test]
@@ -1596,6 +1684,30 @@ mod tests {
         assert_eq!(state.editing_cell, Some((1, 1)));
         assert_eq!(state.edit_text, "bob");
         assert_eq!(state.original_value, "bob");
+    }
+
+    #[test]
+    fn new_rows_are_part_of_navigation_and_edit_target() {
+        let mut state = DataGridState::new();
+        state.new_rows.push(vec![
+            String::new(),
+            "draft".to_string(),
+            "draft@example.com".to_string(),
+        ]);
+        state.cursor = (2, 0);
+        let result = sample_result();
+
+        let move_actions = send_key(&mut state, &result, key_event(Key::J));
+        assert_eq!(state.cursor, (3, 0));
+        assert_eq!(state.scroll_to_row, Some(3));
+        assert_eq!(move_actions.focus_transfer, None);
+
+        let _ = send_key(&mut state, &result, key_event(Key::L));
+        let _ = send_key(&mut state, &result, key_event(Key::I));
+        assert_eq!(state.mode, GridMode::Insert);
+        assert_eq!(state.editing_cell, Some((3, 1)));
+        assert_eq!(state.edit_text, "draft");
+        assert_eq!(state.original_value, "draft");
     }
 
     #[test]

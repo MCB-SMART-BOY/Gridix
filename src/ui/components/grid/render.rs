@@ -9,7 +9,8 @@ use super::{
     COLOR_VISUAL_SELECT,
 };
 use crate::ui::styles::{GRAY, theme_text};
-use egui::{self, Color32, Key, RichText, Sense, TextEdit, Vec2};
+use crate::ui::{LocalShortcut, consume_local_shortcut};
+use egui::{self, Color32, RichText, Sense, TextEdit, Vec2};
 
 // NULL 值颜色
 const COLOR_NULL: Color32 = Color32::from_rgb(120, 120, 140);
@@ -25,18 +26,11 @@ pub fn render_column_header(
     ui.horizontal(|ui| {
         let is_cursor_col = state.cursor.1 == col_idx;
         let has_filter = state.filters.iter().any(|f| f.column == col_name);
+        let header_text_color =
+            column_header_text_color(ui.visuals(), state, is_cursor_col, has_filter);
 
-        // 列名文字 - 确保在所有主题下都清晰可见
-        let text = if is_cursor_col {
-            RichText::new(col_name).strong().color(state.mode.color())
-        } else if has_filter {
-            RichText::new(col_name)
-                .strong()
-                .color(Color32::from_rgb(150, 200, 100))
-        } else {
-            // 使用默认文字颜色（由主题控制），不单独设置颜色
-            RichText::new(col_name).strong()
-        };
+        // 非焦点列头也必须显式使用主题文字色，避免暗主题下退化成近乎不可见。
+        let text = RichText::new(col_name).strong().color(header_text_color);
         ui.label(text);
 
         // 筛选按钮 - 无边框图标
@@ -58,6 +52,21 @@ pub fn render_column_header(
             columns_to_filter.push(col_name.to_string());
         }
     });
+}
+
+fn column_header_text_color(
+    visuals: &egui::Visuals,
+    state: &DataGridState,
+    is_cursor_col: bool,
+    has_filter: bool,
+) -> Color32 {
+    if is_cursor_col {
+        state.mode.color()
+    } else if has_filter {
+        Color32::from_rgb(150, 200, 100)
+    } else {
+        theme_text(visuals)
+    }
 }
 
 /// 渲染行号单元格
@@ -221,7 +230,7 @@ fn render_editing_cell(
             .font(egui::TextStyle::Monospace),
     );
 
-    let should_exit = ui.input(|i| i.key_pressed(Key::Escape) || i.key_pressed(Key::Enter));
+    let should_exit = consume_grid_edit_finish(ui);
 
     if should_exit || response.lost_focus() {
         if state.edit_text != state.original_value {
@@ -331,6 +340,55 @@ fn format_cell_text(cell: &str, is_null: bool, is_cursor: bool) -> RichText {
     if is_cursor { text.underline() } else { text }
 }
 
+#[cfg(test)]
+mod header_tests {
+    use super::*;
+    use crate::ui::components::grid::mode::GridMode;
+    use eframe::egui::Visuals;
+
+    #[test]
+    fn unfocused_unfiltered_column_header_uses_theme_text_color() {
+        let visuals = Visuals::dark();
+        let state = DataGridState {
+            mode: GridMode::Normal,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            column_header_text_color(&visuals, &state, false, false),
+            theme_text(&visuals)
+        );
+    }
+
+    #[test]
+    fn focused_column_header_keeps_mode_accent_color() {
+        let visuals = Visuals::dark();
+        let state = DataGridState {
+            mode: GridMode::Select,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            column_header_text_color(&visuals, &state, true, false),
+            state.mode.color()
+        );
+    }
+
+    #[test]
+    fn filtered_column_header_keeps_filter_highlight_color() {
+        let visuals = Visuals::dark();
+        let state = DataGridState {
+            mode: GridMode::Normal,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            column_header_text_color(&visuals, &state, false, true),
+            Color32::from_rgb(150, 200, 100)
+        );
+    }
+}
+
 // 新增行的背景色 - 浅绿色表示待保存
 const COLOR_NEW_ROW: Color32 = Color32::from_rgba_premultiplied(48, 96, 48, 60);
 
@@ -379,7 +437,7 @@ fn render_new_row_editing_cell(
             .font(egui::TextStyle::Monospace),
     );
 
-    let should_exit = ui.input(|i| i.key_pressed(Key::Escape) || i.key_pressed(Key::Enter));
+    let should_exit = consume_grid_edit_finish(ui);
 
     if should_exit || response.lost_focus() {
         // 计算新增行的索引（row_idx - 原始结果行数）
@@ -455,4 +513,45 @@ fn render_new_row_display_cell(
             ui.close();
         }
     });
+}
+
+fn consume_grid_edit_finish(ui: &mut egui::Ui) -> bool {
+    ui.input_mut(|input| consume_local_shortcut(input, LocalShortcut::GridEditFinish))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::consume_grid_edit_finish;
+    use eframe::egui::{Area, Context, Event, Id, Key, Modifiers, RawInput};
+
+    fn key_event(key: Key) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }
+    }
+
+    fn run_finish_key(key: Key) -> bool {
+        let ctx = Context::default();
+        ctx.begin_pass(RawInput {
+            events: vec![key_event(key)],
+            modifiers: Modifiers::NONE,
+            ..Default::default()
+        });
+        let mut consumed = false;
+        Area::new(Id::new("grid_inline_edit_key_test")).show(&ctx, |ui| {
+            consumed = consume_grid_edit_finish(ui);
+        });
+        let _ = ctx.end_pass();
+        consumed
+    }
+
+    #[test]
+    fn grid_inline_edit_finish_uses_local_shortcut_bindings() {
+        assert!(run_finish_key(Key::Enter));
+        assert!(run_finish_key(Key::Escape));
+    }
 }

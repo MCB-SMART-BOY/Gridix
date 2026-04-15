@@ -7,14 +7,42 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
-use eframe::egui;
+use eframe::egui::{self, CornerRadius, RichText, ScrollArea, Stroke, Vec2};
 
+use crate::app::dialogs::host::DialogId;
 use crate::core::AppConfig;
 use crate::database::{ConnectionConfig, DatabaseType};
 use crate::ui;
+use crate::ui::dialogs::{DialogContent, DialogShortcutContext, DialogStyle, DialogWindow};
 
 use super::DbManagerApp;
 use super::action_system::AppAction;
+
+const CMD_WELCOME_SETUP_FOCUS_NEXT: &str = "dialog.welcome_setup.focus_next";
+const CMD_WELCOME_SETUP_FOCUS_PREV: &str = "dialog.welcome_setup.focus_prev";
+const CMD_WELCOME_SETUP_RECHECK_ENVIRONMENT: &str = "dialog.welcome_setup.recheck_environment";
+const CMD_WELCOME_SETUP_OPEN_CONNECTION: &str = "dialog.welcome_setup.open_connection";
+const CMD_WELCOME_SETUP_INITIALIZE_DATABASE: &str = "dialog.welcome_setup.initialize_database";
+const CMD_WELCOME_SETUP_CREATE_USER: &str = "dialog.welcome_setup.create_user";
+const CMD_WELCOME_SETUP_RUN_FIRST_QUERY: &str = "dialog.welcome_setup.run_first_query";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WelcomeSetupAction {
+    RecheckEnvironment,
+    OpenConnection,
+    InitializeDatabase,
+    CreateUser,
+    RunFirstQuery,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WelcomeSetupKeyAction {
+    Close,
+    ConfirmSelected,
+    FocusNext,
+    FocusPrev,
+    Trigger(WelcomeSetupAction),
+}
 
 impl DbManagerApp {
     /// 刷新欢迎页数据库环境检测状态
@@ -38,8 +66,7 @@ impl DbManagerApp {
                 self.dispatch_app_action(ctx, AppAction::OpenConnectionDialogFor(db_type));
             }
             ui::WelcomeAction::OpenSetupGuide(db_type) => {
-                self.welcome_setup_target = db_type;
-                self.show_welcome_setup_dialog = true;
+                self.open_welcome_setup_dialog(db_type);
             }
             ui::WelcomeAction::RecheckEnvironment => {
                 self.dispatch_app_action(ctx, AppAction::RecheckEnvironment);
@@ -182,6 +209,172 @@ impl DbManagerApp {
         self.notifications.info("已执行首条查询示例");
     }
 
+    pub(in crate::app) fn open_welcome_setup_dialog(&mut self, db_type: DatabaseType) {
+        self.welcome_setup_target = db_type;
+        self.welcome_setup_action_index =
+            Self::default_welcome_setup_action_index(db_type, self.welcome_onboarding_status());
+        self.open_dialog(DialogId::WelcomeSetup);
+    }
+
+    fn welcome_setup_actions(db_type: DatabaseType) -> Vec<WelcomeSetupAction> {
+        let mut actions = vec![
+            WelcomeSetupAction::RecheckEnvironment,
+            WelcomeSetupAction::OpenConnection,
+            WelcomeSetupAction::InitializeDatabase,
+        ];
+        if matches!(db_type, DatabaseType::PostgreSQL | DatabaseType::MySQL) {
+            actions.push(WelcomeSetupAction::CreateUser);
+        }
+        actions.push(WelcomeSetupAction::RunFirstQuery);
+        actions
+    }
+
+    fn default_welcome_setup_action_index(
+        db_type: DatabaseType,
+        onboarding: ui::WelcomeOnboardingStatus,
+    ) -> usize {
+        let preferred = match onboarding.next_step() {
+            Some(ui::WelcomeOnboardingStep::EnvironmentCheck) => {
+                WelcomeSetupAction::RecheckEnvironment
+            }
+            Some(ui::WelcomeOnboardingStep::CreateConnection) => WelcomeSetupAction::OpenConnection,
+            Some(ui::WelcomeOnboardingStep::InitializeDatabase) => {
+                WelcomeSetupAction::InitializeDatabase
+            }
+            Some(ui::WelcomeOnboardingStep::CreateUser) => WelcomeSetupAction::CreateUser,
+            Some(ui::WelcomeOnboardingStep::RunFirstQuery) | None => {
+                WelcomeSetupAction::RunFirstQuery
+            }
+        };
+
+        Self::welcome_setup_actions(db_type)
+            .iter()
+            .position(|action| *action == preferred)
+            .unwrap_or(0)
+    }
+
+    fn detect_welcome_setup_key_action(ctx: &egui::Context) -> Option<WelcomeSetupKeyAction> {
+        DialogShortcutContext::new(ctx).resolve_commands(&[
+            (
+                ui::LocalShortcut::Dismiss.config_key(),
+                WelcomeSetupKeyAction::Close,
+            ),
+            (
+                ui::LocalShortcut::Confirm.config_key(),
+                WelcomeSetupKeyAction::ConfirmSelected,
+            ),
+            (
+                CMD_WELCOME_SETUP_FOCUS_NEXT,
+                WelcomeSetupKeyAction::FocusNext,
+            ),
+            (
+                CMD_WELCOME_SETUP_FOCUS_PREV,
+                WelcomeSetupKeyAction::FocusPrev,
+            ),
+            (
+                CMD_WELCOME_SETUP_RECHECK_ENVIRONMENT,
+                WelcomeSetupKeyAction::Trigger(WelcomeSetupAction::RecheckEnvironment),
+            ),
+            (
+                CMD_WELCOME_SETUP_OPEN_CONNECTION,
+                WelcomeSetupKeyAction::Trigger(WelcomeSetupAction::OpenConnection),
+            ),
+            (
+                CMD_WELCOME_SETUP_INITIALIZE_DATABASE,
+                WelcomeSetupKeyAction::Trigger(WelcomeSetupAction::InitializeDatabase),
+            ),
+            (
+                CMD_WELCOME_SETUP_CREATE_USER,
+                WelcomeSetupKeyAction::Trigger(WelcomeSetupAction::CreateUser),
+            ),
+            (
+                CMD_WELCOME_SETUP_RUN_FIRST_QUERY,
+                WelcomeSetupKeyAction::Trigger(WelcomeSetupAction::RunFirstQuery),
+            ),
+        ])
+    }
+
+    fn run_welcome_setup_action(
+        &mut self,
+        ctx: &egui::Context,
+        action: WelcomeSetupAction,
+        db_type: DatabaseType,
+    ) -> bool {
+        match action {
+            WelcomeSetupAction::RecheckEnvironment => {
+                self.dispatch_app_action(ctx, AppAction::RecheckEnvironment);
+                false
+            }
+            WelcomeSetupAction::OpenConnection => {
+                self.dispatch_app_action(ctx, AppAction::OpenConnectionDialogFor(db_type));
+                true
+            }
+            WelcomeSetupAction::InitializeDatabase => {
+                self.create_db_dialog_state.open(db_type);
+                true
+            }
+            WelcomeSetupAction::CreateUser => {
+                let databases = self.pick_databases_for_user_dialog(db_type);
+                self.create_user_dialog_state.open(db_type, databases);
+                true
+            }
+            WelcomeSetupAction::RunFirstQuery => {
+                self.run_onboarding_first_query();
+                true
+            }
+        }
+    }
+
+    fn welcome_setup_action_label(action: WelcomeSetupAction) -> &'static str {
+        match action {
+            WelcomeSetupAction::RecheckEnvironment => "重新检测环境",
+            WelcomeSetupAction::OpenConnection => "打开新建连接",
+            WelcomeSetupAction::InitializeDatabase => "初始化数据库",
+            WelcomeSetupAction::CreateUser => "创建用户",
+            WelcomeSetupAction::RunFirstQuery => "执行首条查询",
+        }
+    }
+
+    fn welcome_setup_action_command(action: WelcomeSetupAction) -> &'static str {
+        match action {
+            WelcomeSetupAction::RecheckEnvironment => CMD_WELCOME_SETUP_RECHECK_ENVIRONMENT,
+            WelcomeSetupAction::OpenConnection => CMD_WELCOME_SETUP_OPEN_CONNECTION,
+            WelcomeSetupAction::InitializeDatabase => CMD_WELCOME_SETUP_INITIALIZE_DATABASE,
+            WelcomeSetupAction::CreateUser => CMD_WELCOME_SETUP_CREATE_USER,
+            WelcomeSetupAction::RunFirstQuery => CMD_WELCOME_SETUP_RUN_FIRST_QUERY,
+        }
+    }
+
+    fn welcome_setup_action_button(
+        ui: &egui::Ui,
+        action: WelcomeSetupAction,
+        selected: bool,
+    ) -> egui::Button<'static> {
+        let label = Self::welcome_setup_action_label(action);
+        let shortcut = ui::scoped_command_text(Self::welcome_setup_action_command(action));
+        let text = if shortcut.is_empty() {
+            label.to_string()
+        } else {
+            format!("{} [{}]", label, shortcut)
+        };
+        let fill = if selected {
+            ui.visuals().selection.bg_fill.gamma_multiply(0.45)
+        } else {
+            ui.visuals().faint_bg_color
+        };
+        let stroke = if selected {
+            Stroke::new(1.5, ui.visuals().selection.stroke.color)
+        } else {
+            Stroke::new(1.0, ui.visuals().window_stroke.color.gamma_multiply(0.7))
+        };
+
+        egui::Button::new(RichText::new(text).color(ui.visuals().text_color()))
+            .fill(fill)
+            .stroke(stroke)
+            .corner_radius(CornerRadius::same(8))
+            .min_size(Vec2::new(110.0, 34.0))
+    }
+
     /// 渲染欢迎页安装/初始化引导弹窗
     pub(in crate::app) fn show_welcome_setup_dialog_window(&mut self, ctx: &egui::Context) {
         if !self.show_welcome_setup_dialog {
@@ -192,98 +385,137 @@ impl DbManagerApp {
         let status = self.welcome_status.state_for(db_type);
         let mut keep_open = self.show_welcome_setup_dialog;
         let mut close_now = false;
+        let content_rect = ctx.input(|input| input.content_rect());
+        let style = DialogStyle::LARGE;
+        let actions = Self::welcome_setup_actions(db_type);
+        if !actions.is_empty() {
+            self.welcome_setup_action_index = self
+                .welcome_setup_action_index
+                .min(actions.len().saturating_sub(1));
+        }
 
-        egui::Window::new(format!("{} 安装与初始化引导", db_type.display_name()))
-            .open(&mut keep_open)
-            .collapsible(false)
-            .resizable(true)
-            .default_width(640.0)
-            .default_height(500.0)
-            .min_width(560.0)
-            .min_height(420.0)
-            .show(ctx, |ui| {
-                let onboarding = self.welcome_onboarding_status();
-                ui.label(
-                    egui::RichText::new(Self::status_summary_text(status))
-                        .strong()
-                        .color(Self::status_summary_color(status)),
-                );
-                ui.add_space(8.0);
+        if let Some(key_action) = Self::detect_welcome_setup_key_action(ctx) {
+            match key_action {
+                WelcomeSetupKeyAction::Close => {
+                    close_now = true;
+                }
+                WelcomeSetupKeyAction::ConfirmSelected => {
+                    if let Some(action) = actions.get(self.welcome_setup_action_index).copied() {
+                        close_now = self.run_welcome_setup_action(ctx, action, db_type);
+                    }
+                }
+                WelcomeSetupKeyAction::FocusNext => {
+                    if !actions.is_empty() {
+                        self.welcome_setup_action_index =
+                            (self.welcome_setup_action_index + 1) % actions.len();
+                    }
+                }
+                WelcomeSetupKeyAction::FocusPrev => {
+                    if !actions.is_empty() {
+                        self.welcome_setup_action_index =
+                            (self.welcome_setup_action_index + actions.len() - 1) % actions.len();
+                    }
+                }
+                WelcomeSetupKeyAction::Trigger(action) => {
+                    if let Some(index) = actions.iter().position(|candidate| *candidate == action) {
+                        self.welcome_setup_action_index = index;
+                        close_now = self.run_welcome_setup_action(ctx, action, db_type);
+                    }
+                }
+            }
+        }
 
-                egui::Frame::group(ui.style())
-                    .inner_margin(egui::Margin::symmetric(12, 10))
-                    .show(ui, |ui| {
-                        let completed = onboarding.completed_steps();
-                        let total = onboarding.total_steps();
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("首启闭环进度").strong());
-                            ui.label(format!("({}/{})", completed, total));
-                        });
-                        ui.add_space(4.0);
-                        ui.add(
-                            egui::ProgressBar::new(completed as f32 / total.max(1) as f32)
-                                .desired_width(ui.available_width())
-                                .show_percentage(),
-                        );
-                        ui.add_space(6.0);
-                        for step in onboarding.steps() {
-                            let done = onboarding.is_step_done(step);
-                            let marker = if done { "✓" } else { "○" };
-                            ui.label(format!(
-                                "{} {}",
-                                marker,
-                                ui::WelcomeOnboardingStatus::step_label(step)
-                            ));
-                        }
-                        if let Some(next_step) = onboarding.next_step() {
-                            ui.add_space(8.0);
-                            if ui
-                                .button(ui::WelcomeOnboardingStatus::action_label(next_step))
-                                .clicked()
-                            {
-                                self.handle_onboarding_step(next_step);
+        DialogWindow::resizable(
+            ctx,
+            &format!("{} 安装与初始化引导", db_type.display_name()),
+            &style,
+        )
+        .open(&mut keep_open)
+        .default_width(640.0)
+        .default_height(500.0)
+        .min_width(560.0)
+        .min_height(420.0)
+        .constrain_to(content_rect)
+        .show(ctx, |ui| {
+            let onboarding = self.welcome_onboarding_status();
+            ui.label(
+                egui::RichText::new(Self::status_summary_text(status))
+                    .strong()
+                    .color(Self::status_summary_color(status)),
+            );
+            ui.add_space(8.0);
+
+            ScrollArea::vertical()
+                .id_salt(("welcome_setup_body", db_type))
+                .max_height(DialogContent::adaptive_height(ui, 0.82, 260.0, 620.0))
+                .show(ui, |ui| {
+                    egui::Frame::group(ui.style())
+                        .inner_margin(egui::Margin::symmetric(12, 10))
+                        .show(ui, |ui| {
+                            let completed = onboarding.completed_steps();
+                            let total = onboarding.total_steps();
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("首启闭环进度").strong());
+                                ui.label(format!("({}/{})", completed, total));
+                            });
+                            ui.add_space(4.0);
+                            ui.add(
+                                egui::ProgressBar::new(completed as f32 / total.max(1) as f32)
+                                    .desired_width(ui.available_width())
+                                    .show_percentage(),
+                            );
+                            ui.add_space(6.0);
+                            for step in onboarding.steps() {
+                                let done = onboarding.is_step_done(step);
+                                let marker = if done { "✓" } else { "○" };
+                                ui.label(format!(
+                                    "{} {}",
+                                    marker,
+                                    ui::WelcomeOnboardingStatus::step_label(step)
+                                ));
                             }
-                        }
-                    });
+                            if let Some(next_step) = onboarding.next_step() {
+                                ui.add_space(8.0);
+                                if ui
+                                    .button(ui::WelcomeOnboardingStatus::action_label(next_step))
+                                    .clicked()
+                                {
+                                    self.handle_onboarding_step(next_step);
+                                }
+                            }
+                        });
 
-                ui.add_space(10.0);
-                Self::show_setup_section(ui, "安装步骤", Self::installation_steps(db_type));
+                    ui.add_space(10.0);
+                    Self::show_setup_section(ui, "安装步骤", Self::installation_steps(db_type));
 
-                ui.add_space(10.0);
-                Self::show_setup_section(ui, "初始化与账号", Self::initialization_steps(db_type));
-
-                ui.add_space(12.0);
-                ui.horizontal_wrapped(|ui| {
-                    if ui.button("重新检测环境").clicked() {
-                        self.dispatch_app_action(ctx, AppAction::RecheckEnvironment);
-                    }
-
-                    if ui.button("打开新建连接").clicked() {
-                        self.dispatch_app_action(ctx, AppAction::OpenConnectionDialogFor(db_type));
-                        close_now = true;
-                    }
-
-                    if ui.button("初始化数据库").clicked() {
-                        self.create_db_dialog_state.open(db_type);
-                        close_now = true;
-                    }
-
-                    if matches!(db_type, DatabaseType::PostgreSQL | DatabaseType::MySQL)
-                        && ui.button("创建用户").clicked()
-                    {
-                        let databases = self.pick_databases_for_user_dialog(db_type);
-                        self.create_user_dialog_state.open(db_type, databases);
-                        close_now = true;
-                    }
-
-                    if ui.button("执行首条查询").clicked() {
-                        self.run_onboarding_first_query();
-                        close_now = true;
-                    }
+                    ui.add_space(10.0);
+                    Self::show_setup_section(
+                        ui,
+                        "初始化与账号",
+                        Self::initialization_steps(db_type),
+                    );
                 });
-            });
 
-        self.show_welcome_setup_dialog = keep_open && !close_now;
+            ui.add_space(12.0);
+            ui.horizontal_wrapped(|ui| {
+                for (index, action) in actions.iter().copied().enumerate() {
+                    let selected = index == self.welcome_setup_action_index;
+                    if ui
+                        .add(Self::welcome_setup_action_button(ui, action, selected))
+                        .clicked()
+                    {
+                        self.welcome_setup_action_index = index;
+                        close_now = self.run_welcome_setup_action(ctx, action, db_type);
+                    }
+                }
+            });
+        });
+
+        if keep_open && !close_now {
+            self.open_dialog(DialogId::WelcomeSetup);
+        } else {
+            self.close_dialog(DialogId::WelcomeSetup);
+        }
     }
 
     pub(in crate::app) fn open_connection_dialog_for(&mut self, db_type: DatabaseType) {
@@ -327,7 +559,7 @@ impl DbManagerApp {
 
         self.new_config = config;
         self.editing_connection_name = None;
-        self.show_connection_dialog = true;
+        self.open_dialog(DialogId::Connection);
     }
 
     fn show_setup_section(ui: &mut egui::Ui, title: &str, lines: &[&str]) {
@@ -455,4 +687,79 @@ fn default_sqlite_path() -> PathBuf {
     AppConfig::config_dir()
         .map(|dir| dir.join("gridix-local.sqlite3"))
         .unwrap_or_else(|| PathBuf::from("gridix-local.sqlite3"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{Event, Key, Modifiers, RawInput};
+
+    fn begin_key_pass(ctx: &egui::Context, key: Key, modifiers: Modifiers) {
+        ctx.begin_pass(RawInput {
+            events: vec![Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            modifiers,
+            ..Default::default()
+        });
+    }
+
+    #[test]
+    fn welcome_setup_detects_focus_next_shortcut_through_scoped_command_id() {
+        let ctx = egui::Context::default();
+        begin_key_pass(&ctx, Key::Tab, Modifiers::NONE);
+
+        let action = DbManagerApp::detect_welcome_setup_key_action(&ctx);
+
+        assert_eq!(action, Some(WelcomeSetupKeyAction::FocusNext));
+
+        let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn welcome_setup_detects_run_first_query_shortcut_through_scoped_command_id() {
+        let ctx = egui::Context::default();
+        begin_key_pass(&ctx, Key::Num5, Modifiers::NONE);
+
+        let action = DbManagerApp::detect_welcome_setup_key_action(&ctx);
+
+        assert_eq!(
+            action,
+            Some(WelcomeSetupKeyAction::Trigger(
+                WelcomeSetupAction::RunFirstQuery
+            ))
+        );
+
+        let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn sqlite_welcome_setup_actions_skip_create_user() {
+        let actions = DbManagerApp::welcome_setup_actions(DatabaseType::SQLite);
+
+        assert!(!actions.contains(&WelcomeSetupAction::CreateUser));
+        assert_eq!(actions.last(), Some(&WelcomeSetupAction::RunFirstQuery));
+    }
+
+    #[test]
+    fn default_welcome_setup_action_prefers_next_onboarding_step() {
+        let onboarding = ui::WelcomeOnboardingStatus {
+            environment_checked: true,
+            connection_created: true,
+            database_initialized: true,
+            user_created: false,
+            first_query_executed: false,
+            require_user_step: false,
+        };
+
+        let index =
+            DbManagerApp::default_welcome_setup_action_index(DatabaseType::SQLite, onboarding);
+        let actions = DbManagerApp::welcome_setup_actions(DatabaseType::SQLite);
+
+        assert_eq!(actions[index], WelcomeSetupAction::RunFirstQuery);
+    }
 }

@@ -6,16 +6,30 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::app::dialogs::host::DialogId;
 use crate::core::constants;
 use crate::database::{
-    ConnectResult, ConnectionConfig, DatabaseType, connect_database, execute_import_batch,
-    execute_query_cancellable, get_primary_key_column, get_tables_for_database,
-    ssh_tunnel::SSH_TUNNEL_MANAGER,
+    ConnectResult, ConnectionConfig, DatabaseType, connect_database, drop_database,
+    execute_import_batch, execute_query, execute_query_cancellable, get_primary_key_column,
+    get_tables_for_database, ssh_tunnel::SSH_TUNNEL_MANAGER,
 };
 use crate::ui;
 
 use super::message::Message;
 use super::{DbManagerApp, GridSaveContext};
+use crate::app::GridWorkspaceId;
+
+fn prepare_tab_for_query_execution(tab: &mut crate::ui::QueryTab, sql: &str, request_id: u64) {
+    tab.sql = sql.to_string();
+    tab.result = None;
+    tab.modified = false;
+    tab.executing = true;
+    tab.last_message = None;
+    tab.last_error = None;
+    tab.query_time_ms = None;
+    tab.pending_request_id = Some(request_id);
+    tab.update_title();
+}
 
 impl DbManagerApp {
     /// 打开连接编辑对话框（预填当前配置）
@@ -23,7 +37,7 @@ impl DbManagerApp {
         if let Some(conn) = self.manager.connections.get(name) {
             self.new_config = conn.config.clone();
             self.editing_connection_name = Some(name.to_string());
-            self.show_connection_dialog = true;
+            self.open_dialog(DialogId::Connection);
         } else {
             self.notifications
                 .warning(format!("连接 '{}' 不存在", name));
@@ -45,7 +59,7 @@ impl DbManagerApp {
             self.notifications
                 .error(format!("连接名 '{}' 已存在，请使用其他名称", name));
             self.new_config = config;
-            self.show_connection_dialog = true;
+            self.open_dialog(DialogId::Connection);
             return;
         }
 
@@ -72,9 +86,8 @@ impl DbManagerApp {
 
         self.manager.add(config);
         self.mark_onboarding_connection_created();
-        self.welcome_setup_target = saved_db_type;
         if !self.welcome_onboarding_status().is_complete() {
-            self.show_welcome_setup_dialog = true;
+            self.open_welcome_setup_dialog(saved_db_type);
         }
         self.save_config();
         self.connect(name);
@@ -229,9 +242,10 @@ impl DbManagerApp {
         self.pending_routines_request = None;
         self.pending_drop_requests
             .retain(|_, (conn_name, _)| conn_name != &name);
+        self.remove_grid_workspaces_for_connection(&name);
         if self.manager.active.as_deref() == Some(&name) {
             self.manager.active = None;
-            self.selected_table = None;
+            self.switch_grid_workspace(None);
             self.result = None;
             self.autocomplete.clear();
             self.sidebar_panel_state.clear_triggers();
@@ -262,7 +276,7 @@ impl DbManagerApp {
         // 如果删除的是当前连接，清空当前状态
         if was_active {
             self.manager.active = None;
-            self.selected_table = None;
+            self.switch_grid_workspace(None);
             self.result = None;
             self.command_history.clear();
             self.current_history_connection = None;
@@ -270,13 +284,59 @@ impl DbManagerApp {
         self.save_config();
     }
 
-    /// 删除表（执行 DROP TABLE）
-    pub(in crate::app) fn delete_table(&mut self, table: &str) {
-        let Some(conn) = self.manager.get_active() else {
+    /// 删除数据库（执行 DROP DATABASE）。
+    pub(in crate::app) fn delete_database(&mut self, connection_name: &str, database: &str) {
+        let Some(conn) = self.manager.connections.get(connection_name) else {
+            self.notifications.warning("目标连接已失效");
+            return;
+        };
+        if !conn.connected {
             self.notifications.warning("请先连接数据库");
             return;
         };
-        let active_name = conn.config.name.clone();
+        if matches!(conn.config.db_type, crate::database::DatabaseType::SQLite) {
+            self.notifications
+                .warning("SQLite 不支持独立删除数据库；请删除连接或数据库文件");
+            return;
+        }
+
+        let config = conn.config.clone();
+        let tx = self.tx.clone();
+        let connection_name = connection_name.to_string();
+        let database_name = database.to_string();
+        let remove_active_pool = conn.selected_database.as_deref() == Some(database);
+
+        self.runtime.spawn(async move {
+            let result = drop_database(&config, &database_name)
+                .await
+                .map_err(|e| e.to_string());
+            if result.is_ok() && remove_active_pool {
+                crate::database::POOL_MANAGER.remove_pool(&config).await;
+            }
+            if tx
+                .send(Message::DatabaseDropped(
+                    connection_name,
+                    database_name,
+                    result,
+                ))
+                .is_err()
+            {
+                tracing::warn!("无法发送数据库删除结果：接收端已关闭");
+            }
+        });
+    }
+
+    /// 删除表（执行 DROP TABLE）
+    pub(in crate::app) fn delete_table(&mut self, connection_name: &str, table: &str) {
+        let Some(conn) = self.manager.connections.get(connection_name) else {
+            self.notifications.warning("目标连接已失效");
+            return;
+        };
+        if !conn.connected {
+            self.notifications.warning("请先连接数据库");
+            return;
+        }
+        let target_connection = conn.config.name.clone();
 
         let use_backticks = matches!(conn.config.db_type, crate::database::DatabaseType::MySQL);
         let quoted_table = match ui::quote_identifier(table, use_backticks) {
@@ -286,11 +346,23 @@ impl DbManagerApp {
                 return;
             }
         };
+        let config = conn.config.clone();
+        let tx = self.tx.clone();
+        let table_name = table.to_string();
+        let sql = format!("DROP TABLE {};", quoted_table);
 
-        if let Some(request_id) = self.execute(format!("DROP TABLE {};", quoted_table)) {
-            self.pending_drop_requests
-                .insert(request_id, (active_name, table.to_string()));
-        }
+        self.runtime.spawn(async move {
+            let result = execute_query(&config, &sql)
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string());
+            if tx
+                .send(Message::TableDropped(target_connection, table_name, result))
+                .is_err()
+            {
+                tracing::warn!("无法发送表删除结果：接收端已关闭");
+            }
+        });
     }
 
     /// 执行 SQL 查询
@@ -344,15 +416,11 @@ impl DbManagerApp {
         let mut previous_request_id = None;
         if let Some(tab) = self.tab_manager.get_active_mut() {
             previous_request_id = tab.pending_request_id.take();
-            tab.sql = sql.clone();
-            tab.modified = false;
-            tab.executing = true;
-            tab.pending_request_id = Some(request_id);
-            tab.update_title();
+            prepare_tab_for_query_execution(tab, &sql, request_id);
             target_tab_id = tab.id.clone();
         }
         if let Some(prev_request_id) = previous_request_id {
-            self.cancel_query_request(prev_request_id);
+            self.cancel_query_request_silently(prev_request_id);
         }
         self.refresh_executing_flag();
 
@@ -447,6 +515,7 @@ impl DbManagerApp {
         };
 
         let config = conn.config.clone();
+        let selected_database = conn.selected_database.clone();
         let request_id = self.next_grid_save_request_id();
         let active_tab_id = self
             .tab_manager
@@ -459,6 +528,14 @@ impl DbManagerApp {
         self.pending_grid_save_requests.insert(
             request_id,
             GridSaveContext {
+                workspace_id: self
+                    .active_grid_workspace_id()
+                    .unwrap_or_else(|| GridWorkspaceId {
+                        tab_id: active_tab_id.clone(),
+                        connection_name: active_name.clone(),
+                        database_name: selected_database.clone(),
+                        table_name: table_name.clone(),
+                    }),
                 table_name,
                 tab_id: active_tab_id,
                 cursor: self.grid_state.cursor,
@@ -495,6 +572,13 @@ impl DbManagerApp {
         ctx: &egui::Context,
         restore: GridSaveContext,
     ) {
+        if self.active_grid_workspace_id().as_ref() != Some(&restore.workspace_id) {
+            self.notifications
+                .info("保存已完成；当前表格上下文已变化，未自动覆盖其他表格工作区");
+            ctx.request_repaint();
+            return;
+        }
+
         let active_tab_matches = self
             .tab_manager
             .get_active()
@@ -516,7 +600,7 @@ impl DbManagerApp {
             }
         };
 
-        self.selected_table = Some(restore.table_name.clone());
+        self.switch_grid_workspace(Some(restore.table_name.clone()));
         if let Some(request_id) = self.execute(query_sql) {
             self.pending_grid_refresh_restores
                 .insert(request_id, restore);
@@ -568,8 +652,7 @@ impl DbManagerApp {
 
         self.notifications.error(friendly);
         if let Some(config) = conn_config {
-            self.welcome_setup_target = config.db_type;
-            self.show_welcome_setup_dialog = true;
+            self.open_welcome_setup_dialog(config.db_type);
             self.notifications.info(format!(
                 "已打开 {} 安装与初始化引导",
                 config.db_type.display_name()
@@ -643,5 +726,36 @@ impl DbManagerApp {
                 )
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prepare_tab_for_query_execution;
+    use crate::database::QueryResult;
+    use crate::ui::QueryTab;
+
+    #[test]
+    fn prepare_tab_for_query_execution_clears_stale_result_and_sets_request_state() {
+        let mut tab = QueryTab::from_sql("select 1");
+        tab.result = Some(QueryResult::with_rows(
+            vec!["id".to_string()],
+            vec![vec!["1".to_string()]],
+        ));
+        tab.last_message = Some("查询完成，返回 1 行 (3ms)".to_string());
+        tab.last_error = Some("错误: previous".to_string());
+        tab.pending_request_id = Some(7);
+        tab.executing = false;
+
+        prepare_tab_for_query_execution(&mut tab, "select 2", 8);
+
+        assert_eq!(tab.sql, "select 2");
+        assert!(tab.result.is_none());
+        assert!(tab.last_message.is_none());
+        assert!(tab.last_error.is_none());
+        assert_eq!(tab.query_time_ms, None);
+        assert!(tab.executing);
+        assert_eq!(tab.pending_request_id, Some(8));
+        assert!(!tab.modified);
     }
 }

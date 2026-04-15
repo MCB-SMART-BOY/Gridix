@@ -14,6 +14,10 @@ pub enum Message {
     ConnectedWithDatabases(String, u64, Result<Vec<String>, String>),
     /// 数据库选择完成 (连接名, 数据库名, 请求ID, 表列表结果)
     DatabaseSelected(String, String, u64, Result<Vec<String>, String>),
+    /// 数据库删除完成 (连接名, 数据库名, 删除结果)
+    DatabaseDropped(String, String, Result<(), String>),
+    /// 表删除完成 (连接名, 表名, 删除结果)
+    TableDropped(String, String, Result<(), String>),
     /// 查询执行完成 (SQL语句, 连接名, 目标Tab ID, 请求ID, 查询结果, 耗时毫秒)
     QueryDone(
         String,

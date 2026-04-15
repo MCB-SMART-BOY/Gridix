@@ -61,6 +61,60 @@ pub enum LocalShortcut {
     HelpScrollDown,
     HelpPageUp,
     HelpPageDown,
+    PickerMovePrev,
+    PickerMoveNext,
+    PickerOpen,
+    PickerBack,
+    PickerFocusNext,
+    PickerFocusPrev,
+    CommandPalettePrev,
+    CommandPaletteNext,
+    CommandPaletteConfirm,
+    CommandPaletteDismiss,
+    ToolbarPrev,
+    ToolbarNext,
+    ToolbarToQueryTabs,
+    ToolbarActivate,
+    ToolbarDismiss,
+    ToolbarMenuPrev,
+    ToolbarMenuNext,
+    ToolbarMenuConfirm,
+    ToolbarMenuDismiss,
+    ToolbarThemePrev,
+    ToolbarThemeNext,
+    ToolbarThemeConfirm,
+    ToolbarThemeDismiss,
+    ToolbarThemeStart,
+    ToolbarThemeEnd,
+    QueryTabPrev,
+    QueryTabNext,
+    QueryTabToDataGrid,
+    QueryTabToToolbar,
+    QueryTabActivate,
+    QueryTabClose,
+    QueryTabDismiss,
+    ErDiagramRefresh,
+    ErDiagramLayout,
+    ErDiagramFitView,
+    ErDiagramZoomIn,
+    ErDiagramZoomOut,
+    ErDiagramPrevTable,
+    ErDiagramNextTable,
+    ErDiagramPrevRelated,
+    ErDiagramNextRelated,
+    ErDiagramGeometryLeft,
+    ErDiagramGeometryDown,
+    ErDiagramGeometryUp,
+    ErDiagramGeometryRight,
+    ErDiagramOpenSelected,
+    ErDiagramBack,
+    ErDiagramClose,
+    ErDiagramViewportMode,
+    ErDiagramViewportExit,
+    ErDiagramViewportPanLeft,
+    ErDiagramViewportPanDown,
+    ErDiagramViewportPanUp,
+    ErDiagramViewportPanRight,
     SidebarItemPrev,
     SidebarItemNext,
     SidebarItemStart,
@@ -83,6 +137,7 @@ pub enum LocalShortcut {
     FilterLogicToggle,
     FilterFocusInput,
     FilterCaseToggle,
+    FilterInputDismiss,
     ExportFormatCsv,
     ExportFormatTsv,
     ExportFormatSql,
@@ -103,6 +158,7 @@ pub enum LocalShortcut {
     SqlHistoryPrev,
     SqlHistoryNext,
     SqlHistoryBrowse,
+    GridEditFinish,
     ImportRefresh,
     ImportFormatSql,
     ImportFormatCsv,
@@ -147,6 +203,60 @@ impl LocalShortcut {
             Self::HelpScrollDown,
             Self::HelpPageUp,
             Self::HelpPageDown,
+            Self::PickerMovePrev,
+            Self::PickerMoveNext,
+            Self::PickerOpen,
+            Self::PickerBack,
+            Self::PickerFocusNext,
+            Self::PickerFocusPrev,
+            Self::CommandPalettePrev,
+            Self::CommandPaletteNext,
+            Self::CommandPaletteConfirm,
+            Self::CommandPaletteDismiss,
+            Self::ToolbarPrev,
+            Self::ToolbarNext,
+            Self::ToolbarToQueryTabs,
+            Self::ToolbarActivate,
+            Self::ToolbarDismiss,
+            Self::ToolbarMenuPrev,
+            Self::ToolbarMenuNext,
+            Self::ToolbarMenuConfirm,
+            Self::ToolbarMenuDismiss,
+            Self::ToolbarThemePrev,
+            Self::ToolbarThemeNext,
+            Self::ToolbarThemeConfirm,
+            Self::ToolbarThemeDismiss,
+            Self::ToolbarThemeStart,
+            Self::ToolbarThemeEnd,
+            Self::QueryTabPrev,
+            Self::QueryTabNext,
+            Self::QueryTabToDataGrid,
+            Self::QueryTabToToolbar,
+            Self::QueryTabActivate,
+            Self::QueryTabClose,
+            Self::QueryTabDismiss,
+            Self::ErDiagramRefresh,
+            Self::ErDiagramLayout,
+            Self::ErDiagramFitView,
+            Self::ErDiagramZoomIn,
+            Self::ErDiagramZoomOut,
+            Self::ErDiagramPrevTable,
+            Self::ErDiagramNextTable,
+            Self::ErDiagramPrevRelated,
+            Self::ErDiagramNextRelated,
+            Self::ErDiagramGeometryLeft,
+            Self::ErDiagramGeometryDown,
+            Self::ErDiagramGeometryUp,
+            Self::ErDiagramGeometryRight,
+            Self::ErDiagramOpenSelected,
+            Self::ErDiagramBack,
+            Self::ErDiagramClose,
+            Self::ErDiagramViewportMode,
+            Self::ErDiagramViewportExit,
+            Self::ErDiagramViewportPanLeft,
+            Self::ErDiagramViewportPanDown,
+            Self::ErDiagramViewportPanUp,
+            Self::ErDiagramViewportPanRight,
             Self::SidebarItemPrev,
             Self::SidebarItemNext,
             Self::SidebarItemStart,
@@ -169,6 +279,7 @@ impl LocalShortcut {
             Self::FilterLogicToggle,
             Self::FilterFocusInput,
             Self::FilterCaseToggle,
+            Self::FilterInputDismiss,
             Self::ExportFormatCsv,
             Self::ExportFormatTsv,
             Self::ExportFormatSql,
@@ -189,6 +300,7 @@ impl LocalShortcut {
             Self::SqlHistoryPrev,
             Self::SqlHistoryNext,
             Self::SqlHistoryBrowse,
+            Self::GridEditFinish,
             Self::ImportRefresh,
             Self::ImportFormatSql,
             Self::ImportFormatCsv,
@@ -233,6 +345,60 @@ impl LocalShortcut {
             LocalShortcut::HelpScrollDown => "dialog.help.scroll_down",
             LocalShortcut::HelpPageUp => "dialog.help.page_up",
             LocalShortcut::HelpPageDown => "dialog.help.page_down",
+            LocalShortcut::PickerMovePrev => "dialog.picker.move_prev",
+            LocalShortcut::PickerMoveNext => "dialog.picker.move_next",
+            LocalShortcut::PickerOpen => "dialog.picker.open",
+            LocalShortcut::PickerBack => "dialog.picker.back",
+            LocalShortcut::PickerFocusNext => "dialog.picker.focus_next",
+            LocalShortcut::PickerFocusPrev => "dialog.picker.focus_prev",
+            LocalShortcut::CommandPalettePrev => "dialog.command_palette.prev",
+            LocalShortcut::CommandPaletteNext => "dialog.command_palette.next",
+            LocalShortcut::CommandPaletteConfirm => "dialog.command_palette.confirm",
+            LocalShortcut::CommandPaletteDismiss => "dialog.command_palette.dismiss",
+            LocalShortcut::ToolbarPrev => "toolbar.nav.prev",
+            LocalShortcut::ToolbarNext => "toolbar.nav.next",
+            LocalShortcut::ToolbarToQueryTabs => "toolbar.nav.to_query_tabs",
+            LocalShortcut::ToolbarActivate => "toolbar.nav.activate",
+            LocalShortcut::ToolbarDismiss => "toolbar.nav.dismiss",
+            LocalShortcut::ToolbarMenuPrev => "toolbar.menu.prev",
+            LocalShortcut::ToolbarMenuNext => "toolbar.menu.next",
+            LocalShortcut::ToolbarMenuConfirm => "toolbar.menu.confirm",
+            LocalShortcut::ToolbarMenuDismiss => "toolbar.menu.dismiss",
+            LocalShortcut::ToolbarThemePrev => "toolbar.theme.prev",
+            LocalShortcut::ToolbarThemeNext => "toolbar.theme.next",
+            LocalShortcut::ToolbarThemeConfirm => "toolbar.theme.confirm",
+            LocalShortcut::ToolbarThemeDismiss => "toolbar.theme.dismiss",
+            LocalShortcut::ToolbarThemeStart => "toolbar.theme.start",
+            LocalShortcut::ToolbarThemeEnd => "toolbar.theme.end",
+            LocalShortcut::QueryTabPrev => "query_tabs.prev",
+            LocalShortcut::QueryTabNext => "query_tabs.next",
+            LocalShortcut::QueryTabToDataGrid => "query_tabs.to_data_grid",
+            LocalShortcut::QueryTabToToolbar => "query_tabs.to_toolbar",
+            LocalShortcut::QueryTabActivate => "query_tabs.activate",
+            LocalShortcut::QueryTabClose => "query_tabs.close",
+            LocalShortcut::QueryTabDismiss => "query_tabs.dismiss",
+            LocalShortcut::ErDiagramRefresh => "er_diagram.refresh",
+            LocalShortcut::ErDiagramLayout => "er_diagram.layout",
+            LocalShortcut::ErDiagramFitView => "er_diagram.fit_view",
+            LocalShortcut::ErDiagramZoomIn => "er_diagram.zoom_in",
+            LocalShortcut::ErDiagramZoomOut => "er_diagram.zoom_out",
+            LocalShortcut::ErDiagramPrevTable => "er_diagram.prev_table",
+            LocalShortcut::ErDiagramNextTable => "er_diagram.next_table",
+            LocalShortcut::ErDiagramPrevRelated => "er_diagram.prev_related",
+            LocalShortcut::ErDiagramNextRelated => "er_diagram.next_related",
+            LocalShortcut::ErDiagramGeometryLeft => "er_diagram.geometry_left",
+            LocalShortcut::ErDiagramGeometryDown => "er_diagram.geometry_down",
+            LocalShortcut::ErDiagramGeometryUp => "er_diagram.geometry_up",
+            LocalShortcut::ErDiagramGeometryRight => "er_diagram.geometry_right",
+            LocalShortcut::ErDiagramOpenSelected => "er_diagram.open_selected",
+            LocalShortcut::ErDiagramBack => "er_diagram.back",
+            LocalShortcut::ErDiagramClose => "er_diagram.close",
+            LocalShortcut::ErDiagramViewportMode => "er_diagram.viewport_mode",
+            LocalShortcut::ErDiagramViewportExit => "er_diagram.viewport.exit",
+            LocalShortcut::ErDiagramViewportPanLeft => "er_diagram.viewport.pan_left",
+            LocalShortcut::ErDiagramViewportPanDown => "er_diagram.viewport.pan_down",
+            LocalShortcut::ErDiagramViewportPanUp => "er_diagram.viewport.pan_up",
+            LocalShortcut::ErDiagramViewportPanRight => "er_diagram.viewport.pan_right",
             LocalShortcut::SidebarItemPrev => "sidebar.list.prev",
             LocalShortcut::SidebarItemNext => "sidebar.list.next",
             LocalShortcut::SidebarItemStart => "sidebar.list.start",
@@ -255,6 +421,7 @@ impl LocalShortcut {
             LocalShortcut::FilterLogicToggle => "sidebar.filters.logic_toggle",
             LocalShortcut::FilterFocusInput => "sidebar.filters.focus_input",
             LocalShortcut::FilterCaseToggle => "sidebar.filters.case_toggle",
+            LocalShortcut::FilterInputDismiss => "sidebar.filters.input.dismiss",
             LocalShortcut::ExportFormatCsv => "dialog.export.format_csv",
             LocalShortcut::ExportFormatTsv => "dialog.export.format_tsv",
             LocalShortcut::ExportFormatSql => "dialog.export.format_sql",
@@ -275,6 +442,7 @@ impl LocalShortcut {
             LocalShortcut::SqlHistoryPrev => "editor.insert.history_prev",
             LocalShortcut::SqlHistoryNext => "editor.insert.history_next",
             LocalShortcut::SqlHistoryBrowse => "editor.insert.history_browse",
+            LocalShortcut::GridEditFinish => "grid.insert.finish_edit",
             LocalShortcut::ImportRefresh => "dialog.import.refresh",
             LocalShortcut::ImportFormatSql => "dialog.import.format_sql",
             LocalShortcut::ImportFormatCsv => "dialog.import.format_csv",
@@ -533,25 +701,56 @@ fn local_bindings_text(bindings: Vec<LocalBinding>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        LocalShortcut, action_tooltip_with_extras, local_shortcut_pressed, local_shortcut_text,
-        local_shortcut_tooltip, local_shortcuts_text, local_shortcuts_tooltip, shortcut_tooltip,
-        sync_runtime_local_shortcuts,
+        LocalShortcut, action_tooltip, action_tooltip_with_extras, local_shortcut_pressed,
+        local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text, local_shortcuts_tooltip,
+        shortcut_tooltip, sync_runtime_local_shortcuts,
     };
     use crate::core::{Action, KeyBinding, KeyBindings, KeyCode, scoped_command};
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    fn shortcut_registry_guard() -> MutexGuard<'static, ()> {
+        static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+        GUARD
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("shortcut tooltip test lock")
+    }
 
     #[test]
     fn action_tooltip_appends_current_binding() {
+        let _guard = shortcut_registry_guard();
         let keybindings = KeyBindings::default();
         let tooltip =
-            action_tooltip_with_extras(&keybindings, Action::AddFilter, "打开筛选面板", &["/"]);
+            action_tooltip_with_extras(&keybindings, Action::ShowHelp, "打开帮助", &["?"]);
 
-        assert!(tooltip.contains("打开筛选面板"));
-        assert!(tooltip.contains("Ctrl+F"));
-        assert!(tooltip.contains("/"));
+        assert!(tooltip.contains("打开帮助"));
+        assert!(tooltip.contains("F1"));
+        assert!(tooltip.contains("?"));
+    }
+
+    #[test]
+    fn action_tooltip_uses_dedicated_toolbar_actions_binding() {
+        let _guard = shortcut_registry_guard();
+        let keybindings = KeyBindings::default();
+        let tooltip = action_tooltip(&keybindings, Action::OpenToolbarActionsMenu);
+
+        assert!(tooltip.contains("打开操作菜单"));
+        assert!(tooltip.contains("Alt+A"));
+    }
+
+    #[test]
+    fn action_tooltip_uses_dedicated_toolbar_create_binding() {
+        let _guard = shortcut_registry_guard();
+        let keybindings = KeyBindings::default();
+        let tooltip = action_tooltip(&keybindings, Action::OpenToolbarCreateMenu);
+
+        assert!(tooltip.contains("打开新建菜单"));
+        assert!(tooltip.contains("Alt+N"));
     }
 
     #[test]
     fn shortcut_tooltip_keeps_local_shortcuts() {
+        let _guard = shortcut_registry_guard();
         let tooltip = shortcut_tooltip("取消", &["Esc"]);
 
         assert_eq!(tooltip, "取消\n快捷键: Esc");
@@ -559,6 +758,7 @@ mod tests {
 
     #[test]
     fn local_shortcut_text_formats_combined_shortcuts() {
+        let _guard = shortcut_registry_guard();
         let text = local_shortcut_text(LocalShortcut::SqlExecute);
 
         assert_eq!(text, "Ctrl+Enter / F5");
@@ -566,6 +766,7 @@ mod tests {
 
     #[test]
     fn every_local_shortcut_has_registry_metadata() {
+        let _guard = shortcut_registry_guard();
         for shortcut in LocalShortcut::all() {
             let command =
                 scoped_command(shortcut.config_key()).expect("local shortcut registry entry");
@@ -580,6 +781,8 @@ mod tests {
 
     #[test]
     fn local_shortcut_tooltip_uses_named_shortcut_set() {
+        let _guard = shortcut_registry_guard();
+        sync_runtime_local_shortcuts(&KeyBindings::default());
         let tooltip = local_shortcut_tooltip("关闭对话框", LocalShortcut::Dismiss);
 
         assert_eq!(tooltip, "关闭对话框\n快捷键: Esc / Q");
@@ -587,6 +790,7 @@ mod tests {
 
     #[test]
     fn local_shortcuts_tooltip_deduplicates_entries() {
+        let _guard = shortcut_registry_guard();
         let tooltip = local_shortcuts_tooltip(
             "补全",
             &[
@@ -619,6 +823,7 @@ mod tests {
 
     #[test]
     fn local_shortcut_pressed_is_false_without_input() {
+        let _guard = shortcut_registry_guard();
         let ctx = egui::Context::default();
 
         assert!(!local_shortcut_pressed(&ctx, LocalShortcut::SqlExecute));
@@ -626,6 +831,7 @@ mod tests {
 
     #[test]
     fn runtime_local_shortcut_override_changes_display_text() {
+        let _guard = shortcut_registry_guard();
         let mut keybindings = KeyBindings::default();
         keybindings.set_local_bindings(
             "dialog.common.dismiss",

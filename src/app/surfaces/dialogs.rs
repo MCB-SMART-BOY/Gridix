@@ -7,12 +7,15 @@ use std::path::{Path, PathBuf};
 use super::DbManagerApp;
 use super::action_system::AppAction;
 use crate::app::dialogs::host::DialogId;
-use crate::core::KeyBindings;
-use crate::ui::{self, ExportConfig, KeyBindingsDialog, LocalShortcut, local_shortcut_text};
+use crate::core::{KeyBindings, ThemePreset};
+use crate::ui::{
+    self, ExportConfig, KeyBindingsDialog, LocalShortcut, ToolbarMenuDialogEntry,
+    ToolbarMenuItemId, local_shortcut_text,
+};
 
 /// 对话框处理结果
 #[derive(Default)]
-pub struct DialogResults {
+pub(in crate::app) struct DialogResults {
     /// 是否需要保存连接
     pub save_connection: bool,
     /// 导出配置（如果触发导出）
@@ -33,11 +36,48 @@ pub struct DialogResults {
     pub help_action: Option<ui::HelpAction>,
     /// 更新后的快捷键绑定
     pub updated_keybindings: Option<KeyBindings>,
+    /// 主题选择器返回的主题
+    pub theme_preset: Option<ThemePreset>,
+    /// 顶部工具栏菜单触发的 app action
+    pub toolbar_menu_action: Option<AppAction>,
 }
 
 impl DbManagerApp {
+    fn toolbar_menu_entry(
+        &self,
+        id: ToolbarMenuItemId,
+        icon: &'static str,
+        title: &'static str,
+        description: &'static str,
+        action: AppAction,
+    ) -> ToolbarMenuDialogEntry {
+        let availability = self.action_availability(action);
+        ToolbarMenuDialogEntry {
+            id,
+            icon,
+            title,
+            description,
+            shortcut: self.shortcut_label_for_action(action).unwrap_or_default(),
+            enabled: availability.enabled,
+            disabled_reason: availability.reason.map(str::to_owned),
+        }
+    }
+
+    fn map_toolbar_menu_item_to_action(item: ToolbarMenuItemId) -> AppAction {
+        match item {
+            ToolbarMenuItemId::Export => AppAction::OpenExportDialog,
+            ToolbarMenuItemId::Import => AppAction::OpenImportDialog,
+            ToolbarMenuItemId::ToggleErDiagram => AppAction::ToggleErDiagram,
+            ToolbarMenuItemId::ShowHistory => AppAction::OpenHistoryPanel,
+            ToolbarMenuItemId::NewTable => AppAction::NewTable,
+            ToolbarMenuItemId::NewDatabase => AppAction::NewDatabase,
+            ToolbarMenuItemId::NewUser => AppAction::NewUser,
+        }
+    }
+
     /// 渲染所有对话框并返回处理结果
-    pub fn render_dialogs(&mut self, ctx: &egui::Context) -> DialogResults {
+    pub(in crate::app) fn render_dialogs(&mut self, ctx: &egui::Context) -> DialogResults {
+        self.reconcile_active_dialog_owner();
         let mut results = DialogResults::default();
         let active_dialog = self.active_dialog_id();
 
@@ -65,15 +105,34 @@ impl DbManagerApp {
         // 删除确认对话框
         if active_dialog == Some(DialogId::DeleteConfirm) {
             let mut confirm_delete = false;
-            let (delete_title, delete_msg) = match self.pending_delete_name.as_deref() {
-                Some(raw) if raw.starts_with("table:") => {
-                    let table = raw.trim_start_matches("table:");
-                    (
-                        "删除表",
-                        format!("确定要删除表 '{}' 吗？该操作不可撤销。", table),
-                    )
-                }
-                Some(conn) => ("删除连接", format!("确定要删除连接 '{}' 吗？", conn)),
+            let (delete_title, delete_msg) = match self.pending_delete_target.as_ref() {
+                Some(ui::SidebarDeleteTarget::Connection(connection)) => (
+                    "删除连接",
+                    format!(
+                        "确定要删除连接 '{}' 吗？这只会移除保存的连接配置。",
+                        connection
+                    ),
+                ),
+                Some(ui::SidebarDeleteTarget::Database {
+                    connection_name,
+                    database_name,
+                }) => (
+                    "删除数据库",
+                    format!(
+                        "确定要删除连接 '{}' 下的数据库 '{}' 吗？这会真正执行 DROP DATABASE，且不可撤销。",
+                        connection_name, database_name
+                    ),
+                ),
+                Some(ui::SidebarDeleteTarget::Table {
+                    connection_name,
+                    table_name,
+                }) => (
+                    "删除表",
+                    format!(
+                        "确定要删除连接 '{}' 下的表 '{}' 吗？该操作不可撤销。",
+                        connection_name, table_name
+                    ),
+                ),
                 None => ("删除", String::new()),
             };
             ui::ConfirmDialog::show(
@@ -201,11 +260,106 @@ impl DbManagerApp {
                 KeyBindingsDialog::show(ctx, &mut self.keybindings_dialog_state);
         }
 
+        if active_dialog == Some(DialogId::ToolbarActionsMenu) {
+            let entries = vec![
+                self.toolbar_menu_entry(
+                    ToolbarMenuItemId::Export,
+                    "⇪",
+                    "导出当前结果",
+                    "把当前结果集导出到 CSV / TSV / SQL / JSON。",
+                    AppAction::OpenExportDialog,
+                ),
+                self.toolbar_menu_entry(
+                    ToolbarMenuItemId::Import,
+                    "⇩",
+                    "导入数据文件",
+                    "打开统一导入流程，预览并执行导入。",
+                    AppAction::OpenImportDialog,
+                ),
+                self.toolbar_menu_entry(
+                    ToolbarMenuItemId::ToggleErDiagram,
+                    "⊞",
+                    "切换 ER 图",
+                    "打开或关闭当前连接的 ER 关系图工作区。",
+                    AppAction::ToggleErDiagram,
+                ),
+                self.toolbar_menu_entry(
+                    ToolbarMenuItemId::ShowHistory,
+                    "🕘",
+                    "打开查询历史",
+                    "查看并回填当前连接的查询历史记录。",
+                    AppAction::OpenHistoryPanel,
+                ),
+            ];
+
+            if let Some(item) = ui::ToolbarMenuDialog::show(
+                ctx,
+                &mut self.toolbar_actions_menu_state,
+                "操作菜单",
+                "保留顶部按钮作为 trigger，把真正的选择与确认放到显式 overlay owner 里。",
+                "打开",
+                &entries,
+            ) {
+                results.toolbar_menu_action = Some(Self::map_toolbar_menu_item_to_action(item));
+            }
+        }
+
+        if active_dialog == Some(DialogId::ToolbarCreateMenu) {
+            let entries = vec![
+                self.toolbar_menu_entry(
+                    ToolbarMenuItemId::NewTable,
+                    "#",
+                    "新建表",
+                    "打开建表工作流，并把生成的 SQL 带回当前会话。",
+                    AppAction::NewTable,
+                ),
+                self.toolbar_menu_entry(
+                    ToolbarMenuItemId::NewDatabase,
+                    "+",
+                    "新建数据库",
+                    "打开数据库初始化工作流，继续当前连接的创建过程。",
+                    AppAction::NewDatabase,
+                ),
+                self.toolbar_menu_entry(
+                    ToolbarMenuItemId::NewUser,
+                    "@",
+                    "新建用户",
+                    "为支持用户管理的连接生成创建用户 SQL。",
+                    AppAction::NewUser,
+                ),
+            ];
+
+            if let Some(item) = ui::ToolbarMenuDialog::show(
+                ctx,
+                &mut self.toolbar_create_menu_state,
+                "新建菜单",
+                "让新建动作进入固定 footer 的选择对话框，而不是继续停留在 toolbar 内部 popup。",
+                "打开",
+                &entries,
+            ) {
+                results.toolbar_menu_action = Some(Self::map_toolbar_menu_item_to_action(item));
+            }
+        }
+
+        if active_dialog == Some(DialogId::ToolbarThemeMenu) {
+            results.theme_preset = ui::ToolbarThemeDialog::show(
+                ctx,
+                &mut self.toolbar_theme_dialog_state,
+                self.theme_manager.current,
+                self.app_config.is_dark_mode,
+            );
+        }
+
+        self.reconcile_active_dialog_owner();
         results
     }
 
     /// 处理对话框结果
-    pub fn handle_dialog_results(&mut self, ctx: &egui::Context, results: DialogResults) {
+    pub(in crate::app) fn handle_dialog_results(
+        &mut self,
+        ctx: &egui::Context,
+        results: DialogResults,
+    ) {
         // 处理导出
         if let Some(config) = results.export_action {
             self.handle_export_with_config(config);
@@ -229,7 +383,7 @@ impl DbManagerApp {
                 self.sql = sql;
                 self.show_sql_editor = true;
                 self.set_focus_area(ui::FocusArea::SqlEditor);
-                self.show_import_dialog = false;
+                self.close_dialog(DialogId::Import);
                 self.import_state.clear();
                 self.notifications.success("SQL 已复制到编辑器");
             }
@@ -310,15 +464,40 @@ impl DbManagerApp {
                 self.notifications.success("快捷键设置已保存");
             }
         }
+
+        if let Some(preset) = results.theme_preset {
+            if self.app_config.is_dark_mode {
+                self.app_config.dark_theme = preset;
+            } else {
+                self.app_config.light_theme = preset;
+            }
+            self.set_theme(ctx, preset);
+        }
+
+        if let Some(action) = results.toolbar_menu_action {
+            self.dispatch_app_action(ctx, action);
+        }
     }
 
     pub(in crate::app) fn confirm_pending_delete(&mut self) {
-        self.show_delete_confirm = false;
-        if let Some(name) = self.pending_delete_name.take() {
-            if let Some(table) = name.strip_prefix("table:") {
-                self.delete_table(table);
-            } else {
-                self.delete_connection(&name);
+        self.close_dialog(DialogId::DeleteConfirm);
+        if let Some(target) = self.pending_delete_target.take() {
+            match target {
+                ui::SidebarDeleteTarget::Connection(connection) => {
+                    self.delete_connection(&connection);
+                }
+                ui::SidebarDeleteTarget::Database {
+                    connection_name,
+                    database_name,
+                } => {
+                    self.delete_database(&connection_name, &database_name);
+                }
+                ui::SidebarDeleteTarget::Table {
+                    connection_name,
+                    table_name,
+                } => {
+                    self.delete_table(&connection_name, &table_name);
+                }
             }
         }
     }
@@ -340,5 +519,81 @@ impl DbManagerApp {
             .map_err(|e| format!("创建/打开 SQLite 文件失败 ({}): {}", path.display(), e))?;
 
         Ok(path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::dialogs::host::DialogId;
+    use crate::database::{Connection, ConnectionConfig, DatabaseType, QueryResult};
+    use crate::ui::{FocusArea, SidebarDeleteTarget};
+
+    fn prime_active_connection_with_tables(app: &mut DbManagerApp, tables: &[&str]) {
+        let mut connection = Connection::new(ConnectionConfig::new("demo", DatabaseType::SQLite));
+        connection.connected = true;
+        connection.selected_database = Some("main".to_string());
+        connection.tables = tables.iter().map(|name| (*name).to_string()).collect();
+        app.manager
+            .connections
+            .insert("demo".to_string(), connection);
+        app.manager.active = Some("demo".to_string());
+    }
+
+    #[test]
+    fn confirm_pending_delete_database_target_hits_database_branch_and_clears_state() {
+        let mut app = DbManagerApp::new_for_test();
+        app.pending_delete_target = Some(SidebarDeleteTarget::database("missing", "analytics"));
+        app.open_dialog(DialogId::DeleteConfirm);
+
+        app.confirm_pending_delete();
+
+        assert!(app.pending_delete_target.is_none());
+        assert!(!app.show_delete_confirm);
+        assert_eq!(app.active_dialog_id(), None);
+        assert_eq!(app.notifications.latest_message(), Some("目标连接已失效"));
+    }
+
+    #[test]
+    fn confirm_pending_delete_table_target_hits_table_branch_and_clears_state() {
+        let mut app = DbManagerApp::new_for_test();
+        app.pending_delete_target = Some(SidebarDeleteTarget::table("missing", "users"));
+        app.open_dialog(DialogId::DeleteConfirm);
+
+        app.confirm_pending_delete();
+
+        assert!(app.pending_delete_target.is_none());
+        assert!(!app.show_delete_confirm);
+        assert_eq!(app.active_dialog_id(), None);
+        assert_eq!(app.notifications.latest_message(), Some("目标连接已失效"));
+    }
+
+    #[test]
+    fn toolbar_menu_toggle_er_diagram_action_focuses_er_from_data_grid() {
+        let ctx = egui::Context::default();
+        let mut app = DbManagerApp::new_for_test();
+        prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
+        app.result = Some(QueryResult::with_rows(
+            vec!["id".to_string()],
+            vec![vec!["1".to_string()]],
+        ));
+        app.selected_table = Some("customers".to_string());
+        app.set_focus_area(FocusArea::DataGrid);
+
+        app.handle_dialog_results(
+            &ctx,
+            DialogResults {
+                toolbar_menu_action: Some(AppAction::ToggleErDiagram),
+                ..Default::default()
+            },
+        );
+
+        assert!(app.show_er_diagram);
+        assert_eq!(app.focus_area, FocusArea::ErDiagram);
+        assert!(!app.grid_state.focused);
+        assert_eq!(
+            app.er_diagram_state.selected_table_name(),
+            Some("customers")
+        );
     }
 }

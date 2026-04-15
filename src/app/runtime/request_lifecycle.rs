@@ -8,10 +8,19 @@ use std::sync::Arc;
 use super::DbManagerApp;
 
 impl DbManagerApp {
+    #[allow(dead_code)] // 预留给显式“取消当前查询”动作路径
+    pub(in crate::app) fn cancel_query_request(&mut self, request_id: u64) {
+        self.cancel_query_request_with_visibility(request_id, true);
+    }
+
+    pub(in crate::app) fn cancel_query_request_silently(&mut self, request_id: u64) {
+        self.cancel_query_request_with_visibility(request_id, false);
+    }
+
     /// 检查是否有任何模态对话框打开
     /// 用于在对话框打开时禁用其他区域的键盘响应
     pub(in crate::app) fn has_modal_dialog_open(&self) -> bool {
-        self.dialog_host_snapshot().has_active_dialog()
+        self.active_dialog_id().is_some() || self.grid_state.show_save_confirm
     }
 
     /// 从当前活动 Tab 同步 SQL 和结果到主视图
@@ -19,7 +28,28 @@ impl DbManagerApp {
         if let Some(tab) = self.tab_manager.get_active() {
             self.sql = tab.sql.clone();
             self.result = tab.result.clone();
+            self.last_query_time_ms = tab.query_time_ms;
+            self.selected_table = tab.selected_table.clone();
+            self.search_text = tab.search_text.clone();
+            self.search_column = tab.search_column.clone();
+            self.active_grid_workspace_enabled = tab.uses_grid_workspace;
+        } else {
+            self.last_query_time_ms = None;
+            self.selected_table = None;
+            self.search_text.clear();
+            self.search_column = None;
+            self.active_grid_workspace_enabled = false;
         }
+        self.selected_row = None;
+        self.selected_cell = None;
+        self.restore_grid_surface_from_active_tab();
+    }
+
+    /// 在切换/打开其它 Tab 前持久化当前活动 Tab 的状态
+    pub(in crate::app) fn persist_active_tab_state_for_navigation(&mut self) {
+        self.persist_active_grid_workspace();
+        self.sync_sql_to_active_tab();
+        self.sync_active_surface_binding_to_tab();
     }
 
     /// 将当前编辑中的 SQL 草稿同步回活动 Tab
@@ -88,7 +118,7 @@ impl DbManagerApp {
     }
 
     /// 取消指定查询请求
-    pub(in crate::app) fn cancel_query_request(&mut self, request_id: u64) {
+    fn cancel_query_request_with_visibility(&mut self, request_id: u64, user_visible: bool) {
         let cancel_sent = self
             .pending_query_cancellers
             .remove(&request_id)
@@ -98,6 +128,11 @@ impl DbManagerApp {
                     .take()
                     .is_some_and(|cancel| cancel.send(()).is_ok())
             });
+        if cancel_sent && user_visible {
+            self.user_cancelled_query_requests.insert(request_id);
+        } else {
+            self.user_cancelled_query_requests.remove(&request_id);
+        }
         if !cancel_sent && let Some(handle) = self.pending_query_tasks.remove(&request_id) {
             handle.abort();
         }
@@ -122,7 +157,7 @@ impl DbManagerApp {
             .collect();
 
         for request_id in request_ids {
-            self.cancel_query_request(request_id);
+            self.cancel_query_request_silently(request_id);
         }
     }
 

@@ -9,23 +9,34 @@ use eframe::egui;
 
 use super::DbManagerApp;
 
+fn focus_cycle_areas(
+    show_sidebar: bool,
+    show_er_diagram: bool,
+    show_sql_editor: bool,
+) -> Vec<ui::FocusArea> {
+    let mut areas = Vec::new();
+    if show_sidebar {
+        areas.push(ui::FocusArea::Sidebar);
+    }
+    areas.push(ui::FocusArea::DataGrid);
+    if show_er_diagram {
+        areas.push(ui::FocusArea::ErDiagram);
+    }
+    if show_sql_editor {
+        areas.push(ui::FocusArea::SqlEditor);
+    }
+    areas
+}
+
 impl DbManagerApp {
     /// 焦点循环导航
     pub(in crate::app) fn cycle_focus(&mut self, reverse: bool) {
-        // 焦点循环顺序: Sidebar -> DataGrid -> SqlEditor -> Sidebar
-        let areas = if self.show_sidebar && self.show_sql_editor {
-            vec![
-                ui::FocusArea::Sidebar,
-                ui::FocusArea::DataGrid,
-                ui::FocusArea::SqlEditor,
-            ]
-        } else if self.show_sidebar {
-            vec![ui::FocusArea::Sidebar, ui::FocusArea::DataGrid]
-        } else if self.show_sql_editor {
-            vec![ui::FocusArea::DataGrid, ui::FocusArea::SqlEditor]
-        } else {
-            vec![ui::FocusArea::DataGrid]
-        };
+        // 焦点循环顺序: Sidebar -> DataGrid -> ErDiagram -> SqlEditor -> Sidebar
+        let areas = focus_cycle_areas(
+            self.show_sidebar,
+            self.show_er_diagram,
+            self.show_sql_editor,
+        );
 
         if areas.len() <= 1 {
             return;
@@ -93,5 +104,36 @@ impl DbManagerApp {
                 self.set_ui_scale(ctx, new_scale);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::focus_cycle_areas;
+    use crate::ui::FocusArea;
+
+    #[test]
+    fn focus_cycle_areas_include_er_diagram_between_grid_and_editor() {
+        assert_eq!(
+            focus_cycle_areas(true, true, true),
+            vec![
+                FocusArea::Sidebar,
+                FocusArea::DataGrid,
+                FocusArea::ErDiagram,
+                FocusArea::SqlEditor,
+            ]
+        );
+    }
+
+    #[test]
+    fn focus_cycle_areas_skip_er_diagram_when_hidden() {
+        assert_eq!(
+            focus_cycle_areas(true, false, true),
+            vec![
+                FocusArea::Sidebar,
+                FocusArea::DataGrid,
+                FocusArea::SqlEditor
+            ]
+        );
     }
 }

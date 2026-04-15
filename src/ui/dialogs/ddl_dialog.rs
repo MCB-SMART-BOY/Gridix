@@ -4,7 +4,7 @@
 //! 支持 Helix 风格的键盘导航。
 
 use super::common::{
-    DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow,
+    DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow, FormDialogShell,
 };
 use crate::database::DatabaseType;
 use crate::ui::{LocalShortcut, local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text};
@@ -431,7 +431,31 @@ enum DdlKeyAction {
     ColumnTogglePrimaryKey,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResponsiveRowClass {
+    Wide,
+    Medium,
+    Narrow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ColumnRowLayout {
+    row_class: ResponsiveRowClass,
+    is_selected: bool,
+    idx: usize,
+    col_count: usize,
+}
+
 impl DdlDialog {
+    const WINDOW_WIDTH: f32 = 920.0;
+    const WINDOW_HEIGHT: f32 = 500.0;
+    const WIDE_ROW_THRESHOLD: f32 = 720.0;
+    const MEDIUM_ROW_THRESHOLD: f32 = 560.0;
+    const COLUMN_LIST_MIN_HEIGHT: f32 = 140.0;
+    const COLUMN_LIST_MAX_HEIGHT: f32 = 260.0;
+    const SQL_PREVIEW_MIN_HEIGHT: f32 = 120.0;
+    const SQL_PREVIEW_MAX_HEIGHT: f32 = 180.0;
+
     fn try_create_table(state: &mut DdlDialogState) -> Result<String, String> {
         match state.table.validate() {
             Ok(()) => {
@@ -508,6 +532,8 @@ impl DdlDialog {
 
         let mut result: Option<String> = None;
         let mut should_close = false;
+        let mut footer_confirmed = false;
+        let mut footer_cancelled = false;
 
         // 键盘快捷键处理（文本输入优先于普通命令键）
         let col_count = state.table.columns.len();
@@ -566,245 +592,484 @@ impl DdlDialog {
         }
 
         let style = DialogStyle::WORKSPACE;
-        DialogWindow::resizable(ctx, "创建表", &style).show(ctx, |ui| {
-            DialogContent::section_with_description(
+        let can_create = !state.table.name.trim().is_empty()
+            && state
+                .table
+                .columns
+                .iter()
+                .any(|column| !column.name.trim().is_empty());
+        DialogWindow::workspace(
+            ctx,
+            "创建表",
+            &style,
+            Self::WINDOW_WIDTH,
+            Self::WINDOW_HEIGHT,
+        )
+        .show(ctx, |ui| {
+            FormDialogShell::show(
                 ui,
-                "表信息",
-                "先确定表名和注释，再进入列设计与 SQL 预览。",
+                "ddl_form_shell",
                 |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label("表名:");
-                        ui.add(
-                            TextEdit::singleline(&mut state.table.name)
-                                .desired_width(220.0)
-                                .hint_text("输入表名"),
-                        );
-
-                        ui.label("注释:");
-                        ui.add(
-                            TextEdit::singleline(&mut state.table.comment)
-                                .desired_width(220.0)
-                                .hint_text("可选"),
-                        );
-                    });
+                    DialogContent::shortcut_hint(
+                        ui,
+                        &[
+                            (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
+                            (local_shortcut_text(LocalShortcut::Confirm).as_str(), "创建"),
+                        ],
+                    );
                 },
-            );
-
-            DialogContent::section_with_description(
-                ui,
-                "列定义",
-                "保留原有键盘导航与列级操作，但统一到工作台面板里。",
                 |ui| {
-                    DialogContent::toolbar(ui, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new("列定义").strong());
-                            ui.label(
-                                RichText::new(format!(
-                                    "[{} 移动 | {} / {} 添加 | {} 删除 | {} 切换主键]",
-                                    local_shortcuts_text(&[
-                                        LocalShortcut::DdlColumnPrev,
-                                        LocalShortcut::DdlColumnNext,
-                                    ]),
-                                    local_shortcut_text(LocalShortcut::DdlColumnAddBelow),
-                                    local_shortcut_text(LocalShortcut::DdlColumnAddAbove),
-                                    local_shortcut_text(LocalShortcut::DdlColumnDelete),
-                                    local_shortcut_text(LocalShortcut::DdlColumnTogglePrimaryKey),
-                                ))
-                                .small()
-                                .color(Color32::from_rgb(120, 120, 120)),
-                            );
-                            if ui
-                                .button(format!(
-                                    "+ 添加列 [{}]",
-                                    local_shortcut_text(LocalShortcut::DdlColumnAddBelow)
-                                ))
-                                .on_hover_text(local_shortcut_tooltip(
-                                    "在当前列下方添加新列",
-                                    LocalShortcut::DdlColumnAddBelow,
-                                ))
-                                .clicked()
-                            {
-                                let insert_pos =
-                                    (state.selected_column + 1).min(state.table.columns.len());
-                                state
-                                    .table
-                                    .columns
-                                    .insert(insert_pos, ColumnDefinition::default());
-                                state.selected_column = insert_pos;
-                            }
-                        });
-                    });
+                    DialogContent::section_with_description(
+                        ui,
+                        "表信息",
+                        "先确定表名和注释，再进入列设计与 SQL 预览。",
+                        |ui| Self::show_table_info_fields(ui, &mut state.table),
+                    );
 
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("列名").small().strong());
-                        ui.add_space(80.0);
-                        ui.label(RichText::new("类型").small().strong());
-                        ui.add_space(80.0);
-                        ui.label(RichText::new("PK").small().strong());
-                        ui.add_space(10.0);
-                        ui.label(RichText::new("AI").small().strong());
-                        ui.add_space(10.0);
-                        ui.label(RichText::new("NN").small().strong());
-                        ui.add_space(10.0);
-                        ui.label(RichText::new("UQ").small().strong());
-                        ui.add_space(10.0);
-                        ui.label(RichText::new("默认值").small().strong());
-                    });
-
-                    ui.add_space(4.0);
-
-                    let mut col_to_remove: Option<usize> = None;
-                    let mut new_pk_idx: Option<usize> = None;
-                    let col_count = state.table.columns.len();
-
-                    egui::ScrollArea::vertical()
-                        .max_height(DialogContent::adaptive_height(ui, 0.45, 180.0, 320.0))
-                        .show(ui, |ui| {
-                            for idx in 0..col_count {
-                                let is_selected = idx == state.selected_column;
-                                let col = &mut state.table.columns[idx];
-
-                                let row_response = ui.horizontal(|ui| {
-                                    if is_selected {
-                                        ui.label(
-                                            RichText::new(">")
-                                                .color(Color32::from_rgb(100, 180, 255)),
-                                        );
-                                    } else {
-                                        ui.label(RichText::new(" ").monospace());
-                                    }
-                                    ui.add(
-                                        TextEdit::singleline(&mut col.name)
-                                            .desired_width(100.0)
-                                            .hint_text("列名"),
+                    DialogContent::section_with_description(
+                        ui,
+                        "列定义",
+                        "保留原有键盘导航与列级操作，但统一到工作台面板里。",
+                        |ui| {
+                            DialogContent::toolbar(ui, |ui| {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(RichText::new("列定义").strong());
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "[{} 移动 | {} / {} 添加 | {} 删除 | {} 切换主键]",
+                                            local_shortcuts_text(&[
+                                                LocalShortcut::DdlColumnPrev,
+                                                LocalShortcut::DdlColumnNext,
+                                            ]),
+                                            local_shortcut_text(LocalShortcut::DdlColumnAddBelow),
+                                            local_shortcut_text(LocalShortcut::DdlColumnAddAbove),
+                                            local_shortcut_text(LocalShortcut::DdlColumnDelete),
+                                            local_shortcut_text(
+                                                LocalShortcut::DdlColumnTogglePrimaryKey
+                                            ),
+                                        ))
+                                        .small()
+                                        .color(Color32::from_rgb(120, 120, 120)),
                                     );
-
-                                    egui::ComboBox::from_id_salt(format!("col_type_{}", idx))
-                                        .selected_text(col.data_type.display_name())
-                                        .width(120.0)
-                                        .show_ui(ui, |ui| {
-                                            for t in ColumnType::common_types() {
-                                                let name = t.display_name();
-                                                ui.selectable_value(&mut col.data_type, t, name);
-                                            }
-                                        });
-
-                                    let mut pk = col.primary_key;
-                                    if ui.checkbox(&mut pk, "").on_hover_text("主键").changed() {
-                                        col.primary_key = pk;
-                                        if pk {
-                                            col.nullable = false;
-                                            new_pk_idx = Some(idx);
-                                        }
-                                    }
-
-                                    ui.checkbox(&mut col.auto_increment, "")
-                                        .on_hover_text("自增");
-
-                                    let mut not_null = !col.nullable;
                                     if ui
-                                        .checkbox(&mut not_null, "")
-                                        .on_hover_text("非空")
-                                        .changed()
+                                        .button(format!(
+                                            "+ 添加列 [{}]",
+                                            local_shortcut_text(LocalShortcut::DdlColumnAddBelow)
+                                        ))
+                                        .on_hover_text(local_shortcut_tooltip(
+                                            "在当前列下方添加新列",
+                                            LocalShortcut::DdlColumnAddBelow,
+                                        ))
+                                        .clicked()
                                     {
-                                        col.nullable = !not_null;
+                                        let insert_pos = (state.selected_column + 1)
+                                            .min(state.table.columns.len());
+                                        state
+                                            .table
+                                            .columns
+                                            .insert(insert_pos, ColumnDefinition::default());
+                                        state.selected_column = insert_pos;
                                     }
+                                });
+                            });
 
-                                    ui.checkbox(&mut col.unique, "").on_hover_text("唯一");
+                            ui.add_space(6.0);
+                            let dense_row_class = Self::row_width_class(ui.available_width());
+                            Self::show_column_headers(ui, dense_row_class);
 
-                                    ui.add(
-                                        TextEdit::singleline(&mut col.default_value)
-                                            .desired_width(80.0)
-                                            .hint_text("默认值"),
-                                    );
+                            let mut col_to_remove: Option<usize> = None;
+                            let mut new_pk_idx: Option<usize> = None;
+                            let col_count = state.table.columns.len();
 
-                                    if col_count > 1
-                                        && ui
-                                            .small_button("×")
-                                            .on_hover_text(local_shortcut_tooltip(
-                                                "删除当前列",
-                                                LocalShortcut::DdlColumnDelete,
-                                            ))
-                                            .clicked()
-                                    {
-                                        col_to_remove = Some(idx);
+                            egui::ScrollArea::vertical()
+                                .max_height(Self::column_list_max_height(ui))
+                                .show(ui, |ui| {
+                                    for idx in 0..col_count {
+                                        let layout = ColumnRowLayout {
+                                            row_class: Self::row_width_class(ui.available_width()),
+                                            is_selected: idx == state.selected_column,
+                                            idx,
+                                            col_count,
+                                        };
+                                        let col = &mut state.table.columns[idx];
+
+                                        let row_response = Self::show_column_row(
+                                            ui,
+                                            col,
+                                            layout,
+                                            &mut new_pk_idx,
+                                            &mut col_to_remove,
+                                        );
+
+                                        if row_response.response.clicked() {
+                                            state.selected_column = idx;
+                                        }
                                     }
                                 });
 
-                                if row_response.response.clicked() {
-                                    state.selected_column = idx;
+                            if let Some(pk_idx) = new_pk_idx {
+                                for (i, col) in state.table.columns.iter_mut().enumerate() {
+                                    if i != pk_idx {
+                                        col.primary_key = false;
+                                    }
                                 }
                             }
-                        });
 
-                    if let Some(pk_idx) = new_pk_idx {
-                        for (i, col) in state.table.columns.iter_mut().enumerate() {
-                            if i != pk_idx {
-                                col.primary_key = false;
+                            if let Some(idx) = col_to_remove {
+                                state.table.columns.remove(idx);
                             }
-                        }
-                    }
+                        },
+                    );
 
-                    if let Some(idx) = col_to_remove {
-                        state.table.columns.remove(idx);
+                    DialogContent::section_with_description(
+                        ui,
+                        "预览 SQL",
+                        "根据当前表结构实时生成 `CREATE TABLE` 语句。",
+                        |ui| {
+                            let sql = state.table.to_create_sql();
+                            DialogContent::code_block(ui, &sql, Self::sql_preview_max_height(ui));
+                        },
+                    );
+
+                    if let Some(err) = &state.error {
+                        DialogContent::warning_text(ui, err);
+                        ui.add_space(8.0);
                     }
                 },
-            );
-
-            DialogContent::section_with_description(
-                ui,
-                "预览 SQL",
-                "根据当前表结构实时生成 `CREATE TABLE` 语句。",
                 |ui| {
-                    let sql = state.table.to_create_sql();
-                    DialogContent::code_block(ui, &sql, 180.0);
+                    let footer = DialogFooter::show(
+                        ui,
+                        &format!("创建表 [{}]", local_shortcut_text(LocalShortcut::Confirm)),
+                        &format!("取消 [{}]", local_shortcut_text(LocalShortcut::Dismiss)),
+                        can_create,
+                        &style,
+                    );
+                    footer_confirmed = footer.confirmed;
+                    footer_cancelled = footer.cancelled;
                 },
             );
-
-            if let Some(err) = &state.error {
-                DialogContent::warning_text(ui, err);
-                ui.add_space(8.0);
-            }
-
-            DialogContent::shortcut_hint(
-                ui,
-                &[
-                    (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
-                    (local_shortcut_text(LocalShortcut::Confirm).as_str(), "创建"),
-                ],
-            );
-
-            let can_create = !state.table.name.trim().is_empty()
-                && state
-                    .table
-                    .columns
-                    .iter()
-                    .any(|column| !column.name.trim().is_empty());
-            let footer = DialogFooter::show(
-                ui,
-                &format!("创建表 [{}]", local_shortcut_text(LocalShortcut::Confirm)),
-                &format!("取消 [{}]", local_shortcut_text(LocalShortcut::Dismiss)),
-                can_create,
-                &style,
-            );
-
-            if footer.confirmed
-                && let Ok(sql) = Self::try_create_table(state)
-            {
-                result = Some(sql);
-                should_close = true;
-            }
-            if footer.cancelled {
-                should_close = true;
-            }
         });
+
+        if footer_confirmed && let Ok(sql) = Self::try_create_table(state) {
+            result = Some(sql);
+            should_close = true;
+        }
+        if footer_cancelled {
+            should_close = true;
+        }
 
         if should_close {
             state.close();
         }
 
         result
+    }
+
+    fn row_width_class(available_width: f32) -> ResponsiveRowClass {
+        if available_width >= Self::WIDE_ROW_THRESHOLD {
+            ResponsiveRowClass::Wide
+        } else if available_width >= Self::MEDIUM_ROW_THRESHOLD {
+            ResponsiveRowClass::Medium
+        } else {
+            ResponsiveRowClass::Narrow
+        }
+    }
+
+    fn column_list_max_height(ui: &egui::Ui) -> f32 {
+        DialogContent::adaptive_height(
+            ui,
+            0.34,
+            Self::COLUMN_LIST_MIN_HEIGHT,
+            Self::COLUMN_LIST_MAX_HEIGHT,
+        )
+    }
+
+    fn sql_preview_max_height(ui: &egui::Ui) -> f32 {
+        DialogContent::adaptive_height(
+            ui,
+            0.28,
+            Self::SQL_PREVIEW_MIN_HEIGHT,
+            Self::SQL_PREVIEW_MAX_HEIGHT,
+        )
+    }
+
+    fn show_table_info_fields(ui: &mut egui::Ui, table: &mut TableDefinition) {
+        match Self::row_width_class(ui.available_width()) {
+            ResponsiveRowClass::Wide => {
+                let pair_width = ((ui.available_width() - 12.0) / 2.0).max(200.0);
+                ui.horizontal_top(|ui| {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(pair_width, 0.0),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| Self::show_table_info_input(ui, "表名", &mut table.name, "输入表名"),
+                    );
+                    ui.add_space(12.0);
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(pair_width, 0.0),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| Self::show_table_info_input(ui, "注释", &mut table.comment, "可选"),
+                    );
+                });
+            }
+            ResponsiveRowClass::Medium | ResponsiveRowClass::Narrow => {
+                Self::show_table_info_input(ui, "表名", &mut table.name, "输入表名");
+                ui.add_space(8.0);
+                Self::show_table_info_input(ui, "注释", &mut table.comment, "可选");
+            }
+        }
+    }
+
+    fn show_table_info_input(ui: &mut egui::Ui, label: &str, value: &mut String, hint: &str) {
+        ui.label(RichText::new(format!("{}:", label)).color(Color32::from_gray(180)));
+        ui.add_sized(
+            [ui.available_width().min(280.0), 0.0],
+            TextEdit::singleline(value).hint_text(hint),
+        );
+    }
+
+    fn show_column_headers(ui: &mut egui::Ui, row_class: ResponsiveRowClass) {
+        if !matches!(row_class, ResponsiveRowClass::Wide) {
+            return;
+        }
+
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("列名").small().strong());
+            ui.add_space(80.0);
+            ui.label(RichText::new("类型").small().strong());
+            ui.add_space(80.0);
+            ui.label(RichText::new("PK").small().strong());
+            ui.add_space(10.0);
+            ui.label(RichText::new("AI").small().strong());
+            ui.add_space(10.0);
+            ui.label(RichText::new("NN").small().strong());
+            ui.add_space(10.0);
+            ui.label(RichText::new("UQ").small().strong());
+            ui.add_space(10.0);
+            ui.label(RichText::new("默认值").small().strong());
+        });
+
+        ui.add_space(4.0);
+    }
+
+    fn show_column_row(
+        ui: &mut egui::Ui,
+        col: &mut ColumnDefinition,
+        layout: ColumnRowLayout,
+        new_pk_idx: &mut Option<usize>,
+        col_to_remove: &mut Option<usize>,
+    ) -> egui::InnerResponse<()> {
+        let fill = if layout.is_selected {
+            Color32::from_rgba_unmultiplied(100, 180, 255, 18)
+        } else {
+            Color32::TRANSPARENT
+        };
+        let stroke = if layout.is_selected {
+            egui::Stroke::new(1.0, Color32::from_rgb(100, 180, 255))
+        } else {
+            egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color)
+        };
+
+        egui::Frame::NONE
+            .fill(fill)
+            .stroke(stroke)
+            .corner_radius(egui::CornerRadius::same(6))
+            .inner_margin(egui::Margin::symmetric(8, 6))
+            .show(ui, |ui| match layout.row_class {
+                ResponsiveRowClass::Wide => {
+                    Self::show_wide_column_row(ui, col, layout, new_pk_idx, col_to_remove);
+                }
+                ResponsiveRowClass::Medium => {
+                    Self::show_medium_column_row(ui, col, layout, new_pk_idx, col_to_remove);
+                }
+                ResponsiveRowClass::Narrow => {
+                    Self::show_narrow_column_row(ui, col, layout, new_pk_idx, col_to_remove);
+                }
+            })
+    }
+
+    fn show_wide_column_row(
+        ui: &mut egui::Ui,
+        col: &mut ColumnDefinition,
+        layout: ColumnRowLayout,
+        new_pk_idx: &mut Option<usize>,
+        col_to_remove: &mut Option<usize>,
+    ) {
+        ui.horizontal(|ui| {
+            Self::show_row_indicator(ui, layout.is_selected);
+            ui.add_sized(
+                [100.0, 0.0],
+                TextEdit::singleline(&mut col.name).hint_text("列名"),
+            );
+
+            Self::show_type_combo(ui, layout.idx, col, 120.0);
+
+            Self::show_flag_checkboxes(ui, col, layout.idx, false, new_pk_idx);
+
+            ui.add_sized(
+                [80.0, 0.0],
+                TextEdit::singleline(&mut col.default_value).hint_text("默认值"),
+            );
+
+            Self::show_delete_button(ui, layout, col_to_remove);
+        });
+    }
+
+    fn show_medium_column_row(
+        ui: &mut egui::Ui,
+        col: &mut ColumnDefinition,
+        layout: ColumnRowLayout,
+        new_pk_idx: &mut Option<usize>,
+        col_to_remove: &mut Option<usize>,
+    ) {
+        ui.horizontal(|ui| {
+            Self::show_row_indicator(ui, layout.is_selected);
+            let field_width = (ui.available_width() * 0.38).clamp(110.0, 180.0);
+            ui.add_sized(
+                [field_width, 0.0],
+                TextEdit::singleline(&mut col.name).hint_text("列名"),
+            );
+
+            let combo_width = (ui.available_width() * 0.42).clamp(130.0, 190.0);
+            Self::show_type_combo(ui, layout.idx, col, combo_width);
+
+            Self::show_delete_button(ui, layout, col_to_remove);
+        });
+
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
+            Self::show_flag_checkboxes(ui, col, layout.idx, true, new_pk_idx);
+            ui.label(
+                RichText::new("默认值")
+                    .small()
+                    .color(Color32::from_gray(170)),
+            );
+            let width = ui.available_width().clamp(110.0, 180.0);
+            ui.add_sized(
+                [width, 0.0],
+                TextEdit::singleline(&mut col.default_value).hint_text("默认值"),
+            );
+        });
+    }
+
+    fn show_narrow_column_row(
+        ui: &mut egui::Ui,
+        col: &mut ColumnDefinition,
+        layout: ColumnRowLayout,
+        new_pk_idx: &mut Option<usize>,
+        col_to_remove: &mut Option<usize>,
+    ) {
+        ui.horizontal(|ui| {
+            Self::show_row_indicator(ui, layout.is_selected);
+            ui.label(
+                RichText::new(format!("第 {} 列", layout.idx + 1))
+                    .small()
+                    .strong(),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                Self::show_delete_button(ui, layout, col_to_remove);
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.label(RichText::new("列名").small().color(Color32::from_gray(170)));
+        ui.add_sized(
+            [ui.available_width(), 0.0],
+            TextEdit::singleline(&mut col.name).hint_text("列名"),
+        );
+
+        ui.add_space(4.0);
+        ui.label(RichText::new("类型").small().color(Color32::from_gray(170)));
+        Self::show_type_combo(ui, layout.idx, col, ui.available_width());
+
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
+            Self::show_flag_checkboxes(ui, col, layout.idx, true, new_pk_idx);
+        });
+
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new("默认值")
+                .small()
+                .color(Color32::from_gray(170)),
+        );
+        ui.add_sized(
+            [ui.available_width(), 0.0],
+            TextEdit::singleline(&mut col.default_value).hint_text("默认值"),
+        );
+    }
+
+    fn show_row_indicator(ui: &mut egui::Ui, is_selected: bool) {
+        if is_selected {
+            ui.label(RichText::new(">").color(Color32::from_rgb(100, 180, 255)));
+        } else {
+            ui.label(RichText::new(" ").monospace());
+        }
+    }
+
+    fn show_type_combo(ui: &mut egui::Ui, idx: usize, col: &mut ColumnDefinition, width: f32) {
+        egui::ComboBox::from_id_salt(format!("col_type_{}", idx))
+            .selected_text(col.data_type.display_name())
+            .width(width)
+            .show_ui(ui, |ui| {
+                for t in ColumnType::common_types() {
+                    let name = t.display_name();
+                    ui.selectable_value(&mut col.data_type, t, name);
+                }
+            });
+    }
+
+    fn show_flag_checkboxes(
+        ui: &mut egui::Ui,
+        col: &mut ColumnDefinition,
+        idx: usize,
+        labeled: bool,
+        new_pk_idx: &mut Option<usize>,
+    ) {
+        let mut pk = col.primary_key;
+        if ui
+            .checkbox(&mut pk, if labeled { "PK" } else { "" })
+            .on_hover_text("主键")
+            .changed()
+        {
+            col.primary_key = pk;
+            if pk {
+                col.nullable = false;
+                *new_pk_idx = Some(idx);
+            }
+        }
+
+        ui.checkbox(&mut col.auto_increment, if labeled { "AI" } else { "" })
+            .on_hover_text("自增");
+
+        let mut not_null = !col.nullable;
+        if ui
+            .checkbox(&mut not_null, if labeled { "NN" } else { "" })
+            .on_hover_text("非空")
+            .changed()
+        {
+            col.nullable = !not_null;
+        }
+
+        ui.checkbox(&mut col.unique, if labeled { "UQ" } else { "" })
+            .on_hover_text("唯一");
+    }
+
+    fn show_delete_button(
+        ui: &mut egui::Ui,
+        layout: ColumnRowLayout,
+        col_to_remove: &mut Option<usize>,
+    ) {
+        if layout.col_count > 1
+            && ui
+                .small_button("×")
+                .on_hover_text(local_shortcut_tooltip(
+                    "删除当前列",
+                    LocalShortcut::DdlColumnDelete,
+                ))
+                .clicked()
+        {
+            *col_to_remove = Some(layout.idx);
+        }
     }
 }
 
@@ -878,6 +1143,46 @@ mod tests {
 
         assert_eq!(action, None);
 
+        let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn ddl_dialog_row_width_classes_follow_shared_thresholds() {
+        assert_eq!(
+            DdlDialog::row_width_class(DdlDialog::WIDE_ROW_THRESHOLD),
+            ResponsiveRowClass::Wide
+        );
+        assert_eq!(
+            DdlDialog::row_width_class(680.0),
+            ResponsiveRowClass::Medium
+        );
+        assert_eq!(
+            DdlDialog::row_width_class(DdlDialog::MEDIUM_ROW_THRESHOLD - 1.0),
+            ResponsiveRowClass::Narrow
+        );
+    }
+
+    #[test]
+    fn ddl_dialog_uses_compact_workspace_window_profile() {
+        assert_eq!(DdlDialog::WINDOW_WIDTH, 920.0);
+        assert_eq!(DdlDialog::WINDOW_HEIGHT, 500.0);
+    }
+
+    #[test]
+    fn ddl_dialog_compact_heights_stay_below_previous_workspace_defaults() {
+        let ctx = egui::Context::default();
+        ctx.begin_pass(RawInput::default());
+        egui::Window::new("ddl_dialog_compact_height_test").show(&ctx, |ui| {
+            let column_height = DdlDialog::column_list_max_height(ui);
+            let preview_height = DdlDialog::sql_preview_max_height(ui);
+
+            assert!(column_height >= DdlDialog::COLUMN_LIST_MIN_HEIGHT);
+            assert!(column_height <= DdlDialog::COLUMN_LIST_MAX_HEIGHT);
+            assert!(preview_height >= DdlDialog::SQL_PREVIEW_MIN_HEIGHT);
+            assert!(preview_height <= DdlDialog::SQL_PREVIEW_MAX_HEIGHT);
+            assert!(column_height < 320.0);
+            assert!(preview_height <= 180.0);
+        });
         let _ = ctx.end_pass();
     }
 }

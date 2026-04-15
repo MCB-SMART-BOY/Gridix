@@ -103,6 +103,26 @@ mod grid_state {
     }
 
     #[test]
+    fn test_clear_save_state() {
+        let mut state = DataGridState::new();
+        state.modified_cells.insert((0, 0), "new_value".to_string());
+        state.rows_to_delete.push(1);
+        state.new_rows.push(vec!["draft".to_string()]);
+        state
+            .pending_sql
+            .push("UPDATE users SET name='new_value'".to_string());
+        state.pending_save = true;
+        state.show_save_confirm = true;
+
+        state.clear_save_state();
+
+        assert!(!state.has_changes());
+        assert!(state.pending_sql.is_empty());
+        assert!(!state.pending_save);
+        assert!(!state.show_save_confirm);
+    }
+
+    #[test]
     fn test_has_changes() {
         let mut state = DataGridState::new();
         assert!(!state.has_changes());

@@ -2,9 +2,12 @@
 //!
 //! 处理从异步任务返回的各种消息，更新应用状态。
 
+use std::collections::HashSet;
+
 use eframe::egui;
 
-use super::{DbManagerApp, Message};
+use super::{DbManagerApp, GridSaveContext, Message};
+use crate::app::GridWorkspaceId;
 use crate::ui;
 
 struct QueryDonePayload {
@@ -14,6 +17,13 @@ struct QueryDonePayload {
     request_id: u64,
     result: Result<crate::database::QueryResult, String>,
     elapsed_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ErDiagramReadyKind {
+    Explicit(usize),
+    Inferred(usize),
+    Empty,
 }
 
 fn is_cancelled_query_error(err: &str) -> bool {
@@ -43,7 +53,130 @@ fn clamp_grid_cursor_for_result(
     )
 }
 
+fn grid_save_context_matches_current(
+    active_workspace_id: Option<&GridWorkspaceId>,
+    active_tab_id: Option<&str>,
+    context: &GridSaveContext,
+) -> bool {
+    active_workspace_id == Some(&context.workspace_id)
+        && active_tab_id == Some(context.tab_id.as_str())
+}
+
+fn should_drop_query_error_as_stale(
+    is_stale_for_existing_tab: bool,
+    is_cancelled: bool,
+    was_user_cancelled: bool,
+) -> bool {
+    is_stale_for_existing_tab && !(is_cancelled && was_user_cancelled)
+}
+
+fn should_record_active_query_time(
+    target_tab_index: Option<usize>,
+    active_index: usize,
+    is_stale_for_existing_tab: bool,
+) -> bool {
+    !is_stale_for_existing_tab && target_tab_index == Some(active_index)
+}
+
+fn collect_er_foreign_key_columns(
+    fks: &[crate::database::ForeignKeyInfo],
+) -> HashSet<(String, String)> {
+    fks.iter()
+        .map(|fk| (fk.from_table.clone(), fk.from_column.clone()))
+        .collect()
+}
+
+fn collect_er_relationships_from_foreign_keys(
+    fks: Vec<crate::database::ForeignKeyInfo>,
+) -> Vec<ui::Relationship> {
+    fks.into_iter()
+        .map(|fk| ui::Relationship {
+            from_table: fk.from_table,
+            from_column: fk.from_column,
+            to_table: fk.to_table,
+            to_column: fk.to_column,
+            relation_type: ui::RelationType::OneToMany,
+        })
+        .collect()
+}
+
+fn resolve_er_diagram_ready_state(
+    explicit_relationships: Vec<ui::Relationship>,
+    inferred_relationships: Vec<ui::Relationship>,
+) -> (Vec<ui::Relationship>, ErDiagramReadyKind) {
+    if explicit_relationships.is_empty() {
+        if inferred_relationships.is_empty() {
+            (Vec::new(), ErDiagramReadyKind::Empty)
+        } else {
+            let rel_count = inferred_relationships.len();
+            (
+                inferred_relationships,
+                ErDiagramReadyKind::Inferred(rel_count),
+            )
+        }
+    } else {
+        let rel_count = explicit_relationships.len();
+        (
+            explicit_relationships,
+            ErDiagramReadyKind::Explicit(rel_count),
+        )
+    }
+}
+
+fn er_diagram_ready_message(table_count: usize, ready_kind: ErDiagramReadyKind) -> String {
+    match ready_kind {
+        ErDiagramReadyKind::Explicit(rel_count) => {
+            format!("ER图: {} 张表, {} 个关系", table_count, rel_count)
+        }
+        ErDiagramReadyKind::Inferred(rel_count) => {
+            format!("ER图: {} 张表, 推断出 {} 个关系", table_count, rel_count)
+        }
+        ErDiagramReadyKind::Empty => {
+            format!("ER图: {} 张表（未发现外键关系）", table_count)
+        }
+    }
+}
+
 impl DbManagerApp {
+    fn apply_successful_grid_save_state(&mut self, context: &GridSaveContext) {
+        let active_tab_id = self.tab_manager.get_active().map(|tab| tab.id.as_str());
+        if grid_save_context_matches_current(
+            self.active_grid_workspace_id().as_ref(),
+            active_tab_id,
+            context,
+        ) {
+            self.grid_state.clear_save_state();
+        }
+        self.grid_workspaces.clear_save_state(&context.workspace_id);
+    }
+
+    fn finalize_er_diagram_load_if_ready(&mut self) {
+        if self.er_diagram_state.loading || self.er_diagram_state.tables.is_empty() {
+            return;
+        }
+
+        ui::grid_layout(
+            &mut self.er_diagram_state.tables,
+            4,
+            egui::Vec2::new(60.0, 50.0),
+        );
+
+        let inferred_relationships = if self.er_diagram_state.relationships.is_empty() {
+            self.infer_relationships_from_columns()
+        } else {
+            Vec::new()
+        };
+        let explicit_relationships = std::mem::take(&mut self.er_diagram_state.relationships);
+        let (relationships, ready_kind) =
+            resolve_er_diagram_ready_state(explicit_relationships, inferred_relationships);
+        self.er_diagram_state.relationships = relationships;
+
+        self.notifications.info(er_diagram_ready_message(
+            self.er_diagram_state.tables.len(),
+            ready_kind,
+        ));
+    }
+
     /// 处理异步消息
     ///
     /// 轮询消息通道，处理数据库连接、查询结果、ER图数据等异步任务的返回结果。
@@ -58,6 +191,12 @@ impl DbManagerApp {
                 }
                 Message::DatabaseSelected(conn_name, db_name, request_id, result) => {
                     self.handle_database_selected(ctx, conn_name, db_name, request_id, result);
+                }
+                Message::DatabaseDropped(conn_name, db_name, result) => {
+                    self.handle_database_dropped(ctx, conn_name, db_name, result);
+                }
+                Message::TableDropped(conn_name, table_name, result) => {
+                    self.handle_table_dropped(ctx, conn_name, table_name, result);
                 }
                 Message::QueryDone(sql, conn_name, tab_id, request_id, result, elapsed_ms) => {
                     self.handle_query_done(
@@ -250,7 +389,7 @@ impl DbManagerApp {
                         .reset_for_database_change();
                     self.load_triggers();
                     self.load_routines();
-                    self.selected_table = None;
+                    self.switch_grid_workspace(None);
                     self.result = None;
                 }
             }
@@ -260,6 +399,102 @@ impl DbManagerApp {
                 }
             }
         }
+        ctx.request_repaint();
+    }
+
+    /// 处理数据库删除完成消息
+    fn handle_database_dropped(
+        &mut self,
+        ctx: &egui::Context,
+        conn_name: String,
+        db_name: String,
+        result: Result<(), String>,
+    ) {
+        let is_active = self.manager.active.as_deref() == Some(conn_name.as_str());
+
+        match result {
+            Ok(()) => {
+                let mut dropped_selected_database = false;
+                if let Some(conn) = self.manager.connections.get_mut(&conn_name) {
+                    conn.databases.retain(|database| database != &db_name);
+                    if conn.selected_database.as_deref() == Some(db_name.as_str()) {
+                        conn.selected_database = None;
+                        conn.config.database.clear();
+                        conn.tables.clear();
+                        dropped_selected_database = true;
+                    }
+                }
+
+                self.remove_grid_workspaces_for_database(&db_name);
+                if is_active {
+                    self.sidebar_panel_state
+                        .selection
+                        .reset_for_database_change();
+                    if dropped_selected_database {
+                        self.switch_grid_workspace(None);
+                        self.result = None;
+                        self.selected_table = None;
+                        self.search_text.clear();
+                        self.search_column = None;
+                        self.autocomplete.clear();
+                        self.sidebar_panel_state.clear_triggers();
+                        self.sidebar_panel_state.clear_routines();
+                        self.sidebar_panel_state.loading_triggers = false;
+                        self.sidebar_panel_state.loading_routines = false;
+                        self.sidebar_section = ui::SidebarSection::Databases;
+                        self.set_focus_area(ui::FocusArea::Sidebar);
+                    }
+                }
+
+                self.notifications
+                    .success(format!("数据库 '{}' 已删除", db_name));
+            }
+            Err(error) => {
+                self.notifications
+                    .error(format!("删除数据库 '{}' 失败: {}", db_name, error));
+            }
+        }
+
+        ctx.request_repaint();
+    }
+
+    /// 处理表删除完成消息
+    fn handle_table_dropped(
+        &mut self,
+        ctx: &egui::Context,
+        conn_name: String,
+        table_name: String,
+        result: Result<(), String>,
+    ) {
+        let is_active = self.manager.active.as_deref() == Some(conn_name.as_str());
+
+        match result {
+            Ok(()) => {
+                if let Some(conn) = self.manager.connections.get_mut(&conn_name) {
+                    conn.tables.retain(|table| table != &table_name);
+                    if is_active {
+                        self.autocomplete.set_tables(conn.tables.clone());
+                    }
+                }
+
+                self.remove_grid_workspace_for_table(&table_name);
+                if is_active && self.selected_table.as_deref() == Some(table_name.as_str()) {
+                    self.switch_grid_workspace(None);
+                    self.result = None;
+                    self.selected_table = None;
+                    self.sidebar_section = ui::SidebarSection::Tables;
+                    self.set_focus_area(ui::FocusArea::Sidebar);
+                }
+
+                self.notifications
+                    .success(format!("表 '{}' 已删除", table_name));
+            }
+            Err(error) => {
+                self.notifications
+                    .error(format!("删除表 '{}' 失败: {}", table_name, error));
+            }
+        }
+
         ctx.request_repaint();
     }
 
@@ -276,12 +511,17 @@ impl DbManagerApp {
         } = payload;
 
         self.finalize_query_task(request_id);
-        self.last_query_time_ms = Some(elapsed_ms);
+        let was_user_cancelled = self.user_cancelled_query_requests.remove(&request_id);
 
         let target_tab_index = self.tab_manager.tabs.iter().position(|t| t.id == tab_id);
         let is_stale_for_existing_tab = target_tab_index
             .and_then(|idx| self.tab_manager.tabs.get(idx))
             .is_some_and(|tab| tab.pending_request_id != Some(request_id));
+        let should_update_active_query_time = should_record_active_query_time(
+            target_tab_index,
+            self.tab_manager.active_index,
+            is_stale_for_existing_tab,
+        );
 
         let sql_hints = crate::database::analyze_sql_for_ui(&sql);
         let is_update_or_delete = sql_hints.is_update_or_delete;
@@ -359,12 +599,16 @@ impl DbManagerApp {
                     if let Some(tab) = self.tab_manager.tabs.get_mut(idx) {
                         tab.result = Some(res.clone());
                         tab.executing = false;
+                        tab.last_error = None;
                         tab.pending_request_id = None;
                         tab.query_time_ms = Some(elapsed_ms);
                         tab.last_message = Some(msg.clone());
                     }
 
                     if is_active_tab {
+                        if should_update_active_query_time {
+                            self.last_query_time_ms = Some(elapsed_ms);
+                        }
                         self.notifications.success(&msg);
                         self.selected_row = None;
                         self.selected_cell = None;
@@ -396,7 +640,7 @@ impl DbManagerApp {
                         if let Some(restore) =
                             self.pending_grid_refresh_restores.remove(&request_id)
                         {
-                            self.selected_table = Some(restore.table_name);
+                            self.switch_grid_workspace(Some(restore.table_name.clone()));
                             self.search_text = restore.search_text;
                             self.search_column = restore.search_column;
                             self.grid_state.cursor =
@@ -429,7 +673,8 @@ impl DbManagerApp {
                     }
 
                     if is_current_active && self.selected_table.as_deref() == Some(&dropped_table) {
-                        self.selected_table = None;
+                        self.switch_grid_workspace(None);
+                        self.remove_grid_workspace_for_table(&dropped_table);
                         self.result = None;
                     }
                 }
@@ -439,7 +684,11 @@ impl DbManagerApp {
                 if !is_cancelled {
                     self.query_history.add(sql, db_type, false, None);
                 }
-                if is_stale_for_existing_tab {
+                if should_drop_query_error_as_stale(
+                    is_stale_for_existing_tab,
+                    is_cancelled,
+                    was_user_cancelled,
+                ) {
                     if is_drop_table {
                         self.pending_drop_requests.remove(&request_id);
                     }
@@ -484,11 +733,25 @@ impl DbManagerApp {
                     let is_active_tab = idx == self.tab_manager.active_index;
                     if let Some(tab) = self.tab_manager.tabs.get_mut(idx) {
                         tab.executing = false;
+                        if !is_cancelled {
+                            tab.result = None;
+                        }
+                        tab.query_time_ms = Some(elapsed_ms);
+                        tab.last_error = if is_cancelled {
+                            None
+                        } else {
+                            Some(err_msg.clone())
+                        };
                         tab.pending_request_id = None;
                         tab.last_message = Some(err_msg.clone());
                     }
-                    if is_active_tab && !is_cancelled {
-                        self.result = Some(crate::database::QueryResult::default());
+                    if is_active_tab {
+                        if should_update_active_query_time {
+                            self.last_query_time_ms = Some(elapsed_ms);
+                        }
+                        if !is_cancelled {
+                            self.result = None;
+                        }
                     }
                 }
                 self.pending_grid_refresh_restores.remove(&request_id);
@@ -518,10 +781,7 @@ impl DbManagerApp {
         match result {
             Ok(report) => {
                 if report.failed == 0 {
-                    self.grid_state.clear_edits();
-                    self.grid_state.pending_sql.clear();
-                    self.grid_state.pending_save = false;
-                    self.grid_state.show_save_confirm = false;
+                    self.apply_successful_grid_save_state(&context);
                     self.notifications.success(format!(
                         "表格保存完成：成功 {} / {} 条 ({}ms)",
                         report.succeeded, report.total, elapsed_ms
@@ -719,57 +979,20 @@ impl DbManagerApp {
     ) {
         match result {
             Ok(fks) => {
-                // 更新表中列的外键标记
-                for fk in &fks {
-                    if let Some(table) = self
-                        .er_diagram_state
-                        .tables
-                        .iter_mut()
-                        .find(|t| t.name == fk.from_table)
-                        && let Some(col) =
-                            table.columns.iter_mut().find(|c| c.name == fk.from_column)
-                    {
-                        col.is_foreign_key = true;
-                    }
-                }
+                let foreign_key_columns = collect_er_foreign_key_columns(&fks);
+                self.er_diagram_state
+                    .set_foreign_key_columns(foreign_key_columns);
 
-                // 转换为 ER 图关系
-                let mut relationships: Vec<ui::Relationship> = fks
-                    .into_iter()
-                    .map(|fk| ui::Relationship {
-                        from_table: fk.from_table,
-                        from_column: fk.from_column,
-                        to_table: fk.to_table,
-                        to_column: fk.to_column,
-                        relation_type: ui::RelationType::OneToMany,
-                    })
-                    .collect();
-
-                // 如果没有外键，尝试推断
-                if relationships.is_empty() {
-                    relationships = self.infer_relationships_from_columns();
-                }
-
+                let relationships = collect_er_relationships_from_foreign_keys(fks);
                 let rel_count = relationships.len();
                 self.er_diagram_state.relationships = relationships;
-                self.er_diagram_state.loading = false;
-
-                if rel_count > 0 {
-                    self.notifications.info(format!(
-                        "ER图: {} 张表, {} 个关系",
-                        self.er_diagram_state.tables.len(),
-                        rel_count
-                    ));
-                } else {
-                    self.notifications.info(format!(
-                        "ER图: {} 张表（未发现外键关系）",
-                        self.er_diagram_state.tables.len()
-                    ));
-                }
+                tracing::debug!(relationship_count = rel_count, "ER 图外键关系已返回");
+                self.finalize_er_diagram_load_if_ready();
             }
             Err(e) => {
-                self.er_diagram_state.loading = false;
+                self.er_diagram_state.mark_foreign_keys_resolved();
                 self.notifications.error(format!("加载外键关系失败: {}", e));
+                self.finalize_er_diagram_load_if_ready();
             }
         }
         ctx.request_repaint();
@@ -784,50 +1007,29 @@ impl DbManagerApp {
     ) {
         match result {
             Ok(columns) => {
+                let er_columns: Vec<ui::ERColumn> = columns
+                    .into_iter()
+                    .map(|c| ui::ERColumn {
+                        is_foreign_key: self
+                            .er_diagram_state
+                            .is_foreign_key_column(&table_name, &c.name),
+                        name: c.name,
+                        data_type: c.data_type,
+                        is_primary_key: c.is_primary_key,
+                        nullable: c.is_nullable,
+                        default_value: c.default_value,
+                    })
+                    .collect();
+
                 if let Some(er_table) = self
                     .er_diagram_state
                     .tables
                     .iter_mut()
                     .find(|t| t.name == table_name)
                 {
-                    er_table.columns = columns
-                        .into_iter()
-                        .map(|c| ui::ERColumn {
-                            name: c.name,
-                            data_type: c.data_type,
-                            is_primary_key: c.is_primary_key,
-                            is_foreign_key: false,
-                            nullable: c.is_nullable,
-                            default_value: c.default_value,
-                        })
-                        .collect();
+                    er_table.columns = er_columns;
                     // 立即计算表格尺寸，确保布局和关系线渲染正确
                     ui::calculate_table_size(er_table);
-                }
-
-                // 检查是否所有表都加载完成
-                let all_loaded = self
-                    .er_diagram_state
-                    .tables
-                    .iter()
-                    .all(|t| !t.columns.is_empty());
-                if all_loaded && !self.er_diagram_state.tables.is_empty() {
-                    ui::grid_layout(
-                        &mut self.er_diagram_state.tables,
-                        4,
-                        egui::Vec2::new(60.0, 50.0),
-                    );
-
-                    if self.er_diagram_state.relationships.is_empty() {
-                        let inferred = self.infer_relationships_from_columns();
-                        if !inferred.is_empty() {
-                            self.er_diagram_state.relationships = inferred;
-                            self.notifications.info(format!(
-                                "ER图: 推断出 {} 个关系",
-                                self.er_diagram_state.relationships.len()
-                            ));
-                        }
-                    }
                 }
             }
             Err(e) => {
@@ -835,14 +1037,26 @@ impl DbManagerApp {
                     .warning(format!("获取表 {} 结构失败: {}", table_name, e));
             }
         }
+        self.er_diagram_state
+            .mark_table_request_resolved(&table_name);
+        self.finalize_er_diagram_load_if_ready();
         ctx.request_repaint();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_grid_cursor_for_result, is_cancelled_query_error};
+    use super::{
+        ErDiagramReadyKind, clamp_grid_cursor_for_result,
+        collect_er_relationships_from_foreign_keys, er_diagram_ready_message,
+        grid_save_context_matches_current, is_cancelled_query_error,
+        resolve_er_diagram_ready_state, should_drop_query_error_as_stale,
+        should_record_active_query_time,
+    };
+    use crate::app::{GridSaveContext, GridWorkspaceId};
+    use crate::database::ForeignKeyInfo;
     use crate::database::QueryResult;
+    use crate::ui::{RelationType, Relationship};
 
     #[test]
     fn test_is_cancelled_query_error_chinese() {
@@ -884,5 +1098,155 @@ mod tests {
             clamp_grid_cursor_for_result((4, 2), &QueryResult::default()),
             (0, 0)
         );
+    }
+
+    #[test]
+    fn grid_save_context_matches_current_requires_matching_workspace_and_tab() {
+        let workspace = GridWorkspaceId {
+            tab_id: "tab-a".to_string(),
+            connection_name: "local".to_string(),
+            database_name: Some("main".to_string()),
+            table_name: "users".to_string(),
+        };
+        let context = GridSaveContext {
+            workspace_id: workspace.clone(),
+            table_name: "users".to_string(),
+            tab_id: "tab-a".to_string(),
+            cursor: (2, 1),
+            search_text: String::new(),
+            search_column: None,
+        };
+
+        assert!(grid_save_context_matches_current(
+            Some(&workspace),
+            Some("tab-a"),
+            &context
+        ));
+        assert!(!grid_save_context_matches_current(
+            Some(&workspace),
+            Some("tab-b"),
+            &context
+        ));
+
+        let other_workspace = GridWorkspaceId {
+            tab_id: "tab-b".to_string(),
+            connection_name: "local".to_string(),
+            database_name: Some("main".to_string()),
+            table_name: "orders".to_string(),
+        };
+        assert!(!grid_save_context_matches_current(
+            Some(&other_workspace),
+            Some("tab-a"),
+            &context
+        ));
+    }
+
+    #[test]
+    fn cancelled_query_error_from_user_cancel_is_not_dropped_as_stale() {
+        assert!(!should_drop_query_error_as_stale(true, true, true));
+        assert!(should_drop_query_error_as_stale(true, true, false));
+        assert!(should_drop_query_error_as_stale(true, false, true));
+        assert!(!should_drop_query_error_as_stale(false, true, true));
+    }
+
+    #[test]
+    fn active_query_time_updates_only_for_non_stale_active_tab() {
+        assert!(should_record_active_query_time(Some(2), 2, false));
+        assert!(!should_record_active_query_time(Some(1), 2, false));
+        assert!(!should_record_active_query_time(Some(2), 2, true));
+        assert!(!should_record_active_query_time(None, 2, false));
+    }
+
+    #[test]
+    fn er_diagram_ready_message_reports_explicit_relationships() {
+        assert_eq!(
+            er_diagram_ready_message(8, ErDiagramReadyKind::Explicit(3)),
+            "ER图: 8 张表, 3 个关系"
+        );
+    }
+
+    #[test]
+    fn er_diagram_ready_message_reports_inferred_relationships() {
+        assert_eq!(
+            er_diagram_ready_message(8, ErDiagramReadyKind::Inferred(2)),
+            "ER图: 8 张表, 推断出 2 个关系"
+        );
+    }
+
+    #[test]
+    fn er_diagram_ready_message_reports_empty_relationships() {
+        assert_eq!(
+            er_diagram_ready_message(8, ErDiagramReadyKind::Empty),
+            "ER图: 8 张表（未发现外键关系）"
+        );
+    }
+
+    fn relationship(from_table: &str, to_table: &str) -> Relationship {
+        Relationship {
+            from_table: from_table.to_string(),
+            from_column: "source_id".to_string(),
+            to_table: to_table.to_string(),
+            to_column: "id".to_string(),
+            relation_type: RelationType::OneToMany,
+        }
+    }
+
+    #[test]
+    fn resolve_er_diagram_ready_state_prefers_explicit_relationships() {
+        let explicit = vec![relationship("orders", "customers")];
+        let inferred = vec![relationship("payments", "orders")];
+
+        let (relationships, ready_kind) = resolve_er_diagram_ready_state(explicit, inferred);
+
+        assert_eq!(relationships.len(), 1);
+        assert_eq!(relationships[0].from_table, "orders");
+        assert_eq!(ready_kind, ErDiagramReadyKind::Explicit(1));
+    }
+
+    #[test]
+    fn resolve_er_diagram_ready_state_uses_inferred_fallback_when_explicit_is_empty() {
+        let inferred = vec![
+            relationship("orders", "customers"),
+            relationship("payments", "orders"),
+        ];
+
+        let (relationships, ready_kind) = resolve_er_diagram_ready_state(Vec::new(), inferred);
+
+        assert_eq!(relationships.len(), 2);
+        assert_eq!(relationships[0].from_table, "orders");
+        assert_eq!(relationships[1].from_table, "payments");
+        assert_eq!(ready_kind, ErDiagramReadyKind::Inferred(2));
+    }
+
+    #[test]
+    fn resolve_er_diagram_ready_state_reports_empty_when_no_relationships_exist() {
+        let (relationships, ready_kind) = resolve_er_diagram_ready_state(Vec::new(), Vec::new());
+
+        assert!(relationships.is_empty());
+        assert_eq!(ready_kind, ErDiagramReadyKind::Empty);
+    }
+
+    #[test]
+    fn collect_er_relationships_from_foreign_keys_keeps_empty_results_empty() {
+        let relationships = collect_er_relationships_from_foreign_keys(Vec::new());
+
+        assert!(relationships.is_empty());
+    }
+
+    #[test]
+    fn collect_er_relationships_from_foreign_keys_maps_explicit_edges_only() {
+        let relationships = collect_er_relationships_from_foreign_keys(vec![ForeignKeyInfo {
+            from_table: "orders".to_string(),
+            from_column: "customer_id".to_string(),
+            to_table: "customers".to_string(),
+            to_column: "id".to_string(),
+        }]);
+
+        assert_eq!(relationships.len(), 1);
+        assert_eq!(relationships[0].from_table, "orders");
+        assert_eq!(relationships[0].from_column, "customer_id");
+        assert_eq!(relationships[0].to_table, "customers");
+        assert_eq!(relationships[0].to_column, "id");
+        assert_eq!(relationships[0].relation_type, RelationType::OneToMany);
     }
 }

@@ -5,8 +5,8 @@
 use crate::core::HighlightColors;
 use crate::core::{Action, KeyBindings};
 use crate::database::QueryResult;
-use crate::ui::action_tooltip;
 use crate::ui::styles::theme_text;
+use crate::ui::{LocalShortcut, action_tooltip, consume_local_shortcut};
 use egui::{self, Color32, RichText, Ui, Vec2};
 use uuid::Uuid;
 
@@ -30,12 +30,22 @@ pub struct QueryTab {
     pub executing: bool,
     /// 最后一条消息
     pub last_message: Option<String>,
+    /// 最近一次查询错误（仅用于当前 Tab 的结果区显示）
+    pub last_error: Option<String>,
     /// 查询耗时 (毫秒)
     pub query_time_ms: Option<u64>,
     /// 是否已修改 (未保存)
     pub modified: bool,
     /// 关联的表名 (如果有)
     pub table_name: Option<String>,
+    /// 当前 Tab 绑定的选中表（用于恢复 grid workspace）
+    pub selected_table: Option<String>,
+    /// 当前 Tab 的结果搜索文本
+    pub search_text: String,
+    /// 当前 Tab 的结果搜索列
+    pub search_column: Option<String>,
+    /// 当前 Tab 是否使用持久化的 grid workspace
+    pub uses_grid_workspace: bool,
     /// 当前进行中的请求 ID（用于丢弃过期回包）
     pub pending_request_id: Option<u64>,
 }
@@ -50,9 +60,14 @@ impl QueryTab {
             result: None,
             executing: false,
             last_message: None,
+            last_error: None,
             query_time_ms: None,
             modified: false,
             table_name: None,
+            selected_table: None,
+            search_text: String::new(),
+            search_column: None,
+            uses_grid_workspace: false,
             pending_request_id: None,
         }
     }
@@ -235,6 +250,10 @@ impl QueryTabManager {
             .iter()
             .position(|t| t.table_name.as_deref() == Some(table_name))
         {
+            if let Some(tab) = self.tabs.get_mut(idx) {
+                tab.selected_table = Some(table_name.to_string());
+                tab.uses_grid_workspace = true;
+            }
             self.active_index = idx;
             return idx;
         }
@@ -244,11 +263,15 @@ impl QueryTabManager {
                 tab.sql = sql.to_string();
                 tab.table_name = Some(table_name.to_string());
                 tab.title = table_name.to_string();
+                tab.selected_table = Some(table_name.to_string());
+                tab.uses_grid_workspace = true;
             }
             return self.active_index;
         }
 
-        let tab = QueryTab::from_table(table_name, sql);
+        let mut tab = QueryTab::from_table(table_name, sql);
+        tab.selected_table = Some(table_name.to_string());
+        tab.uses_grid_workspace = true;
         self.tabs.push(tab);
         self.active_index = self.tabs.len() - 1;
         self.active_index
@@ -540,46 +563,74 @@ impl QueryTabBar {
             return;
         }
 
-        ui.input(|i| {
-            // h/左箭头: 切换到左边的Tab
-            if (i.key_pressed(egui::Key::H) || i.key_pressed(egui::Key::ArrowLeft))
-                && active_index > 0
-            {
+        ui.input_mut(|i| {
+            if consume_local_shortcut(i, LocalShortcut::QueryTabPrev) && active_index > 0 {
                 actions.switch_to = Some(active_index - 1);
-            }
-
-            // l/右箭头: 切换到右边的Tab
-            if (i.key_pressed(egui::Key::L) || i.key_pressed(egui::Key::ArrowRight))
+            } else if consume_local_shortcut(i, LocalShortcut::QueryTabNext)
                 && active_index < tab_count - 1
             {
                 actions.switch_to = Some(active_index + 1);
-            }
-
-            // j/下箭头: 向下进入数据表格
-            if i.key_pressed(egui::Key::J) || i.key_pressed(egui::Key::ArrowDown) {
+            } else if consume_local_shortcut(i, LocalShortcut::QueryTabToDataGrid) {
                 actions.focus_transfer = Some(TabBarFocusTransfer::ToDataGrid);
-            }
-
-            // k/上箭头: 向上进入工具栏
-            if i.key_pressed(egui::Key::K) || i.key_pressed(egui::Key::ArrowUp) {
+            } else if consume_local_shortcut(i, LocalShortcut::QueryTabToToolbar) {
                 actions.focus_transfer = Some(TabBarFocusTransfer::ToToolbar);
-            }
-
-            // Enter: 确认选择，进入数据表格
-            if i.key_pressed(egui::Key::Enter) {
+            } else if consume_local_shortcut(i, LocalShortcut::QueryTabActivate) {
                 actions.focus_transfer = Some(TabBarFocusTransfer::ToDataGrid);
-            }
-
-            // d: 删除当前Tab
-            if i.key_pressed(egui::Key::D) && tab_count > 1 {
+            } else if consume_local_shortcut(i, LocalShortcut::QueryTabClose) && tab_count > 1 {
                 actions.close_tab = Some(active_index);
-            }
-
-            // Escape: 返回数据表格
-            if i.key_pressed(egui::Key::Escape) {
+            } else if consume_local_shortcut(i, LocalShortcut::QueryTabDismiss) {
                 actions.focus_transfer = Some(TabBarFocusTransfer::ToDataGrid);
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{Area, Context, Event, Id, Key, Modifiers, RawInput};
+
+    fn key_event(key: Key) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }
+    }
+
+    fn run_tab_bar_key(key: Key, tab_count: usize, active_index: usize) -> TabBarActions {
+        let ctx = Context::default();
+        ctx.begin_pass(RawInput {
+            events: vec![key_event(key)],
+            modifiers: Modifiers::NONE,
+            ..Default::default()
+        });
+        let mut actions = TabBarActions::default();
+        Area::new(Id::new("query_tab_keyboard_test")).show(&ctx, |ui| {
+            QueryTabBar::handle_keyboard(ui, tab_count, active_index, &mut actions);
+        });
+        let _ = ctx.end_pass();
+        actions
+    }
+
+    #[test]
+    fn query_tab_keyboard_uses_local_shortcuts_for_focus_transfer() {
+        let actions = run_tab_bar_key(Key::J, 3, 1);
+        assert_eq!(
+            actions.focus_transfer,
+            Some(TabBarFocusTransfer::ToDataGrid)
+        );
+
+        let actions = run_tab_bar_key(Key::K, 3, 1);
+        assert_eq!(actions.focus_transfer, Some(TabBarFocusTransfer::ToToolbar));
+    }
+
+    #[test]
+    fn query_tab_keyboard_close_is_local_shortcut_driven() {
+        let actions = run_tab_bar_key(Key::D, 3, 1);
+        assert_eq!(actions.close_tab, Some(1));
     }
 }
 

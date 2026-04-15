@@ -1,6 +1,6 @@
 //! 数据库列表渲染
 
-use super::{SidebarActions, SidebarSelectionState, TableList};
+use super::{ConnectionList, SidebarActions, SidebarSelectionState, TableList};
 use crate::database::ConnectionManager;
 use crate::ui::SidebarSection;
 use crate::ui::styles::{MUTED, SPACING_LG};
@@ -84,6 +84,22 @@ impl DatabaseList {
                 connection_manager.active = Some(conn_name.to_string());
                 actions.select_database = Some(database.clone());
             }
+
+            db_response.context_menu(|ui| {
+                if ui.button("切换到该数据库").clicked() {
+                    actions.section_change = Some(SidebarSection::Databases);
+                    connection_manager.active = Some(conn_name.to_string());
+                    actions.select_database = Some(database.clone());
+                    ui.close();
+                }
+                ui.separator();
+                ConnectionList::show_delete_targets_menu(
+                    ui,
+                    conn_name,
+                    Some(database.as_str()),
+                    actions,
+                );
+            });
 
             // 如果是选中项且有焦点，滚动到可见
             if is_nav_selected {

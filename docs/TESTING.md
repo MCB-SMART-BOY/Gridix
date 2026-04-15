@@ -78,72 +78,68 @@ cargo test --test edge_regression_tests
 Before merging changes touching these modules, run focused checks:
 涉及以下模块时建议重点回归：
 
-- `src/ui/components/sql_editor.rs`
-  - `Tab` completion acceptance and cursor position.
-  - `Tab` 补全确认后光标位置是否正确。
-- `src/app/input/input_router.rs` and `src/app/input/owner.rs`
-  - Active input owner, text-entry priority, and scoped keymap dispatch.
-  - 当前输入所有者、文本输入优先级与作用域 keymap 分发。
-  - `next_focus_area` / `prev_focus_area` must remain workspace fallback actions; changing their bindings from `Tab` / `Shift+Tab` to `Ctrl+Tab` variants should not require router changes.
-  - `next_focus_area` / `prev_focus_area` 必须继续是 workspace fallback action；即使把默认绑定从 `Tab` / `Shift+Tab` 改为 `Ctrl+Tab` 变体，也不应要求修改 router 语义。
-  - Current-scope keymap actions must continue to beat workspace fallback shortcuts such as `next_focus_area` or `Ctrl+D` theme toggle.
-  - 当前作用域 keymap 动作必须继续优先于 workspace fallback 快捷键，例如 `next_focus_area` 或 `Ctrl+D` 主题切换。
-  - `editor.insert.confirm_completion(Tab)` must continue to outrank `next_focus_area(Tab)`.
-  - `editor.insert.confirm_completion(Tab)` 必须继续优先于 `next_focus_area(Tab)`。
-  - `Ctrl+D` / `Ctrl+Shift+T` / `Alt+K` / `Ctrl+1..6` must keep routing through action-backed workspace fallback instead of reintroducing direct router-only key branches.
-  - `Ctrl+D` / `Ctrl+Shift+T` / `Alt+K` / `Ctrl+1..6` 必须继续通过 action-backed workspace fallback 分发，不能重新引入 direct router-only 的按键分支。
-- `src/core/keybindings.rs`
-  - Missing `keymap.toml` must initialize from defaults, partial files must merge without rewriting disk, and diagnostics must surface unknown sections/actions, invalid bindings, exact conflicts, inherited shadowing, and text-entry plain-character rejection.
-  - 缺失的 `keymap.toml` 必须从默认值初始化；局部文件必须以补齐合并方式加载且不重写磁盘；diagnostics 必须覆盖未知 section/action、非法绑定、同 scope 冲突、继承遮蔽和文本输入作用域普通字符拒绝。
-- `src/ui/dialogs/keybindings_dialog.rs`
-  - Scope tree, action list, binding source, and diagnostics placeholder must stay aligned with runtime bindings instead of falling back to a flat action table.
-  - 作用域树、动作列表、绑定来源与 diagnostics 占位必须继续与运行时键位一致，不能退回平铺动作表格。
-  - The dialog must expose the real `sidebar.filters.list` scope, keep the legacy-import affordance when `config.toml.keybindings` still differs from defaults, and allow copying the current `keymap.toml` path.
-  - 对话框必须暴露真实的 `sidebar.filters.list` scope；当 `config.toml.keybindings` 仍与默认值不一致时保留 legacy 导入入口；并允许复制当前 `keymap.toml` 路径。
-  - Scoped action override rows such as `toolbar.refresh` must surface inherited/global source state, local override state, and same-scope diagnostics through the editor instead of hiding behind the legacy local-shortcut list.
-  - `toolbar.refresh` 这类 scoped action override 条目必须在编辑器里暴露继承全局、局部覆盖和同 scope 诊断，不能继续藏在旧的局部快捷键列表之后。
-  - Text-entry scopes such as `editor.insert` and `sidebar.filters.input` must only list text-entry-safe scoped actions in the editor, and must not expose command-mode-only actions like `refresh`.
-  - `editor.insert` 与 `sidebar.filters.input` 这类文本输入作用域在编辑器中只能列出 text-entry-safe 的 scoped action，不能继续暴露 `refresh` 这类只在 command mode 有效的动作。
-- `src/app/dialogs/host.rs` and `src/app/surfaces/dialogs.rs`
-  - Only the active dialog should process input and produce dialog results.
-  - 只有当前 active dialog 能处理输入并产生对话框结果。
-- `src/core/commands.rs` and `src/ui/shortcut_tooltip.rs`
-  - Scoped command ids must stay unique, and every legacy `LocalShortcut` must have registry metadata.
-  - 作用域命令 id 必须保持唯一，每个遗留 `LocalShortcut` 都必须有注册表元数据。
-- `src/ui/dialogs/common.rs`
-  - `DialogShortcutContext::consume_command` and `resolve_commands` must preserve text-entry priority while consuming scoped command ids.
-  - `DialogShortcutContext::consume_command` 与 `resolve_commands` 必须在消费作用域 command id 时继续保持文本输入优先级。
-- `src/ui/dialogs/import_dialog/mod.rs` and `src/ui/dialogs/export_dialog.rs`
-  - Format switching, refresh/export guards, and text-entry conflicts must stay scoped to the active dialog.
-  - 格式切换、刷新/导出门禁与文本输入冲突必须继续限定在当前 active dialog 内。
-- `src/ui/dialogs/connection_dialog.rs`
-  - Database-type switching, SQLite browse gating, confirm validation, and file-picker side effects must stay routed through the connection dialog action path while preserving text-entry priority.
-  - 数据库类型切换、SQLite 浏览门禁、确认校验以及文件选择副作用必须继续通过连接对话框动作路径分发，同时保持文本输入优先级。
-- `src/ui/dialogs/create_db_dialog.rs`, `src/ui/dialogs/create_user_dialog.rs`, and `src/ui/dialogs/ddl_dialog.rs`
-  - Confirm/dismiss and DDL column-navigation shortcuts must resolve through scoped command ids, and character keys like `j` must not override active text entry.
-  - 创建数据库、创建用户与 DDL 对话框的确认/关闭及 DDL 列导航快捷键必须通过 scoped command id 解析，且 `j` 这类字符键不能覆盖当前文本输入。
-- `src/ui/components/grid/keyboard.rs`
-  - Focus transfer and editing mode transitions, especially the "reach last row first, then transfer on the next down movement" behavior.
-  - 焦点转移与编辑模式切换，尤其是“先到最后一行，再由下一次下移触发编辑器切换”的行为。
-- `src/ui/panels/sidebar/mod.rs` and `src/ui/panels/sidebar/state.rs`
-  - Sidebar focus graph must stay centralized around `Connections -> Databases -> Tables -> Filters -> Triggers -> Routines`.
-  - 侧边栏焦点图必须继续集中在 `Connections -> Databases -> Tables -> Filters -> Triggers -> Routines` 这一条主顺序上。
-  - `filters.input` must keep plain-character typing local to the value editor, and `Esc` must return to `filters.list` without leaking commands outward.
-  - `filters.input` 必须继续把普通字符输入限制在值编辑框内部，且 `Esc` 必须返回 `filters.list`，不能把命令泄漏到外层。
-  - `edge_transfer` must keep `j/k` cross-panel transfer behind the config gate while preserving `h/l` layer traversal.
-  - `edge_transfer` 必须继续把 `j/k` 跨 panel 转移放在配置开关之后，同时保持 `h/l` 的层级遍历语义。
-- `src/ui/components/grid/actions.rs` and `src/app/runtime/handler.rs`
-  - Grid saves must batch all SQL statements, keep edits on failure, and refresh back into the same table view on success.
-  - 表格保存必须批量执行全部 SQL、失败时保留编辑状态、成功后刷新回同一张表视图。
-- `src/core/theme.rs`, `src/ui/styles.rs`, and high-frequency shell widgets (`toolbar`, `query_tabs`, `sql_editor`, `help_dialog`, `sidebar`, `er_diagram`, `grid`)
-  - Light themes must keep action labels, hints, menu items, and modal copy readable; avoid reintroducing hard-coded dark-only foreground colors.
-  - 日间主题下必须保证操作标签、提示文案、菜单项与对话框正文可读，避免重新引入只适配暗色背景的前景色硬编码。
-- `src/ui/dialogs/help_dialog.rs`, `src/ui/dialogs/keybindings_dialog.rs`, and `src/ui/dialogs/picker_shell.rs`
-  - Picker dialogs must stay fixed-size, keep layered root/item/detail navigation stable, preserve click-to-open plus keyboard `h/j/k/l` semantics, and ensure detail scrolling never reintroduces horizontal growth.
-  - picker 型对话框必须保持固定尺寸，稳定支持 root/item/detail 分级导航，保留单击打开与 `h/j/k/l` 键盘语义，并确保详情滚动不会重新引入横向扩张。
-- `src/ui/dialogs/help_dialog/*`
-  - Layout stability and topic navigation.
-  - 布局稳定性与知识点导航链路。
+- `src/app/input/input_router.rs`, `src/app/input/owner.rs`, `src/app/dialogs/host.rs`, `src/app/surfaces/dialogs.rs`
+  - Input owner, dialog owner, modal priority, and scoped dispatch must stay aligned.
+  - 输入 owner、dialog owner、模态优先级与作用域分发必须继续一致。
+- `src/ui/components/toolbar/mod.rs`, `src/ui/dialogs/toolbar_menu_dialog.rs`, `src/ui/components/toolbar/theme_combo.rs`
+  - Toolbar focus visibility, overlay chooser behavior, and the remaining raw theme popup must keep keyboard and viewport behavior stable.
+  - 工具栏焦点可见性、overlay 选择器行为，以及剩余的主题 popup 必须继续保持稳定的键盘流和视口边界。
+- `src/ui/dialogs/common.rs`, `src/ui/dialogs/picker_shell.rs`, `src/ui/dialogs/help_dialog.rs`, `src/ui/dialogs/keybindings_dialog.rs`
+  - Workspace dialog shells must keep fixed header/footer, pane-owned scrolling, and layered `Full / Compact / Hidden` behavior.
+  - workspace dialog shell 必须继续保持固定 header/footer、pane 自有滚动，以及 `Full / Compact / Hidden` 的层级退场行为。
+- `src/ui/dialogs/connection_dialog.rs`, `src/ui/dialogs/import_dialog/mod.rs`, `src/ui/dialogs/export_dialog.rs`, `src/ui/dialogs/create_db_dialog.rs`, `src/ui/dialogs/create_user_dialog.rs`, `src/ui/dialogs/ddl_dialog.rs`
+  - Form dialogs must keep one main scroll owner, fixed footer actions, and text-entry-safe shortcut behavior.
+  - 表单类 dialog 必须保持单一主体滚动、固定 footer 动作区，以及不会抢走文本输入的快捷键行为。
+  - Manual smoke for `CreateUserDialog`: once a non-SQLite connection is active, verify `Ctrl+Shift+U` can open the dialog, `q` can close it, and a narrow floating viewport still keeps the footer visible while the main form and SQL preview remain scroll-safe.
+  - `CreateUserDialog` 手工冒烟：在 active non-SQLite 连接下验证 `Ctrl+Shift+U` 能拉起 dialog、`q` 能关闭，且窄浮窗里 footer 仍可见，主体表单与 SQL 预览区继续保持安全滚动。
+- `src/app/runtime/database.rs`, `src/app/runtime/request_lifecycle.rs`, `src/app/runtime/handler.rs`, `src/app/surfaces/render.rs`
+  - Query execution must preserve request-id isolation, user-cancel vs stale split, active-tab mirrors, and explicit error rendering.
+  - 查询执行链必须继续保持请求 ID 隔离、用户取消与 stale 分流、active tab 镜像一致，以及显式错误渲染。
+- `src/ui/components/grid/actions.rs`, `src/ui/components/grid/keyboard.rs`, `src/app/runtime/handler.rs`
+  - Grid saves must keep context isolation, failure-state retention, keyboard edit semantics, and same-table refresh on success.
+  - grid 保存必须继续保持上下文隔离、失败保留编辑、键盘编辑语义，以及成功后回到同一表视图。
+  - Query-result headers must remain readable across focused, filtered, and unfocused columns under the active theme; do not let non-focused headers fall back to effectively invisible implicit colors.
+  - 查询结果表格列头在当前主题下必须继续保持可读：焦点列、筛选列和普通列都要有明确可见的前景色，不能再次退化成“只有焦点列可见”。
+  - Manual smoke: open any wide result table and confirm column names such as `id / customer_id / label / recipient_name / ...` remain readable together instead of only the focused header standing out.
+  - 手工冒烟：打开任意多列表结果表，确认 `id / customer_id / label / recipient_name / ...` 这类列名会一起保持可读，而不是只剩当前焦点列显眼。
+- `src/ui/panels/sidebar/*`, `src/app/runtime/database.rs`, `src/app/surfaces/dialogs.rs`
+  - Sidebar traversal and destructive actions must keep explicit targets, connection context, and a stable focus graph.
+  - 侧边栏遍历与危险操作必须继续保持显式目标、连接上下文和稳定焦点图。
+  - Focused anchors should keep both the sidebar entrypoints and the app-level confirmation chain covered: `SidebarDeleteTarget` construction, `handle_sidebar_actions()` saving `pending_delete_target` and opening `DeleteConfirm`, and `confirm_pending_delete()` clearing saved state after dispatch.
+  - focused 锚点除了覆盖 sidebar 入口外，还应继续锁住 app 级确认链：`SidebarDeleteTarget` 构造、`handle_sidebar_actions()` 保存 `pending_delete_target` 并打开 `DeleteConfirm`，以及 `confirm_pending_delete()` 在分发后清理已保存状态。
+- `src/core/keybindings.rs`, `src/core/commands.rs`, `src/ui/shortcut_tooltip.rs`
+  - Registry ids, inherited bindings, diagnostics, and tooltip metadata must stay in sync with runtime keymap behavior.
+  - 注册表 id、继承绑定、诊断信息与 tooltip 元数据必须继续与运行时 keymap 行为一致。
+- `src/core/theme.rs`, `src/ui/styles.rs`, `src/ui/components/er_diagram/*`, `src/ui/components/toolbar/*`
+  - Theme changes must keep light/dark readability and avoid reintroducing dark-only foreground assumptions.
+  - 主题调整必须继续保证明暗主题可读性，避免重新引入只适配暗色背景的前景色假设。
+- `src/app/input/input_router.rs`, `src/app/runtime/er_diagram.rs`, `src/ui/components/er_diagram/state.rs`, `src/ui/components/er_diagram/render.rs`
+  - ER top-level combos must keep `navigation / viewport` scope boundaries stable: opening with `Ctrl+R` must now enter ER focus directly, viewport-mode `q` still closes ER, `r / Shift+L / f` still work there, `Ctrl+R` must still route `ToggleErDiagram` even when ER itself owns focus, open/refresh/reload must reset `interaction_mode` back to navigation, theme-switch renders must not wipe the current ER viewport/selection state, `FocusErDiagram -> ToggleErDiagram` must restore a legal non-ER workspace focus (or fall back to `DataGrid`) without leaving hidden ER scope behind, `ShowHistory` must remain blocked in ER scope, `Shift+J / Shift+K` must keep relation-adjacent navigation deterministic and layout-independent, and `Shift+Arrow` must keep geometry-adjacent navigation directional, local-only, and deterministic for a fixed layout.
+  - ER 顶层组合链必须继续保持 `navigation / viewport` 作用域边界稳定：`Ctrl+R` 打开 ER 时现在必须直接切入 ER 焦点，视口模式内的 `q` 仍要关闭 ER，`r / Shift+L / f` 仍要可用，`Ctrl+R` 在 ER 自己持有焦点时仍必须继续路由到 `ToggleErDiagram`，open/refresh/reload 必须把 `interaction_mode` 重置回浏览态，theme switch render 也不能把当前 ER 的视口/选中状态洗掉，而 `FocusErDiagram -> ToggleErDiagram` 还必须恢复一个合法的非 ER workspace 焦点（目标不可用时回退到 `DataGrid`），且不能残留隐藏 ER scope；`ShowHistory` 仍必须在 ER scope 下保持被阻止；新增的 `Shift+J / Shift+K` 关系邻接导航也必须继续保持确定性，不能受当前几何布局影响；新增的 `Shift+Arrow` 几何邻接则必须继续保持方向性、局部性，并且在固定布局下具有确定性。
+  - Focused anchors should also keep the new geometry-adjacency boundaries explicit: `Shift+Arrow` must remain `NoOp` in `er_diagram.viewport`, and geometry navigation must not pre-sync app-level `selected_table` before `OpenSelectedTable`.
+  - focused 锚点还应继续显式锁住新的几何邻接边界：`Shift+Arrow` 在 `er_diagram.viewport` 中必须保持 `NoOp`，且几何邻接在 `OpenSelectedTable` 之前不得提前同步 app 层 `selected_table`。
+
+## 5.1 UX / Input Recovery Live Smoke | UX / 输入恢复主线 live 冒烟
+
+当 `toolbar / sidebar connection-row / AboutDialog / workspace dialog header / ER top-level combo` 这批条目进入“已关闭 / 观察”状态后，建议至少补一轮 live smoke，而不是只依赖 unit tests：
+
+1. `Alt+A` 打开操作菜单，确认 chooser 正常打开、顶部 header 为紧凑双区块、`q` 可关闭。
+2. `Alt+N` 打开新建菜单，确认 chooser 正常打开、顶部 header 为紧凑双区块、`q` 可关闭。
+3. `Alt+K` 打开快捷键设置，确认顶部搜索/重置区与 breadcrumb/提示区在默认宽度下并排展示。
+4. `F1` 打开帮助与学习，确认顶部快捷键提示区与 breadcrumb/提示区在默认宽度下并排展示。
+5. `Ctrl+P -> about -> Enter` 打开 About，确认首屏不再回到旧的厚重双 section 堆叠。
+6. 右键 connection-row，确认菜单稳定弹出；点击 `删连 / 删库` 后必须进入 `DeleteConfirm`，而不是只构造 helper target。
+7. 在 ER 已打开时验证 `Ctrl+R` 的关/开，以及 `Alt+R` 只负责聚焦 ER。
+8. 沿 `OpenLearningSample -> WelcomeSetup -> 5 -> Ctrl+Shift+N` 打开 `DdlDialog`，在约 `760x560` 级窄窗口下确认 footer 仍可见，且“列定义 / 预览 SQL” 不会再把整窗顶出视口。
+9. 沿 `Ctrl+P -> sample -> Enter -> Ctrl+R -> Alt+R -> Shift+Right/Down/Left/Up` 进入学习样例 ER，确认 `Shift+Arrow` 的几何邻接没有明显误跳，且选中项仍会随视口进入可见区域。
+10. 在同一学习样例 ER 链路下继续执行 `Shift+L -> Shift+Down -> f -> Ctrl+Shift+T -> j -> Enter`，确认 relayout / fit view / theme switch 不会把 ER 当前布局、缩放和几何邻接稳定性一起冲掉；若 theme chooser 关闭后要继续走 ER 局部键盘浏览，可显式再按一次 `Alt+R` 重新聚焦。
+
+注意：
+- 当前 Wayland live smoke 已确认 `Alt+A / Alt+N / Alt+K / F1 / Ctrl+P -> about` 这些显式路径通过。
+- `DdlDialog` 的 live 窄视口复核也已通过：沿 `OpenLearningSample -> WelcomeSetup -> 5 -> Ctrl+Shift+N` 打开“创建表”后，footer 已重新保持可见。
+- `Ctrl+R` 的自动注入验证目前仍不可靠：`wtype` 与 `hyprctl dispatch sendshortcut` 在当前 grid 场景下会落成 bare `r` 行为，因此这条必须优先用实体键手动复核；在拿到实体键复核前，不要仅凭自动注入失败就重新打开 ER bug。
+- ER 几何邻接已完成第一轮 live 观察：当前 Wayland 会话下，沿 `Ctrl+P -> sample -> Enter -> Ctrl+R -> Alt+R -> Shift+Right/Down/Left/Up` 进入学习样例 ER 后，方向跳转与 `selection follows viewport` 没有复现明显误跳；当前先保持观察，不继续猜测性调算法。
+- ER 几何邻接已完成第二轮组合观察：继续执行 `Shift+L -> Shift+Down -> f -> Ctrl+Shift+T -> j -> Enter` 后，relayout / fit view / theme switch 也没有把当前 ER 布局、缩放和几何邻接稳定性冲掉；当前仍先保持观察，不继续猜测性调算法。
 
 ## 6. Issue Reproduction Template | 问题复现模板
 

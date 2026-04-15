@@ -1,7 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
 mod actions;
-mod dropdowns;
 mod theme_combo;
 mod utils;
 
@@ -9,12 +8,14 @@ pub use actions::{ToolbarActions, ToolbarFocusTransfer};
 
 use crate::core::{Action, KeyBindings, ProgressManager, ThemeManager};
 use crate::ui::styles::{MARGIN_MD, MARGIN_SM};
-use crate::ui::{action_tooltip, action_tooltip_with_extras, shortcut_tooltip};
+use crate::ui::{
+    LocalShortcut, action_tooltip, action_tooltip_with_extras, consume_local_shortcut,
+    shortcut_tooltip,
+};
 use egui::{Color32, Vec2};
 
 use super::ProgressIndicator;
-use dropdowns::{show_actions_dropdown, show_create_dropdown};
-use theme_combo::{DARK_THEMES, LIGHT_THEMES, helix_theme_combo_simple};
+use theme_combo::show_theme_selector_trigger;
 use utils::{icon_button, icon_button_with_focus, separator, text_button};
 
 pub struct Toolbar;
@@ -69,7 +70,7 @@ impl Toolbar {
         ui: &mut egui::Ui,
         theme_manager: &ThemeManager,
         keybindings: &KeyBindings,
-        has_result: bool,
+        _has_result: bool,
         show_sidebar: bool,
         show_editor: bool,
         is_dark_mode: bool,
@@ -111,14 +112,7 @@ impl Toolbar {
                     ui.add_space(8.0);
 
                     // 操作按钮（移除了连接/库/表选择器，这些在左侧栏中已有）
-                    Self::show_action_buttons(
-                        ui,
-                        keybindings,
-                        has_result,
-                        actions,
-                        is_focused,
-                        selected_index,
-                    );
+                    Self::show_action_buttons(ui, keybindings, actions, is_focused, selected_index);
 
                     // 保留快捷键功能但不显示选择器
                     // 快捷键 Ctrl+1/2/3 仍可在 app 中触发侧边栏操作
@@ -178,30 +172,19 @@ impl Toolbar {
                         separator(ui);
                         ui.add_space(4.0);
 
-                        // 主题选择器 - 根据当前模式显示对应主题列表
-                        let themes = if is_dark_mode {
-                            DARK_THEMES
-                        } else {
-                            LIGHT_THEMES
-                        };
-                        let current_theme_idx = themes
-                            .iter()
-                            .position(|&t| t == theme_manager.current)
-                            .unwrap_or(0);
-
-                        if let Some(new_idx) = helix_theme_combo_simple(
+                        // 主题选择器 trigger：真正的选择在显式 overlay owner 中完成
+                        if show_theme_selector_trigger(
                             ui,
-                            "theme_selector",
                             theme_manager.current,
-                            current_theme_idx,
-                            themes,
-                            200.0,
-                            actions.open_theme_selector,
-                        ) && let Some(&preset) = themes.get(new_idx)
-                        {
-                            actions.theme_changed = Some(preset);
+                            &action_tooltip_with_extras(
+                                keybindings,
+                                Action::OpenThemeSelector,
+                                "打开主题选择器",
+                                &[],
+                            ),
+                        ) {
+                            actions.open_theme_selector = true;
                         }
-                        actions.open_theme_selector = false;
 
                         ui.add_space(4.0);
 
@@ -312,7 +295,6 @@ impl Toolbar {
     fn show_action_buttons(
         ui: &mut egui::Ui,
         keybindings: &KeyBindings,
-        has_result: bool,
         actions: &mut ToolbarActions,
         is_focused: bool,
         selected_index: usize,
@@ -332,13 +314,29 @@ impl Toolbar {
         separator(ui);
         ui.add_space(4.0);
 
-        // 操作下拉菜单 (索引 3)
-        show_actions_dropdown(ui, keybindings, has_result, actions);
+        // 操作菜单 (索引 3)
+        if icon_button_with_focus(
+            ui,
+            "⚡",
+            &action_tooltip(keybindings, Action::OpenToolbarActionsMenu),
+            true,
+            is_focused && selected_index == 3,
+        ) {
+            actions.open_actions_menu = true;
+        }
 
         ui.add_space(4.0);
 
-        // 新建下拉菜单 (索引 4)
-        show_create_dropdown(ui, keybindings, actions);
+        // 新建菜单 (索引 4)
+        if icon_button_with_focus(
+            ui,
+            "+",
+            &action_tooltip(keybindings, Action::OpenToolbarCreateMenu),
+            true,
+            is_focused && selected_index == 4,
+        ) {
+            actions.open_create_menu = true;
+        }
 
         ui.add_space(4.0);
         separator(ui);
@@ -348,7 +346,7 @@ impl Toolbar {
         if icon_button_with_focus(
             ui,
             "⌨",
-            &shortcut_tooltip("打开快捷键设置", &["Alt+K"]),
+            &action_tooltip(keybindings, Action::OpenKeybindingsDialog),
             true,
             is_focused && selected_index == 5,
         ) {
@@ -380,44 +378,93 @@ impl Toolbar {
         // 工具栏项目列表 (简化版本，主要支持导航)
         const TOOLBAR_ITEMS: usize = 7; // 侧边栏、编辑器、刷新、操作、新建、快捷键、帮助
 
-        ui.input(|i| {
-            // h/左箭头: 向左移动
-            if (i.key_pressed(egui::Key::H) || i.key_pressed(egui::Key::ArrowLeft))
-                && *toolbar_index > 0
-            {
+        ui.input_mut(|i| {
+            if consume_local_shortcut(i, LocalShortcut::ToolbarPrev) && *toolbar_index > 0 {
                 *toolbar_index -= 1;
-            }
-
-            // l/右箭头: 向右移动
-            if (i.key_pressed(egui::Key::L) || i.key_pressed(egui::Key::ArrowRight))
+            } else if consume_local_shortcut(i, LocalShortcut::ToolbarNext)
                 && *toolbar_index < TOOLBAR_ITEMS - 1
             {
                 *toolbar_index += 1;
-            }
-
-            // j/下箭头: 向下进入Tab栏
-            if i.key_pressed(egui::Key::J) || i.key_pressed(egui::Key::ArrowDown) {
+            } else if consume_local_shortcut(i, LocalShortcut::ToolbarToQueryTabs) {
                 actions.focus_transfer = Some(actions::ToolbarFocusTransfer::ToQueryTabs);
-            }
-
-            // Enter: 激活当前选中项
-            if i.key_pressed(egui::Key::Enter) {
+            } else if consume_local_shortcut(i, LocalShortcut::ToolbarActivate) {
                 match *toolbar_index {
                     0 => actions.toggle_sidebar = true,
                     1 => actions.toggle_editor = true,
                     2 => actions.refresh_tables = true,
-                    3 => { /* 操作下拉菜单 - 暂不支持 */ }
-                    4 => { /* 新建下拉菜单 - 暂不支持 */ }
+                    3 => actions.open_actions_menu = true,
+                    4 => actions.open_create_menu = true,
                     5 => actions.show_keybindings = true,
                     6 => actions.show_help = true,
                     _ => {}
                 }
-            }
-
-            // Escape: 返回Tab栏
-            if i.key_pressed(egui::Key::Escape) {
+            } else if consume_local_shortcut(i, LocalShortcut::ToolbarDismiss) {
                 actions.focus_transfer = Some(actions::ToolbarFocusTransfer::ToQueryTabs);
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{Area, Context, Event, Id, Key, Modifiers, RawInput};
+
+    fn key_event(key: Key) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }
+    }
+
+    fn run_toolbar_key(key: Key, toolbar_index: &mut usize, actions: &mut ToolbarActions) {
+        let ctx = Context::default();
+        ctx.begin_pass(RawInput {
+            events: vec![key_event(key)],
+            modifiers: Modifiers::NONE,
+            ..Default::default()
+        });
+        Area::new(Id::new("toolbar_keyboard_test")).show(&ctx, |ui| {
+            Toolbar::handle_keyboard(ui, toolbar_index, actions);
+        });
+        let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn toolbar_keyboard_activate_opens_action_menu_when_selected() {
+        let mut index = 3;
+        let mut actions = ToolbarActions::default();
+
+        run_toolbar_key(Key::Enter, &mut index, &mut actions);
+
+        assert!(actions.open_actions_menu);
+    }
+
+    #[test]
+    fn toolbar_keyboard_activate_opens_create_menu_when_selected() {
+        let mut index = 4;
+        let mut actions = ToolbarActions::default();
+
+        run_toolbar_key(Key::Enter, &mut index, &mut actions);
+
+        assert!(actions.open_create_menu);
+    }
+
+    #[test]
+    fn toolbar_keyboard_uses_local_shortcuts_for_navigation() {
+        let mut index = 1;
+        let mut actions = ToolbarActions::default();
+
+        run_toolbar_key(Key::L, &mut index, &mut actions);
+        assert_eq!(index, 2);
+
+        run_toolbar_key(Key::J, &mut index, &mut actions);
+        assert_eq!(
+            actions.focus_transfer,
+            Some(actions::ToolbarFocusTransfer::ToQueryTabs)
+        );
     }
 }

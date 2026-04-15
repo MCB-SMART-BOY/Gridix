@@ -715,6 +715,10 @@ pub enum Action {
     CommandPalette,
     /// 打开快捷键设置
     OpenKeybindingsDialog,
+    /// 打开工具栏操作菜单
+    OpenToolbarActionsMenu,
+    /// 打开工具栏新建菜单
+    OpenToolbarCreateMenu,
     /// 打开主题选择器
     OpenThemeSelector,
     /// 切换侧边栏
@@ -725,6 +729,8 @@ pub enum Action {
     ToggleEditor,
     /// 切换 ER 关系图
     ToggleErDiagram,
+    /// 聚焦 ER 关系图
+    FocusErDiagram,
     /// 显示帮助
     ShowHelp,
     /// 显示历史记录
@@ -761,10 +767,6 @@ pub enum Action {
     // === 编辑操作 ===
     /// 保存
     Save,
-    /// 添加筛选
-    AddFilter,
-    /// 清空筛选
-    ClearFilters,
     /// 跳转到行
     GotoLine,
 
@@ -800,11 +802,14 @@ impl Action {
             Action::NewConnection,
             Action::CommandPalette,
             Action::OpenKeybindingsDialog,
+            Action::OpenToolbarActionsMenu,
+            Action::OpenToolbarCreateMenu,
             Action::OpenThemeSelector,
             Action::ToggleSidebar,
             Action::ToggleDarkMode,
             Action::ToggleEditor,
             Action::ToggleErDiagram,
+            Action::FocusErDiagram,
             Action::ShowHelp,
             Action::ShowHistory,
             Action::Export,
@@ -820,8 +825,6 @@ impl Action {
             Action::NextTab,
             Action::PrevTab,
             Action::Save,
-            Action::AddFilter,
-            Action::ClearFilters,
             Action::GotoLine,
             Action::FocusSidebarConnections,
             Action::FocusSidebarDatabases,
@@ -843,11 +846,14 @@ impl Action {
             Action::NewConnection => "新建连接",
             Action::CommandPalette => "打开命令面板",
             Action::OpenKeybindingsDialog => "打开快捷键设置",
+            Action::OpenToolbarActionsMenu => "打开操作菜单",
+            Action::OpenToolbarCreateMenu => "打开新建菜单",
             Action::OpenThemeSelector => "打开主题选择器",
             Action::ToggleSidebar => "切换侧边栏",
             Action::ToggleDarkMode => "切换明暗主题",
             Action::ToggleEditor => "切换 SQL 编辑器",
             Action::ToggleErDiagram => "切换 ER 关系图",
+            Action::FocusErDiagram => "聚焦 ER 关系图",
             Action::ShowHelp => "显示帮助",
             Action::ShowHistory => "显示历史记录",
             Action::Export => "导出数据",
@@ -863,8 +869,6 @@ impl Action {
             Action::NextTab => "下一个 Tab",
             Action::PrevTab => "上一个 Tab",
             Action::Save => "保存",
-            Action::AddFilter => "添加筛选",
-            Action::ClearFilters => "清空筛选",
             Action::GotoLine => "跳转到行",
             Action::FocusSidebarConnections => "聚焦连接分区",
             Action::FocusSidebarDatabases => "聚焦数据库分区",
@@ -886,9 +890,12 @@ impl Action {
             | Action::NewConnection
             | Action::CommandPalette
             | Action::OpenKeybindingsDialog
+            | Action::OpenToolbarActionsMenu
+            | Action::OpenToolbarCreateMenu
             | Action::ToggleSidebar
             | Action::ToggleEditor
             | Action::ToggleErDiagram
+            | Action::FocusErDiagram
             | Action::ShowHelp
             | Action::ShowHistory
             | Action::Export
@@ -898,7 +905,7 @@ impl Action {
             | Action::ClearSearch => "全局",
             Action::NewTable | Action::NewDatabase | Action::NewUser => "创建",
             Action::NewTab | Action::CloseTab | Action::NextTab | Action::PrevTab => "Tab",
-            Action::Save | Action::AddFilter | Action::ClearFilters | Action::GotoLine => "编辑",
+            Action::Save | Action::GotoLine => "编辑",
             Action::OpenThemeSelector | Action::ToggleDarkMode => "外观",
             Action::FocusSidebarConnections
             | Action::FocusSidebarDatabases
@@ -918,11 +925,14 @@ impl Action {
             Action::NewConnection => "new_connection",
             Action::CommandPalette => "command_palette",
             Action::OpenKeybindingsDialog => "open_keybindings",
+            Action::OpenToolbarActionsMenu => "open_toolbar_actions_menu",
+            Action::OpenToolbarCreateMenu => "open_toolbar_create_menu",
             Action::OpenThemeSelector => "open_theme_selector",
             Action::ToggleSidebar => "toggle_sidebar",
             Action::ToggleDarkMode => "toggle_dark_mode",
             Action::ToggleEditor => "toggle_editor",
             Action::ToggleErDiagram => "toggle_er_diagram",
+            Action::FocusErDiagram => "focus_er_diagram",
             Action::ShowHelp => "show_help",
             Action::ShowHistory => "show_history",
             Action::Export => "export",
@@ -938,8 +948,6 @@ impl Action {
             Action::NextTab => "next_tab",
             Action::PrevTab => "prev_tab",
             Action::Save => "save",
-            Action::AddFilter => "add_filter",
-            Action::ClearFilters => "clear_filters",
             Action::GotoLine => "goto_line",
             Action::FocusSidebarConnections => "focus_sidebar_connections",
             Action::FocusSidebarDatabases => "focus_sidebar_databases",
@@ -960,11 +968,14 @@ impl Action {
             "new_connection" => Action::NewConnection,
             "command_palette" => Action::CommandPalette,
             "open_keybindings" => Action::OpenKeybindingsDialog,
+            "open_toolbar_actions_menu" => Action::OpenToolbarActionsMenu,
+            "open_toolbar_create_menu" => Action::OpenToolbarCreateMenu,
             "open_theme_selector" => Action::OpenThemeSelector,
             "toggle_sidebar" => Action::ToggleSidebar,
             "toggle_dark_mode" => Action::ToggleDarkMode,
             "toggle_editor" => Action::ToggleEditor,
             "toggle_er_diagram" => Action::ToggleErDiagram,
+            "focus_er_diagram" => Action::FocusErDiagram,
             "show_help" => Action::ShowHelp,
             "show_history" => Action::ShowHistory,
             "export" => Action::Export,
@@ -980,8 +991,6 @@ impl Action {
             "next_tab" => Action::NextTab,
             "prev_tab" => Action::PrevTab,
             "save" => Action::Save,
-            "add_filter" => Action::AddFilter,
-            "clear_filters" => Action::ClearFilters,
             "goto_line" => Action::GotoLine,
             "focus_sidebar_connections" => Action::FocusSidebarConnections,
             "focus_sidebar_databases" => Action::FocusSidebarDatabases,
@@ -1030,6 +1039,14 @@ impl Default for KeyBindings {
             KeyBinding::new(KeyCode::K, KeyModifiers::ALT),
         );
         bindings.insert(
+            Action::OpenToolbarActionsMenu,
+            KeyBinding::new(KeyCode::A, KeyModifiers::ALT),
+        );
+        bindings.insert(
+            Action::OpenToolbarCreateMenu,
+            KeyBinding::new(KeyCode::N, KeyModifiers::ALT),
+        );
+        bindings.insert(
             Action::OpenThemeSelector,
             KeyBinding::ctrl_shift(KeyCode::T),
         );
@@ -1037,6 +1054,10 @@ impl Default for KeyBindings {
         bindings.insert(Action::ToggleDarkMode, KeyBinding::ctrl(KeyCode::D));
         bindings.insert(Action::ToggleEditor, KeyBinding::ctrl(KeyCode::J));
         bindings.insert(Action::ToggleErDiagram, KeyBinding::ctrl(KeyCode::R));
+        bindings.insert(
+            Action::FocusErDiagram,
+            KeyBinding::new(KeyCode::R, KeyModifiers::ALT),
+        );
         bindings.insert(Action::ShowHelp, KeyBinding::key_only(KeyCode::F1));
         bindings.insert(Action::ShowHistory, KeyBinding::ctrl(KeyCode::H));
         bindings.insert(Action::Export, KeyBinding::ctrl(KeyCode::E));
@@ -1064,8 +1085,6 @@ impl Default for KeyBindings {
 
         // 编辑操作
         bindings.insert(Action::Save, KeyBinding::ctrl(KeyCode::S));
-        bindings.insert(Action::AddFilter, KeyBinding::ctrl(KeyCode::F));
-        bindings.insert(Action::ClearFilters, KeyBinding::ctrl_shift(KeyCode::F));
         bindings.insert(Action::GotoLine, KeyBinding::ctrl(KeyCode::G));
 
         // 侧边栏焦点
@@ -1132,6 +1151,7 @@ impl KeyBindings {
         "dialog.keybindings",
         "dialog.command_palette",
         "dialog.generic",
+        "er_diagram",
     ];
 
     pub fn keymap_dir() -> Option<PathBuf> {
@@ -2343,7 +2363,7 @@ confirm_completion = "J"
 refresh = "R"
 
 [sidebar.tables]
-add_filter = "A"
+show_help = "A"
 
 [sidebar.filters.input]
 show_help = "Ctrl+H"
@@ -2357,11 +2377,11 @@ show_help = "Ctrl+H"
         assert_eq!(toolbar_refresh.len(), 1);
         assert_eq!(toolbar_refresh[0].display(), "R");
 
-        let sidebar_add_filter = loaded
-            .scoped_bindings_for_action("sidebar.tables", Action::AddFilter)
+        let sidebar_table_help = loaded
+            .scoped_bindings_for_action("sidebar.tables", Action::ShowHelp)
             .unwrap();
-        assert_eq!(sidebar_add_filter.len(), 1);
-        assert_eq!(sidebar_add_filter[0].display(), "A");
+        assert_eq!(sidebar_table_help.len(), 1);
+        assert_eq!(sidebar_table_help[0].display(), "A");
 
         let filters_input_help = loaded
             .scoped_bindings_for_action("sidebar.filters.input", Action::ShowHelp)

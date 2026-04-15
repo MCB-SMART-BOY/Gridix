@@ -887,8 +887,7 @@ impl HelpDialog {
             .corner_radius(egui::CornerRadius::same(10))
             .inner_margin(egui::Margin::symmetric(16, 14))
             .show(ui, |ui| {
-                ui.set_min_width((width - 32.0).max(220.0));
-                ui.set_max_width((width - 32.0).max(220.0));
+                ui.set_width(Self::detail_fill_width(width, 32.0));
                 ui.label(
                     RichText::new(title)
                         .strong()
@@ -998,8 +997,7 @@ impl HelpDialog {
             .corner_radius(egui::CornerRadius::same(10))
             .inner_margin(egui::Margin::symmetric(16, 14))
             .show(ui, |ui| {
-                ui.set_min_width((width - 32.0).max(260.0));
-                ui.set_max_width((width - 32.0).max(260.0));
+                ui.set_width(Self::detail_fill_width(width, 32.0));
 
                 ui.label(
                     RichText::new("新手上手闭环流程")
@@ -1086,8 +1084,7 @@ impl HelpDialog {
             .corner_radius(egui::CornerRadius::same(12))
             .inner_margin(egui::Margin::symmetric(18, 16))
             .show(ui, |ui| {
-                ui.set_min_width((width - 36.0).max(260.0));
-                ui.set_max_width((width - 36.0).max(260.0));
+                ui.set_width(Self::detail_fill_width(width, 36.0));
 
                 ui.label(
                     RichText::new(title)
@@ -1413,8 +1410,7 @@ impl HelpDialog {
             .corner_radius(egui::CornerRadius::same(10))
             .inner_margin(egui::Margin::symmetric(16, 14))
             .show(ui, |ui| {
-                ui.set_min_width((width - 32.0).max(260.0));
-                ui.set_max_width((width - 32.0).max(260.0));
+                ui.set_width(Self::detail_fill_width(width, 32.0));
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(22.0, 10.0);
 

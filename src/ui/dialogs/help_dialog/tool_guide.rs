@@ -373,8 +373,7 @@ impl HelpDialog {
                     Vec2::new(content_width, 0.0),
                     egui::Layout::top_down(egui::Align::Min),
                     |ui| {
-                        ui.set_min_width(content_width);
-                        ui.set_max_width(content_width);
+                        ui.set_width(content_width);
                         ui.label(RichText::new(title).strong().color(accent));
                         ui.add_space(6.0);
                         Self::wrapped_text(ui, summary, text);
@@ -407,8 +406,7 @@ impl HelpDialog {
             .inner_margin(egui::Margin::symmetric(16, 14))
             .show(ui, |ui| {
                 let content_width = ui.available_width();
-                ui.set_min_width(content_width);
-                ui.set_max_width(content_width);
+                ui.set_width(content_width);
                 add_contents(ui, content_width);
             });
     }

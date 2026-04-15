@@ -3,7 +3,44 @@
 //! 处理 ER 图数据加载和关系推断。
 
 use super::{DbManagerApp, Message};
+use crate::database::{Connection, ConnectionConfig};
 use crate::ui;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ErDiagramLoadPlan {
+    NoActiveConnection,
+    EmptyTables { db_name: String },
+    Load(Box<ErDiagramLoadContext>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ErDiagramLoadContext {
+    tables: Vec<String>,
+    db_name: String,
+    config: ConnectionConfig,
+}
+
+fn plan_er_diagram_load(active_connection: Option<&Connection>) -> ErDiagramLoadPlan {
+    let Some(conn) = active_connection else {
+        return ErDiagramLoadPlan::NoActiveConnection;
+    };
+
+    let tables = conn.tables.clone();
+    let db_name = conn
+        .selected_database
+        .clone()
+        .unwrap_or_else(|| "未选择".to_string());
+
+    if tables.is_empty() {
+        return ErDiagramLoadPlan::EmptyTables { db_name };
+    }
+
+    ErDiagramLoadPlan::Load(Box::new(ErDiagramLoadContext {
+        tables,
+        db_name,
+        config: conn.config.clone(),
+    }))
+}
 
 impl DbManagerApp {
     /// 加载 ER 图数据
@@ -12,68 +49,64 @@ impl DbManagerApp {
     pub fn load_er_diagram_data(&mut self) {
         // 清空旧数据
         self.er_diagram_state.clear();
-        self.er_diagram_state.loading = true;
 
-        if let Some(conn) = self.manager.get_active() {
-            let tables = conn.tables.clone();
-            let db_name = conn
-                .selected_database
-                .clone()
-                .unwrap_or_else(|| "未选择".to_string());
-            let config = conn.config.clone();
-
-            if tables.is_empty() {
+        match plan_er_diagram_load(self.manager.get_active()) {
+            ErDiagramLoadPlan::NoActiveConnection => {
+                self.notifications.warning("请先连接数据库");
+                self.er_diagram_state.loading = false;
+            }
+            ErDiagramLoadPlan::EmptyTables { db_name } => {
                 self.notifications
                     .warning(format!("数据库 {} 没有表，请先选择数据库", db_name));
                 self.er_diagram_state.loading = false;
-                return;
             }
+            ErDiagramLoadPlan::Load(load) => {
+                self.er_diagram_state.begin_loading(&load.tables);
 
-            // 创建 ER 表结构
-            for table_name in &tables {
-                let er_table = ui::ERTable::new(table_name.clone());
-                self.er_diagram_state.tables.push(er_table);
-            }
+                // 创建 ER 表结构
+                for table_name in &load.tables {
+                    let er_table = ui::ERTable::new(table_name.clone());
+                    self.er_diagram_state.tables.push(er_table);
+                }
 
-            // 应用初始布局
-            ui::grid_layout(
-                &mut self.er_diagram_state.tables,
-                4,
-                eframe::egui::Vec2::new(60.0, 50.0),
-            );
+                // 应用初始布局
+                ui::grid_layout(
+                    &mut self.er_diagram_state.tables,
+                    4,
+                    eframe::egui::Vec2::new(60.0, 50.0),
+                );
 
-            self.notifications.info(format!(
-                "ER图: 加载 {} 张表，正在获取结构... ({})",
-                tables.len(),
-                db_name
-            ));
+                self.notifications.info(format!(
+                    "ER图: 加载 {} 张表，正在获取结构... ({})",
+                    load.tables.len(),
+                    load.db_name
+                ));
 
-            // 异步加载每个表的列信息
-            for table_name in &tables {
+                // 异步加载每个表的列信息
+                for table_name in &load.tables {
+                    let tx = self.tx.clone();
+                    let config_clone = load.config.clone();
+                    let table_clone = table_name.clone();
+                    self.runtime.spawn(async move {
+                        let result =
+                            crate::database::get_table_columns(&config_clone, &table_clone).await;
+                        let _ = tx.send(Message::ERTableColumnsFetched(
+                            table_clone,
+                            result.map_err(|e| e.to_string()),
+                        ));
+                    });
+                }
+
+                // 异步加载外键关系
                 let tx = self.tx.clone();
-                let config_clone = config.clone();
-                let table_clone = table_name.clone();
+                let config = load.config.clone();
                 self.runtime.spawn(async move {
-                    let result =
-                        crate::database::get_table_columns(&config_clone, &table_clone).await;
-                    let _ = tx.send(Message::ERTableColumnsFetched(
-                        table_clone,
+                    let result = crate::database::get_foreign_keys(&config).await;
+                    let _ = tx.send(Message::ForeignKeysFetched(
                         result.map_err(|e| e.to_string()),
                     ));
                 });
             }
-
-            // 异步加载外键关系
-            let tx = self.tx.clone();
-            self.runtime.spawn(async move {
-                let result = crate::database::get_foreign_keys(&config).await;
-                let _ = tx.send(Message::ForeignKeysFetched(
-                    result.map_err(|e| e.to_string()),
-                ));
-            });
-        } else {
-            self.notifications.warning("请先连接数据库");
-            self.er_diagram_state.loading = false;
         }
 
         self.er_diagram_state.needs_layout = false;
@@ -143,5 +176,54 @@ impl DbManagerApp {
         }
 
         relationships
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ErDiagramLoadPlan, plan_er_diagram_load};
+    use crate::database::{Connection, ConnectionConfig, DatabaseType};
+
+    fn sqlite_connection(name: &str) -> Connection {
+        Connection::new(ConnectionConfig::new(name, DatabaseType::SQLite))
+    }
+
+    #[test]
+    fn er_diagram_load_plan_requires_active_connection() {
+        assert_eq!(
+            plan_er_diagram_load(None),
+            ErDiagramLoadPlan::NoActiveConnection
+        );
+    }
+
+    #[test]
+    fn er_diagram_load_plan_reports_empty_tables_for_selected_database() {
+        let mut connection = sqlite_connection("demo");
+        connection.connected = true;
+        connection.selected_database = Some("main".to_string());
+
+        assert_eq!(
+            plan_er_diagram_load(Some(&connection)),
+            ErDiagramLoadPlan::EmptyTables {
+                db_name: "main".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn er_diagram_load_plan_preserves_tables_and_falls_back_to_unselected_database_name() {
+        let mut connection = sqlite_connection("demo");
+        connection.connected = true;
+        connection.tables = vec!["users".to_string(), "orders".to_string()];
+
+        match plan_er_diagram_load(Some(&connection)) {
+            ErDiagramLoadPlan::Load(load) => {
+                assert_eq!(load.db_name, "未选择");
+                assert_eq!(load.tables, vec!["users", "orders"]);
+                assert_eq!(load.config.name, "demo");
+                assert_eq!(load.config.db_type, DatabaseType::SQLite);
+            }
+            other => panic!("unexpected load plan: {other:?}"),
+        }
     }
 }

@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 use super::common::{
-    DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow,
+    DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow, FormDialogShell,
 };
 use crate::database::DatabaseType;
 use crate::ui::{LocalShortcut, local_shortcut_text};
@@ -209,7 +209,17 @@ enum CreateDbKeyAction {
     Close,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResponsiveRowClass {
+    Wide,
+    Medium,
+    Narrow,
+}
+
 impl CreateDbDialog {
+    const WIDE_ROW_THRESHOLD: f32 = 720.0;
+    const MEDIUM_ROW_THRESHOLD: f32 = 560.0;
+
     fn try_create(state: &mut CreateDbDialogState) -> Result<CreateDatabaseRequest, String> {
         match state.generate_request() {
             Ok(request) => {
@@ -244,6 +254,8 @@ impl CreateDbDialog {
 
         let mut result = CreateDbDialogResult::None;
         let mut should_close = false;
+        let mut footer_confirmed = false;
+        let mut footer_cancelled = false;
 
         // 键盘快捷键处理（文本输入优先于普通命令键）
         if let Some(key_action) = Self::detect_key_action(ctx) {
@@ -268,94 +280,90 @@ impl CreateDbDialog {
         };
 
         let style = DialogStyle::MEDIUM;
-        DialogWindow::standard(ctx, title, &style).show(ctx, |ui| {
-            ui.vertical(|ui| {
-                // 数据库名称
-                ui.horizontal(|ui| {
-                    ui.label("数据库名:");
-                    ui.add(
-                        TextEdit::singleline(&mut state.db_name)
-                            .desired_width(200.0)
-                            .hint_text("输入数据库名称"),
+        let can_attempt_create = match state.db_type {
+            DatabaseType::SQLite => {
+                !state.db_name.trim().is_empty() || !state.sqlite_path.trim().is_empty()
+            }
+            DatabaseType::MySQL | DatabaseType::PostgreSQL => !state.db_name.trim().is_empty(),
+        };
+        DialogWindow::resizable(ctx, title, &style).show(ctx, |ui| {
+            FormDialogShell::show(
+                ui,
+                "create_db_form_shell",
+                |ui| {
+                    DialogContent::shortcut_hint(
+                        ui,
+                        &[
+                            (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
+                            (local_shortcut_text(LocalShortcut::Confirm).as_str(), "创建"),
+                        ],
                     );
-                });
+                },
+                |ui| {
+                    Self::show_responsive_text_row(
+                        ui,
+                        "数据库名",
+                        &mut state.db_name,
+                        "输入数据库名称",
+                        220.0,
+                    );
 
-                ui.add_space(8.0);
-
-                // 根据数据库类型显示不同选项
-                match state.db_type {
-                    DatabaseType::MySQL => {
-                        Self::show_mysql_options(ui, state);
+                    match state.db_type {
+                        DatabaseType::MySQL => {
+                            Self::show_mysql_options(ui, state);
+                        }
+                        DatabaseType::PostgreSQL => {
+                            Self::show_postgres_options(ui, state);
+                        }
+                        DatabaseType::SQLite => {
+                            Self::show_sqlite_options(ui, state);
+                        }
                     }
-                    DatabaseType::PostgreSQL => {
-                        Self::show_postgres_options(ui, state);
-                    }
-                    DatabaseType::SQLite => {
-                        Self::show_sqlite_options(ui, state);
-                    }
-                }
 
-                ui.add_space(8.0);
-                ui.separator();
-
-                // 预览 SQL
-                if !matches!(state.db_type, DatabaseType::SQLite) {
-                    ui.collapsing("预览 SQL", |ui| {
-                        let sql = state.generate_sql().unwrap_or_default();
-                        ui.add(
-                            TextEdit::multiline(&mut sql.as_str())
-                                .code_editor()
-                                .desired_width(f32::INFINITY)
-                                .desired_rows(3),
+                    if !matches!(state.db_type, DatabaseType::SQLite) {
+                        DialogContent::section_with_description(
+                            ui,
+                            "预览 SQL",
+                            "根据当前数据库名称与方言选项实时生成创建语句。",
+                            |ui| {
+                                let sql = state.generate_sql().unwrap_or_default();
+                                DialogContent::code_block_with_id(
+                                    ui,
+                                    "create_db_preview",
+                                    &sql,
+                                    140.0,
+                                );
+                            },
                         );
-                    });
-                }
-
-                // 错误信息
-                if let Some(err) = &state.error {
-                    ui.add_space(4.0);
-                    DialogContent::error_text(ui, err);
-                }
-
-                ui.add_space(8.0);
-
-                // 快捷键提示
-                DialogContent::shortcut_hint(
-                    ui,
-                    &[
-                        (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
-                        (local_shortcut_text(LocalShortcut::Confirm).as_str(), "创建"),
-                    ],
-                );
-
-                let can_attempt_create = match state.db_type {
-                    DatabaseType::SQLite => {
-                        !state.db_name.trim().is_empty() || !state.sqlite_path.trim().is_empty()
                     }
-                    DatabaseType::MySQL | DatabaseType::PostgreSQL => {
-                        !state.db_name.trim().is_empty()
-                    }
-                };
-                let footer = DialogFooter::show(
-                    ui,
-                    &format!("创建 [{}]", local_shortcut_text(LocalShortcut::Confirm)),
-                    &format!("取消 [{}]", local_shortcut_text(LocalShortcut::Dismiss)),
-                    can_attempt_create,
-                    &style,
-                );
 
-                if footer.confirmed
-                    && let Ok(request) = Self::try_create(state)
-                {
-                    result = CreateDbDialogResult::Create(request);
-                    should_close = true;
-                }
-                if footer.cancelled {
-                    result = CreateDbDialogResult::Cancelled;
-                    should_close = true;
-                }
-            });
+                    if let Some(err) = &state.error {
+                        DialogContent::error_text(ui, err);
+                        ui.add_space(8.0);
+                    }
+                },
+                |ui| {
+                    let footer = DialogFooter::show(
+                        ui,
+                        &format!("创建 [{}]", local_shortcut_text(LocalShortcut::Confirm)),
+                        &format!("取消 [{}]", local_shortcut_text(LocalShortcut::Dismiss)),
+                        can_attempt_create,
+                        &style,
+                    );
+                    footer_confirmed = footer.confirmed;
+                    footer_cancelled = footer.cancelled;
+                },
+            );
         });
+
+        if footer_confirmed && let Ok(request) = Self::try_create(state) {
+            result = CreateDbDialogResult::Create(request);
+            should_close = true;
+        }
+        if footer_cancelled {
+            result = CreateDbDialogResult::Cancelled;
+            should_close = true;
+        }
 
         if should_close {
             state.close();
@@ -366,108 +374,134 @@ impl CreateDbDialog {
 
     fn show_mysql_options(ui: &mut egui::Ui, state: &mut CreateDbDialogState) {
         DialogContent::section(ui, "MySQL 选项", |ui| {
-            ui.horizontal(|ui| {
-                ui.label("字符集:");
-                egui::ComboBox::from_id_salt("charset")
-                    .selected_text(&state.charset)
-                    .width(150.0)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut state.charset, "utf8mb4".to_string(), "utf8mb4");
-                        ui.selectable_value(&mut state.charset, "utf8".to_string(), "utf8");
-                        ui.selectable_value(&mut state.charset, "latin1".to_string(), "latin1");
-                        ui.selectable_value(&mut state.charset, "ascii".to_string(), "ascii");
-                    });
-            });
+            Self::show_responsive_combo_row(
+                ui,
+                "字符集",
+                state.charset.clone(),
+                150.0,
+                |ui, width| {
+                    egui::ComboBox::from_id_salt("charset")
+                        .selected_text(&state.charset)
+                        .width(width)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut state.charset,
+                                "utf8mb4".to_string(),
+                                "utf8mb4",
+                            );
+                            ui.selectable_value(&mut state.charset, "utf8".to_string(), "utf8");
+                            ui.selectable_value(&mut state.charset, "latin1".to_string(), "latin1");
+                            ui.selectable_value(&mut state.charset, "ascii".to_string(), "ascii");
+                        });
+                },
+            );
 
-            ui.horizontal(|ui| {
-                ui.label("排序规则:");
-                egui::ComboBox::from_id_salt("collation")
-                    .selected_text(&state.collation)
-                    .width(200.0)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut state.collation,
-                            "utf8mb4_unicode_ci".to_string(),
-                            "utf8mb4_unicode_ci",
-                        );
-                        ui.selectable_value(
-                            &mut state.collation,
-                            "utf8mb4_general_ci".to_string(),
-                            "utf8mb4_general_ci",
-                        );
-                        ui.selectable_value(
-                            &mut state.collation,
-                            "utf8_general_ci".to_string(),
-                            "utf8_general_ci",
-                        );
-                        ui.selectable_value(
-                            &mut state.collation,
-                            "latin1_swedish_ci".to_string(),
-                            "latin1_swedish_ci",
-                        );
-                    });
-            });
+            Self::show_responsive_combo_row(
+                ui,
+                "排序规则",
+                state.collation.clone(),
+                220.0,
+                |ui, width| {
+                    egui::ComboBox::from_id_salt("collation")
+                        .selected_text(&state.collation)
+                        .width(width)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut state.collation,
+                                "utf8mb4_unicode_ci".to_string(),
+                                "utf8mb4_unicode_ci",
+                            );
+                            ui.selectable_value(
+                                &mut state.collation,
+                                "utf8mb4_general_ci".to_string(),
+                                "utf8mb4_general_ci",
+                            );
+                            ui.selectable_value(
+                                &mut state.collation,
+                                "utf8_general_ci".to_string(),
+                                "utf8_general_ci",
+                            );
+                            ui.selectable_value(
+                                &mut state.collation,
+                                "latin1_swedish_ci".to_string(),
+                                "latin1_swedish_ci",
+                            );
+                        });
+                },
+            );
         });
     }
 
     fn show_postgres_options(ui: &mut egui::Ui, state: &mut CreateDbDialogState) {
         DialogContent::section(ui, "PostgreSQL 选项", |ui| {
-            ui.horizontal(|ui| {
-                ui.label("编码:");
-                egui::ComboBox::from_id_salt("encoding")
-                    .selected_text(&state.encoding)
-                    .width(100.0)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut state.encoding, "UTF8".to_string(), "UTF8");
-                        ui.selectable_value(&mut state.encoding, "LATIN1".to_string(), "LATIN1");
-                        ui.selectable_value(
-                            &mut state.encoding,
-                            "SQL_ASCII".to_string(),
-                            "SQL_ASCII",
-                        );
-                    });
-            });
+            Self::show_responsive_combo_row(
+                ui,
+                "编码",
+                state.encoding.clone(),
+                120.0,
+                |ui, width| {
+                    egui::ComboBox::from_id_salt("encoding")
+                        .selected_text(&state.encoding)
+                        .width(width)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut state.encoding, "UTF8".to_string(), "UTF8");
+                            ui.selectable_value(
+                                &mut state.encoding,
+                                "LATIN1".to_string(),
+                                "LATIN1",
+                            );
+                            ui.selectable_value(
+                                &mut state.encoding,
+                                "SQL_ASCII".to_string(),
+                                "SQL_ASCII",
+                            );
+                        });
+                },
+            );
 
-            ui.horizontal(|ui| {
-                ui.label("模板:");
-                egui::ComboBox::from_id_salt("template")
-                    .selected_text(&state.template)
-                    .width(120.0)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut state.template,
-                            "template0".to_string(),
-                            "template0",
-                        );
-                        ui.selectable_value(
-                            &mut state.template,
-                            "template1".to_string(),
-                            "template1",
-                        );
-                    });
-            });
+            Self::show_responsive_combo_row(
+                ui,
+                "模板",
+                state.template.clone(),
+                140.0,
+                |ui, width| {
+                    egui::ComboBox::from_id_salt("template")
+                        .selected_text(&state.template)
+                        .width(width)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut state.template,
+                                "template0".to_string(),
+                                "template0",
+                            );
+                            ui.selectable_value(
+                                &mut state.template,
+                                "template1".to_string(),
+                                "template1",
+                            );
+                        });
+                },
+            );
 
-            ui.horizontal(|ui| {
-                ui.label("所有者:");
-                ui.add(
-                    TextEdit::singleline(&mut state.owner)
-                        .desired_width(150.0)
-                        .hint_text("可选，留空使用当前用户"),
-                );
-            });
+            Self::show_responsive_text_row(
+                ui,
+                "所有者",
+                &mut state.owner,
+                "可选，留空使用当前用户",
+                180.0,
+            );
         });
     }
 
     fn show_sqlite_options(ui: &mut egui::Ui, state: &mut CreateDbDialogState) {
         DialogContent::section(ui, "SQLite 选项", |ui| {
-            ui.horizontal(|ui| {
-                ui.label("文件路径:");
-                ui.add(
-                    TextEdit::singleline(&mut state.sqlite_path)
-                        .desired_width(250.0)
-                        .hint_text("输入完整路径，或留空使用数据库名.db"),
-                );
-            });
+            Self::show_responsive_text_row(
+                ui,
+                "文件路径",
+                &mut state.sqlite_path,
+                "输入完整路径，或留空使用数据库名.db",
+                280.0,
+            );
 
             ui.add_space(4.0);
             ui.label(
@@ -475,6 +509,98 @@ impl CreateDbDialog {
                     .small()
                     .color(Color32::from_rgb(120, 120, 120)),
             );
+        });
+    }
+
+    fn row_width_class(available_width: f32) -> ResponsiveRowClass {
+        if available_width >= Self::WIDE_ROW_THRESHOLD {
+            ResponsiveRowClass::Wide
+        } else if available_width >= Self::MEDIUM_ROW_THRESHOLD {
+            ResponsiveRowClass::Medium
+        } else {
+            ResponsiveRowClass::Narrow
+        }
+    }
+
+    fn label_width(row_class: ResponsiveRowClass) -> f32 {
+        match row_class {
+            ResponsiveRowClass::Wide => 88.0,
+            ResponsiveRowClass::Medium => 80.0,
+            ResponsiveRowClass::Narrow => 0.0,
+        }
+    }
+
+    fn control_width(ui: &egui::Ui, row_class: ResponsiveRowClass, preferred_width: f32) -> f32 {
+        match row_class {
+            ResponsiveRowClass::Wide | ResponsiveRowClass::Medium => {
+                ui.available_width().min(preferred_width)
+            }
+            ResponsiveRowClass::Narrow => ui.available_width(),
+        }
+    }
+
+    fn show_responsive_labeled_row(
+        ui: &mut egui::Ui,
+        label: &str,
+        body: impl FnOnce(&mut egui::Ui, ResponsiveRowClass),
+    ) {
+        let row_class = Self::row_width_class(ui.available_width());
+
+        match row_class {
+            ResponsiveRowClass::Narrow => {
+                ui.label(RichText::new(label).color(Color32::from_gray(180)));
+                ui.add_space(4.0);
+                body(ui, row_class);
+            }
+            ResponsiveRowClass::Wide | ResponsiveRowClass::Medium => {
+                let label_width = Self::label_width(row_class);
+                ui.horizontal_top(|ui| {
+                    ui.add_sized(
+                        [label_width, 0.0],
+                        egui::Label::new(RichText::new(label).color(Color32::from_gray(180))),
+                    );
+                    ui.add_space(8.0);
+                    ui.vertical(|ui| {
+                        body(ui, row_class);
+                    });
+                });
+            }
+        }
+
+        ui.add_space(8.0);
+    }
+
+    fn show_responsive_text_row(
+        ui: &mut egui::Ui,
+        label: &str,
+        value: &mut String,
+        hint: &str,
+        preferred_width: f32,
+    ) {
+        Self::show_responsive_labeled_row(ui, label, |ui, row_class| {
+            let width = Self::control_width(ui, row_class, preferred_width);
+            ui.add_sized([width, 0.0], TextEdit::singleline(value).hint_text(hint));
+        });
+    }
+
+    fn show_responsive_combo_row(
+        ui: &mut egui::Ui,
+        label: &str,
+        selected_text: String,
+        preferred_width: f32,
+        body: impl FnOnce(&mut egui::Ui, f32),
+    ) {
+        Self::show_responsive_labeled_row(ui, label, |ui, row_class| {
+            let width = Self::control_width(ui, row_class, preferred_width);
+            ui.scope(|ui| {
+                ui.set_min_width(width);
+                ui.set_width(width);
+                body(ui, width);
+            });
+
+            if matches!(row_class, ResponsiveRowClass::Narrow) && selected_text.is_empty() {
+                ui.add_space(2.0);
+            }
         });
     }
 }
@@ -551,5 +677,21 @@ mod tests {
         assert_eq!(action, Some(CreateDbKeyAction::Confirm));
 
         let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn create_db_dialog_row_width_classes_follow_shared_thresholds() {
+        assert_eq!(
+            CreateDbDialog::row_width_class(CreateDbDialog::WIDE_ROW_THRESHOLD),
+            ResponsiveRowClass::Wide
+        );
+        assert_eq!(
+            CreateDbDialog::row_width_class(680.0),
+            ResponsiveRowClass::Medium
+        );
+        assert_eq!(
+            CreateDbDialog::row_width_class(CreateDbDialog::MEDIUM_ROW_THRESHOLD - 1.0),
+            ResponsiveRowClass::Narrow
+        );
     }
 }

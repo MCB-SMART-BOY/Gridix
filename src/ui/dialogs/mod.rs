@@ -16,6 +16,8 @@ mod help_dialog;
 mod import_dialog;
 mod keybindings_dialog;
 mod picker_shell;
+mod toolbar_menu_dialog;
+mod toolbar_theme_dialog;
 
 pub use about_dialog::AboutDialog;
 #[allow(unused_imports)] // 公开 API，供未来使用
@@ -42,3 +44,7 @@ pub use import_dialog::{
     ImportAction, ImportDialog, ImportFormat, ImportPreview, ImportState, parse_sql_file,
 };
 pub use keybindings_dialog::{KeyBindingsDialog, KeyBindingsDialogState};
+pub use toolbar_menu_dialog::{
+    ToolbarMenuDialog, ToolbarMenuDialogEntry, ToolbarMenuDialogState, ToolbarMenuItemId,
+};
+pub use toolbar_theme_dialog::{ToolbarThemeDialog, ToolbarThemeDialogState};

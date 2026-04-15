@@ -49,7 +49,7 @@ impl ColumnWidthCache {
 }
 
 /// 表格编辑状态
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DataGridState {
     /// 当前模式
     pub mode: GridMode,
@@ -127,6 +127,13 @@ impl DataGridState {
         self.new_rows.clear();
         // 数据变化后清除列宽缓存
         self.column_width_cache.clear();
+    }
+
+    pub fn clear_save_state(&mut self) {
+        self.clear_edits();
+        self.pending_sql.clear();
+        self.pending_save = false;
+        self.show_save_confirm = false;
     }
 
     pub fn has_changes(&self) -> bool {

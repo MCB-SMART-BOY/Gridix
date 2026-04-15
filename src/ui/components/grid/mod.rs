@@ -18,6 +18,7 @@ pub(crate) mod keyboard;
 mod mode;
 mod render;
 mod state;
+mod view;
 
 pub use actions::{
     DataGridActions, FocusTransfer, escape_identifier, escape_value, quote_identifier,
@@ -32,9 +33,11 @@ pub(crate) use keyboard::{
 #[allow(unused_imports)] // 公开 API，供外部使用
 pub use mode::GridMode;
 pub use state::DataGridState;
+use view::{GridVirtualRow, GridVirtualRows};
 
 use crate::core::{Action, KeyBindings, constants};
 use crate::database::QueryResult;
+use crate::ui::dialogs::{DialogHeader, DialogStyle, DialogWindow};
 use crate::ui::styles::{GRAY, theme_disabled_text, theme_text};
 use crate::ui::{
     LocalShortcut, action_tooltip_with_extras, local_shortcut_pressed, local_shortcut_tooltip,
@@ -49,6 +52,8 @@ pub(crate) const ROW_NUM_WIDTH: f32 = 50.0;
 pub(crate) const CELL_TRUNCATE_LEN: usize = 50;
 /// 每个字符的估计宽度（像素）
 pub(crate) const CHAR_WIDTH: f32 = 8.0;
+const GOTO_DIALOG_WIDTH: f32 = 340.0;
+const GOTO_DIALOG_HEIGHT: f32 = 160.0;
 
 use egui::Color32;
 pub(crate) const COLOR_CELL_SELECTED: Color32 = Color32::from_rgb(60, 100, 180);
@@ -87,8 +92,7 @@ impl DataGrid {
 
         ui.add_space(2.0);
 
-        // 显示跳转对话框
-        Self::show_goto_dialog(ui.ctx(), state, result.rows.len());
+        let save_confirm_open = state.show_save_confirm;
 
         // 显示保存确认对话框
         Self::show_save_confirm_dialog(ui.ctx(), state, &mut actions);
@@ -109,13 +113,24 @@ impl DataGrid {
             &state.filters,
             &mut state.filter_cache,
         );
-        // 总显示行数 = 筛选后的行 + 新增行
-        let new_rows_count = state.new_rows.len();
-        let filtered_count = filtered_rows.len() + new_rows_count;
-        let total_count = result.rows.len() + new_rows_count;
+        let keyboard_new_rows = state.new_rows.clone();
+        let keyboard_row_view =
+            GridVirtualRows::new(result.rows.len(), &filtered_rows, &keyboard_new_rows);
 
-        // 处理键盘输入
-        keyboard::handle_keyboard(ui, state, result, &filtered_rows, keybindings, &mut actions);
+        // 保存危险确认打开时，本地 overlay 拥有输入，grid 不再继续接管键盘。
+        if !save_confirm_open {
+            Self::show_goto_dialog(ui.ctx(), state, &keyboard_row_view);
+
+            // 处理键盘输入
+            keyboard::handle_keyboard(
+                ui,
+                state,
+                result,
+                &keyboard_row_view,
+                keybindings,
+                &mut actions,
+            );
+        }
 
         // 处理新增行的编辑
         if let Some((virtual_idx, col_idx, new_value)) = state.pending_new_row_edit.take() {
@@ -127,6 +142,12 @@ impl DataGrid {
                 row_data[col_idx] = new_value;
             }
         }
+
+        let render_new_rows = state.new_rows.clone();
+        let row_view = GridVirtualRows::new(result.rows.len(), &filtered_rows, &render_new_rows);
+        let new_rows_count = state.new_rows.len();
+        let filtered_count = row_view.len();
+        let total_count = result.rows.len() + new_rows_count;
 
         // 处理 Ctrl+S 保存请求
         if state.pending_save && state.has_changes() {
@@ -151,7 +172,10 @@ impl DataGrid {
         let mut columns_to_filter: Vec<String> = Vec::new();
 
         // 获取需要滚动到的行（表格内部处理垂直滚动）
-        let scroll_to_row = state.scroll_to_row.take();
+        let scroll_to_row = state
+            .scroll_to_row
+            .take()
+            .and_then(|row_key| row_view.display_index_for_row_key(row_key));
         let _ = state.scroll_to_col.take();
 
         // 获取可用宽度
@@ -233,85 +257,69 @@ impl DataGrid {
                             }
                         })
                         .body(|body| {
-                            let filtered_rows_len = filtered_rows.len();
                             body.rows(ROW_HEIGHT, filtered_count, |mut row| {
                                 let display_idx = row.index();
+                                if let Some(virtual_row) =
+                                    row_view.row_at_display_index(display_idx)
+                                {
+                                    match virtual_row {
+                                        GridVirtualRow::Existing { row_key, row_data } => {
+                                            let is_cursor_row = state.cursor.0 == row_key;
+                                            let is_row_deleted =
+                                                state.rows_to_delete.contains(&row_key);
 
-                                // 判断是显示已有数据还是新增行
-                                if display_idx < filtered_rows_len {
-                                    // 显示已有数据行
-                                    if let Some((original_idx, row_data)) =
-                                        filtered_rows.get(display_idx)
-                                    {
-                                        let is_cursor_row = state.cursor.0 == *original_idx;
-                                        let is_row_deleted =
-                                            state.rows_to_delete.contains(original_idx);
+                                            row.set_selected(is_cursor_row || is_row_deleted);
 
-                                        row.set_selected(is_cursor_row || is_row_deleted);
-
-                                        // 行号列
-                                        row.col(|ui| {
-                                            render::render_row_number(
-                                                ui,
-                                                *original_idx,
-                                                is_cursor_row,
-                                                is_row_deleted,
-                                                state,
-                                            );
-                                        });
-
-                                        // 数据列
-                                        for (col_idx, cell) in row_data.iter().enumerate() {
                                             row.col(|ui| {
-                                                render::render_editable_cell(
+                                                render::render_row_number(
                                                     ui,
-                                                    cell,
-                                                    result.is_null(*original_idx, col_idx),
-                                                    *original_idx,
-                                                    col_idx,
+                                                    row_key,
                                                     is_cursor_row,
                                                     is_row_deleted,
                                                     state,
                                                 );
                                             });
+
+                                            for (col_idx, cell) in row_data.iter().enumerate() {
+                                                row.col(|ui| {
+                                                    render::render_editable_cell(
+                                                        ui,
+                                                        cell,
+                                                        result.is_null(row_key, col_idx),
+                                                        row_key,
+                                                        col_idx,
+                                                        is_cursor_row,
+                                                        is_row_deleted,
+                                                        state,
+                                                    );
+                                                });
+                                            }
                                         }
-                                    }
-                                } else {
-                                    // 显示新增行（pending rows）
-                                    let new_row_idx = display_idx - filtered_rows_len;
-                                    // 新增行的虚拟原始索引 = 结果行数 + 新增行索引
-                                    let virtual_idx = result.rows.len() + new_row_idx;
-                                    let is_cursor_row = state.cursor.0 == virtual_idx;
+                                        GridVirtualRow::PendingNew { row_key, row_data } => {
+                                            let is_cursor_row = state.cursor.0 == row_key;
+                                            row.set_selected(is_cursor_row);
 
-                                    // 新增行使用特殊高亮
-                                    row.set_selected(is_cursor_row);
+                                            row.col(|ui| {
+                                                let text =
+                                                    RichText::new(format!("{}+", row_key + 1))
+                                                        .monospace()
+                                                        .color(Color32::from_rgb(100, 200, 100));
+                                                ui.label(text);
+                                            });
 
-                                    // 行号列 - 显示 "+" 标记表示新增行
-                                    row.col(|ui| {
-                                        let text = RichText::new(format!("{}+", virtual_idx + 1))
-                                            .monospace()
-                                            .color(Color32::from_rgb(100, 200, 100));
-                                        ui.label(text);
-                                    });
-
-                                    // 数据列 - 显示新增行的内容
-                                    // 先克隆数据避免借用冲突
-                                    let new_row_data: Vec<String> = state
-                                        .new_rows
-                                        .get(new_row_idx)
-                                        .cloned()
-                                        .unwrap_or_default();
-                                    for (col_idx, cell) in new_row_data.iter().enumerate() {
-                                        row.col(|ui| {
-                                            render::render_new_row_cell(
-                                                ui,
-                                                cell,
-                                                virtual_idx,
-                                                col_idx,
-                                                is_cursor_row,
-                                                state,
-                                            );
-                                        });
+                                            for (col_idx, cell) in row_data.iter().enumerate() {
+                                                row.col(|ui| {
+                                                    render::render_new_row_cell(
+                                                        ui,
+                                                        cell,
+                                                        row_key,
+                                                        col_idx,
+                                                        is_cursor_row,
+                                                        state,
+                                                    );
+                                                });
+                                            }
+                                        }
                                     }
                                 }
                             });
@@ -672,72 +680,81 @@ impl DataGrid {
     }
 
     /// 显示跳转对话框 (Ctrl+G)
-    fn show_goto_dialog(ctx: &egui::Context, state: &mut DataGridState, max_row: usize) {
+    fn show_goto_dialog(
+        ctx: &egui::Context,
+        state: &mut DataGridState,
+        row_view: &GridVirtualRows<'_>,
+    ) {
         if !state.show_goto_dialog {
             return;
         }
 
-        egui::Window::new("跳转到行")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("行号:");
-                    let response = ui.add(
-                        egui::TextEdit::singleline(&mut state.goto_input)
-                            .desired_width(100.0)
-                            .hint_text(format!("1-{}", max_row)),
-                    );
+        let max_row = row_view.len();
 
-                    // 自动聚焦
-                    if response.gained_focus() || state.goto_input.is_empty() {
-                        response.request_focus();
-                    }
-                });
+        DialogWindow::fixed_style(
+            ctx,
+            "跳转到行",
+            &DialogStyle::SMALL,
+            GOTO_DIALOG_WIDTH,
+            GOTO_DIALOG_HEIGHT,
+        )
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("行号:");
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut state.goto_input)
+                        .desired_width(100.0)
+                        .hint_text(format!("1-{}", max_row)),
+                );
 
-                let confirm = local_shortcut_pressed(ctx, LocalShortcut::Confirm);
-                let cancel = local_shortcut_pressed(ctx, LocalShortcut::Cancel);
-
-                ui.horizontal(|ui| {
-                    let jump_clicked = ui
-                        .add(
-                            egui::Button::new(
-                                RichText::new("↵ 跳转")
-                                    .size(13.0)
-                                    .color(theme_text(ui.visuals())),
-                            )
-                            .frame(false)
-                            .min_size(Vec2::new(0.0, 24.0)),
-                        )
-                        .on_hover_text(local_shortcut_tooltip(
-                            "跳转到指定行",
-                            LocalShortcut::Confirm,
-                        ))
-                        .clicked();
-
-                    if jump_clicked || confirm {
-                        Self::apply_goto_line(state, max_row);
-                    }
-
-                    let cancel_clicked = ui
-                        .add(
-                            egui::Button::new(
-                                RichText::new("✕ 取消")
-                                    .size(13.0)
-                                    .color(theme_text(ui.visuals())),
-                            )
-                            .frame(false)
-                            .min_size(Vec2::new(0.0, 24.0)),
-                        )
-                        .on_hover_text(local_shortcut_tooltip("取消", LocalShortcut::Cancel))
-                        .clicked();
-
-                    if cancel_clicked || cancel {
-                        Self::close_goto_dialog(state);
-                    }
-                });
+                // 自动聚焦
+                if response.gained_focus() || state.goto_input.is_empty() {
+                    response.request_focus();
+                }
             });
+
+            let confirm = local_shortcut_pressed(ctx, LocalShortcut::Confirm);
+            let cancel = local_shortcut_pressed(ctx, LocalShortcut::Cancel);
+
+            ui.horizontal(|ui| {
+                let jump_clicked = ui
+                    .add(
+                        egui::Button::new(
+                            RichText::new("↵ 跳转")
+                                .size(13.0)
+                                .color(theme_text(ui.visuals())),
+                        )
+                        .frame(false)
+                        .min_size(Vec2::new(0.0, 24.0)),
+                    )
+                    .on_hover_text(local_shortcut_tooltip(
+                        "跳转到指定行",
+                        LocalShortcut::Confirm,
+                    ))
+                    .clicked();
+
+                if jump_clicked || confirm {
+                    Self::apply_goto_line(state, row_view);
+                }
+
+                let cancel_clicked = ui
+                    .add(
+                        egui::Button::new(
+                            RichText::new("✕ 取消")
+                                .size(13.0)
+                                .color(theme_text(ui.visuals())),
+                        )
+                        .frame(false)
+                        .min_size(Vec2::new(0.0, 24.0)),
+                    )
+                    .on_hover_text(local_shortcut_tooltip("取消", LocalShortcut::Cancel))
+                    .clicked();
+
+                if cancel_clicked || cancel {
+                    Self::close_goto_dialog(state);
+                }
+            });
+        });
     }
 
     /// 显示保存确认对话框（危险操作确认）
@@ -753,19 +770,26 @@ impl DataGrid {
         let delete_count = state.rows_to_delete.len();
         let total_count = state.pending_sql.len();
 
-        egui::Window::new("确认保存")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        #[derive(Default)]
+        struct SaveConfirmOutcome {
+            confirmed: bool,
+            cancelled: bool,
+        }
+
+        let outcome = DialogWindow::blocking(ctx, "grid_save_confirm_modal", &DialogStyle::MEDIUM)
             .show(ctx, |ui| {
                 let confirm = local_shortcut_pressed(ctx, LocalShortcut::DangerConfirm);
                 let cancel = local_shortcut_pressed(ctx, LocalShortcut::DangerCancel);
+
+                DialogWindow::apply_modal_width(ui, ctx, &DialogStyle::MEDIUM);
+                DialogHeader::show_with_icon(ui, "⚠", "确认保存", &DialogStyle::MEDIUM);
+
+                let mut outcome = SaveConfirmOutcome::default();
 
                 ui.vertical(|ui| {
                     ui.label(RichText::new("此操作包含危险操作，请确认：").strong());
                     ui.add_space(8.0);
 
-                    // 显示操作统计
                     ui.horizontal(|ui| {
                         ui.label(format!("将删除 {} 行数据", delete_count));
                     });
@@ -775,7 +799,6 @@ impl DataGrid {
 
                     ui.add_space(8.0);
 
-                    // 显示预览的 SQL（最多显示5条）
                     ui.collapsing("查看 SQL 预览", |ui| {
                         egui::ScrollArea::vertical()
                             .max_height(150.0)
@@ -799,7 +822,6 @@ impl DataGrid {
                     ui.add_space(12.0);
 
                     ui.horizontal(|ui| {
-                        // 确认按钮（红色警告文字）
                         let confirm_clicked = ui
                             .add(
                                 egui::Button::new(
@@ -817,7 +839,7 @@ impl DataGrid {
                             .clicked();
 
                         if confirm_clicked || confirm {
-                            actions::confirm_pending_sql(state, actions);
+                            outcome.confirmed = true;
                         }
 
                         ui.add_space(16.0);
@@ -839,20 +861,29 @@ impl DataGrid {
                             .clicked();
 
                         if cancel_clicked || cancel {
-                            actions::cancel_pending_sql(state);
+                            outcome.cancelled = true;
                         }
                     });
                 });
+
+                outcome
             });
+
+        if outcome.inner.confirmed {
+            actions::confirm_pending_sql(state, actions);
+        } else if outcome.inner.cancelled || outcome.should_close() {
+            actions::cancel_pending_sql(state);
+        }
     }
 
-    fn apply_goto_line(state: &mut DataGridState, max_row: usize) {
+    fn apply_goto_line(state: &mut DataGridState, row_view: &GridVirtualRows<'_>) {
         if let Ok(line) = state.goto_input.trim().parse::<usize>()
             && line >= 1
-            && line <= max_row
+            && line <= row_view.len()
+            && let Some(row_key) = row_view.row_key_at_display_index(line - 1)
         {
-            state.cursor.0 = line - 1;
-            state.scroll_to_row = Some(state.cursor.0);
+            state.cursor.0 = row_key;
+            state.scroll_to_row = Some(row_key);
         }
         Self::close_goto_dialog(state);
     }
@@ -865,4 +896,97 @@ impl DataGrid {
 
 fn shortcut_refs(shortcuts: &[String]) -> Vec<&str> {
     shortcuts.iter().map(String::as_str).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DataGrid, DataGridActions};
+    use crate::core::KeyBindings;
+    use crate::database::QueryResult;
+    use crate::ui::DataGridState;
+    use egui::{Event, Key, Modifiers, RawInput};
+
+    fn key_event(key: Key) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }
+    }
+
+    fn sample_result() -> QueryResult {
+        QueryResult::with_rows(
+            vec!["id".to_string(), "name".to_string()],
+            vec![
+                vec!["1".to_string(), "alice".to_string()],
+                vec!["2".to_string(), "bob".to_string()],
+            ],
+        )
+    }
+
+    fn render_with_key(state: &mut DataGridState, key: Key) -> DataGridActions {
+        let ctx = egui::Context::default();
+        let mut returned_actions = DataGridActions::default();
+        let raw_input = RawInput {
+            events: vec![key_event(key)],
+            modifiers: Modifiers::NONE,
+            ..Default::default()
+        };
+
+        ctx.begin_pass(raw_input);
+        egui::Area::new(egui::Id::new("grid_save_confirm_test_area")).show(&ctx, |ui| {
+            let mut selected_row = None;
+            let mut selected_cell = None;
+            let (actions, _) = DataGrid::show_editable(
+                ui,
+                &sample_result(),
+                "",
+                &None,
+                &mut selected_row,
+                &mut selected_cell,
+                state,
+                Some("users"),
+                &KeyBindings::default(),
+            );
+            returned_actions = actions;
+        });
+        let _ = ctx.end_pass();
+
+        returned_actions
+    }
+
+    #[test]
+    fn save_confirm_blocks_grid_keyboard_commands() {
+        let mut state = DataGridState::new();
+        state.cursor = (0, 0);
+        state.show_save_confirm = true;
+        state
+            .pending_sql
+            .push("DELETE FROM users WHERE id = 1;".to_string());
+
+        let actions = render_with_key(&mut state, Key::J);
+
+        assert_eq!(state.cursor, (0, 0));
+        assert!(state.show_save_confirm);
+        assert!(actions.sql_to_execute.is_empty());
+    }
+
+    #[test]
+    fn save_confirm_shortcuts_execute_pending_sql_without_running_grid_commands() {
+        let mut state = DataGridState::new();
+        state.cursor = (0, 0);
+        state.show_save_confirm = true;
+        state
+            .pending_sql
+            .push("DELETE FROM users WHERE id = 1;".to_string());
+
+        let actions = render_with_key(&mut state, Key::Y);
+
+        assert_eq!(state.cursor, (0, 0));
+        assert!(!state.show_save_confirm);
+        assert!(state.pending_sql.is_empty());
+        assert_eq!(actions.sql_to_execute.len(), 1);
+    }
 }

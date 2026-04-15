@@ -2,12 +2,28 @@
 //!
 //! The palette owns search text and selection only; command execution stays in the app action layer.
 
+use crate::app::dialogs::host::DialogId;
+use crate::ui::{LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcuts_text};
 use eframe::egui;
 
 use super::DbManagerApp;
 use super::action_system::{AppAction, search_commands};
 
 const MAX_VISIBLE_COMMANDS: usize = 12;
+const COMMAND_PALETTE_VIEWPORT_MARGIN: f32 = 32.0;
+const COMMAND_PALETTE_MIN_WIDTH: f32 = 360.0;
+const COMMAND_PALETTE_DEFAULT_WIDTH: f32 = 640.0;
+const COMMAND_PALETTE_MAX_WIDTH: f32 = 720.0;
+const COMMAND_PALETTE_MIN_LIST_HEIGHT: f32 = 180.0;
+const COMMAND_PALETTE_MAX_LIST_HEIGHT: f32 = 420.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CommandPaletteKeyAction {
+    Prev,
+    Next,
+    Confirm,
+    Dismiss,
+}
 
 #[derive(Debug, Clone, Default)]
 pub(in crate::app) struct CommandPaletteState {
@@ -45,15 +61,20 @@ impl DbManagerApp {
         let mut close_palette = false;
         let mut action_to_execute: Option<AppAction> = None;
         let mut disabled_reason: Option<&'static str> = None;
+        let content_rect = ctx.input(|input| input.content_rect());
+        let (min_width, default_width, max_width) = command_palette_widths(content_rect.width());
+        let list_height = command_palette_list_height(content_rect.height());
 
         egui::Window::new("命令面板")
             .id(egui::Id::new("gridix_command_palette"))
             .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 72.0))
             .collapsible(false)
             .resizable(false)
-            .default_width(640.0)
+            .default_width(default_width)
+            .min_width(min_width)
+            .max_width(max_width)
+            .constrain_to(content_rect)
             .show(ctx, |ui| {
-                ui.set_min_width(600.0);
                 ui.spacing_mut().item_spacing.y = 8.0;
 
                 ui.label(
@@ -80,22 +101,24 @@ impl DbManagerApp {
                 let matches = search_commands(&command_context, &query);
                 clamp_selection(&mut selected_index, matches.len());
 
-                if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
-                    close_palette = true;
-                }
-                if ui.input(|input| input.key_pressed(egui::Key::ArrowDown)) {
-                    move_selection(&mut selected_index, 1, matches.len());
-                }
-                if ui.input(|input| input.key_pressed(egui::Key::ArrowUp)) {
-                    move_selection(&mut selected_index, -1, matches.len());
-                }
-                let enter_pressed = ui.input(|input| input.key_pressed(egui::Key::Enter));
-
-                if enter_pressed && let Some(entry) = matches.get(selected_index) {
-                    if entry.availability.enabled {
-                        action_to_execute = Some(entry.descriptor.action);
-                    } else {
-                        disabled_reason = entry.availability.reason;
+                if let Some(action) = consume_palette_key_action(ui) {
+                    match action {
+                        CommandPaletteKeyAction::Dismiss => close_palette = true,
+                        CommandPaletteKeyAction::Next => {
+                            move_selection(&mut selected_index, 1, matches.len());
+                        }
+                        CommandPaletteKeyAction::Prev => {
+                            move_selection(&mut selected_index, -1, matches.len());
+                        }
+                        CommandPaletteKeyAction::Confirm => {
+                            if let Some(entry) = matches.get(selected_index) {
+                                if entry.availability.enabled {
+                                    action_to_execute = Some(entry.descriptor.action);
+                                } else {
+                                    disabled_reason = entry.availability.reason;
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -107,7 +130,7 @@ impl DbManagerApp {
                     );
                 } else {
                     egui::ScrollArea::vertical()
-                        .max_height(420.0)
+                        .max_height(list_height)
                         .auto_shrink([false, true])
                         .show(ui, |ui| {
                             for (index, entry) in
@@ -172,9 +195,30 @@ impl DbManagerApp {
 
                 ui.separator();
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(egui::RichText::new("Enter 执行").small());
-                    ui.label(egui::RichText::new("↑/↓ 选择").small());
-                    ui.label(egui::RichText::new("Esc 关闭").small());
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} 执行",
+                            local_shortcut_text(LocalShortcut::CommandPaletteConfirm)
+                        ))
+                        .small(),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} 选择",
+                            local_shortcuts_text(&[
+                                LocalShortcut::CommandPalettePrev,
+                                LocalShortcut::CommandPaletteNext,
+                            ])
+                        ))
+                        .small(),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} 关闭",
+                            local_shortcut_text(LocalShortcut::CommandPaletteDismiss)
+                        ))
+                        .small(),
+                    );
                 });
             });
 
@@ -187,15 +231,44 @@ impl DbManagerApp {
         }
 
         if let Some(action) = action_to_execute {
-            self.command_palette_state.close();
+            self.close_dialog(DialogId::CommandPalette);
             self.dispatch_app_action(ctx, action);
             return;
         }
 
         if close_palette {
-            self.command_palette_state.close();
+            self.close_dialog(DialogId::CommandPalette);
         }
     }
+}
+
+fn command_palette_widths(viewport_width: f32) -> (f32, f32, f32) {
+    let usable = (viewport_width - COMMAND_PALETTE_VIEWPORT_MARGIN).max(280.0);
+    let max_width = usable.min(COMMAND_PALETTE_MAX_WIDTH);
+    let min_width = COMMAND_PALETTE_MIN_WIDTH.min(max_width);
+    let default_width = COMMAND_PALETTE_DEFAULT_WIDTH.clamp(min_width, max_width);
+    (min_width, default_width, max_width)
+}
+
+fn command_palette_list_height(viewport_height: f32) -> f32 {
+    let usable = (viewport_height - 220.0).max(COMMAND_PALETTE_MIN_LIST_HEIGHT);
+    usable.min(COMMAND_PALETTE_MAX_LIST_HEIGHT)
+}
+
+fn consume_palette_key_action(ui: &mut egui::Ui) -> Option<CommandPaletteKeyAction> {
+    ui.input_mut(|input| {
+        if consume_local_shortcut(input, LocalShortcut::CommandPaletteDismiss) {
+            Some(CommandPaletteKeyAction::Dismiss)
+        } else if consume_local_shortcut(input, LocalShortcut::CommandPaletteNext) {
+            Some(CommandPaletteKeyAction::Next)
+        } else if consume_local_shortcut(input, LocalShortcut::CommandPalettePrev) {
+            Some(CommandPaletteKeyAction::Prev)
+        } else if consume_local_shortcut(input, LocalShortcut::CommandPaletteConfirm) {
+            Some(CommandPaletteKeyAction::Confirm)
+        } else {
+            None
+        }
+    })
 }
 
 fn clamp_selection(selected_index: &mut usize, len: usize) {
@@ -215,4 +288,83 @@ fn move_selection(selected_index: &mut usize, delta: isize, len: usize) {
     let len = len as isize;
     let next = (*selected_index as isize + delta).rem_euclid(len);
     *selected_index = next as usize;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CommandPaletteKeyAction, command_palette_list_height, command_palette_widths,
+        consume_palette_key_action,
+    };
+    use eframe::egui::{Area, Context, Event, Id, Key, Modifiers, RawInput};
+
+    fn key_event(key: Key) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }
+    }
+
+    fn run_palette_key(key: Key) -> Option<CommandPaletteKeyAction> {
+        let ctx = Context::default();
+        ctx.begin_pass(RawInput {
+            events: vec![key_event(key)],
+            modifiers: Modifiers::NONE,
+            ..Default::default()
+        });
+        let mut action = None;
+        Area::new(Id::new("command_palette_key_test")).show(&ctx, |ui| {
+            action = consume_palette_key_action(ui);
+        });
+        let _ = ctx.end_pass();
+        action
+    }
+
+    #[test]
+    fn command_palette_navigation_uses_local_shortcuts() {
+        assert_eq!(
+            run_palette_key(Key::ArrowDown),
+            Some(CommandPaletteKeyAction::Next)
+        );
+        assert_eq!(
+            run_palette_key(Key::ArrowUp),
+            Some(CommandPaletteKeyAction::Prev)
+        );
+        assert_eq!(
+            run_palette_key(Key::Escape),
+            Some(CommandPaletteKeyAction::Dismiss)
+        );
+        assert_eq!(
+            run_palette_key(Key::Enter),
+            Some(CommandPaletteKeyAction::Confirm)
+        );
+    }
+
+    #[test]
+    fn command_palette_widths_clamp_to_small_viewport() {
+        let (min_width, default_width, max_width) = command_palette_widths(480.0);
+
+        assert!(max_width <= 448.0 + f32::EPSILON);
+        assert!(min_width <= max_width);
+        assert!(default_width <= max_width);
+        assert_eq!(default_width, max_width);
+    }
+
+    #[test]
+    fn command_palette_widths_preserve_default_when_room_allows() {
+        let (min_width, default_width, max_width) = command_palette_widths(1280.0);
+
+        assert_eq!(min_width, 360.0);
+        assert_eq!(default_width, 640.0);
+        assert_eq!(max_width, 720.0);
+    }
+
+    #[test]
+    fn command_palette_list_height_stays_within_bounds() {
+        assert_eq!(command_palette_list_height(360.0), 180.0);
+        assert_eq!(command_palette_list_height(1200.0), 420.0);
+    }
 }
