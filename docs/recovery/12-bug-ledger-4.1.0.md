@@ -2,7 +2,7 @@
 
 ## Scope
 
-这份账本只盘点 **当前 v6.0.0 发版执行时仍值得观察的根因问题**。  
+这份账本只盘点 **当前 v6.0.0 发版后收口阶段仍值得观察的根因问题**。  
 来源限定为：
 
 - `docs/recovery/10-master-recovery-plan.md`
@@ -33,7 +33,7 @@
 
 - 这份账本里已没有“未阻塞且应立即继续实现”的 active bug。
 - `G41-B007` 当前保留为 observation 条目；除非重新 live 复现，否则不再继续主动补丁。
-- `v6.0.0` 当前进入 release execution：版本 bump、提交/推送、tag、GitHub release 与下游同步应按 [docs/RELEASE_PROCESS.md](../RELEASE_PROCESS.md) 与 [docs/DISTRIBUTION.md](../DISTRIBUTION.md) 顺序执行。
+- `v6.0.0` 当前已完成 release execution：版本 bump、提交/推送、tag、GitHub release、AUR/Homebrew 同步均已完成，nixpkgs 已推送至 fork 并创建 PR [NixOS/nixpkgs#510299](https://github.com/NixOS/nixpkgs/pull/510299)。
 
 ### G41-B007
 

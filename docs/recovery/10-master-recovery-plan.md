@@ -2,7 +2,7 @@
 
 ## Scope
 
-This plan now records the `v6.0.0` release-execution state of the recovery stream carried forward in [Cargo.toml](../../Cargo.toml).
+This plan now records the `v6.0.0` post-release closure state of the recovery stream carried forward in [Cargo.toml](../../Cargo.toml).
 
 It does **not** propose a broad rewrite.  
 It establishes a repair order for the flows that Gridix cannot afford to break, using the current codebase and the current dependency baseline.
@@ -11,15 +11,15 @@ Current release gate:
 
 - Local AI / agent guidance is now treated as workstation-local material and should stay out of tracked repository policy docs.
 - The release/distribution sequence is already documented in [docs/RELEASE_PROCESS.md](../RELEASE_PROCESS.md) and [docs/DISTRIBUTION.md](../DISTRIBUTION.md).
-- The current recovery stream has now reached **`v6.0.0` release execution**: there are no new unblocked active implementation workstreams left in the recovery ledger, and the remaining items have been reduced to `observation / live smoke / post-release follow-up`.
-- `v6.0.0` has not yet been committed, tagged, or published on GitHub Releases from this worktree; this document is being updated as part of the release-execution change set.
-- Downstream sync is therefore still pending for this release wave until the `v6.0.0` GitHub release assets and `SHA256SUMS.txt` are available.
+- The current recovery stream has now reached **`v6.0.0` post-release closure**: there are no new unblocked active implementation workstreams left in the recovery ledger, and the remaining items have been reduced to `observation / live smoke / downstream follow-up`.
+- `v6.0.0` has already been committed, tagged, and published on GitHub Releases from this worktree.
+- Downstream sync has been executed for AUR and Homebrew, and nixpkgs has been pushed to a clean fork branch with PR [NixOS/nixpkgs#510299](https://github.com/NixOS/nixpkgs/pull/510299).
 - Current closure-review check status on this worktree:
   - `cargo fmt --check`: pass
   - `cargo test`: pass
   - `python scripts/check_doc_links.py`: pass
   - `cargo clippy --all-targets --all-features -- -D warnings`: pass
-- Therefore the current phase is no longer only "ready for release closure review"; it is now **release execution**, with the remaining work in this stream limited to branch/tag publication, downstream sync, and any newly confirmed bugs.
+- Therefore the current phase is no longer "ready for release closure review" or "release execution"; it is now **post-release closure**, with the remaining work in this stream limited to external platform propagation, nixpkgs review/merge follow-up, and any newly confirmed bugs.
 
 ## A. Dependency Baseline
 

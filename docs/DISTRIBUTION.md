@@ -14,6 +14,18 @@ This guide is step 4 of the major-phase release flow:
 Do not update downstream package definitions before the GitHub release and checksums are final.
 在 GitHub release 和校验和最终确定之前，不要提前更新下游包定义。
 
+## Current Status Snapshot | 当前状态快照
+
+`v6.0.0` status:
+
+- GitHub release: published
+- AUR: `gridix` / `gridix-bin` / `gridix-appimage` pushed
+- Homebrew: formula update pushed
+- nixpkgs: branch pushed and PR opened as [NixOS/nixpkgs#510299](https://github.com/NixOS/nixpkgs/pull/510299)
+
+This means the downstream publication work is complete from the Gridix side, with only external platform propagation and nixpkgs review/merge still pending.
+这表示从 Gridix 侧看，下游发布动作已经完成；剩余仅是外部平台索引传播与 nixpkgs 上游 review / merge。
+
 ## 1. Prerequisites | 前置条件
 
 - GitHub release for target version already exists (`vX.Y.Z`).
