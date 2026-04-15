@@ -908,6 +908,10 @@ impl DialogStatus {
 pub struct DialogWindow;
 
 impl DialogWindow {
+    fn viewport_rect(ctx: &egui::Context) -> egui::Rect {
+        ctx.input(|input| input.content_rect())
+    }
+
     fn frame(ctx: &egui::Context, style: &DialogStyle) -> egui::Frame {
         let visuals = &ctx.global_style().visuals;
         let shadow_alpha = if visuals.dark_mode { 72 } else { 28 };
@@ -928,12 +932,34 @@ impl DialogWindow {
             })
     }
 
+    /// 创建阻塞式 modal 对话框壳层。
+    pub fn blocking(ctx: &egui::Context, id: impl Hash, style: &DialogStyle) -> egui::Modal {
+        let backdrop_alpha = if ctx.global_style().visuals.dark_mode {
+            132
+        } else {
+            110
+        };
+
+        egui::Modal::new(egui::Id::new(id))
+            .backdrop_color(Color32::from_black_alpha(backdrop_alpha))
+            .frame(Self::frame(ctx, style))
+    }
+
+    /// 为 modal 内容应用与标准 dialog shell 相同的宽度约束。
+    pub fn apply_modal_width(ui: &mut egui::Ui, ctx: &egui::Context, style: &DialogStyle) {
+        let (min_width, default_width, max_width) = style.responsive_widths(ctx);
+        ui.set_min_width(min_width);
+        ui.set_width(default_width);
+        ui.set_max_width(max_width);
+    }
+
     /// 创建标准对话框窗口
     pub fn standard<'a>(
         ctx: &egui::Context,
         title: &'a str,
         style: &DialogStyle,
     ) -> egui::Window<'a> {
+        let content_rect = Self::viewport_rect(ctx);
         let (min_width, default_width, max_width) = style.responsive_widths(ctx);
         let (_, _, max_height) = style.responsive_heights(ctx);
 
@@ -945,6 +971,7 @@ impl DialogWindow {
             .max_width(max_width)
             .max_height(max_height)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .constrain_to(content_rect)
             .frame(Self::frame(ctx, style))
     }
 
@@ -954,6 +981,7 @@ impl DialogWindow {
         title: &'a str,
         style: &DialogStyle,
     ) -> egui::Window<'a> {
+        let content_rect = Self::viewport_rect(ctx);
         let (min_width, default_width, max_width) = style.responsive_widths(ctx);
         let (min_height, default_height, max_height) = style.responsive_heights(ctx);
 
@@ -967,6 +995,7 @@ impl DialogWindow {
             .max_width(max_width)
             .max_height(max_height)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .constrain_to(content_rect)
             .frame(Self::frame(ctx, style))
     }
 
@@ -978,7 +1007,7 @@ impl DialogWindow {
         default_width: f32,
         default_height: f32,
     ) -> egui::Window<'a> {
-        let content_rect = ctx.input(|input| input.content_rect());
+        let content_rect = Self::viewport_rect(ctx);
         let (min_width, _, max_width) = style.responsive_widths(ctx);
         let (min_height, _, max_height) = style.responsive_heights(ctx);
         let default_size = Vec2::new(
@@ -997,7 +1026,7 @@ impl DialogWindow {
             .max_width(max_width)
             .max_height(max_height)
             .hscroll(false)
-            .vscroll(true)
+            .constrain_to(content_rect)
             .frame(Self::frame(ctx, style))
     }
 
@@ -1008,6 +1037,7 @@ impl DialogWindow {
         width: f32,
         height: f32,
     ) -> egui::Window<'a> {
+        let content_rect = Self::viewport_rect(ctx);
         let style = DialogStyle::MEDIUM;
         let (min_width, _, max_width) = style.responsive_widths(ctx);
         let (_, _, max_height) = style.responsive_heights(ctx);
@@ -1020,6 +1050,7 @@ impl DialogWindow {
                 height.min(max_height),
             ))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .constrain_to(content_rect)
             .frame(Self::frame(ctx, &style))
     }
 
@@ -1031,6 +1062,7 @@ impl DialogWindow {
         width: f32,
         height: f32,
     ) -> egui::Window<'a> {
+        let content_rect = Self::viewport_rect(ctx);
         let (min_width, _, max_width) = style.responsive_widths(ctx);
         let (min_height, _, max_height) = style.responsive_heights(ctx);
 
@@ -1042,7 +1074,94 @@ impl DialogWindow {
                 height.clamp(min_height, max_height),
             ))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .constrain_to(content_rect)
             .frame(Self::frame(ctx, style))
+    }
+}
+
+/// 工作台型对话框布局壳层。
+///
+/// 负责固定 header/subheader/footer，让 body 始终占用剩余空间。
+pub struct WorkspaceDialogShell;
+
+impl WorkspaceDialogShell {
+    pub fn show(
+        ui: &mut egui::Ui,
+        id_source: impl Hash,
+        header: impl FnOnce(&mut egui::Ui),
+        subheader: impl FnOnce(&mut egui::Ui),
+        body: impl FnOnce(&mut egui::Ui),
+        footer: impl FnOnce(&mut egui::Ui),
+    ) {
+        let shell_id = ui.id().with(id_source);
+
+        egui::Panel::bottom(shell_id.with("footer"))
+            .frame(egui::Frame::NONE)
+            .resizable(false)
+            .show_inside(ui, |ui| {
+                footer(ui);
+            });
+
+        egui::Panel::top(shell_id.with("header"))
+            .frame(egui::Frame::NONE)
+            .resizable(false)
+            .show_inside(ui, |ui| {
+                header(ui);
+            });
+
+        egui::Panel::top(shell_id.with("subheader"))
+            .frame(egui::Frame::NONE)
+            .resizable(false)
+            .show_inside(ui, |ui| {
+                subheader(ui);
+            });
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show_inside(ui, |ui| {
+                body(ui);
+            });
+    }
+}
+
+/// 长表单对话框布局壳层。
+///
+/// 负责固定 header/footer，并让 body 成为唯一主滚动区域。
+pub struct FormDialogShell;
+
+impl FormDialogShell {
+    pub fn show(
+        ui: &mut egui::Ui,
+        id_source: impl Hash,
+        header: impl FnOnce(&mut egui::Ui),
+        body: impl FnOnce(&mut egui::Ui),
+        footer: impl FnOnce(&mut egui::Ui),
+    ) {
+        let shell_id = ui.id().with(id_source);
+
+        egui::Panel::bottom(shell_id.with("footer"))
+            .frame(egui::Frame::NONE)
+            .resizable(false)
+            .show_inside(ui, |ui| {
+                footer(ui);
+            });
+
+        egui::Panel::top(shell_id.with("header"))
+            .frame(egui::Frame::NONE)
+            .resizable(false)
+            .show_inside(ui, |ui| {
+                header(ui);
+            });
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show_inside(ui, |ui| {
+                ScrollArea::vertical()
+                    .id_salt(shell_id.with("body"))
+                    .show(ui, |ui| {
+                        body(ui);
+                    });
+            });
     }
 }
 

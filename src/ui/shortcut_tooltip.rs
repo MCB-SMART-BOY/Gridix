@@ -98,6 +98,23 @@ pub enum LocalShortcut {
     ErDiagramFitView,
     ErDiagramZoomIn,
     ErDiagramZoomOut,
+    ErDiagramPrevTable,
+    ErDiagramNextTable,
+    ErDiagramPrevRelated,
+    ErDiagramNextRelated,
+    ErDiagramGeometryLeft,
+    ErDiagramGeometryDown,
+    ErDiagramGeometryUp,
+    ErDiagramGeometryRight,
+    ErDiagramOpenSelected,
+    ErDiagramBack,
+    ErDiagramClose,
+    ErDiagramViewportMode,
+    ErDiagramViewportExit,
+    ErDiagramViewportPanLeft,
+    ErDiagramViewportPanDown,
+    ErDiagramViewportPanUp,
+    ErDiagramViewportPanRight,
     SidebarItemPrev,
     SidebarItemNext,
     SidebarItemStart,
@@ -223,6 +240,23 @@ impl LocalShortcut {
             Self::ErDiagramFitView,
             Self::ErDiagramZoomIn,
             Self::ErDiagramZoomOut,
+            Self::ErDiagramPrevTable,
+            Self::ErDiagramNextTable,
+            Self::ErDiagramPrevRelated,
+            Self::ErDiagramNextRelated,
+            Self::ErDiagramGeometryLeft,
+            Self::ErDiagramGeometryDown,
+            Self::ErDiagramGeometryUp,
+            Self::ErDiagramGeometryRight,
+            Self::ErDiagramOpenSelected,
+            Self::ErDiagramBack,
+            Self::ErDiagramClose,
+            Self::ErDiagramViewportMode,
+            Self::ErDiagramViewportExit,
+            Self::ErDiagramViewportPanLeft,
+            Self::ErDiagramViewportPanDown,
+            Self::ErDiagramViewportPanUp,
+            Self::ErDiagramViewportPanRight,
             Self::SidebarItemPrev,
             Self::SidebarItemNext,
             Self::SidebarItemStart,
@@ -348,6 +382,23 @@ impl LocalShortcut {
             LocalShortcut::ErDiagramFitView => "er_diagram.fit_view",
             LocalShortcut::ErDiagramZoomIn => "er_diagram.zoom_in",
             LocalShortcut::ErDiagramZoomOut => "er_diagram.zoom_out",
+            LocalShortcut::ErDiagramPrevTable => "er_diagram.prev_table",
+            LocalShortcut::ErDiagramNextTable => "er_diagram.next_table",
+            LocalShortcut::ErDiagramPrevRelated => "er_diagram.prev_related",
+            LocalShortcut::ErDiagramNextRelated => "er_diagram.next_related",
+            LocalShortcut::ErDiagramGeometryLeft => "er_diagram.geometry_left",
+            LocalShortcut::ErDiagramGeometryDown => "er_diagram.geometry_down",
+            LocalShortcut::ErDiagramGeometryUp => "er_diagram.geometry_up",
+            LocalShortcut::ErDiagramGeometryRight => "er_diagram.geometry_right",
+            LocalShortcut::ErDiagramOpenSelected => "er_diagram.open_selected",
+            LocalShortcut::ErDiagramBack => "er_diagram.back",
+            LocalShortcut::ErDiagramClose => "er_diagram.close",
+            LocalShortcut::ErDiagramViewportMode => "er_diagram.viewport_mode",
+            LocalShortcut::ErDiagramViewportExit => "er_diagram.viewport.exit",
+            LocalShortcut::ErDiagramViewportPanLeft => "er_diagram.viewport.pan_left",
+            LocalShortcut::ErDiagramViewportPanDown => "er_diagram.viewport.pan_down",
+            LocalShortcut::ErDiagramViewportPanUp => "er_diagram.viewport.pan_up",
+            LocalShortcut::ErDiagramViewportPanRight => "er_diagram.viewport.pan_right",
             LocalShortcut::SidebarItemPrev => "sidebar.list.prev",
             LocalShortcut::SidebarItemNext => "sidebar.list.next",
             LocalShortcut::SidebarItemStart => "sidebar.list.start",
@@ -650,14 +701,24 @@ fn local_bindings_text(bindings: Vec<LocalBinding>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        LocalShortcut, action_tooltip_with_extras, local_shortcut_pressed, local_shortcut_text,
-        local_shortcut_tooltip, local_shortcuts_text, local_shortcuts_tooltip, shortcut_tooltip,
-        sync_runtime_local_shortcuts,
+        LocalShortcut, action_tooltip, action_tooltip_with_extras, local_shortcut_pressed,
+        local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text, local_shortcuts_tooltip,
+        shortcut_tooltip, sync_runtime_local_shortcuts,
     };
     use crate::core::{Action, KeyBinding, KeyBindings, KeyCode, scoped_command};
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    fn shortcut_registry_guard() -> MutexGuard<'static, ()> {
+        static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+        GUARD
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("shortcut tooltip test lock")
+    }
 
     #[test]
     fn action_tooltip_appends_current_binding() {
+        let _guard = shortcut_registry_guard();
         let keybindings = KeyBindings::default();
         let tooltip =
             action_tooltip_with_extras(&keybindings, Action::ShowHelp, "打开帮助", &["?"]);
@@ -668,7 +729,28 @@ mod tests {
     }
 
     #[test]
+    fn action_tooltip_uses_dedicated_toolbar_actions_binding() {
+        let _guard = shortcut_registry_guard();
+        let keybindings = KeyBindings::default();
+        let tooltip = action_tooltip(&keybindings, Action::OpenToolbarActionsMenu);
+
+        assert!(tooltip.contains("打开操作菜单"));
+        assert!(tooltip.contains("Alt+A"));
+    }
+
+    #[test]
+    fn action_tooltip_uses_dedicated_toolbar_create_binding() {
+        let _guard = shortcut_registry_guard();
+        let keybindings = KeyBindings::default();
+        let tooltip = action_tooltip(&keybindings, Action::OpenToolbarCreateMenu);
+
+        assert!(tooltip.contains("打开新建菜单"));
+        assert!(tooltip.contains("Alt+N"));
+    }
+
+    #[test]
     fn shortcut_tooltip_keeps_local_shortcuts() {
+        let _guard = shortcut_registry_guard();
         let tooltip = shortcut_tooltip("取消", &["Esc"]);
 
         assert_eq!(tooltip, "取消\n快捷键: Esc");
@@ -676,6 +758,7 @@ mod tests {
 
     #[test]
     fn local_shortcut_text_formats_combined_shortcuts() {
+        let _guard = shortcut_registry_guard();
         let text = local_shortcut_text(LocalShortcut::SqlExecute);
 
         assert_eq!(text, "Ctrl+Enter / F5");
@@ -683,6 +766,7 @@ mod tests {
 
     #[test]
     fn every_local_shortcut_has_registry_metadata() {
+        let _guard = shortcut_registry_guard();
         for shortcut in LocalShortcut::all() {
             let command =
                 scoped_command(shortcut.config_key()).expect("local shortcut registry entry");
@@ -697,6 +781,8 @@ mod tests {
 
     #[test]
     fn local_shortcut_tooltip_uses_named_shortcut_set() {
+        let _guard = shortcut_registry_guard();
+        sync_runtime_local_shortcuts(&KeyBindings::default());
         let tooltip = local_shortcut_tooltip("关闭对话框", LocalShortcut::Dismiss);
 
         assert_eq!(tooltip, "关闭对话框\n快捷键: Esc / Q");
@@ -704,6 +790,7 @@ mod tests {
 
     #[test]
     fn local_shortcuts_tooltip_deduplicates_entries() {
+        let _guard = shortcut_registry_guard();
         let tooltip = local_shortcuts_tooltip(
             "补全",
             &[
@@ -736,6 +823,7 @@ mod tests {
 
     #[test]
     fn local_shortcut_pressed_is_false_without_input() {
+        let _guard = shortcut_registry_guard();
         let ctx = egui::Context::default();
 
         assert!(!local_shortcut_pressed(&ctx, LocalShortcut::SqlExecute));
@@ -743,6 +831,7 @@ mod tests {
 
     #[test]
     fn runtime_local_shortcut_override_changes_display_text() {
+        let _guard = shortcut_registry_guard();
         let mut keybindings = KeyBindings::default();
         keybindings.set_local_bindings(
             "dialog.common.dismiss",

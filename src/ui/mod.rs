@@ -44,8 +44,8 @@ pub use components::{
     check_filter_match,
     // ER 关系图
     er_diagram::{
-        ERColumn, ERDiagramResponse, ERDiagramState, ERTable, RelationType, Relationship,
-        calculate_table_size, force_directed_layout, grid_layout,
+        ERColumn, ERDiagramResponse, ERDiagramState, ERTable, GeometricDirection, RelationType,
+        Relationship, calculate_table_size, force_directed_layout, grid_layout,
     },
     escape_identifier,
     escape_value,
@@ -90,6 +90,12 @@ pub use dialogs::{
     KeyBindingsDialogState,
     LearningTopic,
     TableDefinition,
+    ToolbarMenuDialog,
+    ToolbarMenuDialogEntry,
+    ToolbarMenuDialogState,
+    ToolbarMenuItemId,
+    ToolbarThemeDialog,
+    ToolbarThemeDialogState,
     // 导入对话框
     parse_sql_file,
 };
@@ -121,6 +127,8 @@ pub enum FocusArea {
     /// 数据表格
     #[default]
     DataGrid,
+    /// ER 关系图
+    ErDiagram,
     /// SQL 编辑器
     SqlEditor,
     /// 对话框（连接、导出等模态对话框打开时，预留扩展）

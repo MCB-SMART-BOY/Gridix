@@ -19,14 +19,84 @@ use super::action_system::AppAction;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WorkspaceSurface {
     Welcome,
+    QueryError,
     TabularResult,
 }
 
-fn classify_workspace_surface(result: Option<&QueryResult>) -> WorkspaceSurface {
-    if result.is_some_and(|result| !result.columns.is_empty()) {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ErDiagramSurfaceAction {
+    FocusDiagram,
+    RefreshData,
+    Relayout,
+    FitView,
+}
+
+fn classify_workspace_surface(
+    result: Option<&QueryResult>,
+    active_query_error: Option<&str>,
+) -> WorkspaceSurface {
+    if active_query_error.is_some() {
+        WorkspaceSurface::QueryError
+    } else if result.is_some_and(|result| !result.columns.is_empty()) {
         WorkspaceSurface::TabularResult
     } else {
         WorkspaceSurface::Welcome
+    }
+}
+
+fn select_sql_editor_status_message(
+    active_tab_message: Option<&str>,
+    latest_notification: Option<&str>,
+) -> Option<String> {
+    active_tab_message
+        .map(ToOwned::to_owned)
+        .or_else(|| latest_notification.map(ToOwned::to_owned))
+}
+
+fn clamped_sql_editor_height(preferred_height: f32, available_height: f32) -> f32 {
+    let max_height = (available_height * 0.6).max(0.0);
+    if max_height <= 0.0 {
+        return 0.0;
+    }
+
+    let min_height = 100.0_f32.min(max_height);
+    preferred_height.clamp(min_height, max_height)
+}
+
+fn collect_er_diagram_surface_actions(
+    response: &ui::ERDiagramResponse,
+) -> Vec<ErDiagramSurfaceAction> {
+    let mut actions = Vec::new();
+
+    if response.request_focus {
+        actions.push(ErDiagramSurfaceAction::FocusDiagram);
+    }
+    if response.refresh_requested {
+        actions.push(ErDiagramSurfaceAction::RefreshData);
+    }
+    if response.layout_requested {
+        actions.push(ErDiagramSurfaceAction::Relayout);
+    }
+    if response.fit_view_requested {
+        actions.push(ErDiagramSurfaceAction::FitView);
+    }
+
+    actions
+}
+
+impl DbManagerApp {
+    fn render_query_error_surface(ui: &mut egui::Ui, error: &str) {
+        ui.vertical_centered(|ui| {
+            ui.add_space(24.0);
+            ui.heading("查询执行失败");
+            ui.add_space(8.0);
+            ui.label("结果表格未更新。请修正 SQL 后重新执行。");
+            ui.add_space(12.0);
+            ui.group(|ui| {
+                ui.set_width(ui.available_width().min(720.0));
+                ui.label(egui::RichText::new(error).monospace());
+            });
+        });
     }
 }
 
@@ -36,6 +106,7 @@ impl DbManagerApp {
         let ctx = root_ui.ctx().clone();
         let mut toolbar_actions = ToolbarActions::default();
 
+        self.reconcile_active_dialog_owner();
         self.handle_messages(&ctx);
         self.handle_input_router(&ctx, &mut toolbar_actions);
         self.handle_zoom_shortcuts(&ctx);
@@ -402,23 +473,33 @@ impl DbManagerApp {
                                     // 计算数据表格和 SQL 编辑器的高度分配
                                     let total_content_height = ui.available_height();
                                     let sql_editor_height = if self.show_sql_editor {
-                                        self.sql_editor_height
-                                            .clamp(100.0, total_content_height * 0.6)
+                                        clamped_sql_editor_height(
+                                            self.sql_editor_height,
+                                            total_content_height,
+                                        )
                                     } else {
                                         0.0
                                     };
                                     let divider_height =
                                         if self.show_sql_editor { 6.0 } else { 0.0 };
                                     let data_grid_height =
-                                        total_content_height - sql_editor_height - divider_height;
+                                        (total_content_height - sql_editor_height - divider_height)
+                                            .max(0.0);
 
                                     // 数据表格区域（支持左右分割显示 ER 图）
                                     ui.allocate_ui_with_layout(
                                         egui::vec2(ui.available_width(), data_grid_height),
                                         egui::Layout::top_down(egui::Align::LEFT),
                                         |ui| {
+                                            let active_query_error = self
+                                                .tab_manager
+                                                .get_active()
+                                                .and_then(|tab| tab.last_error.clone());
                                             let workspace_surface =
-                                                classify_workspace_surface(self.result.as_ref());
+                                                classify_workspace_surface(
+                                                    self.result.as_ref(),
+                                                    active_query_error.as_deref(),
+                                                );
 
                                             if self.show_er_diagram {
                                                 // 左右分割布局 - 使用 horizontal 和固定宽度的子区域
@@ -478,6 +559,15 @@ impl DbManagerApp {
                                                                         );
                                                                     }
                                                                 }
+                                                            } else if workspace_surface
+                                                                == WorkspaceSurface::QueryError
+                                                            {
+                                                                Self::render_query_error_surface(
+                                                                    ui,
+                                                                    active_query_error
+                                                                        .as_deref()
+                                                                        .unwrap_or("查询失败"),
+                                                                );
                                                             } else {
                                                                 welcome_action = ui::Welcome::show(
                                                                     ui,
@@ -555,28 +645,45 @@ impl DbManagerApp {
                                                                 available_height,
                                                             ));
 
+                                                            let er_is_focused = self.focus_area
+                                                                == ui::FocusArea::ErDiagram
+                                                                && !self.has_modal_dialog_open();
                                                             let er_response = self
                                                                 .er_diagram_state
-                                                                .show(ui, &theme_preset);
+                                                                .show(
+                                                                    ui,
+                                                                    &theme_preset,
+                                                                    er_is_focused,
+                                                                );
 
-                                                            if er_response.refresh_requested {
-                                                                self.load_er_diagram_data();
-                                                            }
-                                                            if er_response.layout_requested {
-                                                                ui::force_directed_layout(
-                                                                    &mut self
-                                                                        .er_diagram_state
-                                                                        .tables,
-                                                                    &self
-                                                                        .er_diagram_state
-                                                                        .relationships,
-                                                                    50,
-                                                                );
-                                                            }
-                                                            if er_response.fit_view_requested {
-                                                                self.er_diagram_state.fit_to_view(
-                                                                    ui.available_size(),
-                                                                );
+                                                            for action in collect_er_diagram_surface_actions(&er_response) {
+                                                                match action {
+                                                                    ErDiagramSurfaceAction::FocusDiagram => {
+                                                                        self.set_focus_area(
+                                                                            ui::FocusArea::ErDiagram,
+                                                                        );
+                                                                    }
+                                                                    ErDiagramSurfaceAction::RefreshData => {
+                                                                        self.load_er_diagram_data();
+                                                                    }
+                                                                    ErDiagramSurfaceAction::Relayout => {
+                                                                        ui::force_directed_layout(
+                                                                            &mut self
+                                                                                .er_diagram_state
+                                                                                .tables,
+                                                                            &self
+                                                                                .er_diagram_state
+                                                                                .relationships,
+                                                                            50,
+                                                                        );
+                                                                    }
+                                                                    ErDiagramSurfaceAction::FitView => {
+                                                                        self.er_diagram_state
+                                                                            .fit_to_view(
+                                                                                ui.available_size(),
+                                                                            );
+                                                                    }
+                                                                }
                                                             }
                                                         },
                                                     );
@@ -667,6 +774,15 @@ impl DbManagerApp {
                                                         );
                                                     }
                                                 }
+                                            } else if workspace_surface
+                                                == WorkspaceSurface::QueryError
+                                            {
+                                                Self::render_query_error_surface(
+                                                    ui,
+                                                    active_query_error
+                                                        .as_deref()
+                                                        .unwrap_or("查询失败"),
+                                                );
                                             } else {
                                                 welcome_action = ui::Welcome::show(
                                                     ui,
@@ -735,7 +851,7 @@ impl DbManagerApp {
             self.focus_area == ui::FocusArea::SqlEditor && !self.has_modal_dialog_open();
 
         // 计算编辑器高度（使用 sql_editor_height 字段或默认值）
-        let editor_height = self.sql_editor_height.clamp(100.0, available_height * 0.6);
+        let editor_height = clamped_sql_editor_height(self.sql_editor_height, available_height);
 
         // 可拖动的水平分割条
         let divider_height = 6.0;
@@ -783,8 +899,14 @@ impl DbManagerApp {
             egui::vec2(ui.available_width(), editor_height),
             egui::Layout::top_down(egui::Align::LEFT),
             |ui| {
-                // 获取最新通知消息用于状态栏显示
-                let latest_msg = self.notifications.latest_message().map(|s| s.to_string());
+                let active_tab_message = self
+                    .tab_manager
+                    .get_active()
+                    .and_then(|tab| tab.last_message.as_deref());
+                let latest_msg = select_sql_editor_status_message(
+                    active_tab_message,
+                    self.notifications.latest_message(),
+                );
                 let mut request_editor_widget_focus =
                     is_editor_focused && self.editor_mode == ui::EditorMode::Insert;
                 sql_editor_actions = ui::SqlEditor::show(
@@ -886,6 +1008,18 @@ impl DbManagerApp {
             self.dispatch_app_action(ctx, AppAction::RefreshActiveConnection);
         }
 
+        if actions.open_actions_menu {
+            self.open_dialog(DialogId::ToolbarActionsMenu);
+        }
+
+        if actions.open_create_menu {
+            self.open_dialog(DialogId::ToolbarCreateMenu);
+        }
+
+        if actions.open_theme_selector {
+            self.dispatch_app_action(ctx, AppAction::OpenThemeSelectorDialog);
+        }
+
         // 连接切换
         if let Some(conn_name) = actions.switch_connection
             && self.manager.active.as_deref() != Some(&conn_name)
@@ -934,15 +1068,6 @@ impl DbManagerApp {
             self.dispatch_app_action(ctx, AppAction::ToggleErDiagram);
         }
 
-        if let Some(preset) = actions.theme_changed {
-            if self.app_config.is_dark_mode {
-                self.app_config.dark_theme = preset;
-            } else {
-                self.app_config.light_theme = preset;
-            }
-            self.set_theme(ctx, preset);
-        }
-
         // 处理日/夜模式切换（来自工具栏按钮或 Ctrl+D 快捷键）
         if actions.toggle_dark_mode || self.pending_toggle_dark_mode {
             self.pending_toggle_dark_mode = false;
@@ -986,6 +1111,7 @@ impl DbManagerApp {
             } else {
                 let databases = conn.databases.clone();
                 self.create_user_dialog_state.open(db_type, databases);
+                self.mark_dialog_owner(DialogId::CreateUser);
             }
         } else {
             self.notifications.warning("请先连接数据库");
@@ -1057,7 +1183,7 @@ impl DbManagerApp {
         // 删除请求
         if let Some(target) = actions.delete {
             self.pending_delete_target = Some(target);
-            self.show_delete_confirm = true;
+            self.open_dialog(DialogId::DeleteConfirm);
         }
 
         // 查看表结构
@@ -1323,7 +1449,7 @@ impl DbManagerApp {
         tab_actions: TabBarActions,
     ) {
         // 在切换/关闭标签前先保存当前草稿，避免 SQL 被覆盖
-        self.sync_sql_to_active_tab();
+        self.persist_active_tab_state_for_navigation();
 
         if tab_actions.new_tab {
             self.dispatch_app_action(ctx, AppAction::NewQueryTab);
@@ -1334,6 +1460,7 @@ impl DbManagerApp {
         }
 
         if let Some(idx) = tab_actions.close_tab {
+            let closing_tab_id = self.tab_manager.tabs.get(idx).map(|tab| tab.id.clone());
             if self.tab_manager.tabs.len() > 1
                 && let Some(request_id) = self
                     .tab_manager
@@ -1341,9 +1468,12 @@ impl DbManagerApp {
                     .get(idx)
                     .and_then(|tab| tab.pending_request_id)
             {
-                self.cancel_query_request(request_id);
+                self.cancel_query_request_silently(request_id);
             }
             self.tab_manager.close_tab(idx);
+            if let Some(tab_id) = closing_tab_id {
+                self.remove_grid_workspaces_for_tab(&tab_id);
+            }
             self.sync_from_active_tab();
         }
 
@@ -1362,10 +1492,26 @@ impl DbManagerApp {
                     }
                 })
                 .collect();
+            let closing_tab_ids: Vec<String> = self
+                .tab_manager
+                .tabs
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, tab)| {
+                    if idx != active_index {
+                        Some(tab.id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             for request_id in request_ids {
-                self.cancel_query_request(request_id);
+                self.cancel_query_request_silently(request_id);
             }
             self.tab_manager.close_other_tabs();
+            for tab_id in closing_tab_ids {
+                self.remove_grid_workspaces_for_tab(&tab_id);
+            }
             self.sync_from_active_tab();
         }
 
@@ -1384,10 +1530,26 @@ impl DbManagerApp {
                     }
                 })
                 .collect();
+            let closing_tab_ids: Vec<String> = self
+                .tab_manager
+                .tabs
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, tab)| {
+                    if idx > active_index {
+                        Some(tab.id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             for request_id in request_ids {
-                self.cancel_query_request(request_id);
+                self.cancel_query_request_silently(request_id);
             }
             self.tab_manager.close_tabs_to_right();
+            for tab_id in closing_tab_ids {
+                self.remove_grid_workspaces_for_tab(&tab_id);
+            }
             self.sync_from_active_tab();
         }
     }
@@ -1395,25 +1557,240 @@ impl DbManagerApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{WorkspaceSurface, classify_workspace_surface};
-    use crate::database::QueryResult;
+    use super::{
+        ErDiagramSurfaceAction, WorkspaceSurface, clamped_sql_editor_height,
+        classify_workspace_surface, collect_er_diagram_surface_actions,
+        select_sql_editor_status_message,
+    };
+    use crate::app::DbManagerApp;
+    use crate::app::dialogs::host::DialogId;
+    use crate::database::{Connection, ConnectionConfig, DatabaseType, QueryResult};
+    use crate::ui::{
+        ERDiagramResponse, FocusArea, SidebarActions, SidebarDeleteTarget, ToolbarActions,
+    };
+    use eframe::egui::{self, Event, Key, Modifiers, RawInput};
+
+    fn run_frame_with_event(app: &mut DbManagerApp, ctx: &egui::Context, event: Event) {
+        let modifiers = match &event {
+            Event::Key { modifiers, .. } => *modifiers,
+            _ => Modifiers::NONE,
+        };
+        let raw_input = RawInput {
+            events: vec![event],
+            modifiers,
+            ..Default::default()
+        };
+
+        ctx.begin_pass(raw_input);
+        egui::Area::new(egui::Id::new("render_frame_test_area")).show(ctx, |ui| app.run_frame(ui));
+        let _ = ctx.end_pass();
+    }
+
+    fn prime_active_connection_with_tables(app: &mut DbManagerApp, tables: &[&str]) {
+        let mut connection = Connection::new(ConnectionConfig::new("demo", DatabaseType::SQLite));
+        connection.connected = true;
+        connection.selected_database = Some("main".to_string());
+        connection.tables = tables.iter().map(|name| (*name).to_string()).collect();
+        app.manager
+            .connections
+            .insert("demo".to_string(), connection);
+        app.manager.active = Some("demo".to_string());
+    }
 
     #[test]
     fn workspace_surface_requires_columns_for_tabular_view() {
-        assert_eq!(classify_workspace_surface(None), WorkspaceSurface::Welcome);
         assert_eq!(
-            classify_workspace_surface(Some(&QueryResult {
-                affected_rows: 3,
-                ..QueryResult::default()
-            })),
+            classify_workspace_surface(None, None),
             WorkspaceSurface::Welcome
         );
         assert_eq!(
-            classify_workspace_surface(Some(&QueryResult::with_rows(
-                vec!["id".to_string()],
-                Vec::new(),
-            ))),
+            classify_workspace_surface(
+                Some(&QueryResult {
+                    affected_rows: 3,
+                    ..QueryResult::default()
+                }),
+                None,
+            ),
+            WorkspaceSurface::Welcome
+        );
+        assert_eq!(
+            classify_workspace_surface(
+                Some(&QueryResult::with_rows(vec!["id".to_string()], Vec::new())),
+                None,
+            ),
             WorkspaceSurface::TabularResult
+        );
+    }
+
+    #[test]
+    fn workspace_surface_prioritizes_explicit_query_error() {
+        assert_eq!(
+            classify_workspace_surface(
+                Some(&QueryResult::with_rows(vec!["id".to_string()], Vec::new())),
+                Some("错误: syntax error"),
+            ),
+            WorkspaceSurface::QueryError
+        );
+        assert_eq!(
+            classify_workspace_surface(None, Some("错误: syntax error")),
+            WorkspaceSurface::QueryError
+        );
+    }
+
+    #[test]
+    fn sql_editor_status_message_prefers_active_tab_message() {
+        assert_eq!(
+            select_sql_editor_status_message(Some("查询完成，返回 1 行"), Some("已连接到 demo")),
+            Some("查询完成，返回 1 行".to_string())
+        );
+        assert_eq!(
+            select_sql_editor_status_message(None, Some("已连接到 demo")),
+            Some("已连接到 demo".to_string())
+        );
+    }
+
+    #[test]
+    fn er_diagram_surface_actions_follow_response_flags_in_stable_order() {
+        let response = ERDiagramResponse {
+            request_focus: true,
+            refresh_requested: true,
+            layout_requested: true,
+            fit_view_requested: true,
+        };
+
+        assert_eq!(
+            collect_er_diagram_surface_actions(&response),
+            vec![
+                ErDiagramSurfaceAction::FocusDiagram,
+                ErDiagramSurfaceAction::RefreshData,
+                ErDiagramSurfaceAction::Relayout,
+                ErDiagramSurfaceAction::FitView,
+            ]
+        );
+    }
+
+    #[test]
+    fn er_diagram_surface_actions_skip_unset_flags() {
+        let response = ERDiagramResponse {
+            refresh_requested: true,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            collect_er_diagram_surface_actions(&response),
+            vec![ErDiagramSurfaceAction::RefreshData]
+        );
+        assert!(collect_er_diagram_surface_actions(&ERDiagramResponse::default()).is_empty());
+    }
+
+    #[test]
+    fn sql_editor_height_keeps_min_height_when_viewport_allows_it() {
+        assert_eq!(clamped_sql_editor_height(80.0, 500.0), 100.0);
+        assert_eq!(clamped_sql_editor_height(260.0, 500.0), 260.0);
+    }
+
+    #[test]
+    fn sql_editor_height_shrinks_in_tiny_viewport_without_panicking() {
+        let height = clamped_sql_editor_height(240.0, 47.343753);
+        assert!((height - 28.406252).abs() < 0.001);
+
+        let zero_height = clamped_sql_editor_height(240.0, 0.0);
+        assert_eq!(zero_height, 0.0);
+    }
+
+    #[test]
+    fn sidebar_delete_action_opens_delete_confirm_with_saved_target() {
+        let ctx = egui::Context::default();
+        let mut app = DbManagerApp::new_for_test();
+        let target = SidebarDeleteTarget::connection("primary".to_string());
+        let actions = SidebarActions {
+            delete: Some(target.clone()),
+            ..Default::default()
+        };
+
+        app.handle_sidebar_actions(&ctx, actions);
+
+        assert_eq!(app.pending_delete_target, Some(target));
+        assert!(app.show_delete_confirm);
+        assert_eq!(app.active_dialog_id(), Some(DialogId::DeleteConfirm));
+    }
+
+    #[test]
+    fn ctrl_r_opening_er_moves_focus_off_data_grid_before_grid_can_consume_j() {
+        let ctx = egui::Context::default();
+        let mut app = DbManagerApp::new_for_test();
+        prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
+        app.result = Some(QueryResult::with_rows(
+            vec!["id".to_string()],
+            vec![vec!["1".to_string()]],
+        ));
+        app.selected_table = Some("customers".to_string());
+        app.set_focus_area(FocusArea::DataGrid);
+        app.grid_state.cursor = (0, 0);
+        app.grid_state.focused = true;
+
+        run_frame_with_event(
+            &mut app,
+            &ctx,
+            Event::Key {
+                key: Key::R,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::CTRL,
+            },
+        );
+
+        assert!(app.show_er_diagram);
+        assert_eq!(app.focus_area, FocusArea::ErDiagram);
+        assert!(!app.grid_state.focused);
+        assert_eq!(
+            app.er_diagram_state.selected_table_name(),
+            Some("customers")
+        );
+
+        run_frame_with_event(
+            &mut app,
+            &ctx,
+            Event::Key {
+                key: Key::J,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            },
+        );
+
+        assert_eq!(app.focus_area, FocusArea::ErDiagram);
+        assert!(!app.grid_state.focused);
+        assert_eq!(app.grid_state.cursor, (0, 0));
+        assert_eq!(app.er_diagram_state.selected_table_name(), Some("orders"));
+    }
+
+    #[test]
+    fn toolbar_toggle_er_diagram_action_focuses_er_from_data_grid() {
+        let ctx = egui::Context::default();
+        let mut app = DbManagerApp::new_for_test();
+        prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
+        app.result = Some(QueryResult::with_rows(
+            vec!["id".to_string()],
+            vec![vec!["1".to_string()]],
+        ));
+        app.selected_table = Some("customers".to_string());
+        app.set_focus_area(FocusArea::DataGrid);
+
+        let actions = ToolbarActions {
+            toggle_er_diagram: true,
+            ..Default::default()
+        };
+        app.handle_toolbar_actions(&ctx, actions);
+
+        assert!(app.show_er_diagram);
+        assert_eq!(app.focus_area, FocusArea::ErDiagram);
+        assert!(!app.grid_state.focused);
+        assert_eq!(
+            app.er_diagram_state.selected_table_name(),
+            Some("customers")
         );
     }
 }

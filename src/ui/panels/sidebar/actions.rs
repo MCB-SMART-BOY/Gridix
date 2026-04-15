@@ -32,6 +32,26 @@ pub enum SidebarDeleteTarget {
     },
 }
 
+impl SidebarDeleteTarget {
+    pub fn connection(connection_name: impl Into<String>) -> Self {
+        Self::Connection(connection_name.into())
+    }
+
+    pub fn database(connection_name: impl Into<String>, database_name: impl Into<String>) -> Self {
+        Self::Database {
+            connection_name: connection_name.into(),
+            database_name: database_name.into(),
+        }
+    }
+
+    pub fn table(connection_name: impl Into<String>, table_name: impl Into<String>) -> Self {
+        Self::Table {
+            connection_name: connection_name.into(),
+            table_name: table_name.into(),
+        }
+    }
+}
+
 /// 侧边栏操作
 #[derive(Default)]
 pub struct SidebarActions {

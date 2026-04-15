@@ -22,7 +22,7 @@ mod workflow;
 
 use eframe::egui;
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
@@ -34,6 +34,7 @@ use crate::database::{ConnectionConfig, ConnectionManager, DatabaseType, QueryRe
 use crate::ui::{self, DdlDialogState, ExportConfig, KeyBindingsDialogState, QueryTabManager};
 
 use action::command_palette::CommandPaletteState;
+use dialogs::host::DialogId;
 use runtime::message::Message;
 
 #[derive(Debug, Clone)]
@@ -48,6 +49,7 @@ pub(in crate::app) struct GridSaveContext {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(in crate::app) struct GridWorkspaceId {
+    tab_id: String,
     connection_name: String,
     database_name: Option<String>,
     table_name: String,
@@ -72,6 +74,11 @@ impl GridWorkspaceStore {
             .retain(|workspace_id, _| workspace_id.connection_name != connection_name);
     }
 
+    fn remove_tab(&mut self, tab_id: &str) {
+        self.states
+            .retain(|workspace_id, _| workspace_id.tab_id != tab_id);
+    }
+
     fn remove_table(
         &mut self,
         connection_name: &str,
@@ -90,6 +97,12 @@ impl GridWorkspaceStore {
             workspace_id.connection_name != connection_name
                 || workspace_id.database_name.as_deref() != Some(database_name)
         });
+    }
+
+    fn clear_save_state(&mut self, workspace_id: &GridWorkspaceId) {
+        if let Some(state) = self.states.get_mut(workspace_id) {
+            state.clear_save_state();
+        }
     }
 }
 
@@ -171,6 +184,8 @@ pub struct DbManagerApp {
     pending_query_connections: HashMap<u64, String>,
     /// 查询取消信号发送器
     pending_query_cancellers: HashMap<u64, Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>>,
+    /// 显式用户取消的查询请求 ID（用于让取消回包通过 stale gate）
+    user_cancelled_query_requests: HashSet<u64>,
     /// 进行中的表格保存请求上下文
     pending_grid_save_requests: HashMap<u64, GridSaveContext>,
     /// 表格刷新完成后需要恢复的视图上下文
@@ -205,6 +220,8 @@ pub struct DbManagerApp {
     grid_state: ui::DataGridState,
     /// 按表实例隔离的表格工作区状态
     grid_workspaces: GridWorkspaceStore,
+    /// 当前活动 surface 是否使用持久化 grid workspace
+    active_grid_workspace_enabled: bool,
 
     // ==================== 对话框状态 ====================
     /// 是否显示导出对话框
@@ -257,6 +274,8 @@ pub struct DbManagerApp {
     show_sidebar: bool,
     /// 全局焦点区域（侧边栏/SQL 编辑器/数据表格）
     focus_area: ui::FocusArea,
+    /// 最近一个非 ER 的 workspace 主区域（仅记录 Sidebar / DataGrid / SqlEditor）
+    last_non_er_workspace_focus: ui::FocusArea,
     /// 工具栏当前选中项索引（用于键盘导航）
     toolbar_index: usize,
     /// 侧边栏当前焦点子区域（连接/数据库/表）
@@ -271,6 +290,8 @@ pub struct DbManagerApp {
     show_welcome_setup_dialog: bool,
     /// 当前引导目标数据库
     welcome_setup_target: DatabaseType,
+    /// 欢迎页安装/初始化引导当前选中的动作索引
+    welcome_setup_action_index: usize,
     /// 是否显示帮助面板
     show_help: bool,
     /// 帮助面板滚动位置
@@ -279,6 +300,8 @@ pub struct DbManagerApp {
     help_state: ui::HelpState,
     /// 是否显示关于对话框
     show_about: bool,
+    /// 当前显式 dialog owner（输入/渲染优先走这里，再兼容回退到可见性采样）
+    active_dialog_owner: Option<DialogId>,
     /// 用户设置的 UI 缩放比例
     ui_scale: f32,
     /// 系统基础 DPI 缩放
@@ -293,6 +316,12 @@ pub struct DbManagerApp {
     keybindings: KeyBindings,
     /// 快捷键设置对话框状态
     keybindings_dialog_state: KeyBindingsDialogState,
+    /// 顶部工具栏“操作”菜单状态
+    toolbar_actions_menu_state: ui::ToolbarMenuDialogState,
+    /// 顶部工具栏“新建”菜单状态
+    toolbar_create_menu_state: ui::ToolbarMenuDialogState,
+    /// 顶部工具栏“主题”菜单状态
+    toolbar_theme_dialog_state: ui::ToolbarThemeDialogState,
     /// 命令面板状态
     command_palette_state: CommandPaletteState,
     /// 中央面板左右分割比例 (0.0-1.0, 左侧占比)
@@ -309,6 +338,16 @@ pub struct DbManagerApp {
 
 impl DbManagerApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let app_config = AppConfig::load();
+        let keybindings = KeyBindings::load_or_init(&app_config.keybindings);
+        Self::new_with_loaded_config(cc, app_config, keybindings)
+    }
+
+    fn new_with_loaded_config(
+        cc: &eframe::CreationContext<'_>,
+        app_config: AppConfig,
+        keybindings: KeyBindings,
+    ) -> Self {
         let (tx, rx) = channel();
 
         // 创建 tokio runtime，优先多线程，失败则降级到单线程
@@ -323,9 +362,6 @@ impl DbManagerApp {
             })
             .expect("无法创建 tokio 运行时，系统资源可能不足");
 
-        // 加载配置
-        let app_config = AppConfig::load();
-        let keybindings = KeyBindings::load_or_init(&app_config.keybindings);
         ui::sync_runtime_local_shortcuts(&keybindings);
         let theme_manager = ThemeManager::new(app_config.theme_preset);
         let highlight_colors = HighlightColors::from_theme(&theme_manager.colors);
@@ -378,6 +414,7 @@ impl DbManagerApp {
             pending_query_tasks: HashMap::new(),
             pending_query_connections: HashMap::new(),
             pending_query_cancellers: HashMap::new(),
+            user_cancelled_query_requests: HashSet::new(),
             pending_grid_save_requests: HashMap::new(),
             pending_grid_refresh_restores: HashMap::new(),
             app_config,
@@ -393,6 +430,7 @@ impl DbManagerApp {
             selected_cell: None,
             grid_state: ui::DataGridState::new(),
             grid_workspaces: GridWorkspaceStore::default(),
+            active_grid_workspace_enabled: false,
             show_export_dialog: false,
             export_config: ExportConfig::default(),
             export_status: None,
@@ -415,6 +453,7 @@ impl DbManagerApp {
             focus_sql_editor: false,
             show_sidebar: false,
             focus_area: ui::FocusArea::DataGrid,
+            last_non_er_workspace_focus: ui::FocusArea::DataGrid,
             toolbar_index: 0,
             sidebar_section: ui::SidebarSection::Connections,
             sidebar_panel_state,
@@ -422,10 +461,12 @@ impl DbManagerApp {
             welcome_status: ui::WelcomeStatusSummary::default(),
             show_welcome_setup_dialog: false,
             welcome_setup_target: DatabaseType::SQLite,
+            welcome_setup_action_index: 0,
             show_help: false,
             help_scroll_offset: 0.0,
             help_state: ui::HelpState::default(),
             show_about: false,
+            active_dialog_owner: None,
             ui_scale,
             base_pixels_per_point,
             ddl_dialog_state: DdlDialogState::default(),
@@ -433,6 +474,9 @@ impl DbManagerApp {
             create_user_dialog_state: ui::CreateUserDialogState::new(),
             keybindings,
             keybindings_dialog_state: KeyBindingsDialogState::default(),
+            toolbar_actions_menu_state: ui::ToolbarMenuDialogState::default(),
+            toolbar_create_menu_state: ui::ToolbarMenuDialogState::default(),
+            toolbar_theme_dialog_state: ui::ToolbarThemeDialogState::default(),
             command_palette_state: CommandPaletteState::default(),
             central_panel_ratio: 0.65,
             show_er_diagram: false,
@@ -444,16 +488,24 @@ impl DbManagerApp {
         app
     }
 
+    #[cfg(test)]
+    pub(crate) fn new_for_test() -> Self {
+        let cc = eframe::CreationContext::_new_kittest(egui::Context::default());
+        Self::new_with_loaded_config(&cc, AppConfig::default(), KeyBindings::default())
+    }
+
     pub(in crate::app) fn grid_workspace_id_for_table(
         &self,
         table_name: &str,
     ) -> Option<GridWorkspaceId> {
+        let tab_id = self.tab_manager.get_active()?.id.clone();
         let connection_name = self.manager.active.clone()?;
         let database_name = self
             .manager
             .get_active()
             .and_then(|connection| connection.selected_database.clone());
         Some(GridWorkspaceId {
+            tab_id,
             connection_name,
             database_name,
             table_name: table_name.to_string(),
@@ -461,6 +513,9 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn active_grid_workspace_id(&self) -> Option<GridWorkspaceId> {
+        if !self.active_grid_workspace_enabled {
+            return None;
+        }
         let table_name = self.selected_table.as_deref()?;
         self.grid_workspace_id_for_table(table_name)
     }
@@ -476,14 +531,29 @@ impl DbManagerApp {
         self.grid_state.focused = self.focus_area == ui::FocusArea::DataGrid;
     }
 
-    pub(in crate::app) fn switch_grid_workspace(&mut self, next_table: Option<String>) {
-        self.persist_active_grid_workspace();
-        self.selected_table = next_table;
+    pub(in crate::app) fn sync_active_surface_binding_to_tab(&mut self) {
+        if let Some(tab) = self.tab_manager.get_active_mut() {
+            tab.selected_table = self.selected_table.clone();
+            tab.search_text = self.search_text.clone();
+            tab.search_column = self.search_column.clone();
+            tab.uses_grid_workspace = self.active_grid_workspace_enabled;
+        }
+    }
+
+    pub(in crate::app) fn restore_grid_surface_from_active_tab(&mut self) {
         self.grid_state = match self.active_grid_workspace_id() {
             Some(workspace_id) => self.grid_workspaces.load(&workspace_id).unwrap_or_default(),
             None => ui::DataGridState::new(),
         };
         self.sync_active_grid_focus();
+    }
+
+    pub(in crate::app) fn switch_grid_workspace(&mut self, next_table: Option<String>) {
+        self.persist_active_grid_workspace();
+        self.selected_table = next_table;
+        self.active_grid_workspace_enabled = self.selected_table.is_some();
+        self.restore_grid_surface_from_active_tab();
+        self.sync_active_surface_binding_to_tab();
     }
 
     pub(in crate::app) fn reset_grid_workspace_for_transient_surface(
@@ -492,12 +562,17 @@ impl DbManagerApp {
     ) {
         self.persist_active_grid_workspace();
         self.selected_table = selected_table;
-        self.grid_state = ui::DataGridState::new();
-        self.sync_active_grid_focus();
+        self.active_grid_workspace_enabled = false;
+        self.restore_grid_surface_from_active_tab();
+        self.sync_active_surface_binding_to_tab();
     }
 
     pub(in crate::app) fn remove_grid_workspaces_for_connection(&mut self, connection_name: &str) {
         self.grid_workspaces.remove_connection(connection_name);
+    }
+
+    pub(in crate::app) fn remove_grid_workspaces_for_tab(&mut self, tab_id: &str) {
+        self.grid_workspaces.remove_tab(tab_id);
     }
 
     pub(in crate::app) fn remove_grid_workspace_for_table(&mut self, table_name: &str) {
@@ -593,8 +668,14 @@ mod tests {
     use super::{GridWorkspaceId, GridWorkspaceStore};
     use crate::ui::DataGridState;
 
-    fn workspace(connection: &str, database: Option<&str>, table: &str) -> GridWorkspaceId {
+    fn workspace(
+        tab_id: &str,
+        connection: &str,
+        database: Option<&str>,
+        table: &str,
+    ) -> GridWorkspaceId {
         GridWorkspaceId {
+            tab_id: tab_id.to_string(),
             connection_name: connection.to_string(),
             database_name: database.map(str::to_string),
             table_name: table.to_string(),
@@ -614,8 +695,8 @@ mod tests {
             .push(vec!["draft-order".to_string(), "2".to_string()]);
         orders_state.cursor = (8, 1);
 
-        let users_id = workspace("local", Some("main"), "users");
-        let orders_id = workspace("local", Some("main"), "orders");
+        let users_id = workspace("tab-1", "local", Some("main"), "users");
+        let orders_id = workspace("tab-1", "local", Some("main"), "orders");
 
         store.save(users_id.clone(), &users_state);
         store.save(orders_id.clone(), &orders_state);
@@ -637,8 +718,8 @@ mod tests {
     fn grid_workspace_store_can_drop_whole_connection() {
         let mut store = GridWorkspaceStore::default();
         let state = DataGridState::new();
-        let left = workspace("left", Some("main"), "users");
-        let right = workspace("right", Some("main"), "users");
+        let left = workspace("tab-left", "left", Some("main"), "users");
+        let right = workspace("tab-right", "right", Some("main"), "users");
 
         store.save(left.clone(), &state);
         store.save(right.clone(), &state);
@@ -652,9 +733,9 @@ mod tests {
     fn grid_workspace_store_can_drop_whole_database() {
         let mut store = GridWorkspaceStore::default();
         let state = DataGridState::new();
-        let users = workspace("local", Some("main"), "users");
-        let orders = workspace("local", Some("main"), "orders");
-        let analytics = workspace("local", Some("analytics"), "events");
+        let users = workspace("tab-1", "local", Some("main"), "users");
+        let orders = workspace("tab-2", "local", Some("main"), "orders");
+        let analytics = workspace("tab-3", "local", Some("analytics"), "events");
 
         store.save(users.clone(), &state);
         store.save(orders.clone(), &state);
@@ -664,5 +745,93 @@ mod tests {
         assert!(store.load(&users).is_none());
         assert!(store.load(&orders).is_none());
         assert!(store.load(&analytics).is_some());
+    }
+
+    #[test]
+    fn grid_workspace_store_keeps_same_table_isolated_per_tab() {
+        let mut store = GridWorkspaceStore::default();
+        let mut left_tab = DataGridState::new();
+        left_tab.new_rows.push(vec!["draft-a".to_string()]);
+        left_tab.cursor = (3, 0);
+
+        let mut right_tab = DataGridState::new();
+        right_tab.new_rows.push(vec!["draft-b".to_string()]);
+        right_tab.cursor = (9, 1);
+
+        let left_id = workspace("tab-left", "local", Some("main"), "users");
+        let right_id = workspace("tab-right", "local", Some("main"), "users");
+
+        store.save(left_id.clone(), &left_tab);
+        store.save(right_id.clone(), &right_tab);
+
+        let restored_left = store
+            .load(&left_id)
+            .expect("left tab workspace should exist");
+        let restored_right = store
+            .load(&right_id)
+            .expect("right tab workspace should exist");
+
+        assert_eq!(restored_left.cursor, (3, 0));
+        assert_eq!(restored_left.new_rows[0][0], "draft-a");
+        assert_eq!(restored_right.cursor, (9, 1));
+        assert_eq!(restored_right.new_rows[0][0], "draft-b");
+    }
+
+    #[test]
+    fn grid_workspace_store_can_drop_whole_tab() {
+        let mut store = GridWorkspaceStore::default();
+        let state = DataGridState::new();
+        let keep = workspace("tab-keep", "local", Some("main"), "users");
+        let drop = workspace("tab-drop", "local", Some("main"), "users");
+
+        store.save(keep.clone(), &state);
+        store.save(drop.clone(), &state);
+        store.remove_tab("tab-drop");
+
+        assert!(store.load(&keep).is_some());
+        assert!(store.load(&drop).is_none());
+    }
+
+    #[test]
+    fn grid_workspace_store_clear_save_state_only_mutates_target_workspace() {
+        let mut store = GridWorkspaceStore::default();
+        let target_id = workspace("tab-a", "local", Some("main"), "users");
+        let other_id = workspace("tab-b", "local", Some("main"), "users");
+
+        let mut target = DataGridState::new();
+        target.modified_cells.insert((0, 0), "alice".to_string());
+        target
+            .pending_sql
+            .push("UPDATE users SET name='alice'".to_string());
+        target.pending_save = true;
+        target.show_save_confirm = true;
+
+        let mut other = DataGridState::new();
+        other.modified_cells.insert((1, 0), "bob".to_string());
+        other
+            .pending_sql
+            .push("UPDATE users SET name='bob'".to_string());
+        other.pending_save = true;
+        other.show_save_confirm = true;
+
+        store.save(target_id.clone(), &target);
+        store.save(other_id.clone(), &other);
+
+        store.clear_save_state(&target_id);
+
+        let cleared = store
+            .load(&target_id)
+            .expect("target workspace should exist");
+        let untouched = store.load(&other_id).expect("other workspace should exist");
+
+        assert!(!cleared.has_changes());
+        assert!(cleared.pending_sql.is_empty());
+        assert!(!cleared.pending_save);
+        assert!(!cleared.show_save_confirm);
+
+        assert!(untouched.has_changes());
+        assert_eq!(untouched.pending_sql.len(), 1);
+        assert!(untouched.pending_save);
+        assert!(untouched.show_save_confirm);
     }
 }

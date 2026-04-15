@@ -1,13 +1,13 @@
 //! 数据库连接对话框
 use super::common::{
-    DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow,
+    DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow, FormDialogShell,
 };
 use crate::database::{
     ConnectionConfig, DatabaseType, MySqlSslMode, PostgresSslMode, SshAuthMethod,
 };
 use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_MD, SPACING_SM, SUCCESS};
 use crate::ui::{LocalShortcut, local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text};
-use egui::{self, Color32, CornerRadius, RichText, ScrollArea, TextEdit};
+use egui::{self, Color32, CornerRadius, RichText, TextEdit};
 use std::path::Path;
 
 /// 输入验证结果
@@ -109,7 +109,24 @@ enum ConnectionBrowseTarget {
     SshPrivateKey,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResponsiveRowClass {
+    Wide,
+    Medium,
+    Narrow,
+}
+
+struct ResponsivePathRowSpec<'a> {
+    label: &'a str,
+    hint_text: &'a str,
+    button_label: &'a str,
+    hover_text: Option<&'a str>,
+}
+
 impl ConnectionDialog {
+    const WIDE_ROW_THRESHOLD: f32 = 720.0;
+    const MEDIUM_ROW_THRESHOLD: f32 = 560.0;
+
     #[inline]
     fn apply_database_type(config: &mut ConnectionConfig, db_type: DatabaseType) {
         config.db_type = db_type;
@@ -272,15 +289,24 @@ impl ConnectionDialog {
         };
 
         let style = DialogStyle::LARGE;
+        let footer_validation = validate_config(config);
         let mut click_action = None;
         DialogWindow::standard(ctx, dialog_title, &style)
             .open(&mut is_open)
             .show(ctx, |ui| {
-                ui.add_space(SPACING_MD);
-
-                ScrollArea::vertical()
-                    .max_height(DialogContent::adaptive_height(ui, 0.82, 300.0, 620.0))
-                    .show(ui, |ui| {
+                FormDialogShell::show(
+                    ui,
+                    "connection_dialog_form_shell",
+                    |ui| {
+                        DialogContent::shortcut_hint(
+                            ui,
+                            &[
+                                (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
+                                (local_shortcut_text(LocalShortcut::Confirm).as_str(), "保存"),
+                            ],
+                        );
+                    },
+                    |ui| {
                         DialogContent::section_with_description(
                             ui,
                             "数据库类型",
@@ -374,9 +400,18 @@ impl ConnectionDialog {
                             );
                             ui.add_space(SPACING_SM);
                         }
-                    });
-
-                Self::show_buttons(ui, config, on_save, &mut should_close, is_edit_mode, &style);
+                    },
+                    |ui| {
+                        Self::show_buttons(
+                            ui,
+                            &footer_validation,
+                            on_save,
+                            &mut should_close,
+                            is_edit_mode,
+                            &style,
+                        );
+                    },
+                );
             });
 
         if let Some(action) = click_action {
@@ -499,92 +534,89 @@ impl ConnectionDialog {
         config: &mut ConnectionConfig,
     ) -> Option<ConnectionDialogAction> {
         let mut action = None;
-        egui::Grid::new("connection_form")
-            .num_columns(2)
-            .spacing([16.0, 10.0])
-            .show(ui, |ui| {
-                ui.label(RichText::new("连接名称").color(GRAY));
-                ui.add(
-                    TextEdit::singleline(&mut config.name)
-                        .hint_text("我的数据库")
-                        .char_limit(64)
-                        .desired_width(280.0),
+        Self::show_responsive_labeled_row(ui, "连接名称", |ui, row_class| {
+            let control_width = Self::control_width(ui, row_class, 320.0);
+            ui.add_sized(
+                [control_width, 0.0],
+                TextEdit::singleline(&mut config.name)
+                    .hint_text("我的数据库")
+                    .char_limit(64),
+            );
+        });
+
+        if !matches!(config.db_type, DatabaseType::SQLite) {
+            Self::show_responsive_labeled_row(ui, "主机地址", |ui, row_class| {
+                let control_width = Self::control_width(ui, row_class, 320.0);
+                ui.add_sized(
+                    [control_width, 0.0],
+                    TextEdit::singleline(&mut config.host)
+                        .hint_text("localhost")
+                        .char_limit(255),
                 );
-                ui.end_row();
+            });
 
-                if !matches!(config.db_type, DatabaseType::SQLite) {
-                    ui.label(RichText::new("主机地址").color(GRAY));
-                    ui.add(
-                        TextEdit::singleline(&mut config.host)
-                            .hint_text("localhost")
-                            .char_limit(255)
-                            .desired_width(280.0),
-                    );
-                    ui.end_row();
-
-                    ui.label(RichText::new("端口").color(GRAY));
-                    let mut port_string = config.port.to_string();
-                    ui.add(
-                        TextEdit::singleline(&mut port_string)
-                            .char_limit(5)
-                            .desired_width(80.0),
-                    );
-                    if let Ok(port) = port_string.parse::<u16>() {
-                        config.port = port;
-                    }
-                    ui.end_row();
-
-                    ui.label(RichText::new("用户名").color(GRAY));
-                    ui.add(
-                        TextEdit::singleline(&mut config.username)
-                            .hint_text("root")
-                            .char_limit(128)
-                            .desired_width(280.0),
-                    );
-                    ui.end_row();
-
-                    ui.label(RichText::new("密码").color(GRAY));
-                    ui.add(
-                        TextEdit::singleline(&mut config.password)
-                            .password(true)
-                            .char_limit(256)
-                            .desired_width(280.0),
-                    );
-                    ui.end_row();
-                }
-
-                if matches!(config.db_type, DatabaseType::SQLite) {
-                    ui.label(RichText::new("文件路径").color(GRAY));
-
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            TextEdit::singleline(&mut config.database)
-                                .hint_text("/path/to/database.db")
-                                .desired_width(220.0),
-                        );
-
-                        if ui
-                            .add(
-                                egui::Button::new(format!(
-                                    "浏览 [{}]",
-                                    local_shortcut_text(LocalShortcut::SqliteBrowseFile)
-                                ))
-                                .corner_radius(CornerRadius::same(4)),
-                            )
-                            .on_hover_text(local_shortcut_tooltip(
-                                "浏览并选择 SQLite 数据库文件",
-                                LocalShortcut::SqliteBrowseFile,
-                            ))
-                            .clicked()
-                        {
-                            action = Some(ConnectionDialogAction::Browse(
-                                ConnectionBrowseTarget::SqliteFile,
-                            ));
-                        }
-                    });
-                    ui.end_row();
+            Self::show_responsive_labeled_row(ui, "端口", |ui, row_class| {
+                let mut port_string = config.port.to_string();
+                let control_width = Self::control_width(ui, row_class, 120.0);
+                if ui
+                    .add_sized(
+                        [control_width, 0.0],
+                        TextEdit::singleline(&mut port_string).char_limit(5),
+                    )
+                    .changed()
+                    && let Ok(port) = port_string.parse::<u16>()
+                {
+                    config.port = port;
                 }
             });
+
+            Self::show_responsive_labeled_row(ui, "用户名", |ui, row_class| {
+                let control_width = Self::control_width(ui, row_class, 320.0);
+                ui.add_sized(
+                    [control_width, 0.0],
+                    TextEdit::singleline(&mut config.username)
+                        .hint_text("root")
+                        .char_limit(128),
+                );
+            });
+
+            Self::show_responsive_labeled_row(ui, "密码", |ui, row_class| {
+                let control_width = Self::control_width(ui, row_class, 320.0);
+                ui.add_sized(
+                    [control_width, 0.0],
+                    TextEdit::singleline(&mut config.password)
+                        .password(true)
+                        .char_limit(256),
+                );
+            });
+        }
+
+        if matches!(config.db_type, DatabaseType::SQLite) {
+            let sqlite_browse_label = format!(
+                "浏览 [{}]",
+                local_shortcut_text(LocalShortcut::SqliteBrowseFile)
+            );
+            let sqlite_browse_tooltip = local_shortcut_tooltip(
+                "浏览并选择 SQLite 数据库文件",
+                LocalShortcut::SqliteBrowseFile,
+            );
+            Self::show_responsive_path_row(
+                ui,
+                ResponsivePathRowSpec {
+                    label: "文件路径",
+                    hint_text: "/path/to/database.db",
+                    button_label: &sqlite_browse_label,
+                    hover_text: Some(&sqlite_browse_tooltip),
+                },
+                &mut config.database,
+                |action_slot| {
+                    *action_slot = Some(ConnectionDialogAction::Browse(
+                        ConnectionBrowseTarget::SqliteFile,
+                    ));
+                },
+                &mut action,
+            );
+        }
 
         ui.add_space(SPACING_SM);
         DialogContent::info_text(
@@ -641,41 +673,40 @@ impl ConnectionDialog {
         config: &mut ConnectionConfig,
     ) -> Option<ConnectionDialogAction> {
         let mut action = None;
-        egui::Grid::new("mysql_ssl_form")
-            .num_columns(2)
-            .spacing([16.0, 8.0])
-            .show(ui, |ui| {
-                ui.label(RichText::new("SSL 模式").color(GRAY));
-                egui::ComboBox::new("ssl_mode_combo", "")
-                    .selected_text(config.mysql_ssl_mode.display_name())
-                    .show_ui(ui, |ui| {
-                        for mode in MySqlSslMode::all() {
-                            let label = format!("{} - {}", mode.display_name(), mode.description());
-                            ui.selectable_value(&mut config.mysql_ssl_mode, *mode, label);
-                        }
-                    });
-                ui.end_row();
+        Self::show_responsive_labeled_row(ui, "SSL 模式", |ui, row_class| {
+            let combo_width = Self::control_width(ui, row_class, 320.0);
+            egui::ComboBox::new("ssl_mode_combo", "")
+                .selected_text(config.mysql_ssl_mode.display_name())
+                .width(combo_width)
+                .show_ui(ui, |ui| {
+                    for mode in MySqlSslMode::all() {
+                        let label = format!("{} - {}", mode.display_name(), mode.description());
+                        ui.selectable_value(&mut config.mysql_ssl_mode, *mode, label);
+                    }
+                });
+        });
 
-                if matches!(
-                    config.mysql_ssl_mode,
-                    MySqlSslMode::VerifyCa | MySqlSslMode::VerifyIdentity
-                ) {
-                    ui.label(RichText::new("CA 证书").color(GRAY));
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            TextEdit::singleline(&mut config.ssl_ca_cert)
-                                .hint_text("/path/to/ca-cert.pem")
-                                .desired_width(180.0),
-                        );
-                        if ui.button("浏览").clicked() {
-                            action = Some(ConnectionDialogAction::Browse(
-                                ConnectionBrowseTarget::CaCertificate,
-                            ));
-                        }
-                    });
-                    ui.end_row();
-                }
-            });
+        if matches!(
+            config.mysql_ssl_mode,
+            MySqlSslMode::VerifyCa | MySqlSslMode::VerifyIdentity
+        ) {
+            Self::show_responsive_path_row(
+                ui,
+                ResponsivePathRowSpec {
+                    label: "CA 证书",
+                    hint_text: "/path/to/ca-cert.pem",
+                    button_label: "浏览",
+                    hover_text: None,
+                },
+                &mut config.ssl_ca_cert,
+                |action_slot| {
+                    *action_slot = Some(ConnectionDialogAction::Browse(
+                        ConnectionBrowseTarget::CaCertificate,
+                    ));
+                },
+                &mut action,
+            );
+        }
 
         ui.add_space(SPACING_SM);
         DialogContent::info_text(
@@ -698,41 +729,40 @@ impl ConnectionDialog {
         config: &mut ConnectionConfig,
     ) -> Option<ConnectionDialogAction> {
         let mut action = None;
-        egui::Grid::new("postgres_ssl_form")
-            .num_columns(2)
-            .spacing([16.0, 8.0])
-            .show(ui, |ui| {
-                ui.label(RichText::new("SSL 模式").color(GRAY));
-                egui::ComboBox::new("pg_ssl_mode_combo", "")
-                    .selected_text(config.postgres_ssl_mode.display_name())
-                    .show_ui(ui, |ui| {
-                        for mode in PostgresSslMode::all() {
-                            let label = format!("{} - {}", mode.display_name(), mode.description());
-                            ui.selectable_value(&mut config.postgres_ssl_mode, *mode, label);
-                        }
-                    });
-                ui.end_row();
+        Self::show_responsive_labeled_row(ui, "SSL 模式", |ui, row_class| {
+            let combo_width = Self::control_width(ui, row_class, 320.0);
+            egui::ComboBox::new("pg_ssl_mode_combo", "")
+                .selected_text(config.postgres_ssl_mode.display_name())
+                .width(combo_width)
+                .show_ui(ui, |ui| {
+                    for mode in PostgresSslMode::all() {
+                        let label = format!("{} - {}", mode.display_name(), mode.description());
+                        ui.selectable_value(&mut config.postgres_ssl_mode, *mode, label);
+                    }
+                });
+        });
 
-                if matches!(
-                    config.postgres_ssl_mode,
-                    PostgresSslMode::VerifyCa | PostgresSslMode::VerifyFull
-                ) {
-                    ui.label(RichText::new("CA 证书").color(GRAY));
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            TextEdit::singleline(&mut config.ssl_ca_cert)
-                                .hint_text("/path/to/ca-cert.pem")
-                                .desired_width(180.0),
-                        );
-                        if ui.button("浏览").clicked() {
-                            action = Some(ConnectionDialogAction::Browse(
-                                ConnectionBrowseTarget::CaCertificate,
-                            ));
-                        }
-                    });
-                    ui.end_row();
-                }
-            });
+        if matches!(
+            config.postgres_ssl_mode,
+            PostgresSslMode::VerifyCa | PostgresSslMode::VerifyFull
+        ) {
+            Self::show_responsive_path_row(
+                ui,
+                ResponsivePathRowSpec {
+                    label: "CA 证书",
+                    hint_text: "/path/to/ca-cert.pem",
+                    button_label: "浏览",
+                    hover_text: None,
+                },
+                &mut config.ssl_ca_cert,
+                |action_slot| {
+                    *action_slot = Some(ConnectionDialogAction::Browse(
+                        ConnectionBrowseTarget::CaCertificate,
+                    ));
+                },
+                &mut action,
+            );
+        }
 
         ui.add_space(SPACING_SM);
         DialogContent::info_text(
@@ -763,39 +793,37 @@ impl ConnectionDialog {
 
         let mut action = None;
         ui.add_space(SPACING_SM);
-        egui::Grid::new("ssh_tunnel_form")
-            .num_columns(2)
-            .spacing([16.0, 8.0])
-            .show(ui, |ui| {
-                ui.label(RichText::new("SSH 主机").color(GRAY));
-                ui.add(
-                    TextEdit::singleline(&mut config.ssh_config.ssh_host)
-                        .hint_text("跳板机地址")
-                        .desired_width(200.0),
-                );
-                ui.end_row();
+        Self::show_responsive_labeled_row(ui, "SSH 主机", |ui, row_class| {
+            let control_width = Self::control_width(ui, row_class, 260.0);
+            ui.add_sized(
+                [control_width, 0.0],
+                TextEdit::singleline(&mut config.ssh_config.ssh_host).hint_text("跳板机地址"),
+            );
+        });
 
-                ui.label(RichText::new("SSH 端口").color(GRAY));
-                let mut port_str = config.ssh_config.ssh_port.to_string();
-                if ui
-                    .add(TextEdit::singleline(&mut port_str).desired_width(80.0))
-                    .changed()
-                    && let Ok(port) = port_str.parse::<u16>()
-                {
-                    config.ssh_config.ssh_port = port;
-                }
-                ui.end_row();
+        Self::show_responsive_labeled_row(ui, "SSH 端口", |ui, row_class| {
+            let mut port_str = config.ssh_config.ssh_port.to_string();
+            let control_width = Self::control_width(ui, row_class, 120.0);
+            if ui
+                .add_sized([control_width, 0.0], TextEdit::singleline(&mut port_str))
+                .changed()
+                && let Ok(port) = port_str.parse::<u16>()
+            {
+                config.ssh_config.ssh_port = port;
+            }
+        });
 
-                ui.label(RichText::new("SSH 用户名").color(GRAY));
-                ui.add(
-                    TextEdit::singleline(&mut config.ssh_config.ssh_username)
-                        .hint_text("用户名")
-                        .desired_width(200.0),
-                );
-                ui.end_row();
+        Self::show_responsive_labeled_row(ui, "SSH 用户名", |ui, row_class| {
+            let control_width = Self::control_width(ui, row_class, 260.0);
+            ui.add_sized(
+                [control_width, 0.0],
+                TextEdit::singleline(&mut config.ssh_config.ssh_username).hint_text("用户名"),
+            );
+        });
 
-                ui.label(RichText::new("认证方式").color(GRAY));
-                ui.horizontal(|ui| {
+        Self::show_responsive_labeled_row(ui, "认证方式", |ui, row_class| match row_class {
+            ResponsiveRowClass::Narrow => {
+                ui.vertical(|ui| {
                     ui.selectable_value(
                         &mut config.ssh_config.auth_method,
                         SshAuthMethod::Password,
@@ -807,68 +835,86 @@ impl ConnectionDialog {
                         SshAuthMethod::PrivateKey.display_name(),
                     );
                 });
-                ui.end_row();
+            }
+            ResponsiveRowClass::Wide | ResponsiveRowClass::Medium => {
+                ui.horizontal_wrapped(|ui| {
+                    ui.selectable_value(
+                        &mut config.ssh_config.auth_method,
+                        SshAuthMethod::Password,
+                        SshAuthMethod::Password.display_name(),
+                    );
+                    ui.selectable_value(
+                        &mut config.ssh_config.auth_method,
+                        SshAuthMethod::PrivateKey,
+                        SshAuthMethod::PrivateKey.display_name(),
+                    );
+                });
+            }
+        });
 
-                match config.ssh_config.auth_method {
-                    SshAuthMethod::Password => {
-                        ui.label(RichText::new("SSH 密码").color(GRAY));
-                        ui.add(
-                            TextEdit::singleline(&mut config.ssh_config.ssh_password)
-                                .password(true)
-                                .desired_width(200.0),
-                        );
-                        ui.end_row();
-                    }
-                    SshAuthMethod::PrivateKey => {
-                        ui.label(RichText::new("私钥路径").color(GRAY));
-                        ui.horizontal(|ui| {
-                            ui.add(
-                                TextEdit::singleline(&mut config.ssh_config.private_key_path)
-                                    .hint_text("~/.ssh/id_rsa")
-                                    .desired_width(160.0),
-                            );
-                            if ui.button("浏览").clicked() {
-                                action = Some(ConnectionDialogAction::Browse(
-                                    ConnectionBrowseTarget::SshPrivateKey,
-                                ));
-                            }
-                        });
-                        ui.end_row();
-
-                        ui.label(RichText::new("私钥密码").color(GRAY));
-                        ui.add(
-                            TextEdit::singleline(&mut config.ssh_config.private_key_passphrase)
-                                .password(true)
-                                .hint_text("（可选）")
-                                .desired_width(200.0),
-                        );
-                        ui.end_row();
-                    }
-                }
-
-                ui.label(RichText::new("远程主机").color(GRAY));
-                ui.add(
-                    TextEdit::singleline(&mut config.ssh_config.remote_host)
-                        .hint_text("数据库主机（如 127.0.0.1）")
-                        .desired_width(200.0),
+        match config.ssh_config.auth_method {
+            SshAuthMethod::Password => {
+                Self::show_responsive_labeled_row(ui, "SSH 密码", |ui, row_class| {
+                    let control_width = Self::control_width(ui, row_class, 260.0);
+                    ui.add_sized(
+                        [control_width, 0.0],
+                        TextEdit::singleline(&mut config.ssh_config.ssh_password).password(true),
+                    );
+                });
+            }
+            SshAuthMethod::PrivateKey => {
+                Self::show_responsive_path_row(
+                    ui,
+                    ResponsivePathRowSpec {
+                        label: "私钥路径",
+                        hint_text: "~/.ssh/id_rsa",
+                        button_label: "浏览",
+                        hover_text: None,
+                    },
+                    &mut config.ssh_config.private_key_path,
+                    |action_slot| {
+                        *action_slot = Some(ConnectionDialogAction::Browse(
+                            ConnectionBrowseTarget::SshPrivateKey,
+                        ));
+                    },
+                    &mut action,
                 );
-                ui.end_row();
 
-                ui.label(RichText::new("远程端口").color(GRAY));
-                let mut remote_port_str = config.ssh_config.remote_port.to_string();
-                if ui
-                    .add(
-                        TextEdit::singleline(&mut remote_port_str)
-                            .hint_text("数据库端口")
-                            .desired_width(80.0),
-                    )
-                    .changed()
-                    && let Ok(port) = remote_port_str.parse::<u16>()
-                {
-                    config.ssh_config.remote_port = port;
-                }
-                ui.end_row();
-            });
+                Self::show_responsive_labeled_row(ui, "私钥密码", |ui, row_class| {
+                    let control_width = Self::control_width(ui, row_class, 260.0);
+                    ui.add_sized(
+                        [control_width, 0.0],
+                        TextEdit::singleline(&mut config.ssh_config.private_key_passphrase)
+                            .password(true)
+                            .hint_text("（可选）"),
+                    );
+                });
+            }
+        }
+
+        Self::show_responsive_labeled_row(ui, "远程主机", |ui, row_class| {
+            let control_width = Self::control_width(ui, row_class, 260.0);
+            ui.add_sized(
+                [control_width, 0.0],
+                TextEdit::singleline(&mut config.ssh_config.remote_host)
+                    .hint_text("数据库主机（如 127.0.0.1）"),
+            );
+        });
+
+        Self::show_responsive_labeled_row(ui, "远程端口", |ui, row_class| {
+            let mut remote_port_str = config.ssh_config.remote_port.to_string();
+            let control_width = Self::control_width(ui, row_class, 120.0);
+            if ui
+                .add_sized(
+                    [control_width, 0.0],
+                    TextEdit::singleline(&mut remote_port_str).hint_text("数据库端口"),
+                )
+                .changed()
+                && let Ok(port) = remote_port_str.parse::<u16>()
+            {
+                config.ssh_config.remote_port = port;
+            }
+        });
 
         ui.add_space(SPACING_SM);
         DialogContent::info_text(
@@ -893,22 +939,12 @@ impl ConnectionDialog {
     /// 底部按钮
     fn show_buttons(
         ui: &mut egui::Ui,
-        config: &ConnectionConfig,
+        validation: &ValidationResult,
         on_save: &mut bool,
         should_close: &mut bool,
         is_edit_mode: bool,
         style: &DialogStyle,
     ) {
-        let validation = validate_config(config);
-
-        DialogContent::shortcut_hint(
-            ui,
-            &[
-                (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
-                (local_shortcut_text(LocalShortcut::Confirm).as_str(), "保存"),
-            ],
-        );
-
         if let Some(error) = validation.errors.first() {
             DialogContent::warning_text(ui, error);
             ui.add_space(SPACING_SM);
@@ -939,6 +975,120 @@ impl ConnectionDialog {
             *on_save = true;
             *should_close = true;
         }
+    }
+
+    fn row_width_class(available_width: f32) -> ResponsiveRowClass {
+        if available_width >= Self::WIDE_ROW_THRESHOLD {
+            ResponsiveRowClass::Wide
+        } else if available_width >= Self::MEDIUM_ROW_THRESHOLD {
+            ResponsiveRowClass::Medium
+        } else {
+            ResponsiveRowClass::Narrow
+        }
+    }
+
+    fn label_width(row_class: ResponsiveRowClass) -> f32 {
+        match row_class {
+            ResponsiveRowClass::Wide => 96.0,
+            ResponsiveRowClass::Medium => 88.0,
+            ResponsiveRowClass::Narrow => 0.0,
+        }
+    }
+
+    fn control_width(ui: &egui::Ui, row_class: ResponsiveRowClass, preferred_width: f32) -> f32 {
+        match row_class {
+            ResponsiveRowClass::Wide | ResponsiveRowClass::Medium => {
+                ui.available_width().min(preferred_width)
+            }
+            ResponsiveRowClass::Narrow => ui.available_width(),
+        }
+    }
+
+    fn show_responsive_labeled_row(
+        ui: &mut egui::Ui,
+        label: &str,
+        body: impl FnOnce(&mut egui::Ui, ResponsiveRowClass),
+    ) {
+        let row_class = Self::row_width_class(ui.available_width());
+
+        match row_class {
+            ResponsiveRowClass::Narrow => {
+                ui.label(RichText::new(label).color(GRAY));
+                ui.add_space(4.0);
+                body(ui, row_class);
+            }
+            ResponsiveRowClass::Wide | ResponsiveRowClass::Medium => {
+                let label_width = Self::label_width(row_class);
+                ui.horizontal_top(|ui| {
+                    ui.add_sized(
+                        [label_width, 0.0],
+                        egui::Label::new(RichText::new(label).color(GRAY)),
+                    );
+                    ui.add_space(SPACING_SM);
+                    ui.vertical(|ui| {
+                        body(ui, row_class);
+                    });
+                });
+            }
+        }
+
+        ui.add_space(SPACING_SM);
+    }
+
+    fn show_responsive_path_row(
+        ui: &mut egui::Ui,
+        spec: ResponsivePathRowSpec<'_>,
+        value: &mut String,
+        on_button_clicked: impl FnOnce(&mut Option<ConnectionDialogAction>),
+        action_slot: &mut Option<ConnectionDialogAction>,
+    ) {
+        let mut on_button_clicked = Some(on_button_clicked);
+        Self::show_responsive_labeled_row(ui, spec.label, |ui, row_class| match row_class {
+            ResponsiveRowClass::Wide | ResponsiveRowClass::Medium => {
+                ui.horizontal(|ui| {
+                    let button_width = 112.0;
+                    let field_width = (ui.available_width() - button_width - SPACING_SM).max(120.0);
+                    ui.add_sized(
+                        [field_width, 0.0],
+                        TextEdit::singleline(value).hint_text(spec.hint_text),
+                    );
+
+                    let mut response = ui.add_sized(
+                        [button_width, 0.0],
+                        egui::Button::new(spec.button_label).corner_radius(CornerRadius::same(4)),
+                    );
+                    if let Some(hover_text) = spec.hover_text {
+                        response = response.on_hover_text(hover_text);
+                    }
+                    if response.clicked()
+                        && let Some(handler) = on_button_clicked.take()
+                    {
+                        handler(action_slot);
+                    }
+                });
+            }
+            ResponsiveRowClass::Narrow => {
+                ui.add_sized(
+                    [ui.available_width(), 0.0],
+                    TextEdit::singleline(value).hint_text(spec.hint_text),
+                );
+                ui.add_space(4.0);
+
+                let button_width = ui.available_width().min(140.0);
+                let mut response = ui.add_sized(
+                    [button_width, 0.0],
+                    egui::Button::new(spec.button_label).corner_radius(CornerRadius::same(4)),
+                );
+                if let Some(hover_text) = spec.hover_text {
+                    response = response.on_hover_text(hover_text);
+                }
+                if response.clicked()
+                    && let Some(handler) = on_button_clicked.take()
+                {
+                    handler(action_slot);
+                }
+            }
+        });
     }
 }
 
@@ -1073,5 +1223,21 @@ mod tests {
         assert_eq!(action, None);
 
         let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn responsive_row_width_classes_follow_design_thresholds() {
+        assert_eq!(
+            ConnectionDialog::row_width_class(ConnectionDialog::WIDE_ROW_THRESHOLD),
+            ResponsiveRowClass::Wide
+        );
+        assert_eq!(
+            ConnectionDialog::row_width_class(680.0),
+            ResponsiveRowClass::Medium
+        );
+        assert_eq!(
+            ConnectionDialog::row_width_class(ConnectionDialog::MEDIUM_ROW_THRESHOLD - 1.0),
+            ResponsiveRowClass::Narrow
+        );
     }
 }

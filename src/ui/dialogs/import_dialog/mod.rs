@@ -15,10 +15,12 @@ pub use import_types::*;
 
 use super::common::{
     DialogContent, DialogFooter, DialogShortcutContext, DialogStatus, DialogStyle, DialogWindow,
+    FormDialogShell,
 };
 use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_SM};
 use crate::ui::{LocalShortcut, local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text};
-use egui::{self, Color32, RichText, ScrollArea, TextEdit};
+use egui::{self, Color32, RichText, TextEdit};
+use std::cell::RefCell;
 
 pub struct ImportDialog;
 
@@ -42,7 +44,25 @@ const CMD_IMPORT_FORMAT_JSON: &str = "dialog.import.format_json";
 const CMD_IMPORT_CYCLE_PREV: &str = "dialog.import.cycle_prev";
 const CMD_IMPORT_CYCLE_NEXT: &str = "dialog.import.cycle_next";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResponsiveRowClass {
+    Wide,
+    Medium,
+    Narrow,
+}
+
+struct ImportFooterState<'a> {
+    effective_mode: ImportMode,
+    has_file: bool,
+    can_confirm: bool,
+    disabled_reason: Option<&'a str>,
+    copy_sql: Option<&'a str>,
+}
+
 impl ImportDialog {
+    const WIDE_ROW_THRESHOLD: f32 = 720.0;
+    const MEDIUM_ROW_THRESHOLD: f32 = 560.0;
+
     #[inline]
     fn effective_mode_for_format(state: &ImportState) -> ImportMode {
         state.mode
@@ -114,10 +134,10 @@ impl ImportDialog {
             return ImportAction::None;
         }
 
-        let mut action = ImportAction::None;
         let has_file = state.file_path.is_some();
         let has_preview = state.preview.is_some();
         let can_import = has_file && has_preview && state.error.is_none();
+        let mut initial_action = ImportAction::None;
 
         if let Some(key_action) = Self::detect_key_action(ctx, has_file, can_import) {
             match key_action {
@@ -138,9 +158,7 @@ impl ImportDialog {
                         }
                     };
                 }
-                ImportKeyAction::RefreshPreview => {
-                    action = ImportAction::RefreshPreview;
-                }
+                ImportKeyAction::RefreshPreview => initial_action = ImportAction::RefreshPreview,
                 ImportKeyAction::SetFormat(format) => {
                     Self::set_format(state, format);
                 }
@@ -154,32 +172,73 @@ impl ImportDialog {
         }
 
         let style = DialogStyle::LARGE;
+        let effective_mode = Self::effective_mode_for_format(state);
+        let footer_has_file = state.file_path.is_some();
+        let footer_can_confirm =
+            footer_has_file && state.preview.is_some() && state.error.is_none();
+        let footer_disabled_reason = Self::disabled_reason(state);
+        let footer_copy_sql = state
+            .preview
+            .as_ref()
+            .map(|preview| preview.sql_statements.join("\n\n"));
+        let footer_state = ImportFooterState {
+            effective_mode,
+            has_file: footer_has_file,
+            can_confirm: footer_can_confirm,
+            disabled_reason: footer_disabled_reason,
+            copy_sql: footer_copy_sql.as_deref(),
+        };
+        let pending_action = RefCell::new(initial_action);
+
         DialogWindow::resizable(ctx, "📥 导入数据", &style).show(ctx, |ui| {
-            ui.add_space(SPACING_SM);
-
-            DialogContent::section_with_description(
+            FormDialogShell::show(
                 ui,
-                "导入源",
-                "选择本地文件后会自动推断格式，并将文件路径与元数据固定在顶部。",
+                "import_dialog_form_shell",
                 |ui| {
-                    let next_action = Self::show_file_selector(ui, state);
-                    if !matches!(next_action, ImportAction::None) {
-                        action = next_action;
-                    }
+                    DialogContent::shortcut_hint(
+                        ui,
+                        &[
+                            (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
+                            (
+                                local_shortcut_text(LocalShortcut::Confirm).as_str(),
+                                "执行 / 复制",
+                            ),
+                            (
+                                local_shortcuts_text(&[
+                                    LocalShortcut::ImportCyclePrev,
+                                    LocalShortcut::ImportCycleNext,
+                                ])
+                                .as_str(),
+                                "切换格式",
+                            ),
+                            (
+                                local_shortcut_text(LocalShortcut::ImportRefresh).as_str(),
+                                "刷新预览",
+                            ),
+                        ],
+                    );
                 },
-            );
+                |ui| {
+                    DialogContent::section_with_description(
+                        ui,
+                        "导入源",
+                        "选择本地文件后会自动推断格式，并将文件路径与元数据固定在顶部。",
+                        |ui| {
+                            Self::store_action(
+                                &pending_action,
+                                Self::show_file_selector(ui, state),
+                            );
+                        },
+                    );
 
-            if state.file_path.is_some() {
-                DialogContent::section_with_description(
-                    ui,
-                    "导入策略",
-                    "格式切换、执行模式和预览共享同一份配置，避免两边状态漂移。",
-                    |ui| Self::show_format_mode_selector(ui, state),
-                );
+                    if state.file_path.is_some() {
+                        DialogContent::section_with_description(
+                            ui,
+                            "导入策略",
+                            "格式切换、执行模式和预览共享同一份配置，避免两边状态漂移。",
+                            |ui| Self::show_format_mode_selector(ui, state),
+                        );
 
-                ScrollArea::vertical()
-                    .max_height(DialogContent::adaptive_height(ui, 0.76, 220.0, 520.0))
-                    .show(ui, |ui| {
                         DialogContent::section_with_description(
                             ui,
                             Self::options_title(state.format),
@@ -198,115 +257,111 @@ impl ImportDialog {
                             "导入预览",
                             "加载中、错误、无预览和成功预览都在同一个面板里处理。",
                             |ui| {
-                                let next_action = Self::show_preview_panel(ui, state);
-                                if !matches!(next_action, ImportAction::None) {
-                                    action = next_action;
-                                }
+                                Self::store_action(
+                                    &pending_action,
+                                    Self::show_preview_panel(ui, state),
+                                );
                             },
                         );
-                    });
-            } else {
-                DialogContent::info_text(ui, "选择文件后会显示格式选项、预览结果和执行动作。");
-                ui.add_space(SPACING_SM);
-            }
-
-            DialogContent::shortcut_hint(
-                ui,
-                &[
-                    (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
-                    (
-                        local_shortcut_text(LocalShortcut::Confirm).as_str(),
-                        "执行 / 复制",
-                    ),
-                    (
-                        local_shortcuts_text(&[
-                            LocalShortcut::ImportCyclePrev,
-                            LocalShortcut::ImportCycleNext,
-                        ])
-                        .as_str(),
-                        "切换格式",
-                    ),
-                    (
-                        local_shortcut_text(LocalShortcut::ImportRefresh).as_str(),
-                        "刷新预览",
-                    ),
-                ],
+                    } else {
+                        DialogContent::info_text(
+                            ui,
+                            "选择文件后会显示格式选项、预览结果和执行动作。",
+                        );
+                        ui.add_space(SPACING_SM);
+                    }
+                },
+                |ui| {
+                    Self::store_action(
+                        &pending_action,
+                        Self::show_buttons(ui, show, &footer_state, &style),
+                    );
+                },
             );
-
-            let btn_action = Self::show_buttons(ui, show, state, &style);
-            if !matches!(btn_action, ImportAction::None) {
-                action = btn_action;
-            }
         });
 
-        action
+        pending_action.into_inner()
     }
 
     /// 文件选择区域
     fn show_file_selector(ui: &mut egui::Ui, state: &mut ImportState) -> ImportAction {
         let mut action = ImportAction::None;
 
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("文件:").color(GRAY));
+        let path_display = state
+            .file_path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "未选择文件".to_string());
 
-            // 显示当前文件路径
-            let path_text = state
-                .file_path
-                .as_ref()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "未选择文件".to_string());
+        Self::show_responsive_labeled_row(ui, "文件", |ui, row_class| match row_class {
+            ResponsiveRowClass::Wide | ResponsiveRowClass::Medium => {
+                ui.horizontal(|ui| {
+                    let button_width = 120.0;
+                    let field_width = (ui.available_width() - button_width - SPACING_SM).max(160.0);
+                    let mut readonly_text = path_display.clone();
+                    ui.add_sized(
+                        [field_width, 0.0],
+                        TextEdit::singleline(&mut readonly_text).interactive(false),
+                    );
 
-            let path_display = if path_text.len() > 60 {
-                format!("...{}", &path_text[path_text.len() - 57..])
-            } else {
-                path_text.clone()
-            };
-
-            ui.add(
-                TextEdit::singleline(&mut path_display.clone())
-                    .desired_width(ui.available_width() - 80.0)
-                    .interactive(false),
-            );
-
-            if ui.button("📂 浏览...").clicked() {
-                action = ImportAction::SelectFile;
+                    if ui
+                        .add_sized([button_width, 0.0], egui::Button::new("📂 浏览..."))
+                        .clicked()
+                    {
+                        action = ImportAction::SelectFile;
+                    }
+                });
+            }
+            ResponsiveRowClass::Narrow => {
+                let mut readonly_text = path_display.clone();
+                ui.add_sized(
+                    [ui.available_width(), 0.0],
+                    TextEdit::singleline(&mut readonly_text).interactive(false),
+                );
+                ui.add_space(4.0);
+                let button_width = ui.available_width().min(140.0);
+                if ui
+                    .add_sized([button_width, 0.0], egui::Button::new("📂 浏览..."))
+                    .clicked()
+                {
+                    action = ImportAction::SelectFile;
+                }
             }
         });
 
         // 显示文件信息
         if let Some(ref path) = state.file_path {
-            ui.horizontal(|ui| {
-                ui.add_space(40.0);
+            DialogContent::toolbar(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    // 文件大小
+                    if let Ok(metadata) = std::fs::metadata(path) {
+                        let size = metadata.len();
+                        let size_str = if size < 1024 {
+                            format!("{} B", size)
+                        } else if size < 1024 * 1024 {
+                            format!("{:.1} KB", size as f64 / 1024.0)
+                        } else {
+                            format!("{:.1} MB", size as f64 / 1024.0 / 1024.0)
+                        };
+                        ui.label(
+                            RichText::new(format!("大小: {}", size_str))
+                                .small()
+                                .color(MUTED),
+                        );
+                    }
 
-                // 文件大小
-                if let Ok(metadata) = std::fs::metadata(path) {
-                    let size = metadata.len();
-                    let size_str = if size < 1024 {
-                        format!("{} B", size)
-                    } else if size < 1024 * 1024 {
-                        format!("{:.1} KB", size as f64 / 1024.0)
-                    } else {
-                        format!("{:.1} MB", size as f64 / 1024.0 / 1024.0)
-                    };
+                    ui.separator();
+
                     ui.label(
-                        RichText::new(format!("大小: {}", size_str))
-                            .small()
-                            .color(MUTED),
+                        RichText::new(format!(
+                            "{} {} 格式",
+                            state.format.icon(),
+                            state.format.name()
+                        ))
+                        .small()
+                        .color(MUTED),
                     );
-                }
-
-                ui.separator();
-
-                // 格式图标
-                ui.label(
-                    RichText::new(format!(
-                        "{} {} 格式",
-                        state.format.icon(),
-                        state.format.name()
-                    ))
-                    .small()
-                    .color(MUTED),
-                );
+                });
             });
         }
 
@@ -315,60 +370,67 @@ impl ImportDialog {
 
     /// 格式和模式选择
     fn show_format_mode_selector(ui: &mut egui::Ui, state: &mut ImportState) {
-        ui.horizontal(|ui| {
-            // 格式选择
-            ui.label(RichText::new("格式:").color(GRAY));
-            for (idx, fmt) in [
+        Self::show_responsive_labeled_row(ui, "格式", |ui, row_class| {
+            let format_choices = [
                 ImportFormat::Sql,
                 ImportFormat::Csv,
                 ImportFormat::Tsv,
                 ImportFormat::Json,
-            ]
-            .iter()
-            .enumerate()
-            {
-                let is_selected = state.format == *fmt;
-                let text = format!("{} {} [{}]", fmt.icon(), fmt.name(), idx + 1);
-                if ui
-                    .selectable_label(is_selected, RichText::new(&text))
-                    .on_hover_text(local_shortcut_tooltip(
-                        &format!("切换到 {} 导入", fmt.name()),
-                        LocalShortcut::FormatSelectionCycle,
-                    ))
-                    .clicked()
-                {
-                    Self::set_format(state, *fmt);
-                }
+            ];
+
+            if matches!(row_class, ResponsiveRowClass::Narrow) {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new("h/l").small().color(GRAY));
+                });
             }
 
-            ui.separator();
-            ui.label(RichText::new("h/l").small().color(GRAY));
+            ui.horizontal_wrapped(|ui| {
+                for (idx, fmt) in format_choices.iter().enumerate() {
+                    let is_selected = state.format == *fmt;
+                    let text = format!("{} {} [{}]", fmt.icon(), fmt.name(), idx + 1);
+                    if ui
+                        .selectable_label(is_selected, RichText::new(&text))
+                        .on_hover_text(local_shortcut_tooltip(
+                            &format!("切换到 {} 导入", fmt.name()),
+                            LocalShortcut::FormatSelectionCycle,
+                        ))
+                        .clicked()
+                    {
+                        Self::set_format(state, *fmt);
+                    }
+                }
+
+                if !matches!(row_class, ResponsiveRowClass::Narrow) {
+                    ui.separator();
+                    ui.label(RichText::new("h/l").small().color(GRAY));
+                }
+            });
         });
 
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("模式:").color(GRAY));
+        Self::show_responsive_labeled_row(ui, "模式", |ui, _row_class| {
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .selectable_label(state.mode == ImportMode::Execute, "🚀 直接执行")
+                    .on_hover_text(match state.format {
+                        ImportFormat::Sql => "逐条执行 SQL 语句。按 Enter 直接导入。",
+                        _ => "先转换为 INSERT 语句，再直接写入数据库。按 Enter 直接导入。",
+                    })
+                    .clicked()
+                {
+                    state.mode = ImportMode::Execute;
+                }
 
-            if ui
-                .selectable_label(state.mode == ImportMode::Execute, "🚀 直接执行")
-                .on_hover_text(match state.format {
-                    ImportFormat::Sql => "逐条执行 SQL 语句。按 Enter 直接导入。",
-                    _ => "先转换为 INSERT 语句，再直接写入数据库。按 Enter 直接导入。",
-                })
-                .clicked()
-            {
-                state.mode = ImportMode::Execute;
-            }
-
-            if ui
-                .selectable_label(state.mode == ImportMode::CopyToEditor, "📋 复制到编辑器")
-                .on_hover_text(match state.format {
-                    ImportFormat::Sql => "将 SQL 复制到编辑器中。按 Enter 复制结果。",
-                    _ => "先转换为 INSERT 语句，再复制到编辑器里手动检查与执行。",
-                })
-                .clicked()
-            {
-                state.mode = ImportMode::CopyToEditor;
-            }
+                if ui
+                    .selectable_label(state.mode == ImportMode::CopyToEditor, "📋 复制到编辑器")
+                    .on_hover_text(match state.format {
+                        ImportFormat::Sql => "将 SQL 复制到编辑器中。按 Enter 复制结果。",
+                        _ => "先转换为 INSERT 语句，再复制到编辑器里手动检查与执行。",
+                    })
+                    .clicked()
+                {
+                    state.mode = ImportMode::CopyToEditor;
+                }
+            });
         });
     }
 
@@ -403,12 +465,11 @@ impl ImportDialog {
 
     /// CSV 选项
     fn show_csv_options(ui: &mut egui::Ui, state: &mut ImportState, _is_mysql: bool) {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("目标表:").color(GRAY));
-            ui.add(
-                TextEdit::singleline(&mut state.csv_config.table_name)
-                    .desired_width(180.0)
-                    .hint_text("表名"),
+        Self::show_responsive_labeled_row(ui, "目标表", |ui, row_class| {
+            let control_width = Self::control_width(ui, row_class, 220.0);
+            ui.add_sized(
+                [control_width, 0.0],
+                TextEdit::singleline(&mut state.csv_config.table_name).hint_text("表名"),
             );
         });
 
@@ -422,8 +483,7 @@ impl ImportDialog {
                 ui.label(RichText::new("(TSV 固定为制表符)").small().color(MUTED));
             });
         } else {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("分隔符:").color(GRAY));
+            Self::show_responsive_labeled_row(ui, "分隔符", |ui, _row_class| {
                 for (label, delim) in [(",", ','), (";", ';'), ("Tab", '\t'), ("|", '|')] {
                     if ui
                         .selectable_label(state.csv_config.delimiter == delim, label)
@@ -438,25 +498,27 @@ impl ImportDialog {
 
         ui.add_space(SPACING_SM);
 
-        ui.horizontal_wrapped(|ui| {
-            if ui
-                .checkbox(&mut state.csv_config.has_header, "首行为表头")
-                .changed()
-            {
-                state.preview = None;
-                state.error = None;
-            }
+        DialogContent::toolbar(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .checkbox(&mut state.csv_config.has_header, "首行为表头")
+                    .changed()
+                {
+                    state.preview = None;
+                    state.error = None;
+                }
 
-            ui.label(RichText::new("跳过行:").color(GRAY));
-            let mut skip_str = state.csv_config.skip_rows.to_string();
-            if ui
-                .add(TextEdit::singleline(&mut skip_str).desired_width(50.0))
-                .changed()
-            {
-                state.csv_config.skip_rows = skip_str.parse().unwrap_or(0);
-                state.preview = None;
-                state.error = None;
-            }
+                ui.label(RichText::new("跳过行:").color(GRAY));
+                let mut skip_str = state.csv_config.skip_rows.to_string();
+                if ui
+                    .add(TextEdit::singleline(&mut skip_str).desired_width(50.0))
+                    .changed()
+                {
+                    state.csv_config.skip_rows = skip_str.parse().unwrap_or(0);
+                    state.preview = None;
+                    state.error = None;
+                }
+            });
         });
 
         Self::show_execute_options(ui, state);
@@ -466,23 +528,22 @@ impl ImportDialog {
     fn show_json_options(ui: &mut egui::Ui, state: &mut ImportState, _is_mysql: bool) {
         let mut needs_refresh = false;
 
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("目标表:").color(GRAY));
-            ui.add(
-                TextEdit::singleline(&mut state.json_config.table_name)
-                    .desired_width(180.0)
-                    .hint_text("表名"),
+        Self::show_responsive_labeled_row(ui, "目标表", |ui, row_class| {
+            let control_width = Self::control_width(ui, row_class, 220.0);
+            ui.add_sized(
+                [control_width, 0.0],
+                TextEdit::singleline(&mut state.json_config.table_name).hint_text("表名"),
             );
         });
 
         ui.add_space(SPACING_SM);
 
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("数据路径:").color(GRAY));
+        Self::show_responsive_labeled_row(ui, "数据路径", |ui, row_class| {
+            let control_width = Self::control_width(ui, row_class, 320.0);
             if ui
-                .add(
+                .add_sized(
+                    [control_width, 0.0],
                     TextEdit::singleline(&mut state.json_config.json_path)
-                        .desired_width(240.0)
                         .hint_text("例如: data.items (留空表示根数组)"),
                 )
                 .changed()
@@ -710,14 +771,12 @@ impl ImportDialog {
     fn show_buttons(
         ui: &mut egui::Ui,
         show: &mut bool,
-        state: &ImportState,
+        footer_state: &ImportFooterState<'_>,
         style: &DialogStyle,
     ) -> ImportAction {
         let mut action = ImportAction::None;
-        let effective_mode = Self::effective_mode_for_format(state);
-        let has_file = state.file_path.is_some();
 
-        if has_file {
+        if footer_state.has_file {
             DialogContent::toolbar(ui, |ui| {
                 if ui
                     .button(format!(
@@ -736,14 +795,14 @@ impl ImportDialog {
             ui.add_space(SPACING_SM);
         }
 
-        if let Some(reason) = Self::disabled_reason(state) {
+        if let Some(reason) = footer_state.disabled_reason {
             DialogContent::warning_text(ui, reason);
             ui.add_space(SPACING_SM);
         }
 
         let footer = DialogFooter::show(
             ui,
-            &match effective_mode {
+            &match footer_state.effective_mode {
                 ImportMode::Execute => {
                     format!("执行导入 [{}]", local_shortcut_text(LocalShortcut::Confirm))
                 }
@@ -755,7 +814,7 @@ impl ImportDialog {
                 }
             },
             &format!("取消 [{}]", local_shortcut_text(LocalShortcut::Dismiss)),
-            state.file_path.is_some() && state.preview.is_some() && state.error.is_none(),
+            footer_state.can_confirm,
             style,
         );
 
@@ -764,18 +823,81 @@ impl ImportDialog {
             action = ImportAction::Close;
         }
         if footer.confirmed {
-            match effective_mode {
+            match footer_state.effective_mode {
                 ImportMode::Execute => action = ImportAction::Execute,
                 ImportMode::CopyToEditor => {
-                    if let Some(ref preview) = state.preview {
-                        let sql = preview.sql_statements.join("\n\n");
-                        action = ImportAction::CopyToEditor(sql);
+                    if let Some(sql) = footer_state.copy_sql {
+                        action = ImportAction::CopyToEditor(sql.to_string());
                     }
                 }
             }
         }
 
         action
+    }
+
+    fn row_width_class(available_width: f32) -> ResponsiveRowClass {
+        if available_width >= Self::WIDE_ROW_THRESHOLD {
+            ResponsiveRowClass::Wide
+        } else if available_width >= Self::MEDIUM_ROW_THRESHOLD {
+            ResponsiveRowClass::Medium
+        } else {
+            ResponsiveRowClass::Narrow
+        }
+    }
+
+    fn label_width(row_class: ResponsiveRowClass) -> f32 {
+        match row_class {
+            ResponsiveRowClass::Wide => 84.0,
+            ResponsiveRowClass::Medium => 76.0,
+            ResponsiveRowClass::Narrow => 0.0,
+        }
+    }
+
+    fn control_width(ui: &egui::Ui, row_class: ResponsiveRowClass, preferred_width: f32) -> f32 {
+        match row_class {
+            ResponsiveRowClass::Wide | ResponsiveRowClass::Medium => {
+                ui.available_width().min(preferred_width)
+            }
+            ResponsiveRowClass::Narrow => ui.available_width(),
+        }
+    }
+
+    fn show_responsive_labeled_row(
+        ui: &mut egui::Ui,
+        label: &str,
+        body: impl FnOnce(&mut egui::Ui, ResponsiveRowClass),
+    ) {
+        let row_class = Self::row_width_class(ui.available_width());
+
+        match row_class {
+            ResponsiveRowClass::Narrow => {
+                ui.label(RichText::new(label).color(GRAY));
+                ui.add_space(4.0);
+                body(ui, row_class);
+            }
+            ResponsiveRowClass::Wide | ResponsiveRowClass::Medium => {
+                let label_width = Self::label_width(row_class);
+                ui.horizontal_top(|ui| {
+                    ui.add_sized(
+                        [label_width, 0.0],
+                        egui::Label::new(RichText::new(label).color(GRAY)),
+                    );
+                    ui.add_space(SPACING_SM);
+                    ui.vertical(|ui| {
+                        body(ui, row_class);
+                    });
+                });
+            }
+        }
+
+        ui.add_space(SPACING_SM);
+    }
+
+    fn store_action(slot: &RefCell<ImportAction>, next_action: ImportAction) {
+        if !matches!(next_action, ImportAction::None) {
+            *slot.borrow_mut() = next_action;
+        }
     }
 }
 
@@ -911,5 +1033,21 @@ mod tests {
         assert_eq!(action, None);
 
         let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn import_dialog_row_width_classes_follow_shared_thresholds() {
+        assert_eq!(
+            ImportDialog::row_width_class(ImportDialog::WIDE_ROW_THRESHOLD),
+            ResponsiveRowClass::Wide
+        );
+        assert_eq!(
+            ImportDialog::row_width_class(680.0),
+            ResponsiveRowClass::Medium
+        );
+        assert_eq!(
+            ImportDialog::row_width_class(ImportDialog::MEDIUM_ROW_THRESHOLD - 1.0),
+            ResponsiveRowClass::Narrow
+        );
     }
 }

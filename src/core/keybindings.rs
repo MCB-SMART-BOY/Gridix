@@ -715,6 +715,10 @@ pub enum Action {
     CommandPalette,
     /// 打开快捷键设置
     OpenKeybindingsDialog,
+    /// 打开工具栏操作菜单
+    OpenToolbarActionsMenu,
+    /// 打开工具栏新建菜单
+    OpenToolbarCreateMenu,
     /// 打开主题选择器
     OpenThemeSelector,
     /// 切换侧边栏
@@ -725,6 +729,8 @@ pub enum Action {
     ToggleEditor,
     /// 切换 ER 关系图
     ToggleErDiagram,
+    /// 聚焦 ER 关系图
+    FocusErDiagram,
     /// 显示帮助
     ShowHelp,
     /// 显示历史记录
@@ -796,11 +802,14 @@ impl Action {
             Action::NewConnection,
             Action::CommandPalette,
             Action::OpenKeybindingsDialog,
+            Action::OpenToolbarActionsMenu,
+            Action::OpenToolbarCreateMenu,
             Action::OpenThemeSelector,
             Action::ToggleSidebar,
             Action::ToggleDarkMode,
             Action::ToggleEditor,
             Action::ToggleErDiagram,
+            Action::FocusErDiagram,
             Action::ShowHelp,
             Action::ShowHistory,
             Action::Export,
@@ -837,11 +846,14 @@ impl Action {
             Action::NewConnection => "新建连接",
             Action::CommandPalette => "打开命令面板",
             Action::OpenKeybindingsDialog => "打开快捷键设置",
+            Action::OpenToolbarActionsMenu => "打开操作菜单",
+            Action::OpenToolbarCreateMenu => "打开新建菜单",
             Action::OpenThemeSelector => "打开主题选择器",
             Action::ToggleSidebar => "切换侧边栏",
             Action::ToggleDarkMode => "切换明暗主题",
             Action::ToggleEditor => "切换 SQL 编辑器",
             Action::ToggleErDiagram => "切换 ER 关系图",
+            Action::FocusErDiagram => "聚焦 ER 关系图",
             Action::ShowHelp => "显示帮助",
             Action::ShowHistory => "显示历史记录",
             Action::Export => "导出数据",
@@ -878,9 +890,12 @@ impl Action {
             | Action::NewConnection
             | Action::CommandPalette
             | Action::OpenKeybindingsDialog
+            | Action::OpenToolbarActionsMenu
+            | Action::OpenToolbarCreateMenu
             | Action::ToggleSidebar
             | Action::ToggleEditor
             | Action::ToggleErDiagram
+            | Action::FocusErDiagram
             | Action::ShowHelp
             | Action::ShowHistory
             | Action::Export
@@ -910,11 +925,14 @@ impl Action {
             Action::NewConnection => "new_connection",
             Action::CommandPalette => "command_palette",
             Action::OpenKeybindingsDialog => "open_keybindings",
+            Action::OpenToolbarActionsMenu => "open_toolbar_actions_menu",
+            Action::OpenToolbarCreateMenu => "open_toolbar_create_menu",
             Action::OpenThemeSelector => "open_theme_selector",
             Action::ToggleSidebar => "toggle_sidebar",
             Action::ToggleDarkMode => "toggle_dark_mode",
             Action::ToggleEditor => "toggle_editor",
             Action::ToggleErDiagram => "toggle_er_diagram",
+            Action::FocusErDiagram => "focus_er_diagram",
             Action::ShowHelp => "show_help",
             Action::ShowHistory => "show_history",
             Action::Export => "export",
@@ -950,11 +968,14 @@ impl Action {
             "new_connection" => Action::NewConnection,
             "command_palette" => Action::CommandPalette,
             "open_keybindings" => Action::OpenKeybindingsDialog,
+            "open_toolbar_actions_menu" => Action::OpenToolbarActionsMenu,
+            "open_toolbar_create_menu" => Action::OpenToolbarCreateMenu,
             "open_theme_selector" => Action::OpenThemeSelector,
             "toggle_sidebar" => Action::ToggleSidebar,
             "toggle_dark_mode" => Action::ToggleDarkMode,
             "toggle_editor" => Action::ToggleEditor,
             "toggle_er_diagram" => Action::ToggleErDiagram,
+            "focus_er_diagram" => Action::FocusErDiagram,
             "show_help" => Action::ShowHelp,
             "show_history" => Action::ShowHistory,
             "export" => Action::Export,
@@ -1018,6 +1039,14 @@ impl Default for KeyBindings {
             KeyBinding::new(KeyCode::K, KeyModifiers::ALT),
         );
         bindings.insert(
+            Action::OpenToolbarActionsMenu,
+            KeyBinding::new(KeyCode::A, KeyModifiers::ALT),
+        );
+        bindings.insert(
+            Action::OpenToolbarCreateMenu,
+            KeyBinding::new(KeyCode::N, KeyModifiers::ALT),
+        );
+        bindings.insert(
             Action::OpenThemeSelector,
             KeyBinding::ctrl_shift(KeyCode::T),
         );
@@ -1025,6 +1054,10 @@ impl Default for KeyBindings {
         bindings.insert(Action::ToggleDarkMode, KeyBinding::ctrl(KeyCode::D));
         bindings.insert(Action::ToggleEditor, KeyBinding::ctrl(KeyCode::J));
         bindings.insert(Action::ToggleErDiagram, KeyBinding::ctrl(KeyCode::R));
+        bindings.insert(
+            Action::FocusErDiagram,
+            KeyBinding::new(KeyCode::R, KeyModifiers::ALT),
+        );
         bindings.insert(Action::ShowHelp, KeyBinding::key_only(KeyCode::F1));
         bindings.insert(Action::ShowHistory, KeyBinding::ctrl(KeyCode::H));
         bindings.insert(Action::Export, KeyBinding::ctrl(KeyCode::E));

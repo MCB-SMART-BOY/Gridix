@@ -4,6 +4,7 @@
 
 use eframe::egui;
 
+use crate::app::dialogs::host::DialogId;
 use crate::core::{Action as ShortcutAction, constants};
 use crate::database::DatabaseType;
 use crate::ui::{self, FocusArea};
@@ -17,6 +18,9 @@ pub(in crate::app) enum AppAction {
     OpenConnectionDialogFor(DatabaseType),
     OpenExportDialog,
     OpenImportDialog,
+    OpenToolbarActionsMenu,
+    OpenToolbarCreateMenu,
+    OpenThemeSelectorDialog,
     OpenHelpPanel,
     ToggleHelpPanel,
     OpenHistoryPanel,
@@ -26,6 +30,7 @@ pub(in crate::app) enum AppAction {
     ToggleSidebar,
     ToggleSqlEditor,
     ToggleErDiagram,
+    FocusErDiagram,
     ToggleDarkMode,
     RefreshActiveConnection,
     RefreshSelectedTable,
@@ -214,6 +219,7 @@ impl ActionContext {
             FocusArea::QueryTabs => "标签页",
             FocusArea::Sidebar => "侧边栏",
             FocusArea::DataGrid => "表格",
+            FocusArea::ErDiagram => "ER图",
             FocusArea::SqlEditor => "编辑器",
             FocusArea::Dialog => "对话框",
         };
@@ -302,6 +308,32 @@ const COMMANDS: &[CommandDescriptor] = &[
         &["import", "upload", "transfer", "csv", "json", "sql", "tsv"],
     ),
     CommandDescriptor::new(
+        "open_toolbar_actions_menu",
+        "打开操作菜单",
+        "打开工具栏里的操作 chooser，继续执行导出、导入、历史、关于等动作。",
+        "工具栏",
+        CommandScope::Global,
+        AppAction::OpenToolbarActionsMenu,
+        Some(ShortcutAction::OpenToolbarActionsMenu),
+        &[
+            "toolbar",
+            "actions",
+            "menu",
+            "toolbar actions",
+            "open actions",
+        ],
+    ),
+    CommandDescriptor::new(
+        "open_toolbar_create_menu",
+        "打开新建菜单",
+        "打开工具栏里的新建 chooser，继续执行建表、建库、建用户等动作。",
+        "工具栏",
+        CommandScope::Global,
+        AppAction::OpenToolbarCreateMenu,
+        Some(ShortcutAction::OpenToolbarCreateMenu),
+        &["toolbar", "create", "new", "menu", "toolbar create"],
+    ),
+    CommandDescriptor::new(
         "refresh_connection",
         "刷新当前连接",
         "重新加载当前连接的数据库或表列表。",
@@ -361,6 +393,16 @@ const COMMANDS: &[CommandDescriptor] = &[
         AppAction::ToggleErDiagram,
         Some(ShortcutAction::ToggleErDiagram),
         &["er", "diagram", "relationship", "graph"],
+    ),
+    CommandDescriptor::new(
+        "focus_er_diagram",
+        "聚焦 ER 图",
+        "把键盘焦点切到已打开的 ER 工作区，而不改变显隐状态。",
+        "布局",
+        CommandScope::Global,
+        AppAction::FocusErDiagram,
+        Some(ShortcutAction::FocusErDiagram),
+        &["er", "diagram", "focus", "graph", "focus er"],
     ),
     CommandDescriptor::new(
         "run_current_sql",
@@ -688,7 +730,10 @@ impl AppAction {
             ShortcutAction::Save => Self::SaveGridChanges,
             ShortcutAction::GotoLine => Self::GotoLine,
             ShortcutAction::ShowHelp => Self::ToggleHelpPanel,
-            ShortcutAction::OpenThemeSelector
+            ShortcutAction::OpenToolbarActionsMenu
+            | ShortcutAction::OpenToolbarCreateMenu
+            | ShortcutAction::OpenThemeSelector
+            | ShortcutAction::FocusErDiagram
             | ShortcutAction::FocusSidebarConnections
             | ShortcutAction::FocusSidebarDatabases
             | ShortcutAction::FocusSidebarTables
@@ -788,6 +833,9 @@ fn availability_for_action(context: &ActionContext, action: AppAction) -> Action
         | AppAction::OpenConnectionDialog
         | AppAction::OpenConnectionDialogFor(_)
         | AppAction::OpenImportDialog
+        | AppAction::OpenToolbarActionsMenu
+        | AppAction::OpenToolbarCreateMenu
+        | AppAction::OpenThemeSelectorDialog
         | AppAction::OpenHelpPanel
         | AppAction::ToggleHelpPanel
         | AppAction::OpenHistoryPanel
@@ -811,6 +859,13 @@ fn availability_for_action(context: &ActionContext, action: AppAction) -> Action
         | AppAction::RecheckEnvironment
         | AppAction::OpenLearningSample
         | AppAction::EnsureLearningSample { .. } => ActionAvailability::enabled(),
+        AppAction::FocusErDiagram => {
+            if context.show_er_diagram {
+                ActionAvailability::enabled()
+            } else {
+                ActionAvailability::disabled("请先打开 ER 图")
+            }
+        }
         AppAction::ConfirmPendingDelete => {
             if context.can_confirm_pending_delete {
                 ActionAvailability::enabled()
@@ -914,6 +969,10 @@ fn availability_for_action(context: &ActionContext, action: AppAction) -> Action
     }
 }
 
+fn resolve_focus_er_diagram_target(show_er_diagram: bool) -> Option<FocusArea> {
+    show_er_diagram.then_some(FocusArea::ErDiagram)
+}
+
 impl DbManagerApp {
     pub(in crate::app) fn action_context(&self) -> ActionContext {
         ActionContext::from_app(self)
@@ -948,13 +1007,13 @@ impl DbManagerApp {
     fn reduce_app_action(&mut self, ctx: &egui::Context, action: AppAction) -> Vec<AppEffect> {
         match action {
             AppAction::OpenCommandPalette => {
-                self.command_palette_state.open();
+                self.open_dialog(DialogId::CommandPalette);
                 Vec::new()
             }
             AppAction::OpenConnectionDialog => {
                 self.new_config = crate::database::ConnectionConfig::default();
                 self.editing_connection_name = None;
-                self.show_connection_dialog = true;
+                self.open_dialog(DialogId::Connection);
                 Vec::new()
             }
             AppAction::OpenConnectionDialogFor(db_type) => {
@@ -970,12 +1029,24 @@ impl DbManagerApp {
                 self.open_import_dialog();
                 Vec::new()
             }
+            AppAction::OpenToolbarActionsMenu => {
+                self.open_dialog(DialogId::ToolbarActionsMenu);
+                Vec::new()
+            }
+            AppAction::OpenToolbarCreateMenu => {
+                self.open_dialog(DialogId::ToolbarCreateMenu);
+                Vec::new()
+            }
+            AppAction::OpenThemeSelectorDialog => {
+                self.open_dialog(DialogId::ToolbarThemeMenu);
+                Vec::new()
+            }
             AppAction::OpenHelpPanel => {
-                self.show_help = true;
+                self.open_dialog(DialogId::Help);
                 Vec::new()
             }
             AppAction::ToggleHelpPanel => {
-                self.show_help = !self.show_help;
+                self.toggle_dialog(DialogId::Help);
                 Vec::new()
             }
             AppAction::OpenHistoryPanel => {
@@ -987,12 +1058,13 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::OpenAboutDialog => {
-                self.show_about = true;
+                self.open_dialog(DialogId::About);
                 Vec::new()
             }
             AppAction::OpenKeybindingsDialog => {
                 self.keybindings_dialog_state
                     .open_with_legacy(&self.keybindings, &self.app_config.keybindings);
+                self.mark_dialog_owner(DialogId::Keybindings);
                 Vec::new()
             }
             AppAction::ToggleSidebar => {
@@ -1005,6 +1077,12 @@ impl DbManagerApp {
             }
             AppAction::ToggleErDiagram => {
                 self.toggle_er_diagram_visibility();
+                Vec::new()
+            }
+            AppAction::FocusErDiagram => {
+                if let Some(area) = resolve_focus_er_diagram_target(self.show_er_diagram) {
+                    self.set_focus_area(area);
+                }
                 Vec::new()
             }
             AppAction::ToggleDarkMode => {
@@ -1207,7 +1285,7 @@ impl DbManagerApp {
     }
 
     fn switch_to_query_tab(&mut self, index: usize) {
-        self.sync_sql_to_active_tab();
+        self.persist_active_tab_state_for_navigation();
         self.tab_manager.set_active(index);
         self.sync_from_active_tab();
     }
@@ -1247,7 +1325,7 @@ impl DbManagerApp {
                             self.mark_onboarding_database_initialized();
                         }
                         if show_setup {
-                            self.show_welcome_setup_dialog = true;
+                            self.open_welcome_setup_dialog(self.welcome_setup_target);
                         }
                     }
                     Err(error) => {
@@ -1347,6 +1425,88 @@ mod tests {
             .expect("learning sample command should be registered");
 
         assert_eq!(descriptor.action, AppAction::OpenLearningSample);
+    }
+
+    #[test]
+    fn toggle_er_diagram_command_remains_registered_and_available() {
+        let descriptor = command_descriptors()
+            .iter()
+            .find(|entry| entry.id == "toggle_er_diagram")
+            .expect("toggle er diagram command should be registered");
+
+        assert_eq!(descriptor.action, AppAction::ToggleErDiagram);
+        assert_eq!(
+            availability_for_action(&base_context(), AppAction::ToggleErDiagram),
+            ActionAvailability::enabled()
+        );
+    }
+
+    #[test]
+    fn focus_er_diagram_command_requires_visible_diagram() {
+        let descriptor = command_descriptors()
+            .iter()
+            .find(|entry| entry.id == "focus_er_diagram")
+            .expect("focus er diagram command should be registered");
+
+        assert_eq!(descriptor.action, AppAction::FocusErDiagram);
+        assert_eq!(
+            availability_for_action(&base_context(), AppAction::FocusErDiagram),
+            ActionAvailability::disabled("请先打开 ER 图")
+        );
+
+        let mut visible = base_context();
+        visible.show_er_diagram = true;
+        assert_eq!(
+            availability_for_action(&visible, AppAction::FocusErDiagram),
+            ActionAvailability::enabled()
+        );
+    }
+
+    #[test]
+    fn focus_er_diagram_target_requires_visible_diagram() {
+        assert_eq!(resolve_focus_er_diagram_target(false), None);
+        assert_eq!(
+            resolve_focus_er_diagram_target(true),
+            Some(FocusArea::ErDiagram)
+        );
+    }
+
+    #[test]
+    fn toolbar_menu_commands_remain_registered_and_available() {
+        let actions_descriptor = command_descriptors()
+            .iter()
+            .find(|entry| entry.id == "open_toolbar_actions_menu")
+            .expect("toolbar actions command should be registered");
+        let create_descriptor = command_descriptors()
+            .iter()
+            .find(|entry| entry.id == "open_toolbar_create_menu")
+            .expect("toolbar create command should be registered");
+
+        assert_eq!(actions_descriptor.action, AppAction::OpenToolbarActionsMenu);
+        assert_eq!(create_descriptor.action, AppAction::OpenToolbarCreateMenu);
+        assert_eq!(
+            availability_for_action(&base_context(), AppAction::OpenToolbarActionsMenu),
+            ActionAvailability::enabled()
+        );
+        assert_eq!(
+            availability_for_action(&base_context(), AppAction::OpenToolbarCreateMenu),
+            ActionAvailability::enabled()
+        );
+    }
+
+    #[test]
+    fn status_line_reflects_er_visibility_and_focus() {
+        let mut context = base_context();
+        context.has_any_connection = true;
+        context.has_active_connection = true;
+        context.focus_area = FocusArea::ErDiagram;
+        context.show_er_diagram = true;
+        context.selected_table = Some("orders".to_string());
+
+        assert_eq!(
+            context.status_line(),
+            "已连接 · 焦点 ER图 · 当前表 orders · 侧边栏关 / 编辑器关 / ER 开"
+        );
     }
 
     #[test]

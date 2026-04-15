@@ -3,6 +3,9 @@
 Thanks for contributing to Gridix.  
 感谢你参与 Gridix 项目。
 
+For the repository-level checklist, read [README.md](README.md), [TESTING.md](TESTING.md), and [RELEASE_PROCESS.md](RELEASE_PROCESS.md) first.  
+如需仓库级约定，请先阅读 [README.md](README.md)、[TESTING.md](TESTING.md) 与 [RELEASE_PROCESS.md](RELEASE_PROCESS.md)。
+
 ## 1. Development Setup | 开发环境
 ```bash
 git clone https://github.com/MCB-SMART-BOY/Gridix.git
@@ -19,9 +22,10 @@ Linux dependencies / Linux 依赖：
 Run these checks locally:
 本地至少执行以下检查：
 ```bash
-cargo fmt
-cargo clippy
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
 cargo test
+python scripts/check_doc_links.py
 ```
 
 Optional MySQL integration test / 可选 MySQL 集成测试：

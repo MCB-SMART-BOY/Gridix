@@ -7,11 +7,12 @@ use crate::database::execute_import_batch;
 use crate::ui;
 
 use super::{DbManagerApp, message::Message};
+use crate::app::dialogs::host::DialogId;
 
 impl DbManagerApp {
     /// 打开导入对话框
     pub(in crate::app) fn handle_import(&mut self) {
-        self.show_import_dialog = true;
+        self.open_dialog(DialogId::Import);
         self.import_state.clear();
     }
 
@@ -95,7 +96,7 @@ impl DbManagerApp {
         };
         let config = conn.config.clone();
 
-        self.show_import_dialog = false;
+        self.close_dialog(DialogId::Import);
 
         let use_transaction = self.import_state.sql_config.use_transaction;
         let stop_on_error = self.import_state.sql_config.stop_on_error;

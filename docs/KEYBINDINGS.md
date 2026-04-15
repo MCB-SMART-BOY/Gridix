@@ -1,7 +1,7 @@
 # Gridix Keyboard Guide | 键盘指南
 
-> Applies to the `v4.0.x` scoped keymap model.
-> 适用于 `v4.0.x` 作用域化键位模型。
+> Applies to the current scope-aware keymap model.
+> 适用于当前的 scope-aware 键位模型。
 > Some keys are user-configurable in keybinding settings.
 > 部分快捷键可在“快捷键设置”中自定义。
 >
@@ -11,18 +11,18 @@
 > 如果你改过键位，请优先以应用内悬停提示和帮助面板为准。
 
 ## 1. Focus First | 先看焦点
-- `next_focus_area` / `prev_focus_area` (default: `Tab` / `Shift+Tab`): cycle major focus areas (Sidebar -> DataGrid -> SQL Editor).
-  `next_focus_area` / `prev_focus_area`（默认：`Tab` / `Shift+Tab`）：循环切换主区域焦点（侧边栏 -> 数据表格 -> SQL 编辑器）。
+- `next_focus_area` / `prev_focus_area` (default: `Tab` / `Shift+Tab`): cycle major focus areas (Sidebar -> DataGrid -> ER Diagram -> SQL Editor) when ER is visible.
+  `next_focus_area` / `prev_focus_area`（默认：`Tab` / `Shift+Tab`）：当 ER 可见时，循环切换主区域焦点（侧边栏 -> 数据表格 -> ER 关系图 -> SQL 编辑器）。
 - `hjkl`: navigate inside current area.
   `hjkl`：在当前焦点区域内导航。
 - Same key can mean different actions in different areas.
   同一按键在不同区域语义可能不同。
 
 Example / 示例：`F5`
-- In SQL Editor: execute SQL.
-  在 SQL 编辑器：执行 SQL。
-- Outside SQL Editor: refresh connection/table state.
-  在编辑器外：刷新连接/表状态。
+- In SQL Editor while the editor owns input: execute SQL.
+  在 SQL 编辑器且编辑器拥有输入权时：执行 SQL。
+- Outside SQL Editor: the default binding maps to workspace refresh.
+  在 SQL 编辑器外：默认绑定映射到工作区刷新。
 
 ## 2. Minimal Global & Workspace Fallback | 最小全局与工作区回退快捷键
 
@@ -131,12 +131,32 @@ Note / 说明：`next_focus_area` is a workspace fallback action. `Tab` in SQL e
 | `/` or `f` | Quick filter / filter current column / 快速筛选或当前列筛选 |
 
 ### 4.3 Edge Focus Transfer | 边界焦点转移
-- `h / k` stay inside the grid at top/left edges.
-  `h / k` 在左边界和上边界会停留在表格内部。
-- Last row + `j` -> SQL Editor.
-  最后一行按 `j` -> SQL 编辑器。
+- `h / Left` at the first column can return to Sidebar.
+  首列按 `h / Left` 可返回侧边栏。
+- `k / Up` at the top edge stays inside the grid.
+  顶边按 `k / Up` 仍停留在表格内部。
+- After reaching the last row, the next `j / Down` can move focus to SQL Editor.
+  到达最后一行后，再按一次 `j / Down` 才会把焦点转到 SQL 编辑器。
 
-## 5. Query Tabs | 查询标签栏
+## 5. ER Diagram | ER 关系图
+| Key | Action |
+|---|---|
+| `j / k` or up/down | Previous/next table in stable ER order / 按稳定顺序切到上一张或下一张表 |
+| `Enter` or right | Open selected table into the main workspace / 打开当前选中表并带回主工作区 |
+| `h / Esc` or left | Return focus to DataGrid / 返回数据表格焦点 |
+| `q` | Close ER diagram / 关闭 ER 图 |
+| `r` | Refresh ER data / 刷新 ER 数据 |
+| `l` | Re-layout diagram / 重新布局 |
+| `f` | Fit view / 适应视图 |
+| `+ / -` | Zoom in/out / 放大或缩小 |
+
+Note / 说明：
+- ER is now a major workspace focus area, not a hover-only canvas tool.
+  ER 现在是正式的主工作区焦点区域，而不是仅靠鼠标悬停抢键的画布工具。
+- Current `Enter / Right` opens the selected table and returns focus to DataGrid; `l` is intentionally still reserved for layout.
+  当前 `Enter / Right` 会打开选中表并把焦点交回数据表格；`l` 当前仍刻意保留给重新布局。
+
+## 6. Query Tabs | 查询标签栏
 | Key | Action |
 |---|---|
 | `h / l` or left/right | Switch tabs / 切换标签 |
@@ -145,7 +165,7 @@ Note / 说明：`next_focus_area` is a workspace fallback action. `Tab` in SQL e
 | `d` | Close current tab (keep at least one) / 关闭当前标签（至少保留一个） |
 | `Esc` | Back to DataGrid / 返回数据表格 |
 
-## 6. Toolbar | 工具栏
+## 7. Toolbar | 工具栏
 | Key | Action |
 |---|---|
 | `h / l` or left/right | Move tool selection / 左右移动工具项 |
@@ -153,15 +173,25 @@ Note / 说明：`next_focus_area` is a workspace fallback action. `Tab` in SQL e
 | `j` | Move to Query Tabs / 进入查询标签栏 |
 | `Esc` | Back to Query Tabs / 返回查询标签栏 |
 
-## 7. Sidebar | 侧边栏
+Note / 说明：
+- When the selected tool is `⚡` (actions) or `+` (create), `Enter` opens a dedicated chooser dialog instead of an inline popup.
+  当选中的工具项是 `⚡`（操作）或 `+`（新建）时，`Enter` 打开的是独立选择对话框，而不是工具栏内部临时 popup。
+
+## 8. Sidebar | 侧边栏
 - `j/k`: move within the current list; at list edges they can transfer to the previous/next sidebar workspace when edge transfer is enabled.
   `j/k` 在当前列表内移动；启用边界转移时，在列表边界可进入上一个或下一个侧边栏工作区。
 - `sidebar.edge_transfer = false`: `j/k` stop at the current list edge and never cross into another sidebar panel.
   `sidebar.edge_transfer = false`：`j/k` 会停在当前列表边界，不会跨到其他侧边栏面板。
-- `h/l`: move along the sidebar focus graph: Connections -> Databases -> Tables -> Filters -> Triggers -> Routines.
-  `h/l` 沿侧边栏焦点图移动：连接 -> 数据库 -> 表 -> 筛选 -> 触发器 -> 存储过程。
+- `h`: move back to the previous sidebar layer/section.
+  `h`：回到上一个侧边栏层级或分区。
+- `l`: enter the deeper layer of the current workflow only: `Connections -> Databases`, `Databases -> Tables`, `Tables -> DataGrid`, or `Filters.list -> Filters.input`.
+  `l`：只进入当前工作流的更深层：`连接 -> 数据库`、`数据库 -> 表`、`表 -> DataGrid`，或 `Filters.list -> Filters.input`。
+- `l` does not jump from one peer panel to another peer panel.
+  `l` 不负责在平级 panel 之间横向跳转。
 - `Enter`: activate the selected connection/database/table/filter item.
   `Enter` 激活当前选中的连接、数据库、表或筛选项。
+- `d`: delete the selected connection / database / table in the current sidebar scope.
+  `d`：在当前侧边栏作用域中删除选中的连接 / 数据库 / 表。
 - `Ctrl+1..6`: quick section jump (connections, databases, tables, filters, triggers, routines).
   `Ctrl+1..6` 快速定位分区（连接、数据库、表、筛选、触发器、存储过程）。
 
@@ -189,7 +219,7 @@ Note / 说明：`next_focus_area` is a workspace fallback action. `Tab` in SQL e
 - `Esc` in `filters.list`: move back to the previous sidebar layer, same as `h`.
   `filters.list` 中按 `Esc`：回到上一个侧边栏层级，语义与 `h` 相同。
 
-## 8. Dialogs & Panels | 对话框与面板
+## 9. Dialogs & Panels | 对话框与面板
 Only the active dialog owns keyboard input. If multiple panels are open due to a workflow transition, the top-priority dialog handles keys first.
 只有当前 active 对话框拥有键盘输入。如果工作流切换导致多个面板处于打开状态，最高优先级对话框会先处理按键。
 
@@ -198,6 +228,32 @@ Only the active dialog owns keyboard input. If multiple panels are open due to a
 | `Enter` | Confirm / 提交确认 |
 | `Esc` or `q` | Cancel/close / 取消或关闭 |
 | `y / n` | Confirm prompt / confirm reject / 确认框中同意或拒绝 |
+
+Toolbar chooser dialogs / 工具栏选择对话框：
+- `j / k` or arrows move within the list.
+  `j / k` 或方向键在条目列表中移动。
+- `Enter` opens the selected action or creation path.
+  `Enter` 打开当前选中的操作或新建路径。
+- `Esc` closes the chooser and returns ownership to the toolbar/workspace.
+  `Esc` 关闭选择器，并把输入所有权交还给工具栏或工作区。
+
+Theme chooser dialog / 主题选择对话框：
+- `Ctrl+Shift+T` or clicking the current theme label opens a dedicated theme chooser overlay instead of an inline toolbar popup.
+  `Ctrl+Shift+T` 或点击当前主题名称会打开独立主题选择对话框，而不是工具栏内部临时 popup。
+- `j / k` or arrows move between themes; `Enter` or `l` applies the selected theme.
+  `j / k` 或方向键在主题间移动；`Enter` 或 `l` 应用当前选中的主题。
+- `Esc` or `h` closes the chooser; `g / G` jump to the start/end of the current light/dark theme list.
+  `Esc` 或 `h` 关闭选择器；`g / G` 跳到当前浅色/深色主题列表的开头或结尾。
+
+Welcome setup guide / 学习示例安装与初始化引导：
+- `Tab / Shift+Tab` cycle the footer actions inside the guide.
+  `Tab / Shift+Tab` 在引导底部动作之间循环。
+- `Enter` runs the currently selected action instead of leaking back to the toolbar or workspace.
+  `Enter` 会执行当前选中的引导动作，不会再泄漏回工具栏或工作区。
+- `1..5` trigger named guide actions directly: recheck environment / open connection / initialize database / create user / run first query.
+  `1..5` 可直接触发引导中的命名动作：重新检测环境 / 打开连接 / 初始化数据库 / 创建用户 / 执行首条查询。
+- SQLite onboarding omits the create-user step, so the visible action list may skip `[4]`.
+  SQLite 引导不会显示创建用户步骤，因此可见动作列表可能跳过 `[4]`。
 
 ## 9. Troubleshooting | 常见问题排查
 - Key does nothing: check current focus area first.

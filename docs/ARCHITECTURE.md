@@ -59,8 +59,8 @@ Message types are defined in:
 
 - Frame input ownership is resolved before command dispatch.
   每帧会先解析输入所有者，再分发命令。
-- Active modal ownership is derived by `src/app/dialogs/host.rs`.
-  当前模态所有权由 `src/app/dialogs/host.rs` 推导。
+- Active dialog ownership is resolved from app-level `active_dialog_owner`; `src/app/dialogs/host.rs` keeps the legacy visibility snapshot and open/close helpers.
+  当前对话框所有权由 app 级 `active_dialog_owner` 决定；`src/app/dialogs/host.rs` 负责遗留可见性快照与 open/close helper。
 - Scoped routing lives in `src/app/input/input_router.rs` and `src/app/input/owner.rs`.
   作用域路由位于 `src/app/input/input_router.rs` 与 `src/app/input/owner.rs`。
 - Scoped local command metadata lives in `src/core/commands.rs`.
@@ -81,17 +81,18 @@ Design rule:
   当 SQL 编辑器补全激活时，全局 `Tab` 焦点循环会被阻止。
 
 Current limitation:
-- Grid, SQL editor, sidebar, toolbar, and several dialogs still keep compatibility handlers while scoped dispatch is being migrated.
-  表格、SQL 编辑器、侧边栏、工具栏和部分对话框仍保留兼容 handler，后续会继续迁移到作用域化分发。
 - `ui::LocalShortcut` is now a compatibility enum backed by the scoped command registry rather than the source of local command metadata.
   `ui::LocalShortcut` 现在是由作用域命令注册表驱动的兼容枚举，不再是局部命令元数据的唯一来源。
-- The import/export dialogs already use command-id resolution for keyboard input, while keeping legacy helper calls for shortcut display text.
-  导入/导出对话框的键盘输入已改为 command-id 解析，快捷键展示文案仍暂时复用遗留 helper。
+- Most high-frequency local paths already route through scoped commands, but a few component-level edit semantics still live inside widget-local code instead of a single reducer layer.
+  大多数高频局部路径已经走 scoped command，但少量组件级编辑语义仍留在 widget 局部代码里，而不是统一 reducer 层。
+- Picker dialogs now use movable/resizable workspace windows; the remaining UX variability is pane-collapse policy rather than raw key routing.
+  picker 对话框现在是可拖拽、可缩放的 workspace 窗口；当前剩余的 UX 差异主要在 pane 折叠策略，而不是 raw key 路由。
 
-Planning docs:
+Related docs:
 - [KEYBOARD_FOCUS_RFC.md](KEYBOARD_FOCUS_RFC.md)
 - [KEYMAP_TOML_SPEC.md](KEYMAP_TOML_SPEC.md)
-- [SIDEBAR_WORKFLOW_PLAN.md](SIDEBAR_WORKFLOW_PLAN.md)
+- [recovery/11-core-flows-and-invariants.md](recovery/11-core-flows-and-invariants.md)
+- [recovery/20-dialog-layout-audit.md](recovery/20-dialog-layout-audit.md)
 
 ## 5. State & Persistence | 状态与持久化
 
@@ -100,9 +101,14 @@ Configuration type:
 
 Persisted content includes:
 - connections, theme mode/preset, ui scale
-- keybindings
 - query history and per-connection command history
 - onboarding progress
+
+Shortcut bindings are persisted separately in `keymap.toml`; `config.toml.keybindings` is now only a legacy migration source.
+快捷键现在单独持久化在 `keymap.toml`；`config.toml.keybindings` 只保留为遗留迁移来源。
+
+Grid table workspace state is cached by `GridWorkspaceStore` under `(tab_id, connection, database, table)`. This keeps drafts isolated across both tabs and tables.
+表格工作区状态由 `GridWorkspaceStore` 按 `(tab_id, connection, database, table)` 缓存，当前已经能同时隔离不同标签页与不同表的草稿状态。
 
 ## 6. Themes & Visual System | 主题与视觉系统
 

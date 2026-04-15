@@ -11,4 +11,6 @@ mod state;
 
 pub use layout::{force_directed_layout, grid_layout};
 pub use render::{ERDiagramResponse, calculate_table_size};
-pub use state::{ERColumn, ERDiagramState, ERTable, RelationType, Relationship};
+pub use state::{
+    ERColumn, ERDiagramState, ERTable, GeometricDirection, RelationType, Relationship,
+};

@@ -6,8 +6,12 @@ use std::path::PathBuf;
 
 use super::common::{
     DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow,
+    WorkspaceDialogShell,
 };
-use super::picker_shell::{PickerDialogShell, PickerNavAction, PickerPaneFocus};
+use super::picker_shell::{
+    LayeredPickerLayout, LayeredPickerWidths, PickerDialogShell, PickerNavAction, PickerPaneFocus,
+    PickerPaneMode,
+};
 use crate::core::{Action, KeyBinding, KeyBindings, KeyCode, KeyModifiers, KeymapDiagnosticCode};
 use crate::ui::components::{
     GridCommandShortcut, GridSequenceConflictKind, grid_command_sequence_conflict,
@@ -185,6 +189,8 @@ const WORKSPACE_SCOPE_ACTION_CANDIDATES: &[Action] = &[
     Action::ShowHelp,
     Action::CommandPalette,
     Action::NewConnection,
+    Action::OpenToolbarActionsMenu,
+    Action::OpenToolbarCreateMenu,
     Action::NewTable,
     Action::NewDatabase,
     Action::NewUser,
@@ -192,6 +198,7 @@ const WORKSPACE_SCOPE_ACTION_CANDIDATES: &[Action] = &[
     Action::Import,
     Action::ShowHistory,
     Action::ToggleErDiagram,
+    Action::FocusErDiagram,
     Action::Refresh,
     Action::ClearCommandLine,
     Action::ToggleEditor,
@@ -1329,6 +1336,16 @@ fn scope_tree_entries() -> &'static [ScopeTreeEntry] {
             title: "dialog.command_palette",
         },
         ScopeTreeEntry {
+            section: "对话框",
+            selection: ScopeTreeSelection::Scope("dialog.toolbar_menu"),
+            title: "dialog.toolbar_menu",
+        },
+        ScopeTreeEntry {
+            section: "对话框",
+            selection: ScopeTreeSelection::Scope("dialog.toolbar_theme"),
+            title: "dialog.toolbar_theme",
+        },
+        ScopeTreeEntry {
             section: "工作区动作",
             selection: ScopeTreeSelection::Scope("toolbar"),
             title: "toolbar",
@@ -1337,6 +1354,11 @@ fn scope_tree_entries() -> &'static [ScopeTreeEntry] {
             section: "工作区动作",
             selection: ScopeTreeSelection::Scope("er_diagram"),
             title: "er_diagram",
+        },
+        ScopeTreeEntry {
+            section: "工作区动作",
+            selection: ScopeTreeSelection::Scope("er_diagram.viewport"),
+            title: "er_diagram.viewport",
         },
         ScopeTreeEntry {
             section: "工作区动作",
@@ -1453,6 +1475,10 @@ enum KeyBindingsDialogUiAction {
 impl KeyBindingsDialog {
     const WINDOW_WIDTH: f32 = 900.0;
     const WINDOW_HEIGHT: f32 = 640.0;
+    const NAV_WIDTH: f32 = 250.0;
+    const NAV_COMPACT_WIDTH: f32 = 108.0;
+    const ITEMS_WIDTH: f32 = 330.0;
+    const ITEMS_COMPACT_WIDTH: f32 = 220.0;
 
     fn resolve_frame_action(
         actions: &[KeyBindingsDialogFrameAction],
@@ -1615,6 +1641,47 @@ impl KeyBindingsDialog {
         state.select_binding(visible[next_index as usize]);
     }
 
+    fn picker_layout_profile(
+        available_width: f32,
+        state: &KeyBindingsDialogState,
+    ) -> LayeredPickerLayout {
+        let has_selection = state.selected_binding.is_some();
+
+        match state.pane_focus {
+            PickerPaneFocus::Navigator => {
+                if available_width < 900.0 {
+                    LayeredPickerLayout::new(
+                        PickerPaneMode::Full,
+                        PickerPaneMode::Compact,
+                        PickerPaneMode::Full,
+                    )
+                } else {
+                    LayeredPickerLayout::new(
+                        PickerPaneMode::Full,
+                        PickerPaneMode::Full,
+                        PickerPaneMode::Full,
+                    )
+                }
+            }
+            PickerPaneFocus::Items => {
+                let navigator = if has_selection {
+                    PickerPaneMode::Compact
+                } else {
+                    PickerPaneMode::Full
+                };
+                LayeredPickerLayout::new(navigator, PickerPaneMode::Full, PickerPaneMode::Full)
+            }
+            PickerPaneFocus::Detail => {
+                let navigator = if available_width < 980.0 {
+                    PickerPaneMode::Hidden
+                } else {
+                    PickerPaneMode::Compact
+                };
+                LayeredPickerLayout::new(navigator, PickerPaneMode::Compact, PickerPaneMode::Full)
+            }
+        }
+    }
+
     /// 显示对话框
     ///
     /// 返回 Some(KeyBindings) 表示用户保存了更改
@@ -1629,6 +1696,8 @@ impl KeyBindingsDialog {
         let mut tree_actions = Vec::new();
         let mut list_actions = Vec::new();
         let mut editor_actions = Vec::new();
+        let mut header_actions = Vec::new();
+        let mut footer_actions = Vec::new();
         let mut frame_actions = Vec::new();
         let mut filter_input = state.filter.clone();
         let mut sequence_input = state.sequence_input.clone();
@@ -1655,93 +1724,126 @@ impl KeyBindingsDialog {
             Self::WINDOW_HEIGHT,
         )
         .show(ctx, |ui| {
-            DialogContent::toolbar(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label("搜索:");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut filter_input)
-                            .desired_width(220.0)
-                            .hint_text("输入功能或 keymap 路径..."),
-                    );
+            let layout = Self::picker_layout_profile(ui.available_width(), &snapshot);
+            let header_layout = PickerDialogShell::header_blocks_layout(ui.available_width());
 
-                    if ui.button("重置全部为默认").clicked() {
-                        ui_actions.push(KeyBindingsDialogUiAction::ResetToDefaults);
-                    }
-                });
-            });
-
-            ui.add_space(8.0);
-            DialogContent::toolbar(ui, |ui| {
-                let mut breadcrumb =
-                    vec!["快捷键设置".to_string(), state.current_tree.breadcrumb()];
-                if let Some(selection) = state.selected_binding {
-                    breadcrumb.push(selection.label().to_string());
-                }
-                PickerDialogShell::breadcrumb(ui, &breadcrumb);
-                ui.add_space(6.0);
-                DialogContent::mouse_hint(
-                    ui,
-                    &[
-                        ("单击导航项", "打开分组"),
-                        ("单击列表项", "预览当前快捷键"),
-                        ("单击右侧按钮", "替换 / 追加 / 恢复"),
-                    ],
-                );
-            });
-
-            ui.add_space(8.0);
-
-            PickerDialogShell::split(
+            WorkspaceDialogShell::show(
                 ui,
-                250.0,
-                330.0,
-                |ui| Self::show_scope_tree_pane(ui, &snapshot, &mut tree_actions),
-                |ui| Self::show_binding_list_pane(ui, &snapshot, &mut list_actions),
+                "keybindings_workspace_shell",
                 |ui| {
-                    Self::show_binding_editor_pane(
+                    PickerDialogShell::header_blocks(
                         ui,
-                        &snapshot,
-                        &mut sequence_input,
-                        &mut editor_actions,
-                        &mut copied_text,
-                    )
+                        header_layout,
+                        |ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label("搜索:");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut filter_input)
+                                        .desired_width(220.0)
+                                        .hint_text("输入功能或 keymap 路径..."),
+                                );
+
+                                if ui.button("重置全部为默认").clicked() {
+                                    header_actions.push(KeyBindingsDialogUiAction::ResetToDefaults);
+                                }
+                            });
+                        },
+                        |ui| {
+                            let mut breadcrumb =
+                                vec!["快捷键设置".to_string(), state.current_tree.breadcrumb()];
+                            if let Some(selection) = state.selected_binding {
+                                breadcrumb.push(selection.label().to_string());
+                            }
+                            PickerDialogShell::breadcrumb(ui, &breadcrumb);
+                            ui.add_space(6.0);
+                            DialogContent::mouse_hint(
+                                ui,
+                                &[
+                                    ("单击导航项", "打开分组"),
+                                    ("单击列表项", "预览当前快捷键"),
+                                    ("单击右侧按钮", "替换 / 追加 / 恢复"),
+                                ],
+                            );
+                        },
+                    );
+                    ui.add_space(8.0);
+                },
+                |_ui| {},
+                |ui| {
+                    PickerDialogShell::split_layered(
+                        ui,
+                        layout,
+                        LayeredPickerWidths::new(
+                            Self::NAV_WIDTH,
+                            Self::NAV_COMPACT_WIDTH,
+                            Self::ITEMS_WIDTH,
+                            Self::ITEMS_COMPACT_WIDTH,
+                        ),
+                        |ui| {
+                            Self::show_scope_tree_pane(
+                                ui,
+                                &snapshot,
+                                layout.navigator,
+                                &mut tree_actions,
+                            )
+                        },
+                        |ui| {
+                            Self::show_binding_list_pane(
+                                ui,
+                                &snapshot,
+                                layout.items,
+                                &mut list_actions,
+                            )
+                        },
+                        |ui| {
+                            Self::show_binding_editor_pane(
+                                ui,
+                                &snapshot,
+                                &mut sequence_input,
+                                &mut editor_actions,
+                                &mut copied_text,
+                            )
+                        },
+                    );
+                },
+                |ui| {
+                    DialogContent::toolbar(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            if let Some(label) = state.clear_button_label()
+                                && ui.button(label).clicked()
+                            {
+                                footer_actions
+                                    .push(KeyBindingsDialogUiAction::ClearSelectedBinding);
+                            }
+
+                            ui.label(
+                                RichText::new(if state.recording {
+                                    state.recording_hint()
+                                } else {
+                                    state.current_tree.helper_text()
+                                })
+                                .small()
+                                .weak(),
+                            );
+                        });
+                    });
+
+                    ui.add_space(8.0);
+
+                    let save_text = if state.has_changes {
+                        "保存 *"
+                    } else {
+                        "保存"
+                    };
+                    let footer = DialogFooter::show(ui, save_text, "取消", true, &style);
+                    if footer.cancelled {
+                        frame_actions.push(KeyBindingsDialogFrameAction::Close);
+                    }
+                    if footer.confirmed {
+                        frame_actions.push(KeyBindingsDialogFrameAction::SaveAndClose);
+                    }
                 },
             );
-
-            DialogContent::toolbar(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    if let Some(label) = state.clear_button_label()
-                        && ui.button(label).clicked()
-                    {
-                        ui_actions.push(KeyBindingsDialogUiAction::ClearSelectedBinding);
-                    }
-
-                    ui.label(
-                        RichText::new(if state.recording {
-                            state.recording_hint()
-                        } else {
-                            state.current_tree.helper_text()
-                        })
-                        .small()
-                        .weak(),
-                    );
-                });
-            });
-
-            ui.add_space(8.0);
-
-            let save_text = if state.has_changes {
-                "保存 *"
-            } else {
-                "保存"
-            };
-            let footer = DialogFooter::show(ui, save_text, "取消", true, &style);
-            if footer.cancelled {
-                frame_actions.push(KeyBindingsDialogFrameAction::Close);
-            }
-            if footer.confirmed {
-                frame_actions.push(KeyBindingsDialogFrameAction::SaveAndClose);
-            }
         });
 
         if filter_input != state.filter {
@@ -1753,6 +1855,8 @@ impl KeyBindingsDialog {
         if let Some(text) = copied_text {
             ctx.copy_text(text);
         }
+        ui_actions.extend(header_actions);
+        ui_actions.extend(footer_actions);
         ui_actions.extend(tree_actions);
         ui_actions.extend(list_actions);
         ui_actions.extend(editor_actions);
@@ -1775,20 +1879,22 @@ impl KeyBindingsDialog {
     fn show_scope_tree_pane(
         ui: &mut egui::Ui,
         state: &KeyBindingsDialogState,
+        mode: PickerPaneMode,
         actions: &mut Vec<KeyBindingsDialogUiAction>,
     ) {
-        PickerDialogShell::pane(
+        PickerDialogShell::pane_with_mode(
             ui,
             "导航",
             "左列负责打开分组；j/k 移动，l 或 Enter 打开。",
             state.pane_focus == PickerPaneFocus::Navigator,
+            mode,
             |ui| {
                 egui::ScrollArea::vertical()
                     .id_salt("keybindings_nav")
                     .show(ui, |ui| {
                         let mut current_section = "";
                         for entry in scope_tree_entries() {
-                            if entry.section != current_section {
+                            if mode == PickerPaneMode::Full && entry.section != current_section {
                                 if !current_section.is_empty() {
                                     ui.add_space(10.0);
                                 }
@@ -1797,14 +1903,18 @@ impl KeyBindingsDialog {
                             }
 
                             let issues = state.issue_count(entry.selection);
-                            let meta = if issues > 0 {
-                                Some(format!(
-                                    "{} 项 · {} 条诊断",
-                                    state.filtered_count(entry.selection),
-                                    issues
-                                ))
+                            let meta = if mode == PickerPaneMode::Compact {
+                                None
                             } else {
-                                Some(format!("{} 项", state.filtered_count(entry.selection)))
+                                Some(if issues > 0 {
+                                    format!(
+                                        "{} 项 · {} 条诊断",
+                                        state.filtered_count(entry.selection),
+                                        issues
+                                    )
+                                } else {
+                                    format!("{} 项", state.filtered_count(entry.selection))
+                                })
                             };
 
                             let is_selected = state.current_tree == entry.selection;
@@ -1835,81 +1945,100 @@ impl KeyBindingsDialog {
     fn show_binding_list_pane(
         ui: &mut egui::Ui,
         state: &KeyBindingsDialogState,
+        mode: PickerPaneMode,
         actions: &mut Vec<KeyBindingsDialogUiAction>,
     ) {
         let issues = state.issue_count(state.current_tree);
         let summary = state.issue_summary(state.current_tree);
 
-        PickerDialogShell::pane(
+        PickerDialogShell::pane_with_mode(
             ui,
             "当前层级",
             "中列负责浏览当前分组；j/k 移动，l 或 Enter 查看详情。",
             state.pane_focus == PickerPaneFocus::Items,
+            mode,
             |ui| {
-                DialogContent::toolbar(ui, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new(navigator_title(state.current_tree)).strong());
-                        ui.label(
-                            RichText::new(state.current_tree.breadcrumb())
-                                .small()
-                                .weak()
-                                .monospace(),
-                        );
-                        ui.label(
-                            RichText::new(format!(
-                                "当前共 {} 项",
-                                state.filtered_count(state.current_tree)
-                            ))
-                            .small()
-                            .weak(),
-                        );
-                        if issues > 0 {
+                if mode == PickerPaneMode::Full {
+                    DialogContent::toolbar(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new(navigator_title(state.current_tree)).strong());
                             ui.label(
-                                RichText::new(format!("{} 条作用域提醒", issues))
+                                RichText::new(state.current_tree.breadcrumb())
                                     .small()
-                                    .color(egui::Color32::from_rgb(245, 189, 130)),
+                                    .weak()
+                                    .monospace(),
                             );
-                        }
-                        if !state.current_tree.is_global() && issues > 0 {
-                            let mut show_issue_only = state.show_issue_only;
-                            if ui
-                                .checkbox(&mut show_issue_only, "只看有作用域提醒")
-                                .on_hover_text("只显示存在遮蔽或同作用域重叠的局部快捷键")
-                                .changed()
-                            {
-                                actions.push(KeyBindingsDialogUiAction::SetShowIssueOnly(
-                                    show_issue_only,
-                                ));
+                            ui.label(
+                                RichText::new(format!(
+                                    "当前共 {} 项",
+                                    state.filtered_count(state.current_tree)
+                                ))
+                                .small()
+                                .weak(),
+                            );
+                            if issues > 0 {
+                                ui.label(
+                                    RichText::new(format!("{} 条作用域提醒", issues))
+                                        .small()
+                                        .color(egui::Color32::from_rgb(245, 189, 130)),
+                                );
                             }
-                        }
+                            if !state.current_tree.is_global() && issues > 0 {
+                                let mut show_issue_only = state.show_issue_only;
+                                if ui
+                                    .checkbox(&mut show_issue_only, "只看有作用域提醒")
+                                    .on_hover_text("只显示存在遮蔽或同作用域重叠的局部快捷键")
+                                    .changed()
+                                {
+                                    actions.push(KeyBindingsDialogUiAction::SetShowIssueOnly(
+                                        show_issue_only,
+                                    ));
+                                }
+                            }
+                        });
                     });
-                });
 
-                if !summary.is_empty() {
                     ui.add_space(8.0);
-                    DialogContent::card(ui, Some(egui::Color32::from_rgb(245, 189, 130)), |ui| {
-                        ui.label(RichText::new("冲突摘要").small().strong());
-                        ui.add_space(4.0);
-                        for (selection, issues) in summary.iter().take(5) {
-                            let label = format!("{} · {} 条提醒", selection.label(), issues.len());
-                            if ui
-                                .small_button(label)
-                                .on_hover_text(selection.detail())
-                                .clicked()
-                            {
-                                actions.push(KeyBindingsDialogUiAction::SelectBinding(*selection));
-                            }
-                        }
-                    });
+                    if !summary.is_empty() {
+                        DialogContent::card(
+                            ui,
+                            Some(egui::Color32::from_rgb(245, 189, 130)),
+                            |ui| {
+                                ui.label(RichText::new("冲突摘要").small().strong());
+                                ui.add_space(4.0);
+                                for (selection, issues) in summary.iter().take(5) {
+                                    let label =
+                                        format!("{} · {} 条提醒", selection.label(), issues.len());
+                                    if ui
+                                        .small_button(label)
+                                        .on_hover_text(selection.detail())
+                                        .clicked()
+                                    {
+                                        actions.push(KeyBindingsDialogUiAction::SelectBinding(
+                                            *selection,
+                                        ));
+                                    }
+                                }
+                            },
+                        );
+                        ui.add_space(8.0);
+                    }
                 }
 
-                ui.add_space(8.0);
                 egui::ScrollArea::vertical()
                     .id_salt("keybindings_items")
                     .show(ui, |ui| {
                         for selection in state.visible_bindings() {
-                            Self::show_binding_list_entry(ui, state, selection, actions);
-                            ui.add_space(8.0);
+                            Self::show_binding_list_entry(
+                                ui,
+                                state,
+                                selection,
+                                mode == PickerPaneMode::Compact,
+                                actions,
+                            );
+                            if mode == PickerPaneMode::Full {
+                                ui.add_space(8.0);
+                            }
                         }
                     });
             },
@@ -1920,6 +2049,7 @@ impl KeyBindingsDialog {
         ui: &mut egui::Ui,
         state: &KeyBindingsDialogState,
         selection: BindingSelection,
+        compact: bool,
         actions: &mut Vec<KeyBindingsDialogUiAction>,
     ) {
         let is_selected = state.selected_binding == Some(selection);
@@ -1936,19 +2066,21 @@ impl KeyBindingsDialog {
             };
         }
 
-        let detail = if issue_count > 0 {
-            format!(
+        let detail = if compact {
+            None
+        } else if issue_count > 0 {
+            Some(format!(
                 "{} · {} · {} 条作用域提醒",
                 selection.category(),
                 state.binding_source(selection),
                 issue_count
-            )
+            ))
         } else {
-            format!(
+            Some(format!(
                 "{} · {}",
                 selection.category(),
                 state.binding_source(selection)
-            )
+            ))
         };
 
         let response = PickerDialogShell::entry(
@@ -1958,7 +2090,7 @@ impl KeyBindingsDialog {
             is_selected && state.pane_focus == PickerPaneFocus::Items,
             selection.label(),
             Some(&meta),
-            Some(&detail),
+            detail.as_deref(),
         );
         PickerDialogShell::reveal_selected(
             &response,
@@ -2353,21 +2485,21 @@ fn local_shortcut_scope_tags(shortcut: LocalShortcut) -> &'static [&'static str]
         | LocalShortcut::CommandPaletteNext
         | LocalShortcut::CommandPaletteConfirm
         | LocalShortcut::CommandPaletteDismiss => &["dialog.command_palette"],
-        LocalShortcut::ToolbarPrev
-        | LocalShortcut::ToolbarNext
-        | LocalShortcut::ToolbarToQueryTabs
-        | LocalShortcut::ToolbarActivate
-        | LocalShortcut::ToolbarDismiss
-        | LocalShortcut::ToolbarMenuPrev
+        LocalShortcut::ToolbarMenuPrev
         | LocalShortcut::ToolbarMenuNext
         | LocalShortcut::ToolbarMenuConfirm
-        | LocalShortcut::ToolbarMenuDismiss
-        | LocalShortcut::ToolbarThemePrev
+        | LocalShortcut::ToolbarMenuDismiss => &["dialog.toolbar_menu"],
+        LocalShortcut::ToolbarThemePrev
         | LocalShortcut::ToolbarThemeNext
         | LocalShortcut::ToolbarThemeConfirm
         | LocalShortcut::ToolbarThemeDismiss
         | LocalShortcut::ToolbarThemeStart
-        | LocalShortcut::ToolbarThemeEnd => &["toolbar"],
+        | LocalShortcut::ToolbarThemeEnd => &["dialog.toolbar_theme"],
+        LocalShortcut::ToolbarPrev
+        | LocalShortcut::ToolbarNext
+        | LocalShortcut::ToolbarToQueryTabs
+        | LocalShortcut::ToolbarActivate
+        | LocalShortcut::ToolbarDismiss => &["toolbar"],
         LocalShortcut::QueryTabPrev
         | LocalShortcut::QueryTabNext
         | LocalShortcut::QueryTabToDataGrid
@@ -2379,7 +2511,24 @@ fn local_shortcut_scope_tags(shortcut: LocalShortcut) -> &'static [&'static str]
         | LocalShortcut::ErDiagramLayout
         | LocalShortcut::ErDiagramFitView
         | LocalShortcut::ErDiagramZoomIn
-        | LocalShortcut::ErDiagramZoomOut => &["er_diagram"],
+        | LocalShortcut::ErDiagramZoomOut
+        | LocalShortcut::ErDiagramPrevTable
+        | LocalShortcut::ErDiagramNextTable
+        | LocalShortcut::ErDiagramPrevRelated
+        | LocalShortcut::ErDiagramNextRelated
+        | LocalShortcut::ErDiagramGeometryLeft
+        | LocalShortcut::ErDiagramGeometryDown
+        | LocalShortcut::ErDiagramGeometryUp
+        | LocalShortcut::ErDiagramGeometryRight
+        | LocalShortcut::ErDiagramOpenSelected
+        | LocalShortcut::ErDiagramBack
+        | LocalShortcut::ErDiagramClose
+        | LocalShortcut::ErDiagramViewportMode => &["er_diagram"],
+        LocalShortcut::ErDiagramViewportExit
+        | LocalShortcut::ErDiagramViewportPanLeft
+        | LocalShortcut::ErDiagramViewportPanDown
+        | LocalShortcut::ErDiagramViewportPanUp
+        | LocalShortcut::ErDiagramViewportPanRight => &["er_diagram.viewport"],
         LocalShortcut::SidebarItemPrev
         | LocalShortcut::SidebarItemNext
         | LocalShortcut::SidebarItemStart
@@ -2470,7 +2619,8 @@ mod tests {
 
     use super::{
         BindingIssue, BindingSelection, KeyBindingsDialog, KeyBindingsDialogFrameAction,
-        KeyBindingsDialogState, KeyBindingsDialogUiAction, RecordingMode, ScopeTreeSelection,
+        KeyBindingsDialogState, KeyBindingsDialogUiAction, PickerPaneFocus, PickerPaneMode,
+        RecordingMode, ScopeTreeSelection,
     };
     use crate::core::{KeyBinding, KeyBindings, KeyCode, KeyModifiers};
     use crate::ui::components::{GridCommandShortcut, GridSequenceConflictKind};
@@ -2502,6 +2652,44 @@ mod tests {
             response.request_focus();
         });
         let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn detail_focus_hides_navigation_on_narrow_width() {
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&KeyBindings::default());
+        state.pane_focus = PickerPaneFocus::Detail;
+        state.selected_binding = Some(BindingSelection::Local(LocalShortcut::Confirm));
+
+        let layout = KeyBindingsDialog::picker_layout_profile(920.0, &state);
+
+        assert_eq!(layout.navigator, PickerPaneMode::Hidden);
+        assert_eq!(layout.items, PickerPaneMode::Compact);
+        assert_eq!(layout.detail, PickerPaneMode::Full);
+    }
+
+    #[test]
+    fn item_focus_compacts_navigation_when_selection_exists() {
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&KeyBindings::default());
+        state.pane_focus = PickerPaneFocus::Items;
+        state.selected_binding = Some(BindingSelection::Local(LocalShortcut::Confirm));
+
+        let layout = KeyBindingsDialog::picker_layout_profile(1180.0, &state);
+
+        assert_eq!(layout.navigator, PickerPaneMode::Compact);
+        assert_eq!(layout.items, PickerPaneMode::Full);
+        assert_eq!(layout.detail, PickerPaneMode::Full);
+    }
+
+    #[test]
+    fn keybindings_header_prefers_inline_blocks_at_default_width() {
+        assert_eq!(
+            crate::ui::dialogs::picker_shell::PickerDialogShell::header_blocks_layout(
+                KeyBindingsDialog::WINDOW_WIDTH
+            ),
+            crate::ui::dialogs::picker_shell::PickerHeaderBlocksLayout::Inline
+        );
     }
 
     #[test]
@@ -2809,8 +2997,37 @@ mod tests {
         let visible = state.visible_bindings();
 
         assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarPrev)));
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarDismiss)));
+        assert!(!visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarMenuConfirm)));
+        assert!(!visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarThemeNext)));
+    }
+
+    #[test]
+    fn dialog_toolbar_menu_scope_lists_toolbar_menu_local_shortcuts() {
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&KeyBindings::default());
+        state.select_tree(ScopeTreeSelection::Scope("dialog.toolbar_menu"));
+
+        let visible = state.visible_bindings();
+
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarMenuPrev)));
         assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarMenuConfirm)));
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarMenuDismiss)));
+        assert!(!visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarPrev)));
+    }
+
+    #[test]
+    fn dialog_toolbar_theme_scope_lists_toolbar_theme_local_shortcuts() {
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&KeyBindings::default());
+        state.select_tree(ScopeTreeSelection::Scope("dialog.toolbar_theme"));
+
+        let visible = state.visible_bindings();
+
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarThemePrev)));
         assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarThemeNext)));
+        assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarThemeEnd)));
+        assert!(!visible.contains(&BindingSelection::Local(LocalShortcut::ToolbarPrev)));
     }
 
     #[test]
@@ -2851,7 +3068,27 @@ mod tests {
 
         assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ErDiagramRefresh)));
         assert!(visible.contains(&BindingSelection::Local(LocalShortcut::ErDiagramZoomIn)));
+        assert!(visible.contains(&BindingSelection::Local(
+            LocalShortcut::ErDiagramGeometryLeft
+        )));
         assert!(!visible.contains(&BindingSelection::Local(LocalShortcut::QueryTabPrev)));
+    }
+
+    #[test]
+    fn er_diagram_viewport_scope_lists_viewport_local_shortcuts() {
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&KeyBindings::default());
+        state.select_tree(ScopeTreeSelection::Scope("er_diagram.viewport"));
+
+        let visible = state.visible_bindings();
+
+        assert!(visible.contains(&BindingSelection::Local(
+            LocalShortcut::ErDiagramViewportPanLeft
+        )));
+        assert!(visible.contains(&BindingSelection::Local(
+            LocalShortcut::ErDiagramViewportExit
+        )));
+        assert!(!visible.contains(&BindingSelection::Local(LocalShortcut::ErDiagramPrevTable)));
     }
 
     #[test]

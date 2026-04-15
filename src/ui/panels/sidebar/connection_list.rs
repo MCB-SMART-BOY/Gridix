@@ -11,7 +11,7 @@ use crate::ui::styles::{
     theme_text,
 };
 use crate::ui::{SidebarSection, action_tooltip};
-use egui::{self, Color32, CornerRadius, RichText, Vec2};
+use egui::{self, Color32, CornerRadius, Rect, RichText, Vec2};
 
 /// 连接项数据（用于避免借用冲突）
 pub(crate) struct ConnectionItemData {
@@ -25,10 +25,61 @@ pub(crate) struct ConnectionItemData {
     pub error: Option<String>,
 }
 
+#[derive(Debug)]
+struct ConnectionHeaderActionGroup {
+    rect: Rect,
+    connection_delete_rect: Option<Rect>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug)]
+struct ConnectionHeaderRender {
+    interaction_response: egui::Response,
+    label_clicked: bool,
+    toggle_clicked: bool,
+    action_rect: Rect,
+    toggle_rect: Rect,
+    label_rect: Rect,
+    connection_delete_rect: Option<Rect>,
+}
+
 /// 连接列表
 pub struct ConnectionList;
 
 impl ConnectionList {
+    fn request_delete_target(actions: &mut SidebarActions, target: SidebarDeleteTarget) {
+        actions.delete = Some(target);
+    }
+
+    pub(super) fn request_connection_delete(connection_name: &str, actions: &mut SidebarActions) {
+        Self::request_delete_target(
+            actions,
+            SidebarDeleteTarget::connection(connection_name.to_string()),
+        );
+    }
+
+    pub(super) fn request_database_delete(
+        connection_name: &str,
+        database_name: &str,
+        actions: &mut SidebarActions,
+    ) {
+        Self::request_delete_target(
+            actions,
+            SidebarDeleteTarget::database(connection_name.to_string(), database_name.to_string()),
+        );
+    }
+
+    pub(super) fn request_table_delete(
+        connection_name: &str,
+        table_name: &str,
+        actions: &mut SidebarActions,
+    ) {
+        Self::request_delete_target(
+            actions,
+            SidebarDeleteTarget::table(connection_name.to_string(), table_name.to_string()),
+        );
+    }
+
     pub(super) fn delete_targets_for_context(
         connection_name: &str,
         selected_database: Option<&str>,
@@ -38,12 +89,12 @@ impl ConnectionList {
             .map(str::trim)
             .filter(|database| !database.is_empty())
         {
-            targets.push(SidebarDeleteTarget::Database {
-                connection_name: connection_name.to_string(),
-                database_name: database.to_string(),
-            });
+            targets.push(SidebarDeleteTarget::database(
+                connection_name.to_string(),
+                database.to_string(),
+            ));
         }
-        targets.push(SidebarDeleteTarget::Connection(connection_name.to_string()));
+        targets.push(SidebarDeleteTarget::connection(connection_name.to_string()));
         targets
     }
 
@@ -82,7 +133,7 @@ impl ConnectionList {
             };
 
             if ui.button(RichText::new(label).color(DANGER)).clicked() {
-                actions.delete = Some(target);
+                Self::request_delete_target(actions, target);
                 ui.close();
             }
         }
@@ -330,41 +381,17 @@ impl ConnectionList {
                         header_id,
                         conn_data.is_active,
                     );
-                let mut label_clicked = false;
-
-                let header_response = ui
-                    .horizontal(|ui| {
-                        let toggle_response = collapsing_state
-                            .show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
-                        let label_response = ui.add(
-                            egui::Label::new(Self::connection_header_text(
-                                name,
-                                conn_data.is_active,
-                                conn_data.is_connected,
-                                is_nav_selected,
-                            ))
-                            .sense(egui::Sense::click()),
-                        );
-                        if label_response.clicked() {
-                            collapsing_state.toggle(ui);
-                            label_clicked = true;
-                        }
-
-                        ui.add_space(SPACING_SM);
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            Self::show_connection_header_actions(
-                                ui,
-                                name,
-                                conn_data.is_active,
-                                conn_data.selected_database.as_deref(),
-                                selected_table,
-                                actions,
-                            );
-                        });
-
-                        (toggle_response, label_response)
-                    })
-                    .response;
+                let header = Self::show_connection_header(
+                    ui,
+                    name,
+                    conn_data.is_active,
+                    conn_data.is_connected,
+                    conn_data.selected_database.as_deref(),
+                    is_nav_selected,
+                    selected_table,
+                    actions,
+                    &mut collapsing_state,
+                );
 
                 collapsing_state.show_body_unindented(ui, |ui| {
                     ui.add_space(SPACING_SM);
@@ -411,13 +438,13 @@ impl ConnectionList {
                     }
                 });
 
-                if label_clicked {
+                if header.label_clicked || header.toggle_clicked {
                     actions.section_change = Some(SidebarSection::Connections);
                 }
 
                 // 右键菜单
                 let is_active_for_menu = conn_data.is_active;
-                header_response.context_menu(|ui| {
+                header.interaction_response.context_menu(|ui| {
                     if is_active_for_menu {
                         if ui.button("断开连接").clicked() {
                             actions.disconnect = Some(name.to_string());
@@ -436,6 +463,80 @@ impl ConnectionList {
                     );
                 });
             });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn show_connection_header(
+        ui: &mut egui::Ui,
+        name: &str,
+        is_active: bool,
+        is_connected: bool,
+        selected_database: Option<&str>,
+        is_nav_selected: bool,
+        selected_table: &mut Option<String>,
+        actions: &mut SidebarActions,
+        collapsing_state: &mut egui::collapsing_header::CollapsingState,
+    ) -> ConnectionHeaderRender {
+        let mut label_clicked = false;
+        let mut toggle_clicked = false;
+        let mut interaction_response = None;
+        let mut action_group = None;
+        let mut toggle_rect = Rect::NOTHING;
+        let mut label_rect = Rect::NOTHING;
+
+        egui::Frame::NONE.show(ui, |ui| {
+            let combined_response = ui
+                .horizontal(|ui| {
+                    let toggle_response = collapsing_state
+                        .show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
+                    toggle_rect = toggle_response.rect;
+                    if toggle_response.clicked() {
+                        toggle_clicked = true;
+                    }
+
+                    let label_response = ui.add(
+                        egui::Label::new(Self::connection_header_text(
+                            name,
+                            is_active,
+                            is_connected,
+                            is_nav_selected,
+                        ))
+                        .sense(egui::Sense::click()),
+                    );
+                    label_rect = label_response.rect;
+                    if label_response.clicked() {
+                        collapsing_state.toggle(ui);
+                        label_clicked = true;
+                    }
+
+                    ui.add_space(SPACING_SM);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        action_group = Some(Self::show_connection_header_actions(
+                            ui,
+                            name,
+                            is_active,
+                            selected_database,
+                            selected_table,
+                            actions,
+                        ));
+                    });
+
+                    toggle_response.union(label_response)
+                })
+                .inner;
+            interaction_response = Some(combined_response);
+        });
+
+        let action_group = action_group.expect("connection header action group");
+        ConnectionHeaderRender {
+            interaction_response: interaction_response.expect("connection header response"),
+            label_clicked,
+            toggle_clicked,
+            action_rect: action_group.rect,
+            toggle_rect,
+            label_rect,
+            connection_delete_rect: action_group.connection_delete_rect,
+        }
     }
 
     /// 连接头部文本
@@ -491,8 +592,9 @@ impl ConnectionList {
         selected_database: Option<&str>,
         selected_table: &mut Option<String>,
         actions: &mut SidebarActions,
-    ) {
+    ) -> ConnectionHeaderActionGroup {
         ui.horizontal(|ui| {
+            let row_start = ui.cursor().min;
             ui.add_space(SPACING_LG);
 
             // 无边框图标按钮
@@ -526,23 +628,25 @@ impl ConnectionList {
                     .on_hover_text(format!("删除数据库 {}", database))
                     .clicked()
             {
-                actions.delete = Some(SidebarDeleteTarget::Database {
-                    connection_name: name.to_string(),
-                    database_name: database.to_string(),
-                });
+                Self::request_database_delete(name, database, actions);
             }
 
-            if ui
+            let connection_delete_response = ui
                 .add(
                     egui::Button::new(RichText::new("删连").small().color(DANGER))
                         .min_size(Vec2::new(44.0, 22.0)),
                 )
-                .on_hover_text(format!("删除连接 {}", name))
-                .clicked()
-            {
-                actions.delete = Some(SidebarDeleteTarget::Connection(name.to_string()));
+                .on_hover_text(format!("删除连接 {}", name));
+            if connection_delete_response.clicked() {
+                Self::request_connection_delete(name, actions);
             }
-        });
+            let rect = Rect::from_min_max(row_start, ui.min_rect().max);
+            ConnectionHeaderActionGroup {
+                rect,
+                connection_delete_rect: Some(connection_delete_response.rect),
+            }
+        })
+        .inner
     }
 
     /// 显示错误信息
@@ -576,7 +680,46 @@ fn truncate_error(error: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::ConnectionList;
-    use crate::ui::panels::sidebar::SidebarDeleteTarget;
+    use crate::ui::panels::sidebar::{SidebarActions, SidebarDeleteTarget};
+    use egui::{Area, Context, Event, Id, RawInput};
+
+    fn render_connection_header_pass(
+        ctx: &Context,
+        events: Vec<Event>,
+    ) -> (super::ConnectionHeaderRender, SidebarActions) {
+        ctx.begin_pass(RawInput {
+            events,
+            ..Default::default()
+        });
+
+        let mut actions = SidebarActions::default();
+        let mut selected_table = None;
+        let mut header = None;
+
+        Area::new(Id::new("connection_header_test")).show(ctx, |ui| {
+            let header_id = ui.make_persistent_id(("sidebar_connection_test", "prod"));
+            let mut collapsing_state =
+                egui::collapsing_header::CollapsingState::load_with_default_open(
+                    ui.ctx(),
+                    header_id,
+                    true,
+                );
+            header = Some(ConnectionList::show_connection_header(
+                ui,
+                "prod",
+                true,
+                true,
+                Some("analytics"),
+                false,
+                &mut selected_table,
+                &mut actions,
+                &mut collapsing_state,
+            ));
+        });
+
+        let _ = ctx.end_pass();
+        (header.expect("rendered connection header"), actions)
+    }
 
     #[test]
     fn delete_targets_include_selected_database_and_connection() {
@@ -598,7 +741,92 @@ mod tests {
         let targets = ConnectionList::delete_targets_for_context("sqlite", None);
         assert_eq!(
             targets,
-            vec![SidebarDeleteTarget::Connection("sqlite".to_string())]
+            vec![SidebarDeleteTarget::connection("sqlite".to_string())]
+        );
+    }
+
+    #[test]
+    fn request_connection_delete_matches_context_menu_connection_target() {
+        let mut actions = SidebarActions::default();
+
+        ConnectionList::request_connection_delete("prod", &mut actions);
+
+        assert_eq!(
+            actions.delete,
+            ConnectionList::delete_targets_for_context("prod", Some("analytics"))
+                .last()
+                .cloned()
+        );
+    }
+
+    #[test]
+    fn request_database_delete_matches_context_menu_database_target() {
+        let mut actions = SidebarActions::default();
+
+        ConnectionList::request_database_delete("prod", "analytics", &mut actions);
+
+        assert_eq!(
+            actions.delete,
+            ConnectionList::delete_targets_for_context("prod", Some("analytics"))
+                .first()
+                .cloned()
+        );
+    }
+
+    #[test]
+    fn request_table_delete_preserves_connection_context() {
+        let mut actions = SidebarActions::default();
+
+        ConnectionList::request_table_delete("prod", "users", &mut actions);
+
+        assert_eq!(
+            actions.delete,
+            Some(SidebarDeleteTarget::table(
+                "prod".to_string(),
+                "users".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn connection_header_interaction_surface_excludes_action_buttons() {
+        let ctx = Context::default();
+        let (header, _) = render_connection_header_pass(&ctx, Vec::new());
+
+        assert!(
+            header
+                .interaction_response
+                .interact_rect
+                .contains(header.label_rect.center())
+        );
+        assert!(
+            header
+                .interaction_response
+                .interact_rect
+                .contains(header.toggle_rect.center())
+        );
+        assert!(
+            !header
+                .interaction_response
+                .interact_rect
+                .contains(header.action_rect.center())
+        );
+    }
+
+    #[test]
+    fn connection_header_delete_button_has_independent_pointer_surface() {
+        let ctx = Context::default();
+        let (layout, _) = render_connection_header_pass(&ctx, Vec::new());
+        let delete_rect = layout
+            .connection_delete_rect
+            .expect("connection delete button rect");
+
+        assert!(layout.action_rect.contains(delete_rect.center()));
+        assert!(
+            !layout
+                .interaction_response
+                .interact_rect
+                .contains(delete_rect.center())
         );
     }
 }

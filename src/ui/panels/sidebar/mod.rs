@@ -950,27 +950,21 @@ impl Sidebar {
                 let mut names: Vec<_> = connection_manager.connections.keys().cloned().collect();
                 names.sort_unstable();
                 if let Some(name) = names.get(selected_index) {
-                    actions.delete = Some(SidebarDeleteTarget::Connection(name.clone()));
+                    ConnectionList::request_connection_delete(name, actions);
                 }
             }
             SidebarSection::Tables => {
                 if let Some(conn) = connection_manager.get_active()
                     && let Some(table) = conn.tables.get(selected_index)
                 {
-                    actions.delete = Some(SidebarDeleteTarget::Table {
-                        connection_name: conn.config.name.clone(),
-                        table_name: table.clone(),
-                    });
+                    ConnectionList::request_table_delete(&conn.config.name, table, actions);
                 }
             }
             SidebarSection::Databases => {
                 if let Some(conn) = connection_manager.get_active()
                     && let Some(database) = conn.databases.get(selected_index)
                 {
-                    actions.delete = Some(SidebarDeleteTarget::Database {
-                        connection_name: conn.config.name.clone(),
-                        database_name: database.clone(),
-                    });
+                    ConnectionList::request_database_delete(&conn.config.name, database, actions);
                 }
             }
             SidebarSection::Filters => {
@@ -1497,6 +1491,28 @@ mod tests {
                 connection_name: "primary".to_string(),
                 database_name: "main".to_string(),
             })
+        );
+    }
+
+    #[test]
+    fn delete_in_connections_section_requests_connection_target() {
+        let manager = active_manager_with_tables();
+        let mut panel_state = SidebarPanelState::default();
+        panel_state.selection.connections = 0;
+        let mut filters = Vec::new();
+
+        let actions = run_sidebar_key(
+            key_event(Key::D),
+            SidebarSection::Connections,
+            &mut panel_state,
+            1,
+            &manager,
+            &mut filters,
+        );
+
+        assert_eq!(
+            actions.delete,
+            Some(SidebarDeleteTarget::connection("primary".to_string()))
         );
     }
 

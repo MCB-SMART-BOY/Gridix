@@ -1,19 +1,3 @@
-use crate::core::ThemePreset;
-
-/// 主题下拉框状态
-#[derive(Default, Clone)]
-pub struct ThemeComboState {
-    pub selected_index: usize,
-    pub is_open: bool,
-}
-
-/// 下拉菜单状态
-#[derive(Default, Clone)]
-pub struct DropdownState {
-    pub is_open: bool,
-    pub selected_index: usize,
-}
-
 /// 工具栏焦点转移方向
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolbarFocusTransfer {
@@ -32,15 +16,14 @@ pub struct ToolbarActions {
     pub toggle_sidebar: bool,
     pub toggle_editor: bool,
     pub show_editor: bool,
-    pub theme_changed: Option<ThemePreset>,
     pub toggle_dark_mode: bool,
     pub switch_connection: Option<String>,
     pub switch_database: Option<String>,
     pub switch_table: Option<String>,
-    // 快捷键触发的下拉框打开
+    // 主题/overlay 打开请求
     pub open_theme_selector: bool,
-    pub open_actions_dropdown: bool,
-    pub open_create_dropdown: bool,
+    pub open_actions_menu: bool,
+    pub open_create_menu: bool,
     // 缩放操作
     pub zoom_in: bool,
     pub zoom_out: bool,

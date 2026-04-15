@@ -6,6 +6,14 @@ use crate::ui::{
 };
 use egui::{self, RichText};
 
+const HISTORY_PANEL_VIEWPORT_MARGIN: f32 = 32.0;
+const HISTORY_PANEL_MIN_WIDTH: f32 = 360.0;
+const HISTORY_PANEL_DEFAULT_WIDTH: f32 = 500.0;
+const HISTORY_PANEL_MAX_WIDTH: f32 = 820.0;
+const HISTORY_PANEL_MIN_HEIGHT: f32 = 280.0;
+const HISTORY_PANEL_DEFAULT_HEIGHT: f32 = 400.0;
+const HISTORY_PANEL_MAX_HEIGHT: f32 = 720.0;
+
 #[derive(Default)]
 pub struct HistoryPanelState {
     pub selected_index: usize,
@@ -90,10 +98,20 @@ impl HistoryPanel {
             _ => {}
         }
 
+        let content_rect = ctx.input(|input| input.content_rect());
+        let (min_width, default_width, max_width) = history_panel_widths(content_rect.width());
+        let (min_height, default_height, max_height) = history_panel_heights(content_rect.height());
+
         egui::Window::new("查询历史")
             .collapsible(true)
             .resizable(true)
-            .default_size([500.0, 400.0])
+            .default_width(default_width)
+            .default_height(default_height)
+            .min_width(min_width)
+            .min_height(min_height)
+            .max_width(max_width)
+            .max_height(max_height)
+            .constrain_to(content_rect)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(format!("{} 条记录", history.len()));
@@ -244,5 +262,58 @@ impl HistoryPanel {
                     }
                 });
             });
+    }
+}
+
+fn history_panel_widths(viewport_width: f32) -> (f32, f32, f32) {
+    let usable = (viewport_width - HISTORY_PANEL_VIEWPORT_MARGIN).max(280.0);
+    let max_width = usable.min(HISTORY_PANEL_MAX_WIDTH);
+    let min_width = HISTORY_PANEL_MIN_WIDTH.min(max_width);
+    let default_width = HISTORY_PANEL_DEFAULT_WIDTH.clamp(min_width, max_width);
+    (min_width, default_width, max_width)
+}
+
+fn history_panel_heights(viewport_height: f32) -> (f32, f32, f32) {
+    let usable = (viewport_height - HISTORY_PANEL_VIEWPORT_MARGIN).max(220.0);
+    let max_height = usable.min(HISTORY_PANEL_MAX_HEIGHT);
+    let min_height = HISTORY_PANEL_MIN_HEIGHT.min(max_height);
+    let default_height = HISTORY_PANEL_DEFAULT_HEIGHT.clamp(min_height, max_height);
+    (min_height, default_height, max_height)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{history_panel_heights, history_panel_widths};
+
+    #[test]
+    fn history_panel_widths_clamp_to_small_viewport() {
+        let (min_width, default_width, max_width) = history_panel_widths(420.0);
+
+        assert!(max_width <= 388.0 + f32::EPSILON);
+        assert!(min_width <= max_width);
+        assert!(default_width <= max_width);
+        assert_eq!(default_width, max_width);
+    }
+
+    #[test]
+    fn history_panel_heights_clamp_to_small_viewport() {
+        let (min_height, default_height, max_height) = history_panel_heights(320.0);
+
+        assert_eq!(max_height, 288.0);
+        assert_eq!(min_height, 280.0);
+        assert_eq!(default_height, 288.0);
+    }
+
+    #[test]
+    fn history_panel_preserves_defaults_when_room_allows() {
+        let (min_width, default_width, max_width) = history_panel_widths(1440.0);
+        let (min_height, default_height, max_height) = history_panel_heights(1080.0);
+
+        assert_eq!(min_width, 360.0);
+        assert_eq!(default_width, 500.0);
+        assert_eq!(max_width, 820.0);
+        assert_eq!(min_height, 280.0);
+        assert_eq!(default_height, 400.0);
+        assert_eq!(max_height, 720.0);
     }
 }

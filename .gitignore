@@ -21,6 +21,25 @@ libs/
 result
 *.tar.gz
 
+# AI / agent tooling (local only)
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+QWEN.md
+.claude/
+.cursor/
+.cursorrules
+.copilot/
+.github/copilot-instructions.md
+.aider*
+.continue/
+.avante/
+.windsurf/
+.roo/
+.codex/
+.llm/
+.promptfoo/
+
 flake.nix
 flake.lock
 *.log

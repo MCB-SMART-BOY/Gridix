@@ -1,7 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
 mod actions;
-mod dropdowns;
 mod theme_combo;
 mod utils;
 
@@ -16,8 +15,7 @@ use crate::ui::{
 use egui::{Color32, Vec2};
 
 use super::ProgressIndicator;
-use dropdowns::{show_actions_dropdown, show_create_dropdown};
-use theme_combo::{DARK_THEMES, LIGHT_THEMES, helix_theme_combo_simple};
+use theme_combo::show_theme_selector_trigger;
 use utils::{icon_button, icon_button_with_focus, separator, text_button};
 
 pub struct Toolbar;
@@ -72,7 +70,7 @@ impl Toolbar {
         ui: &mut egui::Ui,
         theme_manager: &ThemeManager,
         keybindings: &KeyBindings,
-        has_result: bool,
+        _has_result: bool,
         show_sidebar: bool,
         show_editor: bool,
         is_dark_mode: bool,
@@ -114,14 +112,7 @@ impl Toolbar {
                     ui.add_space(8.0);
 
                     // 操作按钮（移除了连接/库/表选择器，这些在左侧栏中已有）
-                    Self::show_action_buttons(
-                        ui,
-                        keybindings,
-                        has_result,
-                        actions,
-                        is_focused,
-                        selected_index,
-                    );
+                    Self::show_action_buttons(ui, keybindings, actions, is_focused, selected_index);
 
                     // 保留快捷键功能但不显示选择器
                     // 快捷键 Ctrl+1/2/3 仍可在 app 中触发侧边栏操作
@@ -181,30 +172,19 @@ impl Toolbar {
                         separator(ui);
                         ui.add_space(4.0);
 
-                        // 主题选择器 - 根据当前模式显示对应主题列表
-                        let themes = if is_dark_mode {
-                            DARK_THEMES
-                        } else {
-                            LIGHT_THEMES
-                        };
-                        let current_theme_idx = themes
-                            .iter()
-                            .position(|&t| t == theme_manager.current)
-                            .unwrap_or(0);
-
-                        if let Some(new_idx) = helix_theme_combo_simple(
+                        // 主题选择器 trigger：真正的选择在显式 overlay owner 中完成
+                        if show_theme_selector_trigger(
                             ui,
-                            "theme_selector",
                             theme_manager.current,
-                            current_theme_idx,
-                            themes,
-                            200.0,
-                            actions.open_theme_selector,
-                        ) && let Some(&preset) = themes.get(new_idx)
-                        {
-                            actions.theme_changed = Some(preset);
+                            &action_tooltip_with_extras(
+                                keybindings,
+                                Action::OpenThemeSelector,
+                                "打开主题选择器",
+                                &[],
+                            ),
+                        ) {
+                            actions.open_theme_selector = true;
                         }
-                        actions.open_theme_selector = false;
 
                         ui.add_space(4.0);
 
@@ -315,7 +295,6 @@ impl Toolbar {
     fn show_action_buttons(
         ui: &mut egui::Ui,
         keybindings: &KeyBindings,
-        has_result: bool,
         actions: &mut ToolbarActions,
         is_focused: bool,
         selected_index: usize,
@@ -335,17 +314,29 @@ impl Toolbar {
         separator(ui);
         ui.add_space(4.0);
 
-        // 操作下拉菜单 (索引 3)
-        let force_open = actions.open_actions_dropdown;
-        show_actions_dropdown(ui, keybindings, has_result, force_open, actions);
-        actions.open_actions_dropdown = false;
+        // 操作菜单 (索引 3)
+        if icon_button_with_focus(
+            ui,
+            "⚡",
+            &action_tooltip(keybindings, Action::OpenToolbarActionsMenu),
+            true,
+            is_focused && selected_index == 3,
+        ) {
+            actions.open_actions_menu = true;
+        }
 
         ui.add_space(4.0);
 
-        // 新建下拉菜单 (索引 4)
-        let force_open = actions.open_create_dropdown;
-        show_create_dropdown(ui, keybindings, force_open, actions);
-        actions.open_create_dropdown = false;
+        // 新建菜单 (索引 4)
+        if icon_button_with_focus(
+            ui,
+            "+",
+            &action_tooltip(keybindings, Action::OpenToolbarCreateMenu),
+            true,
+            is_focused && selected_index == 4,
+        ) {
+            actions.open_create_menu = true;
+        }
 
         ui.add_space(4.0);
         separator(ui);
@@ -401,8 +392,8 @@ impl Toolbar {
                     0 => actions.toggle_sidebar = true,
                     1 => actions.toggle_editor = true,
                     2 => actions.refresh_tables = true,
-                    3 => actions.open_actions_dropdown = true,
-                    4 => actions.open_create_dropdown = true,
+                    3 => actions.open_actions_menu = true,
+                    4 => actions.open_create_menu = true,
                     5 => actions.show_keybindings = true,
                     6 => actions.show_help = true,
                     _ => {}
@@ -443,13 +434,23 @@ mod tests {
     }
 
     #[test]
-    fn toolbar_keyboard_activate_opens_action_dropdown_when_selected() {
+    fn toolbar_keyboard_activate_opens_action_menu_when_selected() {
         let mut index = 3;
         let mut actions = ToolbarActions::default();
 
         run_toolbar_key(Key::Enter, &mut index, &mut actions);
 
-        assert!(actions.open_actions_dropdown);
+        assert!(actions.open_actions_menu);
+    }
+
+    #[test]
+    fn toolbar_keyboard_activate_opens_create_menu_when_selected() {
+        let mut index = 4;
+        let mut actions = ToolbarActions::default();
+
+        run_toolbar_key(Key::Enter, &mut index, &mut actions);
+
+        assert!(actions.open_create_menu);
     }
 
     #[test]

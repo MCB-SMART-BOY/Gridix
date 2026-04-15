@@ -16,8 +16,8 @@ This document defines how key bindings are stored outside `config.toml` and merg
 - `next_focus_area` / `prev_focus_area` are fallback actions, not global-first hard-coded keys.
   `next_focus_area` / `prev_focus_area` 是 fallback action，不是 global-first 的硬编码按键。
 
-`v4.1.0` implementation note:
-`v4.1.0` 实现说明：
+`v5.0.0` implementation note:
+`v5.0.0` 实现说明：
 - Runtime dispatch first resolves an input owner, then reads scoped bindings such as `dialog.common.confirm`, `dialog.export.format_csv`, `dialog.import.refresh`, or `sidebar.filters.input.leave_input`.
   运行时会先解析输入所有者，再读取 `dialog.common.confirm`、`dialog.export.format_csv`、`dialog.import.refresh` 或 `sidebar.filters.input.leave_input` 这类作用域绑定。
 - Scoped command metadata lives in `src/core/commands.rs`; legacy local shortcut helpers now read command ids, descriptions, categories, and default bindings from that registry.
@@ -182,8 +182,8 @@ Examples:
 
 ## 8. Migration From Current Config | 从当前配置迁移
 
-Current state stores bindings in `AppConfig.keybindings`.
-当前实现把快捷键存放在 `AppConfig.keybindings`。
+Legacy state stored bindings in `AppConfig.keybindings`.
+旧版实现把快捷键存放在 `AppConfig.keybindings`。
 
 Migration plan:
 迁移方案：
@@ -191,7 +191,7 @@ Migration plan:
 1. On startup, prefer `keymap.toml`.
 2. If `keymap.toml` is missing, initialize it from defaults, not from legacy inline bindings.
 3. Keep reading `AppConfig.keybindings` only as a compatibility source and emit a migration diagnostic when legacy customizations still exist.
-4. TODO: add an explicit import/migrate affordance in the shortcut editor, then remove the legacy field after the compatibility window.
+4. Keep the explicit import/migrate affordance in the shortcut editor during the compatibility window, then remove the legacy field in a later cleanup release.
 
 ## 9. UI Requirements | 配置界面要求
 
@@ -201,7 +201,7 @@ The shortcut editor should not be a flat action table anymore.
 Required layout:
 建议布局：
 
-- fixed-size picker dialog
+- movable/resizable workspace dialog
 - left: scope / root selector
 - center: action list within current layer
 - right: current binding, conflicts, help text, reset controls
@@ -213,7 +213,8 @@ Interaction model:
 - `j/k` move within the active pane
 - `h` goes back to the previous layer
 - `l` / `Enter` opens the current item
-- no pane may grow the dialog width beyond the fixed window size
+- no pane may force the dialog beyond the current viewport/max window constraints
+- keyboard selection should auto-reveal inside the active list pane
 
 Must support:
 必须支持：

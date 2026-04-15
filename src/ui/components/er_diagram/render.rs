@@ -1,8 +1,10 @@
 //! ER 图渲染
 
-use super::state::{ERDiagramState, ERTable, RelationType};
+use super::state::{ERDiagramInteractionMode, ERDiagramState, ERTable, RelationType};
 use crate::core::ThemePreset;
-use crate::ui::styles::theme_text;
+use crate::ui::styles::{
+    theme_accent, theme_muted_text, theme_selection_fill, theme_subtle_stroke, theme_text,
+};
 use crate::ui::{
     LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
 };
@@ -17,15 +19,22 @@ pub struct ERDiagramResponse {
     pub layout_requested: bool,
     /// 是否需要适应视图
     pub fit_view_requested: bool,
+    /// 是否请求将 ER 图设为当前焦点区域
+    pub request_focus: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ERDiagramKeyAction {
+    ToggleViewportMode,
     Refresh,
     Layout,
     FitView,
     ZoomIn,
     ZoomOut,
+    PanLeft,
+    PanDown,
+    PanUp,
+    PanRight,
 }
 
 /// 渲染颜色配置
@@ -47,120 +56,226 @@ struct RenderColors {
 }
 
 impl RenderColors {
-    fn from_theme(theme: &ThemePreset) -> Self {
-        let is_dark = theme.is_dark();
+    fn blend(from: Color32, to: Color32, to_weight: f32) -> Color32 {
+        let to_weight = to_weight.clamp(0.0, 1.0);
+        let from_weight = 1.0 - to_weight;
+        let mix = |a: u8, b: u8| ((a as f32 * from_weight) + (b as f32 * to_weight)).round() as u8;
 
-        if is_dark {
-            Self {
-                background: Color32::from_rgb(32, 33, 36),
-                grid_line: Color32::from_rgba_unmultiplied(255, 255, 255, 8),
-                table_bg: Color32::from_rgb(48, 49, 54),
-                table_header_bg: Color32::from_rgb(66, 66, 77),
-                table_border: Color32::from_rgb(88, 88, 100),
-                table_selected_border: Color32::from_rgb(100, 150, 255),
-                table_shadow: Color32::from_rgba_unmultiplied(0, 0, 0, 60),
-                text_primary: Color32::from_rgb(230, 230, 235),
-                text_secondary: Color32::from_rgb(160, 160, 175),
-                text_type: Color32::from_rgb(130, 140, 160),
-                pk_icon: Color32::from_rgb(255, 193, 7), // 金黄色
-                fk_icon: Color32::from_rgb(33, 150, 243), // 蓝色
-                relation_line: Color32::from_rgb(100, 120, 160),
-                row_separator: Color32::from_rgba_unmultiplied(255, 255, 255, 15),
-            }
-        } else {
-            Self {
-                background: Color32::from_rgb(250, 250, 252),
-                grid_line: Color32::from_rgba_unmultiplied(0, 0, 0, 8),
-                table_bg: Color32::from_rgb(255, 255, 255),
-                table_header_bg: Color32::from_rgb(248, 249, 252),
-                table_border: Color32::from_rgb(218, 220, 228),
-                table_selected_border: Color32::from_rgb(66, 133, 244),
-                table_shadow: Color32::from_rgba_unmultiplied(0, 0, 0, 25),
-                text_primary: Color32::from_rgb(32, 33, 36),
-                text_secondary: Color32::from_rgb(95, 99, 104),
-                text_type: Color32::from_rgb(128, 134, 145),
-                pk_icon: Color32::from_rgb(251, 188, 4), // 金黄色
-                fk_icon: Color32::from_rgb(26, 115, 232), // 蓝色
-                relation_line: Color32::from_rgb(130, 140, 170),
-                row_separator: Color32::from_rgba_unmultiplied(0, 0, 0, 8),
-            }
+        Color32::from_rgba_unmultiplied(
+            mix(from.r(), to.r()),
+            mix(from.g(), to.g()),
+            mix(from.b(), to.b()),
+            mix(from.a(), to.a()),
+        )
+    }
+
+    fn from_theme(theme: &ThemePreset, visuals: &egui::Visuals) -> Self {
+        let palette = theme.colors();
+        let border = theme_subtle_stroke(visuals);
+        let text_primary = theme_text(visuals);
+        let text_secondary = theme_muted_text(visuals);
+        let grid_line = Color32::from_rgba_unmultiplied(
+            border.r(),
+            border.g(),
+            border.b(),
+            if visuals.dark_mode { 14 } else { 12 },
+        );
+        let row_separator = Color32::from_rgba_unmultiplied(
+            border.r(),
+            border.g(),
+            border.b(),
+            if visuals.dark_mode { 24 } else { 20 },
+        );
+        let table_shadow = visuals
+            .window_shadow
+            .color
+            .gamma_multiply(if visuals.dark_mode { 1.0 } else { 0.65 });
+        let text_type = Self::blend(
+            palette.fg_muted,
+            palette.info,
+            if visuals.dark_mode { 0.18 } else { 0.12 },
+        );
+        let pk_icon = Self::blend(
+            palette.warning,
+            palette.fg_primary,
+            if visuals.dark_mode { 0.08 } else { 0.16 },
+        );
+        let fk_icon = Self::blend(palette.info, palette.accent, 0.35);
+        let relation_line = Self::blend(
+            palette.border,
+            palette.info,
+            if visuals.dark_mode { 0.62 } else { 0.52 },
+        );
+
+        Self {
+            background: palette.bg_primary,
+            grid_line,
+            table_bg: palette.bg_secondary,
+            table_header_bg: palette.bg_tertiary,
+            table_border: border,
+            table_selected_border: visuals.selection.stroke.color,
+            table_shadow,
+            text_primary,
+            text_secondary,
+            text_type,
+            pk_icon,
+            fk_icon,
+            relation_line,
+            row_separator,
         }
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ERToolbarButtonChrome {
+    fill: Option<Color32>,
+    stroke: Option<Stroke>,
+    frame_when_inactive: bool,
+    selected: bool,
+}
+
+fn er_toolbar_button_chrome(visuals: &egui::Visuals, is_selected: bool) -> ERToolbarButtonChrome {
+    ERToolbarButtonChrome {
+        fill: is_selected.then(|| theme_selection_fill(visuals, 56)),
+        stroke: is_selected.then(|| Stroke::new(1.0, theme_accent(visuals))),
+        frame_when_inactive: is_selected,
+        selected: is_selected,
+    }
+}
+
+fn er_toolbar_button(
+    ui: &mut egui::Ui,
+    icon: &str,
+    icon_size: f32,
+    button_size: Vec2,
+    is_selected: bool,
+    tooltip: impl Into<egui::WidgetText>,
+) -> egui::Response {
+    let chrome = er_toolbar_button_chrome(ui.visuals(), is_selected);
+    let mut button = egui::Button::new(RichText::new(icon).size(icon_size))
+        .min_size(button_size)
+        .corner_radius(CornerRadius::same(6))
+        .frame(true)
+        .frame_when_inactive(chrome.frame_when_inactive)
+        .selected(chrome.selected);
+    if let Some(fill) = chrome.fill {
+        button = button.fill(fill);
+    }
+    if let Some(stroke) = chrome.stroke {
+        button = button.stroke(stroke);
+    }
+
+    ui.add(button).on_hover_text(tooltip)
+}
+
 impl ERDiagramState {
     /// 渲染 ER 图
-    pub fn show(&mut self, ui: &mut egui::Ui, theme: &ThemePreset) -> ERDiagramResponse {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        theme: &ThemePreset,
+        is_focused: bool,
+    ) -> ERDiagramResponse {
         let mut response = ERDiagramResponse::default();
-        let colors = RenderColors::from_theme(theme);
-        let toolbar_text = theme_text(ui.visuals());
+        let colors = RenderColors::from_theme(theme, ui.visuals());
 
-        // 工具栏 - 无边框图标样式
+        // 工具栏
         ui.horizontal(|ui| {
-            // 刷新按钮
+            let mode_label = if self.is_viewport_mode() {
+                "视口模式"
+            } else {
+                "浏览模式"
+            };
+            let chrome = er_toolbar_button_chrome(ui.visuals(), self.is_viewport_mode());
+            let mut mode_button = egui::Button::new(RichText::new(mode_label).size(11.0))
+                .frame(true)
+                .frame_when_inactive(chrome.frame_when_inactive)
+                .selected(chrome.selected);
+            if let Some(fill) = chrome.fill {
+                mode_button = mode_button.fill(fill);
+            }
+            if let Some(stroke) = chrome.stroke {
+                mode_button = mode_button.stroke(stroke);
+            }
+
             if ui
-                .add(
-                    egui::Button::new(RichText::new("🔄").size(14.0).color(toolbar_text))
-                        .frame(false)
-                        .min_size(Vec2::new(26.0, 26.0)),
-                )
+                .add(mode_button)
                 .on_hover_text(local_shortcut_tooltip(
-                    "刷新数据",
-                    LocalShortcut::ErDiagramRefresh,
+                    if self.is_viewport_mode() {
+                        "退出视口模式"
+                    } else {
+                        "进入视口模式"
+                    },
+                    LocalShortcut::ErDiagramViewportMode,
                 ))
                 .clicked()
             {
+                self.toggle_interaction_mode();
+                response.request_focus = true;
+            }
+
+            ui.add_space(8.0);
+
+            // 刷新按钮
+            if er_toolbar_button(
+                ui,
+                "🔄",
+                14.0,
+                Vec2::new(26.0, 26.0),
+                false,
+                local_shortcut_tooltip("刷新数据", LocalShortcut::ErDiagramRefresh),
+            )
+            .clicked()
+            {
                 response.refresh_requested = true;
+                response.request_focus = true;
             }
 
             // 布局按钮
-            if ui
-                .add(
-                    egui::Button::new(RichText::new("⊞").size(14.0).color(toolbar_text))
-                        .frame(false)
-                        .min_size(Vec2::new(26.0, 26.0)),
-                )
-                .on_hover_text(local_shortcut_tooltip(
-                    "重新布局",
-                    LocalShortcut::ErDiagramLayout,
-                ))
-                .clicked()
+            if er_toolbar_button(
+                ui,
+                "⊞",
+                14.0,
+                Vec2::new(26.0, 26.0),
+                false,
+                local_shortcut_tooltip("重新布局", LocalShortcut::ErDiagramLayout),
+            )
+            .clicked()
             {
                 response.layout_requested = true;
+                response.request_focus = true;
             }
 
             // 适应视图按钮
-            if ui
-                .add(
-                    egui::Button::new(RichText::new("⛶").size(14.0).color(toolbar_text))
-                        .frame(false)
-                        .min_size(Vec2::new(26.0, 26.0)),
-                )
-                .on_hover_text(local_shortcut_tooltip(
-                    "适应视图",
-                    LocalShortcut::ErDiagramFitView,
-                ))
-                .clicked()
+            if er_toolbar_button(
+                ui,
+                "⛶",
+                14.0,
+                Vec2::new(26.0, 26.0),
+                false,
+                local_shortcut_tooltip("适应视图", LocalShortcut::ErDiagramFitView),
+            )
+            .clicked()
             {
                 response.fit_view_requested = true;
+                response.request_focus = true;
             }
 
             ui.add_space(8.0);
 
             // 缩放控制
-            if ui
-                .add(
-                    egui::Button::new(RichText::new("+").size(14.0).color(toolbar_text))
-                        .frame(false)
-                        .min_size(Vec2::new(22.0, 22.0)),
-                )
-                .on_hover_text(local_shortcut_tooltip(
-                    "放大视图",
-                    LocalShortcut::ErDiagramZoomIn,
-                ))
-                .clicked()
+            if er_toolbar_button(
+                ui,
+                "+",
+                14.0,
+                Vec2::new(22.0, 22.0),
+                false,
+                local_shortcut_tooltip("放大视图", LocalShortcut::ErDiagramZoomIn),
+            )
+            .clicked()
             {
                 self.zoom_by(1.2);
+                response.request_focus = true;
             }
 
             ui.label(
@@ -169,36 +284,37 @@ impl ERDiagramState {
                     .color(colors.text_secondary),
             );
 
-            if ui
-                .add(
-                    egui::Button::new(RichText::new("−").size(14.0).color(toolbar_text))
-                        .frame(false)
-                        .min_size(Vec2::new(22.0, 22.0)),
-                )
-                .on_hover_text(local_shortcut_tooltip(
-                    "缩小视图",
-                    LocalShortcut::ErDiagramZoomOut,
-                ))
-                .clicked()
+            if er_toolbar_button(
+                ui,
+                "−",
+                14.0,
+                Vec2::new(22.0, 22.0),
+                false,
+                local_shortcut_tooltip("缩小视图", LocalShortcut::ErDiagramZoomOut),
+            )
+            .clicked()
             {
                 self.zoom_by(0.8);
+                response.request_focus = true;
             }
 
             // 重置视图按钮
-            if ui
-                .add(
-                    egui::Button::new(RichText::new("↺").size(14.0).color(toolbar_text))
-                        .frame(false)
-                        .min_size(Vec2::new(26.0, 26.0)),
-                )
-                .on_hover_text(format!(
+            if er_toolbar_button(
+                ui,
+                "↺",
+                14.0,
+                Vec2::new(26.0, 26.0),
+                false,
+                format!(
                     "重置视图\n缩放: {} / {}",
                     local_shortcut_text(LocalShortcut::ErDiagramZoomIn),
                     local_shortcut_text(LocalShortcut::ErDiagramZoomOut),
-                ))
-                .clicked()
+                ),
+            )
+            .clicked()
             {
                 self.reset_view();
+                response.request_focus = true;
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -225,6 +341,9 @@ impl ERDiagramState {
         let (canvas_response, painter) =
             ui.allocate_painter(available.size(), Sense::click_and_drag());
         let canvas_rect = canvas_response.rect;
+        if canvas_response.clicked() || canvas_response.dragged() {
+            response.request_focus = true;
+        }
 
         // 绘制背景
         painter.rect_filled(canvas_rect, CornerRadius::ZERO, colors.background);
@@ -256,6 +375,8 @@ impl ERDiagramState {
                 Self::calculate_table_size(table);
             }
 
+            self.reveal_selected_table_in_view(canvas_rect.size());
+
             // 绘制关系线（在表格下方）
             self.draw_relationships(&painter, canvas_rect, &colors);
 
@@ -276,15 +397,22 @@ impl ERDiagramState {
         self.handle_interaction(ui, &canvas_response, canvas_rect);
 
         // 键盘快捷键
-        if (canvas_response.has_focus() || canvas_response.hovered())
-            && let Some(action) = consume_er_diagram_key_action(ui)
+        if is_focused
+            && let Some(action) = consume_er_diagram_key_action(ui, self.interaction_mode())
         {
             match action {
+                ERDiagramKeyAction::ToggleViewportMode => {
+                    self.toggle_interaction_mode();
+                }
                 ERDiagramKeyAction::Refresh => response.refresh_requested = true,
                 ERDiagramKeyAction::Layout => response.layout_requested = true,
                 ERDiagramKeyAction::FitView => response.fit_view_requested = true,
                 ERDiagramKeyAction::ZoomIn => self.zoom_by(1.2),
                 ERDiagramKeyAction::ZoomOut => self.zoom_by(0.8),
+                ERDiagramKeyAction::PanLeft => self.pan_keyboard_left(),
+                ERDiagramKeyAction::PanDown => self.pan_keyboard_down(),
+                ERDiagramKeyAction::PanUp => self.pan_keyboard_up(),
+                ERDiagramKeyAction::PanRight => self.pan_keyboard_right(),
             }
         }
 
@@ -317,9 +445,14 @@ impl ERDiagramState {
     }
 }
 
-fn consume_er_diagram_key_action(ui: &mut egui::Ui) -> Option<ERDiagramKeyAction> {
+fn consume_er_diagram_key_action(
+    ui: &mut egui::Ui,
+    interaction_mode: ERDiagramInteractionMode,
+) -> Option<ERDiagramKeyAction> {
     ui.input_mut(|input| {
-        if consume_local_shortcut(input, LocalShortcut::ErDiagramRefresh) {
+        if consume_local_shortcut(input, LocalShortcut::ErDiagramViewportMode) {
+            Some(ERDiagramKeyAction::ToggleViewportMode)
+        } else if consume_local_shortcut(input, LocalShortcut::ErDiagramRefresh) {
             Some(ERDiagramKeyAction::Refresh)
         } else if consume_local_shortcut(input, LocalShortcut::ErDiagramLayout) {
             Some(ERDiagramKeyAction::Layout)
@@ -329,6 +462,22 @@ fn consume_er_diagram_key_action(ui: &mut egui::Ui) -> Option<ERDiagramKeyAction
             Some(ERDiagramKeyAction::ZoomIn)
         } else if consume_local_shortcut(input, LocalShortcut::ErDiagramZoomOut) {
             Some(ERDiagramKeyAction::ZoomOut)
+        } else if interaction_mode == ERDiagramInteractionMode::Viewport
+            && consume_local_shortcut(input, LocalShortcut::ErDiagramViewportPanLeft)
+        {
+            Some(ERDiagramKeyAction::PanLeft)
+        } else if interaction_mode == ERDiagramInteractionMode::Viewport
+            && consume_local_shortcut(input, LocalShortcut::ErDiagramViewportPanDown)
+        {
+            Some(ERDiagramKeyAction::PanDown)
+        } else if interaction_mode == ERDiagramInteractionMode::Viewport
+            && consume_local_shortcut(input, LocalShortcut::ErDiagramViewportPanUp)
+        {
+            Some(ERDiagramKeyAction::PanUp)
+        } else if interaction_mode == ERDiagramInteractionMode::Viewport
+            && consume_local_shortcut(input, LocalShortcut::ErDiagramViewportPanRight)
+        {
+            Some(ERDiagramKeyAction::PanRight)
         } else {
             None
         }
@@ -875,46 +1024,247 @@ impl ERDiagramState {
 
 #[cfg(test)]
 mod tests {
-    use super::{ERDiagramKeyAction, consume_er_diagram_key_action};
+    use super::{ERDiagramInteractionMode, ERDiagramState, RenderColors, er_toolbar_button_chrome};
+    use crate::core::ThemePreset;
+    use crate::ui::ERTable;
+    use crate::ui::styles::{
+        theme_accent, theme_muted_text, theme_selection_fill, theme_subtle_stroke, theme_text,
+    };
     use eframe::egui::{Area, Context, Event, Id, Key, Modifiers, RawInput};
+    use egui::{Color32, Pos2, Stroke, Vec2, Visuals};
 
-    fn key_event(key: Key) -> Event {
+    fn key_event_with_modifiers(key: Key, modifiers: Modifiers) -> Event {
         Event::Key {
             key,
             physical_key: None,
             pressed: true,
             repeat: false,
-            modifiers: Modifiers::NONE,
+            modifiers,
         }
     }
 
-    fn run_diagram_key(key: Key) -> Option<ERDiagramKeyAction> {
+    fn run_diagram_key_with_modifiers_and_mode(
+        key: Key,
+        modifiers: Modifiers,
+        is_focused: bool,
+        interaction_mode: ERDiagramInteractionMode,
+    ) -> (ERDiagramState, super::ERDiagramResponse) {
         let ctx = Context::default();
         ctx.begin_pass(RawInput {
-            events: vec![key_event(key)],
-            modifiers: Modifiers::NONE,
+            events: vec![key_event_with_modifiers(key, modifiers)],
+            modifiers,
             ..Default::default()
         });
-        let mut action = None;
+        let mut state = ERDiagramState::new();
+        if interaction_mode == ERDiagramInteractionMode::Viewport {
+            state.toggle_interaction_mode();
+        }
+        let mut response = super::ERDiagramResponse::default();
         Area::new(Id::new("er_diagram_key_test")).show(&ctx, |ui| {
-            action = consume_er_diagram_key_action(ui);
+            response = state.show(ui, &ThemePreset::default(), is_focused);
         });
         let _ = ctx.end_pass();
-        action
+        (state, response)
+    }
+
+    fn run_diagram_key_with_modifiers(
+        key: Key,
+        modifiers: Modifiers,
+        is_focused: bool,
+    ) -> super::ERDiagramResponse {
+        run_diagram_key_with_modifiers_and_mode(
+            key,
+            modifiers,
+            is_focused,
+            ERDiagramInteractionMode::Navigation,
+        )
+        .1
+    }
+
+    fn run_diagram_key(key: Key, is_focused: bool) -> super::ERDiagramResponse {
+        run_diagram_key_with_modifiers(key, Modifiers::NONE, is_focused)
+    }
+
+    fn render_with_theme(
+        state: &mut ERDiagramState,
+        theme: ThemePreset,
+        is_focused: bool,
+    ) -> super::ERDiagramResponse {
+        let ctx = Context::default();
+        ctx.begin_pass(RawInput::default());
+        let mut response = super::ERDiagramResponse::default();
+        Area::new(Id::new(("er_diagram_theme_test", theme as u32))).show(&ctx, |ui| {
+            response = state.show(ui, &theme, is_focused);
+        });
+        let _ = ctx.end_pass();
+        response
     }
 
     #[test]
-    fn er_diagram_shortcuts_use_local_command_bindings() {
-        assert_eq!(run_diagram_key(Key::R), Some(ERDiagramKeyAction::Refresh));
-        assert_eq!(run_diagram_key(Key::L), Some(ERDiagramKeyAction::Layout));
-        assert_eq!(run_diagram_key(Key::F), Some(ERDiagramKeyAction::FitView));
-        assert_eq!(
-            run_diagram_key(Key::Equals),
-            Some(ERDiagramKeyAction::ZoomIn)
+    fn er_diagram_shortcuts_use_local_command_bindings_only_when_focused() {
+        assert!(!run_diagram_key(Key::R, false).refresh_requested);
+        assert!(run_diagram_key(Key::R, true).refresh_requested);
+
+        assert!(!run_diagram_key(Key::L, false).layout_requested);
+        assert!(!run_diagram_key(Key::L, true).layout_requested);
+        assert!(!run_diagram_key_with_modifiers(Key::L, Modifiers::SHIFT, false).layout_requested);
+        assert!(run_diagram_key_with_modifiers(Key::L, Modifiers::SHIFT, true).layout_requested);
+
+        assert!(!run_diagram_key(Key::F, false).fit_view_requested);
+        assert!(run_diagram_key(Key::F, true).fit_view_requested);
+    }
+
+    #[test]
+    fn er_diagram_viewport_pan_shortcuts_only_apply_in_viewport_mode() {
+        let (navigation_state, _) = run_diagram_key_with_modifiers_and_mode(
+            Key::H,
+            Modifiers::NONE,
+            true,
+            ERDiagramInteractionMode::Navigation,
         );
-        assert_eq!(
-            run_diagram_key(Key::Minus),
-            Some(ERDiagramKeyAction::ZoomOut)
+        assert_eq!(navigation_state.pan_offset, egui::Vec2::ZERO);
+
+        let (viewport_state, _) = run_diagram_key_with_modifiers_and_mode(
+            Key::H,
+            Modifiers::NONE,
+            true,
+            ERDiagramInteractionMode::Viewport,
         );
+        assert!(viewport_state.pan_offset.x > 0.0);
+    }
+
+    #[test]
+    fn er_diagram_refresh_and_layout_shortcuts_remain_available_in_viewport_mode() {
+        let refresh = run_diagram_key_with_modifiers_and_mode(
+            Key::R,
+            Modifiers::NONE,
+            true,
+            ERDiagramInteractionMode::Viewport,
+        )
+        .1;
+        assert!(refresh.refresh_requested);
+
+        let fit = run_diagram_key_with_modifiers_and_mode(
+            Key::F,
+            Modifiers::NONE,
+            true,
+            ERDiagramInteractionMode::Viewport,
+        )
+        .1;
+        assert!(fit.fit_view_requested);
+
+        let layout = run_diagram_key_with_modifiers_and_mode(
+            Key::L,
+            Modifiers::SHIFT,
+            true,
+            ERDiagramInteractionMode::Viewport,
+        )
+        .1;
+        assert!(layout.layout_requested);
+    }
+
+    #[test]
+    fn er_toolbar_button_chrome_hides_inactive_frame_for_default_buttons() {
+        let chrome = er_toolbar_button_chrome(&Visuals::dark(), false);
+
+        assert!(!chrome.frame_when_inactive);
+        assert!(!chrome.selected);
+        assert!(chrome.fill.is_none());
+        assert!(chrome.stroke.is_none());
+    }
+
+    #[test]
+    fn er_toolbar_button_chrome_keeps_selected_mode_button_visible() {
+        let visuals = Visuals::dark();
+        let chrome = er_toolbar_button_chrome(&visuals, true);
+
+        assert!(chrome.frame_when_inactive);
+        assert!(chrome.selected);
+        assert_eq!(chrome.fill, Some(theme_selection_fill(&visuals, 56)));
+        assert_eq!(
+            chrome.stroke,
+            Some(Stroke::new(1.0, theme_accent(&visuals)))
+        );
+    }
+
+    #[test]
+    fn theme_switch_render_keeps_er_viewport_selection_and_mode_state() {
+        let mut state = ERDiagramState::new();
+        let mut orders = ERTable::new("orders".to_string());
+        orders.position = Pos2::new(240.0, 160.0);
+        orders.size = Vec2::new(200.0, 140.0);
+        state.set_tables(vec![orders]);
+        assert!(state.select_table(0));
+        state.pan_offset = Vec2::new(48.0, -24.0);
+        state.zoom = 1.25;
+        state.toggle_interaction_mode();
+
+        let first = render_with_theme(&mut state, ThemePreset::TokyoNightStorm, false);
+        let settled_pan = state.pan_offset;
+        let settled_zoom = state.zoom;
+        let second = render_with_theme(&mut state, ThemePreset::GithubLight, false);
+
+        assert!(!first.refresh_requested);
+        assert!(!first.layout_requested);
+        assert!(!first.fit_view_requested);
+        assert!(!second.refresh_requested);
+        assert!(!second.layout_requested);
+        assert!(!second.fit_view_requested);
+
+        assert!(state.is_viewport_mode());
+        assert_eq!(state.selected_table_name(), Some("orders"));
+        assert_eq!(state.pan_offset, settled_pan);
+        assert_eq!(state.zoom, settled_zoom);
+    }
+
+    #[test]
+    fn render_colors_use_theme_palette_beyond_dark_mode_binary() {
+        let visuals = Visuals::dark();
+        let tokyo = RenderColors::from_theme(&ThemePreset::TokyoNightStorm, &visuals);
+        let nord = RenderColors::from_theme(&ThemePreset::Nord, &visuals);
+
+        assert_ne!(tokyo.background, nord.background);
+        assert_ne!(tokyo.table_bg, nord.table_bg);
+        assert_ne!(tokyo.table_header_bg, nord.table_header_bg);
+    }
+
+    #[test]
+    fn render_colors_follow_visual_helpers_for_text_selection_and_separator() {
+        let mut visuals = Visuals::light();
+        visuals.override_text_color = Some(Color32::from_rgb(11, 22, 33));
+        visuals.selection.stroke.color = Color32::from_rgb(120, 140, 220);
+        visuals.widgets.noninteractive.bg_stroke.color = Color32::from_rgb(88, 99, 111);
+
+        let colors = RenderColors::from_theme(&ThemePreset::GithubLight, &visuals);
+        let subtle = theme_subtle_stroke(&visuals);
+
+        assert_eq!(colors.text_primary, theme_text(&visuals));
+        assert_eq!(colors.text_secondary, theme_muted_text(&visuals));
+        assert_eq!(colors.table_selected_border, visuals.selection.stroke.color);
+        assert_eq!(colors.table_border, subtle);
+        assert_eq!(
+            colors.row_separator,
+            Color32::from_rgba_unmultiplied(subtle.r(), subtle.g(), subtle.b(), 20)
+        );
+    }
+
+    #[test]
+    fn render_colors_second_wave_tokens_follow_theme_palette_and_window_shadow() {
+        let mut visuals = Visuals::dark();
+        visuals.widgets.noninteractive.bg_stroke.color = Color32::from_rgb(70, 80, 90);
+        visuals.window_shadow.color = Color32::from_rgba_unmultiplied(3, 4, 5, 120);
+
+        let tokyo = RenderColors::from_theme(&ThemePreset::TokyoNightStorm, &visuals);
+        let nord = RenderColors::from_theme(&ThemePreset::Nord, &visuals);
+
+        assert_eq!(
+            tokyo.grid_line,
+            Color32::from_rgba_unmultiplied(70, 80, 90, 14)
+        );
+        assert_eq!(tokyo.table_shadow, visuals.window_shadow.color);
+        assert_ne!(tokyo.pk_icon, nord.pk_icon);
+        assert_ne!(tokyo.fk_icon, nord.fk_icon);
+        assert_ne!(tokyo.relation_line, nord.relation_line);
+        assert_ne!(tokyo.text_type, nord.text_type);
     }
 }

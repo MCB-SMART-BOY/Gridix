@@ -30,12 +30,22 @@ pub struct QueryTab {
     pub executing: bool,
     /// 最后一条消息
     pub last_message: Option<String>,
+    /// 最近一次查询错误（仅用于当前 Tab 的结果区显示）
+    pub last_error: Option<String>,
     /// 查询耗时 (毫秒)
     pub query_time_ms: Option<u64>,
     /// 是否已修改 (未保存)
     pub modified: bool,
     /// 关联的表名 (如果有)
     pub table_name: Option<String>,
+    /// 当前 Tab 绑定的选中表（用于恢复 grid workspace）
+    pub selected_table: Option<String>,
+    /// 当前 Tab 的结果搜索文本
+    pub search_text: String,
+    /// 当前 Tab 的结果搜索列
+    pub search_column: Option<String>,
+    /// 当前 Tab 是否使用持久化的 grid workspace
+    pub uses_grid_workspace: bool,
     /// 当前进行中的请求 ID（用于丢弃过期回包）
     pub pending_request_id: Option<u64>,
 }
@@ -50,9 +60,14 @@ impl QueryTab {
             result: None,
             executing: false,
             last_message: None,
+            last_error: None,
             query_time_ms: None,
             modified: false,
             table_name: None,
+            selected_table: None,
+            search_text: String::new(),
+            search_column: None,
+            uses_grid_workspace: false,
             pending_request_id: None,
         }
     }
@@ -235,6 +250,10 @@ impl QueryTabManager {
             .iter()
             .position(|t| t.table_name.as_deref() == Some(table_name))
         {
+            if let Some(tab) = self.tabs.get_mut(idx) {
+                tab.selected_table = Some(table_name.to_string());
+                tab.uses_grid_workspace = true;
+            }
             self.active_index = idx;
             return idx;
         }
@@ -244,11 +263,15 @@ impl QueryTabManager {
                 tab.sql = sql.to_string();
                 tab.table_name = Some(table_name.to_string());
                 tab.title = table_name.to_string();
+                tab.selected_table = Some(table_name.to_string());
+                tab.uses_grid_workspace = true;
             }
             return self.active_index;
         }
 
-        let tab = QueryTab::from_table(table_name, sql);
+        let mut tab = QueryTab::from_table(table_name, sql);
+        tab.selected_table = Some(table_name.to_string());
+        tab.uses_grid_workspace = true;
         self.tabs.push(tab);
         self.active_index = self.tabs.len() - 1;
         self.active_index

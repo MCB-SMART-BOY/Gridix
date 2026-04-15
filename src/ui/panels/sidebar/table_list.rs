@@ -1,6 +1,6 @@
 //! 表列表渲染
 
-use super::{SidebarActions, SidebarDeleteTarget, SidebarSelectionState};
+use super::{ConnectionList, SidebarActions, SidebarSelectionState};
 use crate::database::ConnectionManager;
 use crate::ui::SidebarSection;
 use crate::ui::styles::{GRAY, MUTED, SPACING_LG, SPACING_SM};
@@ -98,10 +98,7 @@ impl TableList {
                             ui.close();
                         }
                         if ui.button("🗑 删除表").clicked() {
-                            actions.delete = Some(SidebarDeleteTarget::Table {
-                                connection_name: conn_name.to_string(),
-                                table_name: table.clone(),
-                            });
+                            ConnectionList::request_table_delete(conn_name, table, actions);
                             ui.close();
                         }
                     });
@@ -183,10 +180,7 @@ impl TableList {
                             ui.close();
                         }
                         if ui.button("删除表").clicked() {
-                            actions.delete = Some(SidebarDeleteTarget::Table {
-                                connection_name: conn_name.to_string(),
-                                table_name: table.clone(),
-                            });
+                            ConnectionList::request_table_delete(conn_name, table, actions);
                             ui.close();
                         }
                     });

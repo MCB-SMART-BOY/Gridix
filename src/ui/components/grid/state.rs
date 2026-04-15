@@ -129,6 +129,13 @@ impl DataGridState {
         self.column_width_cache.clear();
     }
 
+    pub fn clear_save_state(&mut self) {
+        self.clear_edits();
+        self.pending_sql.clear();
+        self.pending_save = false;
+        self.show_save_confirm = false;
+    }
+
     pub fn has_changes(&self) -> bool {
         !self.modified_cells.is_empty()
             || !self.rows_to_delete.is_empty()

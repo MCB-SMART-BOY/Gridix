@@ -1,10 +1,43 @@
 use crate::ui::styles::{
-    MUTED, theme_accent, theme_disabled_text, theme_muted_text, theme_selection_fill,
-    theme_subtle_stroke, theme_text, theme_warn,
+    theme_accent, theme_disabled_text, theme_selection_fill, theme_subtle_stroke, theme_text,
 };
-use egui::{Color32, RichText, Vec2};
+use egui::{RichText, Vec2};
 
-/// 无边框图标按钮 - 统一样式
+#[derive(Debug, Clone, Copy)]
+struct ToolbarButtonChrome {
+    text_color: egui::Color32,
+    fill: Option<egui::Color32>,
+    stroke: Option<egui::Stroke>,
+    frame_when_inactive: bool,
+    selected: bool,
+}
+
+fn toolbar_button_chrome(
+    visuals: &egui::Visuals,
+    enabled: bool,
+    is_selected: bool,
+) -> ToolbarButtonChrome {
+    let text_color = if is_selected {
+        theme_accent(visuals)
+    } else if enabled {
+        theme_text(visuals)
+    } else {
+        theme_disabled_text(visuals)
+    };
+
+    let fill = is_selected.then(|| theme_selection_fill(visuals, 56));
+    let stroke = is_selected.then(|| egui::Stroke::new(1.0, theme_accent(visuals)));
+
+    ToolbarButtonChrome {
+        text_color,
+        fill,
+        stroke,
+        frame_when_inactive: is_selected,
+        selected: is_selected,
+    }
+}
+
+/// 工具栏图标按钮 - 默认透明，仅在 hover/focus/selected 时显示 chrome
 /// 鼠标悬停显示 tooltip（内容 + 快捷键）
 pub fn icon_button(ui: &mut egui::Ui, icon: &str, tooltip: &str, enabled: bool) -> bool {
     icon_button_with_focus(ui, icon, tooltip, enabled, false)
@@ -20,23 +53,19 @@ pub fn icon_button_with_focus(
     is_selected: bool,
 ) -> bool {
     let visuals = ui.visuals();
-    let color = if is_selected {
-        theme_accent(visuals)
-    } else if enabled {
-        theme_text(visuals)
-    } else {
-        theme_disabled_text(visuals)
-    };
+    let chrome = toolbar_button_chrome(visuals, enabled, is_selected);
 
-    let button = egui::Button::new(RichText::new(icon).size(15.0).color(color))
-        .min_size(Vec2::new(24.0, 24.0));
-
-    // 选中时显示边框
-    let button = if is_selected {
-        button.stroke(egui::Stroke::new(1.0, theme_accent(visuals)))
-    } else {
-        button.frame(false)
-    };
+    let mut button = egui::Button::new(RichText::new(icon).size(15.0).color(chrome.text_color))
+        .min_size(Vec2::new(24.0, 24.0))
+        .frame(true)
+        .frame_when_inactive(chrome.frame_when_inactive)
+        .selected(chrome.selected);
+    if let Some(fill) = chrome.fill {
+        button = button.fill(fill);
+    }
+    if let Some(stroke) = chrome.stroke {
+        button = button.stroke(stroke);
+    }
 
     ui.add_enabled(enabled, button)
         .on_hover_text(tooltip)
@@ -75,104 +104,32 @@ pub fn separator(ui: &mut egui::Ui) {
     ui.add_space(2.0);
 }
 
-/// 渲染菜单项
-pub fn render_menu_item(
-    ui: &mut egui::Ui,
-    label: &str,
-    shortcut: &str,
-    is_selected: bool,
-    enabled: bool,
-) -> egui::Response {
-    let visuals = ui.visuals();
-    let is_dark = visuals.dark_mode;
-    let accent_color = theme_accent(visuals);
-    let enabled_text_color = theme_text(visuals);
-    let muted_text_color = theme_muted_text(visuals);
-    let disabled_text_color = theme_disabled_text(visuals);
-    let bg_color = if is_selected {
-        theme_selection_fill(visuals, if is_dark { 40 } else { 28 })
-    } else {
-        Color32::TRANSPARENT
-    };
+#[cfg(test)]
+mod tests {
+    use super::toolbar_button_chrome;
+    use crate::ui::styles::{theme_accent, theme_selection_fill};
 
-    let text_color = if !enabled {
-        disabled_text_color
-    } else if is_selected {
-        enabled_text_color
-    } else {
-        muted_text_color
-    };
+    #[test]
+    fn toolbar_button_chrome_hides_inactive_frame_for_unselected_buttons() {
+        let visuals = egui::Visuals::dark();
+        let chrome = toolbar_button_chrome(&visuals, true, false);
 
-    let frame_response = egui::Frame::NONE
-        .fill(bg_color)
-        .inner_margin(egui::Margin::symmetric(12, 6))
-        .corner_radius(4.0)
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.horizontal(|ui| {
-                // 选中指示器
-                let indicator = if is_selected { ">" } else { " " };
-                ui.label(RichText::new(indicator).color(accent_color).monospace());
+        assert!(!chrome.frame_when_inactive);
+        assert!(!chrome.selected);
+        assert!(chrome.fill.is_none());
+        assert!(chrome.stroke.is_none());
+    }
 
-                // 标签
-                ui.label(RichText::new(label).color(text_color));
+    #[test]
+    fn toolbar_button_chrome_keeps_selected_state_visible_when_inactive() {
+        let visuals = egui::Visuals::dark();
+        let chrome = toolbar_button_chrome(&visuals, true, true);
 
-                // 快捷键（右对齐）
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new(shortcut).small().color(MUTED));
-                });
-            });
-        });
-
-    frame_response.response.interact(egui::Sense::click())
-}
-
-/// 渲染下拉选项
-pub fn render_combo_item(
-    ui: &mut egui::Ui,
-    text: &str,
-    is_hover: bool,
-    is_light_theme: bool,
-) -> egui::Response {
-    let visuals = ui.visuals();
-    let is_dark = visuals.dark_mode;
-    let accent_color = theme_accent(visuals);
-    let hover_text_color = theme_text(visuals);
-    let muted_text_color = theme_muted_text(visuals);
-    let warn_color = theme_warn(visuals);
-    let bg_color = if is_hover {
-        theme_selection_fill(visuals, if is_dark { 40 } else { 28 })
-    } else {
-        Color32::TRANSPARENT
-    };
-
-    let frame_response = egui::Frame::NONE
-        .fill(bg_color)
-        .inner_margin(egui::Margin::symmetric(12, 6))
-        .corner_radius(4.0)
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.horizontal(|ui| {
-                // 选中指示器
-                let indicator = if is_hover { ">" } else { " " };
-                ui.label(RichText::new(indicator).color(accent_color).monospace());
-
-                // 主题名称
-                let text_color = if is_hover {
-                    hover_text_color
-                } else {
-                    muted_text_color
-                };
-                ui.label(RichText::new(text).color(text_color));
-
-                // 浅色主题标识
-                if is_light_theme {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new("日").small().color(warn_color));
-                    });
-                }
-            });
-        });
-
-    frame_response.response.interact(egui::Sense::click())
+        assert!(chrome.frame_when_inactive);
+        assert!(chrome.selected);
+        assert_eq!(chrome.fill, Some(theme_selection_fill(&visuals, 56)));
+        let stroke = chrome.stroke.expect("selected toolbar button stroke");
+        assert_eq!(stroke.width, 1.0);
+        assert_eq!(stroke.color, theme_accent(&visuals));
+    }
 }

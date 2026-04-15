@@ -12,6 +12,13 @@ use super::DbManagerApp;
 use super::action_system::AppAction;
 use super::owner::InputOwner;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::app) enum ErDiagramVisibilityNotice {
+    Default,
+    Silent,
+    Custom(&'static str),
+}
+
 /// 当前输入聚焦的主作用域。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::app) enum FocusScope {
@@ -20,6 +27,7 @@ pub(in crate::app) enum FocusScope {
     QueryTabs,
     Sidebar(SidebarFocusScope),
     Grid(GridFocusScope),
+    ErDiagram(ErDiagramFocusScope),
     Editor(EditorFocusScope),
     Dialog(DialogScope),
 }
@@ -44,9 +52,25 @@ impl FocusScope {
             Self::QueryTabs => "query_tabs",
             Self::Sidebar(scope) => scope.keymap_scope_path(),
             Self::Grid(scope) => scope.keymap_scope_path(),
+            Self::ErDiagram(scope) => scope.keymap_scope_path(),
             Self::Editor(scope) => scope.keymap_scope_path(),
             Self::Dialog(scope) => scope.keymap_scope_path(),
         })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::app) enum ErDiagramFocusScope {
+    Navigation,
+    Viewport,
+}
+
+impl ErDiagramFocusScope {
+    const fn keymap_scope_path(self) -> &'static str {
+        match self {
+            Self::Navigation => "er_diagram",
+            Self::Viewport => "er_diagram.viewport",
+        }
     }
 }
 
@@ -125,6 +149,9 @@ pub(in crate::app) enum DialogScope {
     CreateDatabase,
     CreateUser,
     Keybindings,
+    ToolbarActionsMenu,
+    ToolbarCreateMenu,
+    ToolbarThemeMenu,
     CommandPalette,
     Generic,
 }
@@ -144,6 +171,9 @@ impl DialogScope {
             Self::CreateDatabase => DialogId::CreateDatabase.scope_path(),
             Self::CreateUser => DialogId::CreateUser.scope_path(),
             Self::Keybindings => DialogId::Keybindings.scope_path(),
+            Self::ToolbarActionsMenu => DialogId::ToolbarActionsMenu.scope_path(),
+            Self::ToolbarCreateMenu => DialogId::ToolbarCreateMenu.scope_path(),
+            Self::ToolbarThemeMenu => DialogId::ToolbarThemeMenu.scope_path(),
             Self::CommandPalette => DialogId::CommandPalette.scope_path(),
             Self::Generic => "dialog.generic",
         }
@@ -165,6 +195,9 @@ impl From<DialogId> for DialogScope {
             DialogId::CreateDatabase => Self::CreateDatabase,
             DialogId::CreateUser => Self::CreateUser,
             DialogId::Keybindings => Self::Keybindings,
+            DialogId::ToolbarActionsMenu => Self::ToolbarActionsMenu,
+            DialogId::ToolbarCreateMenu => Self::ToolbarCreateMenu,
+            DialogId::ToolbarThemeMenu => Self::ToolbarThemeMenu,
             DialogId::CommandPalette => Self::CommandPalette,
         }
     }
@@ -208,12 +241,29 @@ pub(in crate::app) enum PendingFocusTransition {
 /// 路由器内部可以直接处理的局部动作。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RouterLocalAction {
-    OpenThemeSelector,
     CommitFocusTransition(PendingFocusTransition),
     FocusSidebarSection(ui::SidebarSection),
+    ErDiagram(ErDiagramLocalAction),
     CloseWorkspaceOverlay,
     CloseDialog(DialogScope),
     KeybindingsRecordingInput,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ErDiagramLocalAction {
+    PrevTable,
+    NextTable,
+    PrevRelatedTable,
+    NextRelatedTable,
+    GeometryLeft,
+    GeometryDown,
+    GeometryUp,
+    GeometryRight,
+    OpenSelectedTable,
+    ReturnToWorkspace,
+    CloseDiagram,
+    ToggleViewportMode,
+    ExitViewportMode,
 }
 
 /// 仍保留在旧兼容层中的真正全局动作。
@@ -241,8 +291,11 @@ const MINIMAL_GLOBAL_ACTION_SHORTCUTS: &[Action] = &[
 ];
 
 const WORKSPACE_FALLBACK_ACTION_SHORTCUTS: &[Action] = &[
+    Action::OpenToolbarActionsMenu,
+    Action::OpenToolbarCreateMenu,
     Action::OpenThemeSelector,
     Action::OpenKeybindingsDialog,
+    Action::FocusErDiagram,
     Action::ToggleDarkMode,
     Action::FocusSidebarConnections,
     Action::FocusSidebarDatabases,
@@ -303,41 +356,14 @@ pub(in crate::app) struct InputContextSnapshot {
     pub show_keybindings_dialog: bool,
     pub show_command_palette: bool,
     pub show_er_diagram: bool,
+    pub er_diagram_viewport_mode: bool,
     pub keybindings_recording: bool,
 }
 
 impl InputContextSnapshot {
     fn dialog_scope(self) -> Option<DialogScope> {
         if self.active_dialog.is_some() {
-            return self.active_dialog;
-        }
-
-        if self.show_connection_dialog {
-            Some(DialogScope::Connection)
-        } else if self.show_export_dialog {
-            Some(DialogScope::Export)
-        } else if self.show_import_dialog {
-            Some(DialogScope::Import)
-        } else if self.show_delete_confirm {
-            Some(DialogScope::DeleteConfirm)
-        } else if self.show_help {
-            Some(DialogScope::Help)
-        } else if self.show_about {
-            Some(DialogScope::About)
-        } else if self.show_welcome_setup_dialog {
-            Some(DialogScope::WelcomeSetup)
-        } else if self.show_history_panel {
-            Some(DialogScope::History)
-        } else if self.show_ddl_dialog {
-            Some(DialogScope::Ddl)
-        } else if self.show_create_db_dialog {
-            Some(DialogScope::CreateDatabase)
-        } else if self.show_create_user_dialog {
-            Some(DialogScope::CreateUser)
-        } else if self.show_keybindings_dialog {
-            Some(DialogScope::Keybindings)
-        } else if self.show_command_palette {
-            Some(DialogScope::CommandPalette)
+            self.active_dialog
         } else if self.has_modal_dialog {
             Some(DialogScope::Generic)
         } else {
@@ -394,6 +420,14 @@ impl InputContextSnapshot {
             return FocusScope::Grid(self.grid_scope());
         }
 
+        if self.show_er_diagram && self.focus_area == ui::FocusArea::ErDiagram {
+            return FocusScope::ErDiagram(if self.er_diagram_viewport_mode {
+                ErDiagramFocusScope::Viewport
+            } else {
+                ErDiagramFocusScope::Navigation
+            });
+        }
+
         if self.text_focus || self.egui_captures_keyboard {
             return FocusScope::Global;
         }
@@ -403,6 +437,7 @@ impl InputContextSnapshot {
             ui::FocusArea::QueryTabs => FocusScope::QueryTabs,
             ui::FocusArea::Sidebar => FocusScope::Sidebar(self.sidebar_scope()),
             ui::FocusArea::DataGrid => FocusScope::Grid(self.grid_scope()),
+            ui::FocusArea::ErDiagram => FocusScope::Global,
             ui::FocusArea::SqlEditor => FocusScope::Editor(EditorFocusScope::Normal),
             ui::FocusArea::Dialog => FocusScope::Dialog(DialogScope::Generic),
         }
@@ -491,7 +526,10 @@ impl InputContextSnapshot {
             Action::ShowHelp => true,
             Action::CommandPalette | Action::NewConnection => self.is_workspace_command_mode(),
             Action::OpenKeybindingsDialog
+            | Action::OpenToolbarActionsMenu
+            | Action::OpenToolbarCreateMenu
             | Action::OpenThemeSelector
+            | Action::FocusErDiagram
             | Action::ToggleDarkMode
             | Action::FocusSidebarConnections
             | Action::FocusSidebarDatabases
@@ -503,9 +541,8 @@ impl InputContextSnapshot {
                 self.allows_workspace_creation_shortcuts()
             }
             Action::Export | Action::Import => self.allows_import_export_shortcuts(),
-            Action::ShowHistory | Action::ToggleErDiagram => {
-                self.allows_workspace_overlay_shortcuts()
-            }
+            Action::ShowHistory => self.allows_workspace_overlay_shortcuts(),
+            Action::ToggleErDiagram => self.allows_toggle_er_diagram_shortcuts(),
             Action::Refresh => self.allows_refresh(),
             Action::ClearCommandLine => self.allows_clear_command_line(),
             Action::ToggleEditor => self.allows_editor_visibility_toggle(),
@@ -527,6 +564,9 @@ impl InputContextSnapshot {
             && !self.is_text_entry_scope()
             && (self.show_help || self.show_history_panel || self.show_er_diagram)
         {
+            if matches!(self.focus_scope(), FocusScope::ErDiagram(_)) {
+                return None;
+            }
             Some(ResolvedInputAction::HandledLocal(
                 RouterLocalAction::CloseWorkspaceOverlay,
             ))
@@ -622,6 +662,12 @@ impl InputContextSnapshot {
             )
     }
 
+    pub(in crate::app) fn allows_toggle_er_diagram_shortcuts(self) -> bool {
+        self.allows_workspace_overlay_shortcuts()
+            || (matches!(self.input_mode(), InputMode::Command | InputMode::Select)
+                && matches!(self.focus_scope(), FocusScope::ErDiagram(_)))
+    }
+
     pub(in crate::app) fn allows_tab_management_shortcuts(self) -> bool {
         self.allows_workspace_surface_shortcuts()
             || matches!(
@@ -646,9 +692,19 @@ impl InputContextSnapshot {
         action: Action,
     ) -> Option<ResolvedInputAction> {
         match action {
+            Action::OpenToolbarActionsMenu => {
+                (self.can_dispatch_global_shortcut() && self.is_workspace_command_mode()).then_some(
+                    ResolvedInputAction::HandledApp(AppAction::OpenToolbarActionsMenu),
+                )
+            }
+            Action::OpenToolbarCreateMenu => {
+                (self.can_dispatch_global_shortcut() && self.is_workspace_command_mode()).then_some(
+                    ResolvedInputAction::HandledApp(AppAction::OpenToolbarCreateMenu),
+                )
+            }
             Action::OpenThemeSelector => {
                 (self.can_dispatch_global_shortcut() && self.is_workspace_command_mode()).then_some(
-                    ResolvedInputAction::HandledLocal(RouterLocalAction::OpenThemeSelector),
+                    ResolvedInputAction::HandledApp(AppAction::OpenThemeSelectorDialog),
                 )
             }
             Action::OpenKeybindingsDialog => {
@@ -656,6 +712,10 @@ impl InputContextSnapshot {
                     ResolvedInputAction::HandledApp(AppAction::OpenKeybindingsDialog),
                 )
             }
+            Action::FocusErDiagram => (self.can_dispatch_global_shortcut()
+                && self.is_workspace_command_mode()
+                && self.show_er_diagram)
+                .then_some(ResolvedInputAction::HandledApp(AppAction::FocusErDiagram)),
             Action::ToggleDarkMode => (self.can_dispatch_global_shortcut()
                 && self.is_workspace_command_mode())
             .then_some(ResolvedInputAction::HandledApp(AppAction::ToggleDarkMode)),
@@ -694,6 +754,10 @@ impl InputContextSnapshot {
 
 impl DbManagerApp {
     pub(in crate::app) fn set_focus_area(&mut self, area: ui::FocusArea) {
+        if let Some(workspace_area) = tracked_er_return_focus_area(area) {
+            self.last_non_er_workspace_focus = workspace_area;
+        }
+
         self.focus_area = area;
         match area {
             ui::FocusArea::DataGrid => {
@@ -707,11 +771,25 @@ impl DbManagerApp {
             ui::FocusArea::Toolbar
             | ui::FocusArea::QueryTabs
             | ui::FocusArea::Sidebar
+            | ui::FocusArea::ErDiagram
             | ui::FocusArea::Dialog => {
                 self.grid_state.focused = false;
                 self.focus_sql_editor = false;
             }
         }
+
+        if area == ui::FocusArea::ErDiagram {
+            self.er_diagram_state
+                .ensure_selection(self.selected_table.as_deref());
+        }
+    }
+
+    fn resolve_er_return_focus_area(&self) -> ui::FocusArea {
+        resolve_er_return_focus_area(
+            self.last_non_er_workspace_focus,
+            self.show_sidebar,
+            self.show_sql_editor,
+        )
     }
 
     /// 处理集中式输入路由。
@@ -791,6 +869,7 @@ impl DbManagerApp {
             show_keybindings_dialog: self.keybindings_dialog_state.show,
             show_command_palette: self.command_palette_state.open,
             show_er_diagram: self.show_er_diagram,
+            er_diagram_viewport_mode: self.er_diagram_state.is_viewport_mode(),
             keybindings_recording: self.keybindings_dialog_state.is_recording(),
         }
     }
@@ -814,13 +893,10 @@ impl DbManagerApp {
     fn apply_router_local_action(
         &mut self,
         ctx: &egui::Context,
-        toolbar_actions: &mut ToolbarActions,
+        _toolbar_actions: &mut ToolbarActions,
         action: RouterLocalAction,
     ) {
         match action {
-            RouterLocalAction::OpenThemeSelector => {
-                toolbar_actions.open_theme_selector = true;
-            }
             RouterLocalAction::CommitFocusTransition(transition) => match transition {
                 PendingFocusTransition::NextFocusArea => self.cycle_focus(false),
                 PendingFocusTransition::PrevFocusArea => self.cycle_focus(true),
@@ -832,21 +908,82 @@ impl DbManagerApp {
                     sidebar_section_shortcut_name(section)
                 ));
             }
+            RouterLocalAction::ErDiagram(action) => match action {
+                ErDiagramLocalAction::PrevTable => {
+                    self.er_diagram_state.select_prev_table();
+                }
+                ErDiagramLocalAction::NextTable => {
+                    self.er_diagram_state.select_next_table();
+                }
+                ErDiagramLocalAction::PrevRelatedTable => {
+                    self.er_diagram_state.select_prev_related_table();
+                }
+                ErDiagramLocalAction::NextRelatedTable => {
+                    self.er_diagram_state.select_next_related_table();
+                }
+                ErDiagramLocalAction::GeometryLeft => {
+                    self.er_diagram_state
+                        .select_geometric_neighbor(ui::GeometricDirection::Left);
+                }
+                ErDiagramLocalAction::GeometryDown => {
+                    self.er_diagram_state
+                        .select_geometric_neighbor(ui::GeometricDirection::Down);
+                }
+                ErDiagramLocalAction::GeometryUp => {
+                    self.er_diagram_state
+                        .select_geometric_neighbor(ui::GeometricDirection::Up);
+                }
+                ErDiagramLocalAction::GeometryRight => {
+                    self.er_diagram_state
+                        .select_geometric_neighbor(ui::GeometricDirection::Right);
+                }
+                ErDiagramLocalAction::OpenSelectedTable => {
+                    self.er_diagram_state
+                        .ensure_selection(self.selected_table.as_deref());
+                    if let Some(table_name) = self
+                        .er_diagram_state
+                        .selected_table_name()
+                        .map(str::to_owned)
+                    {
+                        self.selected_table = Some(table_name);
+                        self.dispatch_app_action(ctx, AppAction::QuerySelectedTable);
+                        self.set_focus_area(ui::FocusArea::DataGrid);
+                    }
+                }
+                ErDiagramLocalAction::ReturnToWorkspace => {
+                    self.set_focus_area(self.resolve_er_return_focus_area());
+                }
+                ErDiagramLocalAction::CloseDiagram => {
+                    self.set_er_diagram_visible(false);
+                }
+                ErDiagramLocalAction::ToggleViewportMode => {
+                    self.er_diagram_state.toggle_interaction_mode();
+                }
+                ErDiagramLocalAction::ExitViewportMode => {
+                    self.er_diagram_state.exit_viewport_mode();
+                }
+            },
             RouterLocalAction::CloseWorkspaceOverlay => {
-                if self.show_help {
-                    self.show_help = false;
-                } else if self.show_history_panel {
-                    self.show_history_panel = false;
+                if self.is_dialog_visible(DialogId::Help) {
+                    self.close_dialog(DialogId::Help);
+                } else if self.is_dialog_visible(DialogId::History) {
+                    self.close_dialog(DialogId::History);
                 } else if self.show_er_diagram {
-                    self.show_er_diagram = false;
+                    self.set_er_diagram_visible_with_notice(
+                        false,
+                        ErDiagramVisibilityNotice::Silent,
+                    );
                 }
             }
             RouterLocalAction::CloseDialog(scope) => match scope {
-                DialogScope::Help => self.show_help = false,
-                DialogScope::About => self.show_about = false,
-                DialogScope::History => self.show_history_panel = false,
-                DialogScope::DeleteConfirm => self.show_delete_confirm = false,
-                DialogScope::Keybindings => self.keybindings_dialog_state.close(),
+                DialogScope::Help => self.close_dialog(DialogId::Help),
+                DialogScope::About => self.close_dialog(DialogId::About),
+                DialogScope::History => self.close_dialog(DialogId::History),
+                DialogScope::DeleteConfirm => self.close_dialog(DialogId::DeleteConfirm),
+                DialogScope::Keybindings => self.close_dialog(DialogId::Keybindings),
+                DialogScope::ToolbarActionsMenu => self.close_dialog(DialogId::ToolbarActionsMenu),
+                DialogScope::ToolbarCreateMenu => self.close_dialog(DialogId::ToolbarCreateMenu),
+                DialogScope::ToolbarThemeMenu => self.close_dialog(DialogId::ToolbarThemeMenu),
                 _ => {}
             },
             RouterLocalAction::KeybindingsRecordingInput => {
@@ -950,7 +1087,7 @@ impl DbManagerApp {
 
     pub(in crate::app) fn open_export_dialog(&mut self) {
         if self.result.is_some() {
-            self.show_export_dialog = true;
+            self.open_dialog(DialogId::Export);
             self.export_status = None;
         }
     }
@@ -966,6 +1103,7 @@ impl DbManagerApp {
             .map(|c| c.config.db_type)
             .unwrap_or_default();
         self.ddl_dialog_state.open_create_table(db_type);
+        self.mark_dialog_owner(DialogId::Ddl);
     }
 
     pub(in crate::app) fn open_create_database_dialog(&mut self) {
@@ -975,6 +1113,7 @@ impl DbManagerApp {
             .map(|c| c.config.db_type)
             .unwrap_or_default();
         self.create_db_dialog_state.open(db_type);
+        self.mark_dialog_owner(DialogId::CreateDatabase);
     }
 
     pub(in crate::app) fn open_create_user_dialog(&mut self) {
@@ -982,25 +1121,50 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn set_history_panel_visible(&mut self, visible: bool) {
-        self.show_history_panel = visible;
+        if visible {
+            self.open_dialog(DialogId::History);
+        } else {
+            self.close_dialog(DialogId::History);
+        }
     }
 
     pub(in crate::app) fn toggle_history_panel(&mut self) {
         self.set_history_panel_visible(!self.show_history_panel);
     }
 
-    pub(in crate::app) fn set_er_diagram_visible(&mut self, visible: bool) {
+    pub(in crate::app) fn set_er_diagram_visible_with_notice(
+        &mut self,
+        visible: bool,
+        notice: ErDiagramVisibilityNotice,
+    ) {
         if self.show_er_diagram == visible {
             return;
         }
 
+        let restored_focus = focus_after_er_visibility_change(
+            visible,
+            self.focus_area,
+            self.last_non_er_workspace_focus,
+            self.show_sidebar,
+            self.show_sql_editor,
+        );
+
         self.show_er_diagram = visible;
         if self.show_er_diagram {
             self.load_er_diagram_data();
-            self.notifications.info("ER 关系图已打开");
-        } else {
-            self.notifications.info("ER 关系图已关闭");
         }
+
+        if let Some(message) = resolve_er_diagram_visibility_notice(visible, notice) {
+            self.notifications.info(message);
+        }
+
+        if let Some(restored_focus) = restored_focus {
+            self.set_focus_area(restored_focus);
+        }
+    }
+
+    pub(in crate::app) fn set_er_diagram_visible(&mut self, visible: bool) {
+        self.set_er_diagram_visible_with_notice(visible, ErDiagramVisibilityNotice::Default);
     }
 
     pub(in crate::app) fn toggle_er_diagram_visibility(&mut self) {
@@ -1008,33 +1172,37 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn open_new_query_tab(&mut self) {
-        self.sync_sql_to_active_tab();
+        self.persist_active_tab_state_for_navigation();
         self.tab_manager.new_tab();
         self.sync_from_active_tab();
     }
 
     pub(in crate::app) fn select_next_query_tab(&mut self) {
-        self.sync_sql_to_active_tab();
+        self.persist_active_tab_state_for_navigation();
         self.tab_manager.next_tab();
         self.sync_from_active_tab();
     }
 
     pub(in crate::app) fn select_previous_query_tab(&mut self) {
-        self.sync_sql_to_active_tab();
+        self.persist_active_tab_state_for_navigation();
         self.tab_manager.prev_tab();
         self.sync_from_active_tab();
     }
 
     pub(in crate::app) fn close_active_query_tab(&mut self) {
+        let closing_tab_id = self.tab_manager.get_active().map(|tab| tab.id.clone());
         if self.tab_manager.tabs.len() > 1
             && let Some(request_id) = self
                 .tab_manager
                 .get_active()
                 .and_then(|tab| tab.pending_request_id)
         {
-            self.cancel_query_request(request_id);
+            self.cancel_query_request_silently(request_id);
         }
         self.tab_manager.close_active_tab();
+        if let Some(tab_id) = closing_tab_id {
+            self.remove_grid_workspaces_for_tab(&tab_id);
+        }
         self.sync_from_active_tab();
     }
 }
@@ -1066,6 +1234,12 @@ fn resolve_input_action_with(
         return action;
     }
 
+    if let Some(action) =
+        resolve_er_diagram_shortcut_action_with(input_context, &mut local_shortcut_triggered)
+    {
+        return action;
+    }
+
     if !input_context.can_dispatch_global_shortcut() {
         return ResolvedInputAction::NoOp;
     }
@@ -1092,6 +1266,21 @@ fn resolve_input_action_with(
     }
 
     ResolvedInputAction::NoOp
+}
+
+fn resolve_er_diagram_visibility_notice(
+    visible: bool,
+    notice: ErDiagramVisibilityNotice,
+) -> Option<&'static str> {
+    match notice {
+        ErDiagramVisibilityNotice::Default => Some(if visible {
+            "ER 关系图已打开"
+        } else {
+            "ER 关系图已关闭"
+        }),
+        ErDiagramVisibilityNotice::Silent => None,
+        ErDiagramVisibilityNotice::Custom(message) => Some(message),
+    }
 }
 
 fn resolve_dialog_shortcut_fallback_with(
@@ -1135,6 +1324,69 @@ fn resolve_dialog_shortcut_fallback_with(
         }
         _ => None,
     }
+}
+
+fn resolve_er_diagram_shortcut_action_with(
+    input_context: InputContextSnapshot,
+    local_shortcut_triggered: &mut impl FnMut(LocalShortcut) -> bool,
+) -> Option<ResolvedInputAction> {
+    if !matches!(
+        input_context.input_mode(),
+        InputMode::Command | InputMode::Select
+    ) {
+        return None;
+    }
+
+    let FocusScope::ErDiagram(scope) = input_context.focus_scope() else {
+        return None;
+    };
+
+    let action = match scope {
+        ErDiagramFocusScope::Navigation => {
+            if local_shortcut_triggered(LocalShortcut::ErDiagramViewportMode) {
+                ErDiagramLocalAction::ToggleViewportMode
+            } else if local_shortcut_triggered(LocalShortcut::ErDiagramBack) {
+                ErDiagramLocalAction::ReturnToWorkspace
+            } else if local_shortcut_triggered(LocalShortcut::ErDiagramClose) {
+                ErDiagramLocalAction::CloseDiagram
+            } else if local_shortcut_triggered(LocalShortcut::ErDiagramPrevTable) {
+                ErDiagramLocalAction::PrevTable
+            } else if local_shortcut_triggered(LocalShortcut::ErDiagramNextTable) {
+                ErDiagramLocalAction::NextTable
+            } else if local_shortcut_triggered(LocalShortcut::ErDiagramPrevRelated) {
+                ErDiagramLocalAction::PrevRelatedTable
+            } else if local_shortcut_triggered(LocalShortcut::ErDiagramNextRelated) {
+                ErDiagramLocalAction::NextRelatedTable
+            } else if local_shortcut_triggered(LocalShortcut::ErDiagramGeometryLeft) {
+                ErDiagramLocalAction::GeometryLeft
+            } else if local_shortcut_triggered(LocalShortcut::ErDiagramGeometryDown) {
+                ErDiagramLocalAction::GeometryDown
+            } else if local_shortcut_triggered(LocalShortcut::ErDiagramGeometryUp) {
+                ErDiagramLocalAction::GeometryUp
+            } else if local_shortcut_triggered(LocalShortcut::ErDiagramGeometryRight) {
+                ErDiagramLocalAction::GeometryRight
+            } else if local_shortcut_triggered(LocalShortcut::ErDiagramOpenSelected) {
+                ErDiagramLocalAction::OpenSelectedTable
+            } else {
+                return None;
+            }
+        }
+        ErDiagramFocusScope::Viewport => {
+            if local_shortcut_triggered(LocalShortcut::ErDiagramViewportMode) {
+                ErDiagramLocalAction::ToggleViewportMode
+            } else if local_shortcut_triggered(LocalShortcut::ErDiagramViewportExit) {
+                ErDiagramLocalAction::ExitViewportMode
+            } else if local_shortcut_triggered(LocalShortcut::ErDiagramClose) {
+                ErDiagramLocalAction::CloseDiagram
+            } else {
+                return None;
+            }
+        }
+    };
+
+    Some(ResolvedInputAction::HandledLocal(
+        RouterLocalAction::ErDiagram(action),
+    ))
 }
 
 fn scoped_keybinding_triggered_in_input(
@@ -1301,16 +1553,68 @@ fn focus_after_sidebar_visibility_change(
     }
 }
 
+fn tracked_er_return_focus_area(area: ui::FocusArea) -> Option<ui::FocusArea> {
+    match area {
+        ui::FocusArea::Sidebar | ui::FocusArea::DataGrid | ui::FocusArea::SqlEditor => Some(area),
+        ui::FocusArea::Toolbar
+        | ui::FocusArea::QueryTabs
+        | ui::FocusArea::ErDiagram
+        | ui::FocusArea::Dialog => None,
+    }
+}
+
+fn focus_after_er_visibility_change(
+    visible: bool,
+    current_focus: ui::FocusArea,
+    last_non_er_workspace_focus: ui::FocusArea,
+    show_sidebar: bool,
+    show_sql_editor: bool,
+) -> Option<ui::FocusArea> {
+    if visible {
+        return Some(ui::FocusArea::ErDiagram);
+    }
+
+    if current_focus != ui::FocusArea::ErDiagram {
+        return None;
+    }
+
+    Some(resolve_er_return_focus_area(
+        last_non_er_workspace_focus,
+        show_sidebar,
+        show_sql_editor,
+    ))
+}
+
+fn resolve_er_return_focus_area(
+    last_non_er_workspace_focus: ui::FocusArea,
+    show_sidebar: bool,
+    show_sql_editor: bool,
+) -> ui::FocusArea {
+    match last_non_er_workspace_focus {
+        ui::FocusArea::Sidebar if show_sidebar => ui::FocusArea::Sidebar,
+        ui::FocusArea::SqlEditor if show_sql_editor => ui::FocusArea::SqlEditor,
+        ui::FocusArea::DataGrid => ui::FocusArea::DataGrid,
+        ui::FocusArea::Sidebar
+        | ui::FocusArea::SqlEditor
+        | ui::FocusArea::Toolbar
+        | ui::FocusArea::QueryTabs
+        | ui::FocusArea::ErDiagram
+        | ui::FocusArea::Dialog => ui::FocusArea::DataGrid,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        AppAction, DialogScope, EditorFocusScope, FocusScope, GridFocusScope, InputContextSnapshot,
-        InputMode, KEYMAP_ROUTED_APP_ACTIONS, PendingFocusTransition, ResolvedInputAction,
-        RouterLocalAction, SidebarFocusScope, TrueGlobalFallbackAction,
+        AppAction, DialogScope, EditorFocusScope, ErDiagramFocusScope, ErDiagramLocalAction,
+        ErDiagramVisibilityNotice, FocusScope, GridFocusScope, InputContextSnapshot, InputMode,
+        KEYMAP_ROUTED_APP_ACTIONS, PendingFocusTransition, ResolvedInputAction, RouterLocalAction,
+        SidebarFocusScope, TrueGlobalFallbackAction,
     };
+    use crate::app::DbManagerApp;
     use crate::core::{Action, KeyBinding, KeyBindings, KeyCode};
-    use crate::ui::{EditorMode, FocusArea, GridMode, SidebarSection};
-    use egui::{Event, Key, Modifiers};
+    use crate::ui::{ERTable, EditorMode, FocusArea, GridMode, SidebarSection, ToolbarActions};
+    use egui::{Event, Key, Modifiers, Pos2, Vec2};
 
     fn snapshot() -> InputContextSnapshot {
         InputContextSnapshot {
@@ -1341,6 +1645,7 @@ mod tests {
             show_keybindings_dialog: false,
             show_command_palette: false,
             show_er_diagram: false,
+            er_diagram_viewport_mode: false,
             keybindings_recording: false,
         }
     }
@@ -1363,6 +1668,17 @@ mod tests {
             repeat: false,
             modifiers,
         }
+    }
+
+    fn test_app() -> DbManagerApp {
+        DbManagerApp::new_for_test()
+    }
+
+    fn er_table(name: &str, x: f32, y: f32) -> ERTable {
+        let mut table = ERTable::new(name.to_string());
+        table.position = Pos2::new(x, y);
+        table.size = Vec2::new(160.0, 96.0);
+        table
     }
 
     fn resolve_event(
@@ -1434,6 +1750,7 @@ mod tests {
         let mut context = snapshot();
         context.has_modal_dialog = true;
         context.show_connection_dialog = true;
+        context.active_dialog = Some(DialogScope::Connection);
         context.focus_area = FocusArea::Sidebar;
 
         assert_eq!(
@@ -1515,6 +1832,7 @@ mod tests {
         let mut context = snapshot();
         context.has_modal_dialog = true;
         context.show_keybindings_dialog = true;
+        context.active_dialog = Some(DialogScope::Keybindings);
         context.keybindings_recording = true;
 
         assert_eq!(
@@ -1529,6 +1847,7 @@ mod tests {
         let mut context = snapshot();
         context.has_modal_dialog = true;
         context.show_keybindings_dialog = true;
+        context.active_dialog = Some(DialogScope::Keybindings);
         context.keybindings_recording = true;
 
         assert_eq!(
@@ -1546,6 +1865,18 @@ mod tests {
         assert_eq!(FocusScope::Global.path().as_str(), "global");
         assert_eq!(FocusScope::Toolbar.path().as_str(), "toolbar");
         assert_eq!(FocusScope::QueryTabs.path().as_str(), "query_tabs");
+        assert_eq!(
+            FocusScope::ErDiagram(ErDiagramFocusScope::Navigation)
+                .path()
+                .as_str(),
+            "er_diagram"
+        );
+        assert_eq!(
+            FocusScope::ErDiagram(ErDiagramFocusScope::Viewport)
+                .path()
+                .as_str(),
+            "er_diagram.viewport"
+        );
 
         let mut context = snapshot();
         context.focus_area = FocusArea::Sidebar;
@@ -1565,8 +1896,30 @@ mod tests {
         context.editor_mode = EditorMode::Insert;
         assert_eq!(context.keymap_scope_path(), "editor.insert");
 
+        context.show_er_diagram = true;
+        context.focus_area = FocusArea::ErDiagram;
+        context.focus_sql_editor = false;
+        assert_eq!(context.keymap_scope_path(), "er_diagram");
+
+        context.er_diagram_viewport_mode = true;
+        assert_eq!(context.keymap_scope_path(), "er_diagram.viewport");
+
+        context.has_modal_dialog = true;
+        context.active_dialog = Some(DialogScope::Help);
         context.show_help = true;
         assert_eq!(context.keymap_scope_path(), "dialog.help");
+    }
+
+    #[test]
+    fn legacy_dialog_booleans_without_active_owner_fall_back_to_generic_scope() {
+        let mut context = snapshot();
+        context.has_modal_dialog = true;
+        context.show_help = true;
+
+        assert_eq!(
+            context.focus_scope(),
+            FocusScope::Dialog(DialogScope::Generic)
+        );
     }
 
     #[test]
@@ -1747,13 +2100,59 @@ mod tests {
     }
 
     #[test]
+    fn er_diagram_scope_keeps_toggle_er_diagram_shortcut_available() {
+        let mut navigation = snapshot();
+        navigation.show_er_diagram = true;
+        navigation.focus_area = FocusArea::ErDiagram;
+
+        assert_eq!(
+            navigation.resolve_shortcut_action(Action::ToggleErDiagram),
+            Some(AppAction::ToggleErDiagram)
+        );
+
+        let mut viewport = navigation;
+        viewport.er_diagram_viewport_mode = true;
+
+        assert_eq!(
+            viewport.resolve_shortcut_action(Action::ToggleErDiagram),
+            Some(AppAction::ToggleErDiagram)
+        );
+    }
+
+    #[test]
+    fn er_diagram_scope_does_not_expand_show_history_overlay_shortcut() {
+        let mut context = snapshot();
+        context.show_er_diagram = true;
+        context.focus_area = FocusArea::ErDiagram;
+
+        assert_eq!(context.resolve_shortcut_action(Action::ShowHistory), None);
+
+        context.er_diagram_viewport_mode = true;
+
+        assert_eq!(context.resolve_shortcut_action(Action::ShowHistory), None);
+    }
+
+    #[test]
     fn workspace_fallback_routes_action_backed_commands_in_command_mode() {
-        let context = snapshot();
+        let mut context = snapshot();
+        context.show_er_diagram = true;
 
         assert_eq!(
             context.resolve_workspace_fallback_shortcut_action(Action::OpenThemeSelector),
-            Some(ResolvedInputAction::HandledLocal(
-                RouterLocalAction::OpenThemeSelector
+            Some(ResolvedInputAction::HandledApp(
+                AppAction::OpenThemeSelectorDialog
+            ))
+        );
+        assert_eq!(
+            context.resolve_workspace_fallback_shortcut_action(Action::OpenToolbarActionsMenu),
+            Some(ResolvedInputAction::HandledApp(
+                AppAction::OpenToolbarActionsMenu
+            ))
+        );
+        assert_eq!(
+            context.resolve_workspace_fallback_shortcut_action(Action::OpenToolbarCreateMenu),
+            Some(ResolvedInputAction::HandledApp(
+                AppAction::OpenToolbarCreateMenu
             ))
         );
         assert_eq!(
@@ -1765,6 +2164,10 @@ mod tests {
             Some(ResolvedInputAction::HandledApp(
                 AppAction::OpenKeybindingsDialog
             ))
+        );
+        assert_eq!(
+            context.resolve_workspace_fallback_shortcut_action(Action::FocusErDiagram),
+            Some(ResolvedInputAction::HandledApp(AppAction::FocusErDiagram))
         );
     }
 
@@ -1785,6 +2188,7 @@ mod tests {
         let mut context = snapshot();
         context.text_focus = true;
         context.focus_area = FocusArea::Toolbar;
+        context.show_er_diagram = true;
 
         assert_eq!(context.input_mode(), InputMode::TextEntry);
         assert_eq!(
@@ -1799,6 +2203,10 @@ mod tests {
             context.resolve_workspace_fallback_shortcut_action(Action::FocusSidebarFilters),
             None
         );
+        assert_eq!(
+            context.resolve_workspace_fallback_shortcut_action(Action::FocusErDiagram),
+            None
+        );
     }
 
     #[test]
@@ -1806,6 +2214,7 @@ mod tests {
         let mut context = snapshot();
         context.has_modal_dialog = true;
         context.show_command_palette = true;
+        context.show_er_diagram = true;
 
         assert_eq!(
             context.resolve_workspace_fallback_shortcut_action(Action::ToggleDarkMode),
@@ -1813,6 +2222,20 @@ mod tests {
         );
         assert_eq!(
             context.resolve_workspace_fallback_shortcut_action(Action::FocusSidebarFilters),
+            None
+        );
+        assert_eq!(
+            context.resolve_workspace_fallback_shortcut_action(Action::FocusErDiagram),
+            None
+        );
+    }
+
+    #[test]
+    fn workspace_fallback_blocks_focus_er_diagram_when_hidden() {
+        let context = snapshot();
+
+        assert_eq!(
+            context.resolve_workspace_fallback_shortcut_action(Action::FocusErDiagram),
             None
         );
     }
@@ -2171,6 +2594,7 @@ mod tests {
         let mut context = snapshot();
         context.has_modal_dialog = true;
         context.show_help = true;
+        context.active_dialog = Some(DialogScope::Help);
         context.focus_area = FocusArea::Dialog;
 
         assert_eq!(
@@ -2188,6 +2612,7 @@ mod tests {
         let mut context = snapshot();
         context.has_modal_dialog = true;
         context.show_about = true;
+        context.active_dialog = Some(DialogScope::About);
         context.focus_area = FocusArea::Dialog;
 
         assert_eq!(
@@ -2201,6 +2626,7 @@ mod tests {
         let mut context = snapshot();
         context.has_modal_dialog = true;
         context.show_history_panel = true;
+        context.active_dialog = Some(DialogScope::History);
         context.focus_area = FocusArea::Dialog;
 
         assert_eq!(
@@ -2214,6 +2640,7 @@ mod tests {
         let mut context = snapshot();
         context.has_modal_dialog = true;
         context.show_delete_confirm = true;
+        context.active_dialog = Some(DialogScope::DeleteConfirm);
         context.focus_area = FocusArea::Dialog;
 
         assert_eq!(
@@ -2227,6 +2654,7 @@ mod tests {
         let mut context = snapshot();
         context.has_modal_dialog = true;
         context.show_delete_confirm = true;
+        context.active_dialog = Some(DialogScope::DeleteConfirm);
         context.focus_area = FocusArea::Dialog;
 
         assert_eq!(
@@ -2246,6 +2674,7 @@ mod tests {
         let mut context = snapshot();
         context.has_modal_dialog = true;
         context.show_keybindings_dialog = true;
+        context.active_dialog = Some(DialogScope::Keybindings);
         context.focus_area = FocusArea::Dialog;
 
         assert_eq!(
@@ -2265,6 +2694,7 @@ mod tests {
         let mut context = snapshot();
         context.has_modal_dialog = true;
         context.show_help = true;
+        context.active_dialog = Some(DialogScope::Help);
         context.focus_area = FocusArea::Dialog;
         context.text_focus = true;
         context.egui_captures_keyboard = true;
@@ -2295,6 +2725,33 @@ mod tests {
     }
 
     #[test]
+    fn er_diagram_visibility_notice_defaults_to_generic_messages() {
+        assert_eq!(
+            super::resolve_er_diagram_visibility_notice(true, ErDiagramVisibilityNotice::Default,),
+            Some("ER 关系图已打开")
+        );
+        assert_eq!(
+            super::resolve_er_diagram_visibility_notice(false, ErDiagramVisibilityNotice::Default,),
+            Some("ER 关系图已关闭")
+        );
+    }
+
+    #[test]
+    fn er_diagram_visibility_notice_supports_silent_and_custom_modes() {
+        assert_eq!(
+            super::resolve_er_diagram_visibility_notice(true, ErDiagramVisibilityNotice::Silent,),
+            None
+        );
+        assert_eq!(
+            super::resolve_er_diagram_visibility_notice(
+                true,
+                ErDiagramVisibilityNotice::Custom("学习示例库的 ER 图已打开"),
+            ),
+            Some("学习示例库的 ER 图已打开")
+        );
+    }
+
+    #[test]
     fn resolved_input_action_routes_escape_overlay_fallback() {
         let mut context = snapshot();
         context.show_er_diagram = true;
@@ -2302,6 +2759,325 @@ mod tests {
         assert_eq!(
             resolve_event(context, key_event(Key::Escape), None),
             ResolvedInputAction::HandledLocal(RouterLocalAction::CloseWorkspaceOverlay)
+        );
+    }
+
+    #[test]
+    fn hidden_er_diagram_focus_area_does_not_retain_er_input_scope() {
+        let mut context = snapshot();
+        context.focus_area = FocusArea::ErDiagram;
+
+        assert_eq!(context.focus_scope(), FocusScope::Global);
+    }
+
+    #[test]
+    fn er_diagram_scope_routes_escape_to_return_to_workspace() {
+        let mut context = snapshot();
+        context.show_er_diagram = true;
+        context.focus_area = FocusArea::ErDiagram;
+
+        assert_eq!(
+            resolve_event_with_keybindings(
+                context,
+                key_event(Key::Escape),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::ReturnToWorkspace
+            ))
+        );
+    }
+
+    #[test]
+    fn er_diagram_viewport_scope_routes_escape_to_navigation_mode() {
+        let mut context = snapshot();
+        context.show_er_diagram = true;
+        context.focus_area = FocusArea::ErDiagram;
+        context.er_diagram_viewport_mode = true;
+
+        assert_eq!(
+            resolve_event_with_keybindings(
+                context,
+                key_event(Key::Escape),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::ExitViewportMode
+            ))
+        );
+    }
+
+    #[test]
+    fn er_diagram_viewport_scope_routes_q_to_close_diagram() {
+        let mut context = snapshot();
+        context.show_er_diagram = true;
+        context.focus_area = FocusArea::ErDiagram;
+        context.er_diagram_viewport_mode = true;
+
+        assert_eq!(
+            resolve_event_with_keybindings(context, key_event(Key::Q), &KeyBindings::default()),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::CloseDiagram
+            ))
+        );
+    }
+
+    #[test]
+    fn er_diagram_scope_routes_local_navigation_shortcuts() {
+        let mut context = snapshot();
+        context.show_er_diagram = true;
+        context.focus_area = FocusArea::ErDiagram;
+
+        assert_eq!(
+            resolve_event_with_keybindings(context, key_event(Key::J), &KeyBindings::default()),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::NextTable
+            ))
+        );
+        assert_eq!(
+            resolve_event_with_keybindings(context, key_event(Key::K), &KeyBindings::default()),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::PrevTable
+            ))
+        );
+        assert_eq!(
+            resolve_event_with_keybindings(
+                context,
+                key_event_with_modifiers(Key::J, Modifiers::SHIFT),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::NextRelatedTable
+            ))
+        );
+        assert_eq!(
+            resolve_event_with_keybindings(
+                context,
+                key_event_with_modifiers(Key::K, Modifiers::SHIFT),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::PrevRelatedTable
+            ))
+        );
+        assert_eq!(
+            resolve_event_with_keybindings(
+                context,
+                key_event_with_modifiers(Key::ArrowLeft, Modifiers::SHIFT),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::GeometryLeft
+            ))
+        );
+        assert_eq!(
+            resolve_event_with_keybindings(
+                context,
+                key_event_with_modifiers(Key::ArrowDown, Modifiers::SHIFT),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::GeometryDown
+            ))
+        );
+        assert_eq!(
+            resolve_event_with_keybindings(
+                context,
+                key_event_with_modifiers(Key::ArrowUp, Modifiers::SHIFT),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::GeometryUp
+            ))
+        );
+        assert_eq!(
+            resolve_event_with_keybindings(
+                context,
+                key_event_with_modifiers(Key::ArrowRight, Modifiers::SHIFT),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::GeometryRight
+            ))
+        );
+        assert_eq!(
+            resolve_event_with_keybindings(context, key_event(Key::Enter), &KeyBindings::default()),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::OpenSelectedTable
+            ))
+        );
+        assert_eq!(
+            resolve_event_with_keybindings(context, key_event(Key::L), &KeyBindings::default()),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::OpenSelectedTable
+            ))
+        );
+        assert_eq!(
+            resolve_event_with_keybindings(context, key_event(Key::Q), &KeyBindings::default()),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::CloseDiagram
+            ))
+        );
+    }
+
+    #[test]
+    fn er_diagram_viewport_scope_keeps_hjkl_available_for_render_pan() {
+        let mut context = snapshot();
+        context.show_er_diagram = true;
+        context.focus_area = FocusArea::ErDiagram;
+        context.er_diagram_viewport_mode = true;
+
+        assert_eq!(
+            resolve_event_with_keybindings(context, key_event(Key::H), &KeyBindings::default()),
+            ResolvedInputAction::NoOp
+        );
+    }
+
+    #[test]
+    fn er_diagram_viewport_scope_does_not_route_geometry_navigation_shortcuts() {
+        let mut context = snapshot();
+        context.show_er_diagram = true;
+        context.focus_area = FocusArea::ErDiagram;
+        context.er_diagram_viewport_mode = true;
+
+        assert_eq!(
+            resolve_event_with_keybindings(
+                context,
+                key_event_with_modifiers(Key::ArrowRight, Modifiers::SHIFT),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::NoOp
+        );
+    }
+
+    #[test]
+    fn er_diagram_scope_routes_v_to_toggle_viewport_mode() {
+        let mut context = snapshot();
+        context.show_er_diagram = true;
+        context.focus_area = FocusArea::ErDiagram;
+
+        assert_eq!(
+            resolve_event_with_keybindings(context, key_event(Key::V), &KeyBindings::default()),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::ToggleViewportMode
+            ))
+        );
+    }
+
+    #[test]
+    fn workspace_fallback_routes_focus_er_diagram_from_default_binding_only_when_visible() {
+        let mut visible = snapshot();
+        visible.show_er_diagram = true;
+
+        assert_eq!(
+            resolve_event_with_keybindings(
+                visible,
+                key_event_with_modifiers(
+                    Key::R,
+                    Modifiers {
+                        alt: true,
+                        ..Modifiers::NONE
+                    }
+                ),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::HandledApp(AppAction::FocusErDiagram)
+        );
+
+        assert_eq!(
+            resolve_event_with_keybindings(
+                snapshot(),
+                key_event_with_modifiers(
+                    Key::R,
+                    Modifiers {
+                        alt: true,
+                        ..Modifiers::NONE
+                    }
+                ),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::NoOp
+        );
+    }
+
+    #[test]
+    fn er_diagram_scope_routes_ctrl_r_to_toggle_diagram_in_navigation_and_viewport_modes() {
+        let mut navigation = snapshot();
+        navigation.show_er_diagram = true;
+        navigation.focus_area = FocusArea::ErDiagram;
+
+        assert_eq!(
+            resolve_event_with_keybindings(
+                navigation,
+                key_event_with_modifiers(
+                    Key::R,
+                    Modifiers {
+                        ctrl: true,
+                        ..Modifiers::NONE
+                    }
+                ),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::HandledApp(AppAction::ToggleErDiagram)
+        );
+
+        let mut viewport = navigation;
+        viewport.er_diagram_viewport_mode = true;
+
+        assert_eq!(
+            resolve_event_with_keybindings(
+                viewport,
+                key_event_with_modifiers(
+                    Key::R,
+                    Modifiers {
+                        ctrl: true,
+                        ..Modifiers::NONE
+                    }
+                ),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::HandledApp(AppAction::ToggleErDiagram)
+        );
+    }
+
+    #[test]
+    fn er_diagram_geometry_navigation_keeps_app_selected_table_unchanged_until_open_selected() {
+        let ctx = egui::Context::default();
+        let mut app = test_app();
+        let mut toolbar_actions = ToolbarActions::default();
+
+        app.show_er_diagram = true;
+        app.focus_area = FocusArea::ErDiagram;
+        app.selected_table = Some("main_workspace_table".to_string());
+        app.er_diagram_state.tables = vec![
+            er_table("customers", 0.0, 0.0),
+            er_table("orders", 240.0, 0.0),
+        ];
+        assert!(app.er_diagram_state.select_table(0));
+
+        app.apply_router_local_action(
+            &ctx,
+            &mut toolbar_actions,
+            RouterLocalAction::ErDiagram(ErDiagramLocalAction::GeometryRight),
+        );
+
+        assert_eq!(app.er_diagram_state.selected_table_name(), Some("orders"));
+        assert_eq!(app.selected_table.as_deref(), Some("main_workspace_table"));
+    }
+
+    #[test]
+    fn er_diagram_shift_l_is_reserved_for_layout_not_open_selected() {
+        let mut context = snapshot();
+        context.show_er_diagram = true;
+        context.focus_area = FocusArea::ErDiagram;
+
+        assert_eq!(
+            resolve_event_with_keybindings(
+                context,
+                key_event_with_modifiers(Key::L, Modifiers::SHIFT),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::NoOp
         );
     }
 
@@ -2335,6 +3111,220 @@ mod tests {
         assert_eq!(
             super::focus_after_sidebar_visibility_change(FocusArea::Sidebar, false),
             FocusArea::DataGrid
+        );
+    }
+
+    #[test]
+    fn tracked_er_return_focus_area_only_keeps_workspace_areas() {
+        assert_eq!(
+            super::tracked_er_return_focus_area(FocusArea::Sidebar),
+            Some(FocusArea::Sidebar)
+        );
+        assert_eq!(
+            super::tracked_er_return_focus_area(FocusArea::DataGrid),
+            Some(FocusArea::DataGrid)
+        );
+        assert_eq!(
+            super::tracked_er_return_focus_area(FocusArea::SqlEditor),
+            Some(FocusArea::SqlEditor)
+        );
+        assert_eq!(
+            super::tracked_er_return_focus_area(FocusArea::Toolbar),
+            None
+        );
+        assert_eq!(
+            super::tracked_er_return_focus_area(FocusArea::QueryTabs),
+            None
+        );
+        assert_eq!(
+            super::tracked_er_return_focus_area(FocusArea::ErDiagram),
+            None
+        );
+        assert_eq!(super::tracked_er_return_focus_area(FocusArea::Dialog), None);
+    }
+
+    #[test]
+    fn resolve_er_return_focus_area_restores_sidebar_when_visible() {
+        assert_eq!(
+            super::resolve_er_return_focus_area(FocusArea::Sidebar, true, true),
+            FocusArea::Sidebar
+        );
+    }
+
+    #[test]
+    fn resolve_er_return_focus_area_restores_sql_editor_when_visible() {
+        assert_eq!(
+            super::resolve_er_return_focus_area(FocusArea::SqlEditor, true, true),
+            FocusArea::SqlEditor
+        );
+    }
+
+    #[test]
+    fn resolve_er_return_focus_area_falls_back_to_data_grid_when_target_is_unavailable() {
+        assert_eq!(
+            super::resolve_er_return_focus_area(FocusArea::Sidebar, false, true),
+            FocusArea::DataGrid
+        );
+        assert_eq!(
+            super::resolve_er_return_focus_area(FocusArea::SqlEditor, true, false),
+            FocusArea::DataGrid
+        );
+        assert_eq!(
+            super::resolve_er_return_focus_area(FocusArea::Toolbar, true, true),
+            FocusArea::DataGrid
+        );
+    }
+
+    #[test]
+    fn closing_er_restores_tracked_workspace_focus() {
+        assert_eq!(
+            super::focus_after_er_visibility_change(
+                false,
+                FocusArea::ErDiagram,
+                FocusArea::Sidebar,
+                true,
+                true,
+            ),
+            Some(FocusArea::Sidebar)
+        );
+        assert_eq!(
+            super::focus_after_er_visibility_change(
+                false,
+                FocusArea::ErDiagram,
+                FocusArea::SqlEditor,
+                true,
+                true,
+            ),
+            Some(FocusArea::SqlEditor)
+        );
+    }
+
+    #[test]
+    fn closing_er_only_restores_focus_from_er_scope() {
+        assert_eq!(
+            super::focus_after_er_visibility_change(
+                true,
+                FocusArea::ErDiagram,
+                FocusArea::Sidebar,
+                true,
+                true,
+            ),
+            Some(FocusArea::ErDiagram)
+        );
+        assert_eq!(
+            super::focus_after_er_visibility_change(
+                false,
+                FocusArea::DataGrid,
+                FocusArea::Sidebar,
+                true,
+                true,
+            ),
+            None
+        );
+        assert_eq!(
+            super::focus_after_er_visibility_change(
+                false,
+                FocusArea::ErDiagram,
+                FocusArea::Sidebar,
+                false,
+                true,
+            ),
+            Some(FocusArea::DataGrid)
+        );
+    }
+
+    #[test]
+    fn opening_er_focuses_diagram_from_existing_workspace_focus() {
+        assert_eq!(
+            super::focus_after_er_visibility_change(
+                true,
+                FocusArea::DataGrid,
+                FocusArea::Sidebar,
+                true,
+                true,
+            ),
+            Some(FocusArea::ErDiagram)
+        );
+        assert_eq!(
+            super::focus_after_er_visibility_change(
+                true,
+                FocusArea::Sidebar,
+                FocusArea::Sidebar,
+                true,
+                true,
+            ),
+            Some(FocusArea::ErDiagram)
+        );
+    }
+
+    #[test]
+    fn toggle_er_diagram_close_restores_tracked_sidebar_focus_from_viewport_mode() {
+        let ctx = egui::Context::default();
+        let mut app = test_app();
+        app.show_sidebar = true;
+        app.show_er_diagram = true;
+
+        app.set_focus_area(FocusArea::Sidebar);
+        app.dispatch_app_action(&ctx, AppAction::FocusErDiagram);
+        app.er_diagram_state.toggle_interaction_mode();
+
+        assert_eq!(app.focus_area, FocusArea::ErDiagram);
+        assert!(app.er_diagram_state.is_viewport_mode());
+        assert_eq!(app.last_non_er_workspace_focus, FocusArea::Sidebar);
+
+        app.dispatch_app_action(&ctx, AppAction::ToggleErDiagram);
+
+        assert!(!app.show_er_diagram);
+        assert_eq!(app.focus_area, FocusArea::Sidebar);
+        assert_eq!(
+            app.capture_input_context(&ctx).focus_scope(),
+            FocusScope::Sidebar(SidebarFocusScope::Connections)
+        );
+    }
+
+    #[test]
+    fn toggle_er_diagram_close_falls_back_to_data_grid_when_tracked_focus_is_hidden() {
+        let ctx = egui::Context::default();
+        let mut app = test_app();
+        app.show_sidebar = true;
+        app.show_er_diagram = true;
+
+        app.set_focus_area(FocusArea::Sidebar);
+        app.show_sidebar = false;
+        app.dispatch_app_action(&ctx, AppAction::FocusErDiagram);
+        app.er_diagram_state.toggle_interaction_mode();
+
+        assert_eq!(app.focus_area, FocusArea::ErDiagram);
+        assert!(app.er_diagram_state.is_viewport_mode());
+        assert_eq!(app.last_non_er_workspace_focus, FocusArea::Sidebar);
+
+        app.dispatch_app_action(&ctx, AppAction::ToggleErDiagram);
+
+        assert!(!app.show_er_diagram);
+        assert_eq!(app.focus_area, FocusArea::DataGrid);
+        assert_eq!(
+            app.capture_input_context(&ctx).focus_scope(),
+            FocusScope::Grid(GridFocusScope::Normal)
+        );
+    }
+
+    #[test]
+    fn toggle_er_diagram_open_focuses_er_and_preserves_return_focus() {
+        let ctx = egui::Context::default();
+        let mut app = test_app();
+        app.show_sidebar = true;
+
+        app.set_focus_area(FocusArea::Sidebar);
+        assert_eq!(app.last_non_er_workspace_focus, FocusArea::Sidebar);
+
+        app.dispatch_app_action(&ctx, AppAction::ToggleErDiagram);
+
+        assert!(app.show_er_diagram);
+        assert_eq!(app.focus_area, FocusArea::ErDiagram);
+        assert_eq!(app.last_non_er_workspace_focus, FocusArea::Sidebar);
+        assert_eq!(
+            app.capture_input_context(&ctx).focus_scope(),
+            FocusScope::ErDiagram(ErDiagramFocusScope::Navigation)
         );
     }
 }

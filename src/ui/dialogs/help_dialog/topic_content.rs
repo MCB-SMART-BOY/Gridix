@@ -5,6 +5,28 @@ use crate::ui::{LocalShortcut, local_shortcut_text};
 use egui::Stroke;
 
 impl HelpDialog {
+    fn relationships_topic_actions() -> [(&'static str, HelpAction); 3] {
+        [
+            ("自动打开学习示例 ER 图", HelpAction::ShowLearningErDiagram),
+            (
+                "自动查看 orders 外键",
+                HelpAction::RunLearningQuery {
+                    table: Some("orders".to_string()),
+                    sql: "PRAGMA foreign_key_list('orders');".to_string(),
+                    open_er_diagram: false,
+                },
+            ),
+            (
+                "自动查看 products 外键",
+                HelpAction::RunLearningQuery {
+                    table: Some("products".to_string()),
+                    sql: "PRAGMA foreign_key_list('products');".to_string(),
+                    open_er_diagram: false,
+                },
+            ),
+        ]
+    }
+
     pub(super) fn show_foundations_topic(
         ui: &mut egui::Ui,
         pending_ui_action: &mut Option<HelpUiAction>,
@@ -408,26 +430,13 @@ impl HelpDialog {
             ],
         );
 
+        let [primary, secondary, tertiary] = Self::relationships_topic_actions();
         Self::action_row(
             ui,
             pending_ui_action,
-            Some(("自动打开学习示例 ER 图", HelpAction::ShowLearningErDiagram)),
-            Some((
-                "自动查看 orders 外键",
-                HelpAction::RunLearningQuery {
-                    table: Some("orders".to_string()),
-                    sql: "PRAGMA foreign_key_list('orders');".to_string(),
-                    open_er_diagram: false,
-                },
-            )),
-            Some((
-                "自动查看 products 外键",
-                HelpAction::RunLearningQuery {
-                    table: Some("products".to_string()),
-                    sql: "PRAGMA foreign_key_list('products');".to_string(),
-                    open_er_diagram: false,
-                },
-            )),
+            Some(primary),
+            Some(secondary),
+            Some(tertiary),
         );
     }
 
@@ -857,8 +866,7 @@ impl HelpDialog {
             .corner_radius(egui::CornerRadius::same(10))
             .inner_margin(egui::Margin::symmetric(16, 14))
             .show(ui, |ui| {
-                ui.set_min_width((width - 32.0).max(260.0));
-                ui.set_max_width((width - 32.0).max(260.0));
+                ui.set_width(Self::detail_fill_width(width, 32.0));
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(8.0, 8.0);
                     egui::Frame::NONE
@@ -1046,4 +1054,38 @@ struct InfoCardStyle<'a> {
     fill: Color32,
     stroke: Color32,
     accent: Color32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HelpAction;
+    use super::HelpDialog;
+
+    #[test]
+    fn relationships_topic_actions_keep_learning_er_entry() {
+        let [primary, secondary, tertiary] = HelpDialog::relationships_topic_actions();
+
+        assert_eq!(primary.0, "自动打开学习示例 ER 图");
+        assert!(matches!(primary.1, HelpAction::ShowLearningErDiagram));
+
+        assert_eq!(secondary.0, "自动查看 orders 外键");
+        assert!(matches!(
+            secondary.1,
+            HelpAction::RunLearningQuery {
+                table: Some(ref table),
+                ref sql,
+                open_er_diagram: false,
+            } if table == "orders" && sql == "PRAGMA foreign_key_list('orders');"
+        ));
+
+        assert_eq!(tertiary.0, "自动查看 products 外键");
+        assert!(matches!(
+            tertiary.1,
+            HelpAction::RunLearningQuery {
+                table: Some(ref table),
+                ref sql,
+                open_er_diagram: false,
+            } if table == "products" && sql == "PRAGMA foreign_key_list('products');"
+        ));
+    }
 }
