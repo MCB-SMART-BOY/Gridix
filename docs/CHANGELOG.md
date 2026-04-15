@@ -5,9 +5,35 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [6.0.0]
+
+### Changed
+- Preserve ER layout stability across reloads: exact same-table reloads still restore the full previous layout directly, and partial-overlap reloads now keep matching tables in place after the new `Grid / Relation / Component` completed layout places any newly added tables, while also nudging those new tables away from restored old ones when needed.
+  保持 ER 在 reload 期间的布局稳定性：完全相同表集的 reload 仍会直接恢复整张旧布局，而表集只部分重合的 reload 现在也会在新的 `Grid / Relation / Component` 完成态布局放置新增表之后，把交集表恢复回原位置；若这些新增表与已恢复的旧表重叠，还会继续做局部避让。若新增表本身和这些已恢复旧表存在关系，则它们会优先贴近关系邻居，再做最后一层局部避让；若这些关系方向明确，则新增子表会优先落在父表下方，而新增父表会优先落在子表上方；若新增表同时桥接已恢复父/子层，则现在也会优先留在两层之间，而不是继续被挤到整个子层下面。
+- Rebuilt the ER diagram generation and rendering pipeline around an explicit graph-summary and strategy-selection stage: finalize and manual relayout now choose between `Grid / Relation / Component` completed layouts, each relationship now carries explicit-vs-inferred origin, and the ER surface now exposes `All / Focus / ExplicitOnly` edge modes plus `Standard / KeysOnly` card density while redrawing cards, toolbar, and routed edges to match Gridix's workspace design language.
+  围绕显式的“语义图摘要 + 策略选择”阶段重写了 ER 图的生成与渲染管线：默认完成态与手动 relayout 现在都会在 `Grid / Relation / Component` 三种布局之间做选择，每条关系也都显式区分 `Explicit / Inferred` 来源；ER 界面同时新增了 `All / Focus / ExplicitOnly` 边模式与 `Standard / KeysOnly` 表卡密度，并重画了表卡、工具条和边路由，使其更贴合 Gridix 的工作台式设计语言。
+- Let ER's automatic open-time fit-to-view zoom below the old `25%` floor when the default completed layout still does not fit inside the pane, so opening the learning-sample diagram now keeps the whole cluster visible instead of clipping the bottom tables; manual zooming now stays monotonic from those lower fit-driven zoom levels.
+  让 ER 在默认打开后的自动 `fit_to_view()` 可以突破旧的 `25%` 下限：当默认完成态仍装不进面板时，学习样例 ER 现在会继续缩小直到整簇保持可见，而不再把底部表裁到视口外；同时从这类更低缩放继续“缩小视图”时，也不会再反向跳回更大的缩放值。
+- Fixed ER viewport-mode toggling so `v` now switches `Navigation / Viewport` exactly once per key press when the diagram owns focus; the render pass no longer re-consumes the same shortcut after the input router has already handled it.
+  修复了 ER 视口模式切换：当 ER 持有焦点时，`v` 现在每次按键只会在 `Navigation / Viewport` 之间切换一次；render 阶段不再在 input router 已经处理之后重复消费同一个快捷键。
+- Tightened ER relation-first layout to respect real card sizes: hierarchical seeding now spaces levels and siblings by actual table dimensions, and the force-directed refine now separates tables by center distance plus card-size clearance instead of treating every table like the same fixed box.
+  收紧了 ER 的关系优先布局，让它开始尊重真实表卡尺寸：层级种子现在会按实际表卡宽高安排层间和同层间距，而 force-directed refine 也改为基于表卡中心和尺寸留白做分离，不再把所有表都当成同一个固定盒子。
+- Tightened the ER relation-first layout so same-level sibling tables no longer inherit raw input order: relationship-seeded layout now initializes levels deterministically and reorders siblings by connected-neighbor barycenter, falling back to name order only when the relation signal ties.
+  收紧了 ER 的关系优先布局：同层兄弟表不再直接继承原始输入顺序；关系种子布局现在会先做稳定初始化，再按已知关系邻居的重心调整兄弟顺序，只有在关系信号打平时才回退到名称顺序。
+- Split ER relation-first seeding by disconnected graph components before the global force-directed refine, so unrelated clusters and isolated tables no longer start packed into the same seeded horizontal band.
+  在进入全局 force-directed refine 之前，先按断开的图组件拆分 ER 的关系优先种子，因此互不相关的关系簇和孤立表不再从同一条横向种子带挤在一起起步。
+- Made multi-component ER relation seeding wrap across rows instead of only stretching further right, so schemas with many disconnected clusters use vertical space earlier instead of forming a single extra-wide seeded strip.
+  让多组件 ER 关系种子会按行换排，而不是继续只向右拉长；因此包含许多断开关系簇的 schema 会更早利用垂直空间，而不是形成一条过宽的单行种子带。
+- Made component-aware ER relation seeding anchor larger relationship clusters before tiny isolated tables, so the main cluster now claims the top-left seed region instead of being displaced merely by lexicographic component order.
+  调整了组件化 ER 关系种子：较大的关系主簇现在会先占据左上种子区域，小型孤立表不再仅因组件名称排序更靠前就把主簇挤到后排。
+
 ## [5.0.0]
 
 ### Changed
+- Made ER's default completed layout relation-first: loading still starts from a stable grid skeleton, but once relationships are finalized the diagram now keeps the grid only for empty graphs and otherwise switches to a relationship-seeded force-directed layout; manual relayout now follows the same relationship-first path instead of using a pure spring pass from the current grid positions.
+  将 ER 的默认完成态布局改成了关系优先：加载中仍先从稳定的网格骨架起步，但在关系 finalize 之后，空关系图仍保持网格，而存在关系时则会切到“关系层级种子 + force-directed refine”的布局；手动 relayout 现在也会复用同一条关系优先路径，而不是继续只从当前网格位置做一次纯弹簧微调。
+- Rebound focused ER browsing so bare `h / l` no longer leave the diagram or immediately query the selected table: they now stay inside ER as left/right geometric navigation, while `Enter / Right` remain the explicit “open selected table” action and `Esc / Left` remain the explicit return-to-workspace path.
+  重新绑定了聚焦 ER 时的默认浏览语义：bare `h / l` 不再离开 ER 或立即查询当前表，而是留在 ER 内部承担左右几何邻接导航；`Enter / Right` 继续作为显式“打开当前表”动作，`Esc / Left` 则继续作为显式返回主工作区路径。
 - Made DataGrid result-table headers use explicit theme-aware text colors for unfocused columns, so dark themes no longer make most column names fade out while only the active header remains legible.
   让 DataGrid 结果表格的非焦点列头也显式使用主题感知文字色，因此暗色主题下不再出现“多数列名淡到几乎看不见，只剩当前焦点列清晰”的退化现象。
 - `Ctrl+R` now focuses ER immediately when opening the diagram, so `h / j / k / l` no longer stay captured by `DataGrid` in result-table workflows; `Alt+R` remains available as an explicit re-focus action when ER is already visible but focus has moved away.

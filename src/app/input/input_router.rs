@@ -1152,6 +1152,7 @@ impl DbManagerApp {
         self.show_er_diagram = visible;
         if self.show_er_diagram {
             self.load_er_diagram_data();
+            self.er_diagram_state.request_fit_to_view();
         }
 
         if let Some(message) = resolve_er_diagram_visibility_notice(visible, notice) {
@@ -2829,6 +2830,12 @@ mod tests {
         context.focus_area = FocusArea::ErDiagram;
 
         assert_eq!(
+            resolve_event_with_keybindings(context, key_event(Key::H), &KeyBindings::default()),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::GeometryLeft
+            ))
+        );
+        assert_eq!(
             resolve_event_with_keybindings(context, key_event(Key::J), &KeyBindings::default()),
             ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
                 ErDiagramLocalAction::NextTable
@@ -2901,13 +2908,13 @@ mod tests {
             ))
         );
         assert_eq!(
-            resolve_event_with_keybindings(context, key_event(Key::Enter), &KeyBindings::default()),
+            resolve_event_with_keybindings(context, key_event(Key::L), &KeyBindings::default()),
             ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
-                ErDiagramLocalAction::OpenSelectedTable
+                ErDiagramLocalAction::GeometryRight
             ))
         );
         assert_eq!(
-            resolve_event_with_keybindings(context, key_event(Key::L), &KeyBindings::default()),
+            resolve_event_with_keybindings(context, key_event(Key::Enter), &KeyBindings::default()),
             ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
                 ErDiagramLocalAction::OpenSelectedTable
             ))
@@ -2916,6 +2923,26 @@ mod tests {
             resolve_event_with_keybindings(context, key_event(Key::Q), &KeyBindings::default()),
             ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
                 ErDiagramLocalAction::CloseDiagram
+            ))
+        );
+        assert_eq!(
+            resolve_event_with_keybindings(
+                context,
+                key_event(Key::ArrowLeft),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::ReturnToWorkspace
+            ))
+        );
+        assert_eq!(
+            resolve_event_with_keybindings(
+                context,
+                key_event(Key::ArrowRight),
+                &KeyBindings::default()
+            ),
+            ResolvedInputAction::HandledLocal(RouterLocalAction::ErDiagram(
+                ErDiagramLocalAction::OpenSelectedTable
             ))
         );
     }
@@ -3326,5 +3353,17 @@ mod tests {
             app.capture_input_context(&ctx).focus_scope(),
             FocusScope::ErDiagram(ErDiagramFocusScope::Navigation)
         );
+    }
+
+    #[test]
+    fn opening_er_requests_fit_to_view_after_loading_starts() {
+        let mut app = test_app();
+        assert!(!app.show_er_diagram);
+        assert!(!app.er_diagram_state.has_pending_fit_to_view());
+
+        app.set_er_diagram_visible(true);
+
+        assert!(app.show_er_diagram);
+        assert!(app.er_diagram_state.has_pending_fit_to_view());
     }
 }

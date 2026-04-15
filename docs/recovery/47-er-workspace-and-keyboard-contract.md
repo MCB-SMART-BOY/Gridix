@@ -190,10 +190,15 @@ ER 的第一阶段产品定位应固定为：
 当前已收口的结论是：
 
 - 第一阶段 TUI 风格导航语义已落地，返回历史也已补到 app-level workspace 状态
-- bare `l` 已切到“打开当前表”，`Shift+L` 承担 relayout
+- bare `h / l` 已回收到 ER 内部的左右几何邻接，`Enter / Right` 继续打开当前表，`Left / Esc` 继续返回主工作区，`Shift+L` 继续承担 relayout
 - `j/k` 当前仍是稳定线性选表，但选中项已不再允许停留在视口外；render 会在下一帧把它滚回可见区域
 - 现在又新增了 additive 的关系邻接导航：`Shift+J / Shift+K` 只在当前表的关联集合内按稳定全局表顺序前进/后退，不替换原有 `j/k` 的线性浏览
 - 本轮又新增了 additive 的几何邻接导航：`Shift+Left / Shift+Down / Shift+Up / Shift+Right` 只按当前表卡的几何中心和方向选择最近邻，不替换线性或关系邻接
+- ER 默认完成态布局也已从“始终 grid”收口为“加载中先 grid skeleton，finalize 后若存在关系则自动走关系层级种子 + force-directed refine；只有空关系图才保持 grid”
+- 关系层级种子现在不再让同层兄弟表继续吃原始输入顺序，而是先做稳定名称初始化，再按关系邻居重心做轻量 sweep，因此同层横向顺序也开始体现关系结构
+- `v` 现在只由 router 承担视口模式切换，ER render 不再重复消费同一局部快捷键；显式聚焦后一次按键只能在 `Navigation / Viewport` 间切一次
+- 关系优先布局现在还会参考真实表卡尺寸：层级种子不再继续用固定 `180x200` 近似，大表在默认完成态下也不应再轻易互相压住
+- ER 当前又显式拆出“语义图摘要 -> 布局策略 -> 视图密度”三层：`ERGraphSummary` 只负责总结组件与关系结构，`ERLayoutStrategy` 只负责完成态布局路径选择，而 `ERCardDisplayMode / EREdgeDisplayMode` 只负责 ER 本地表卡与边的密度展示，不反向污染 app-level 业务状态
 
 当前主要剩余风险不再是 keyboard contract 本身，而是几何邻接是否还需要进一步启发式调优；独立 detail mode 现阶段已明确冻结，不进入实现。
 
@@ -255,21 +260,24 @@ ER 的第一阶段产品定位应固定为：
 
 1. `j / k`
    - 按 `tables` 的稳定数据顺序在线性表列表里移动选择
-2. `l / Enter / Right`
+2. `h / l`
+   - 在 ER 浏览态内执行左右几何邻接
+   - 只改写 ER 局部 `selected_table`
+3. `Enter / Right`
    - 进入当前选中表的业务上下文
    - 例如同步到主数据表视图或切换当前表
    - 焦点当前回落到 `DataGrid`
-3. `h / Esc / Left`
+4. `Esc / Left`
    - 返回主工作区
-4. `q`
+5. `q`
    - 关闭 ER
-5. `Shift+L`
+6. `Shift+L`
    - relayout
-6. `v`
+7. `v`
    - 在浏览模式与视口模式之间切换
-7. 视口模式中的 `h / j / k / l`
+8. 视口模式中的 `h / j / k / l`
    - 只承担平移，不再继续做浏览导航
-8. `Shift+Left / Shift+Down / Shift+Up / Shift+Right`
+9. `Shift+Left / Shift+Down / Shift+Up / Shift+Right`
    - 在浏览模式内按当前布局做方向性几何邻接
    - 只增强局部 ER 浏览，不直接切主业务当前表
 

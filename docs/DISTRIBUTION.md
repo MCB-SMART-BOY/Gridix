@@ -36,7 +36,7 @@ Do not update downstream package definitions before the GitHub release and check
 ## 2. Get Checksums | 获取校验和
 
 ```bash
-VERSION=5.0.0
+VERSION=6.0.0
 gh release download "v${VERSION}" -p "SHA256SUMS.txt" -D /tmp/gridix-release
 cat /tmp/gridix-release/SHA256SUMS.txt
 ```

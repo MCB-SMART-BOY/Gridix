@@ -96,6 +96,7 @@ fn collect_er_relationships_from_foreign_keys(
             to_table: fk.to_table,
             to_column: fk.to_column,
             relation_type: ui::RelationType::OneToMany,
+            origin: ui::RelationshipOrigin::Explicit,
         })
         .collect()
 }
@@ -137,6 +138,11 @@ fn er_diagram_ready_message(table_count: usize, ready_kind: ErDiagramReadyKind) 
     }
 }
 
+fn apply_default_er_diagram_layout(tables: &mut [ui::ERTable], relationships: &[ui::Relationship]) {
+    let summary = ui::analyze_er_graph(tables, relationships);
+    ui::apply_er_layout_strategy(tables, relationships, summary.strategy);
+}
+
 impl DbManagerApp {
     fn apply_successful_grid_save_state(&mut self, context: &GridSaveContext) {
         let active_tab_id = self.tab_manager.get_active().map(|tab| tab.id.as_str());
@@ -155,12 +161,6 @@ impl DbManagerApp {
             return;
         }
 
-        ui::grid_layout(
-            &mut self.er_diagram_state.tables,
-            4,
-            egui::Vec2::new(60.0, 50.0),
-        );
-
         let inferred_relationships = if self.er_diagram_state.relationships.is_empty() {
             self.infer_relationships_from_columns()
         } else {
@@ -170,6 +170,23 @@ impl DbManagerApp {
         let (relationships, ready_kind) =
             resolve_er_diagram_ready_state(explicit_relationships, inferred_relationships);
         self.er_diagram_state.relationships = relationships;
+        if !self
+            .er_diagram_state
+            .restore_layout_snapshot_if_exact_match()
+        {
+            apply_default_er_diagram_layout(
+                &mut self.er_diagram_state.tables,
+                &self.er_diagram_state.relationships,
+            );
+            let restored_names = self
+                .er_diagram_state
+                .restore_layout_snapshot_for_matching_tables();
+            ui::stabilize_incremental_layout_positions(
+                &mut self.er_diagram_state.tables,
+                &self.er_diagram_state.relationships,
+                &restored_names,
+            );
+        }
 
         self.notifications.info(er_diagram_ready_message(
             self.er_diagram_state.tables.len(),
@@ -1021,6 +1038,7 @@ impl DbManagerApp {
                     })
                     .collect();
 
+                let display_mode = self.er_diagram_state.card_display_mode();
                 if let Some(er_table) = self
                     .er_diagram_state
                     .tables
@@ -1029,7 +1047,7 @@ impl DbManagerApp {
                 {
                     er_table.columns = er_columns;
                     // 立即计算表格尺寸，确保布局和关系线渲染正确
-                    ui::calculate_table_size(er_table);
+                    ui::calculate_table_size_for_mode(er_table, display_mode);
                 }
             }
             Err(e) => {
@@ -1047,7 +1065,7 @@ impl DbManagerApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        ErDiagramReadyKind, clamp_grid_cursor_for_result,
+        ErDiagramReadyKind, apply_default_er_diagram_layout, clamp_grid_cursor_for_result,
         collect_er_relationships_from_foreign_keys, er_diagram_ready_message,
         grid_save_context_matches_current, is_cancelled_query_error,
         resolve_er_diagram_ready_state, should_drop_query_error_as_stale,
@@ -1056,7 +1074,7 @@ mod tests {
     use crate::app::{GridSaveContext, GridWorkspaceId};
     use crate::database::ForeignKeyInfo;
     use crate::database::QueryResult;
-    use crate::ui::{RelationType, Relationship};
+    use crate::ui::{ERLayoutStrategy, ERTable, RelationType, Relationship, RelationshipOrigin};
 
     #[test]
     fn test_is_cancelled_query_error_chinese() {
@@ -1188,6 +1206,7 @@ mod tests {
             to_table: to_table.to_string(),
             to_column: "id".to_string(),
             relation_type: RelationType::OneToMany,
+            origin: RelationshipOrigin::Explicit,
         }
     }
 
@@ -1224,6 +1243,322 @@ mod tests {
 
         assert!(relationships.is_empty());
         assert_eq!(ready_kind, ErDiagramReadyKind::Empty);
+    }
+
+    #[test]
+    fn analyze_er_graph_uses_grid_strategy_when_relationships_are_empty() {
+        let summary = crate::ui::analyze_er_graph(&[ERTable::new("customers".into())], &[]);
+
+        assert_eq!(summary.strategy, ERLayoutStrategy::Grid);
+    }
+
+    #[test]
+    fn analyze_er_graph_uses_component_strategy_for_disconnected_relationships() {
+        let tables = vec![
+            ERTable::new("customers".into()),
+            ERTable::new("orders".into()),
+            ERTable::new("products".into()),
+            ERTable::new("suppliers".into()),
+        ];
+        let summary = crate::ui::analyze_er_graph(
+            &tables,
+            &[
+                relationship("orders", "customers"),
+                relationship("products", "suppliers"),
+            ],
+        );
+
+        assert_eq!(summary.strategy, ERLayoutStrategy::Component);
+    }
+
+    #[test]
+    fn apply_default_er_diagram_layout_keeps_grid_positions_without_relationships() {
+        let mut tables = vec![
+            ERTable::new("customers".into()),
+            ERTable::new("orders".into()),
+        ];
+
+        apply_default_er_diagram_layout(&mut tables, &[]);
+
+        assert_eq!(tables[0].position, egui::pos2(60.0, 50.0));
+        assert_eq!(tables[1].position, egui::pos2(300.0, 50.0));
+    }
+
+    #[test]
+    fn apply_default_er_diagram_layout_refines_grid_when_relationships_exist() {
+        let mut tables = vec![
+            ERTable::new("customers".into()),
+            ERTable::new("orders".into()),
+        ];
+        let relationships = vec![relationship("orders", "customers")];
+
+        apply_default_er_diagram_layout(&mut tables, &relationships);
+
+        assert_ne!(tables[0].position, egui::pos2(60.0, 50.0));
+        assert_ne!(tables[1].position, egui::pos2(300.0, 50.0));
+    }
+
+    #[test]
+    fn finalize_er_diagram_load_restores_snapshot_when_table_names_match_exactly() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        app.er_diagram_state.tables = vec![
+            ERTable::new("customers".into()),
+            ERTable::new("orders".into()),
+        ];
+        app.er_diagram_state
+            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+                ("customers".to_string(), egui::pos2(320.0, 140.0)),
+                ("orders".to_string(), egui::pos2(80.0, 420.0)),
+            ])));
+        app.er_diagram_state.loading = false;
+        app.er_diagram_state.relationships = vec![relationship("orders", "customers")];
+
+        app.finalize_er_diagram_load_if_ready();
+
+        assert_eq!(
+            app.er_diagram_state.tables[0].position,
+            egui::pos2(320.0, 140.0)
+        );
+        assert_eq!(
+            app.er_diagram_state.tables[1].position,
+            egui::pos2(80.0, 420.0)
+        );
+        assert!(!app.er_diagram_state.has_pending_layout_restore());
+    }
+
+    #[test]
+    fn finalize_er_diagram_load_restores_matching_snapshot_after_strategy_layout() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        app.er_diagram_state.tables = vec![
+            ERTable::new("customers".into()),
+            ERTable::new("orders".into()),
+            ERTable::new("invoices".into()),
+        ];
+        app.er_diagram_state
+            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+                ("customers".to_string(), egui::pos2(320.0, 140.0)),
+                ("orders".to_string(), egui::pos2(80.0, 420.0)),
+                ("legacy".to_string(), egui::pos2(920.0, 40.0)),
+            ])));
+        app.er_diagram_state.loading = false;
+        app.er_diagram_state.relationships = vec![relationship("orders", "customers")];
+
+        app.finalize_er_diagram_load_if_ready();
+
+        assert_eq!(
+            app.er_diagram_state.tables[0].position,
+            egui::pos2(320.0, 140.0)
+        );
+        assert_eq!(
+            app.er_diagram_state.tables[1].position,
+            egui::pos2(80.0, 420.0)
+        );
+        assert_ne!(
+            app.er_diagram_state.tables[2].position,
+            egui::pos2(320.0, 140.0)
+        );
+        assert_ne!(
+            app.er_diagram_state.tables[2].position,
+            egui::pos2(80.0, 420.0)
+        );
+        assert!(!app.er_diagram_state.has_pending_layout_restore());
+    }
+
+    #[test]
+    fn finalize_er_diagram_load_partial_restore_moves_new_table_off_restored_tables() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let mut customers = ERTable::new("customers".into());
+        customers.size = egui::vec2(180.0, 200.0);
+        let mut orders = ERTable::new("orders".into());
+        orders.size = egui::vec2(180.0, 200.0);
+        let mut invoices = ERTable::new("invoices".into());
+        invoices.size = egui::vec2(180.0, 200.0);
+        app.er_diagram_state.tables = vec![customers, orders, invoices];
+        app.er_diagram_state
+            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+                ("customers".to_string(), egui::pos2(540.0, 50.0)),
+                ("orders".to_string(), egui::pos2(300.0, 50.0)),
+                ("legacy".to_string(), egui::pos2(80.0, 420.0)),
+            ])));
+        app.er_diagram_state.loading = false;
+
+        app.finalize_er_diagram_load_if_ready();
+
+        let customers = app
+            .er_diagram_state
+            .tables
+            .iter()
+            .find(|table| table.name == "customers")
+            .unwrap();
+        let orders = app
+            .er_diagram_state
+            .tables
+            .iter()
+            .find(|table| table.name == "orders")
+            .unwrap();
+        let invoices = app
+            .er_diagram_state
+            .tables
+            .iter()
+            .find(|table| table.name == "invoices")
+            .unwrap();
+
+        assert_eq!(customers.position, egui::pos2(540.0, 50.0));
+        assert_eq!(orders.position, egui::pos2(300.0, 50.0));
+        assert!(!invoices.rect().intersects(customers.rect()));
+        assert!(!invoices.rect().intersects(orders.rect()));
+        assert!(!app.er_diagram_state.has_pending_layout_restore());
+    }
+
+    #[test]
+    fn finalize_er_diagram_load_partial_restore_reanchors_related_new_table_near_restored_neighbor()
+    {
+        let mut strategy_customers = ERTable::new("customers".into());
+        strategy_customers.size = egui::vec2(180.0, 200.0);
+        let mut strategy_orders = ERTable::new("orders".into());
+        strategy_orders.size = egui::vec2(180.0, 200.0);
+        let mut strategy_invoices = ERTable::new("invoices".into());
+        strategy_invoices.size = egui::vec2(180.0, 200.0);
+        let relationships = vec![relationship("invoices", "orders")];
+        let mut strategy_tables = vec![strategy_customers, strategy_orders, strategy_invoices];
+        apply_default_er_diagram_layout(&mut strategy_tables, &relationships);
+        let strategy_invoice = strategy_tables
+            .iter()
+            .find(|table| table.name == "invoices")
+            .unwrap()
+            .position
+            + egui::vec2(90.0, 100.0);
+
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let mut customers = ERTable::new("customers".into());
+        customers.size = egui::vec2(180.0, 200.0);
+        let mut orders = ERTable::new("orders".into());
+        orders.size = egui::vec2(180.0, 200.0);
+        let mut invoices = ERTable::new("invoices".into());
+        invoices.size = egui::vec2(180.0, 200.0);
+        app.er_diagram_state.tables = vec![customers, orders, invoices];
+        let restored_orders = egui::pos2(660.0, 50.0);
+        app.er_diagram_state
+            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+                ("customers".to_string(), egui::pos2(900.0, 50.0)),
+                ("orders".to_string(), restored_orders),
+            ])));
+        app.er_diagram_state.loading = false;
+        app.er_diagram_state.relationships = relationships;
+
+        let strategy_distance =
+            strategy_invoice.distance(restored_orders + egui::vec2(90.0, 100.0));
+
+        app.finalize_er_diagram_load_if_ready();
+
+        let orders = app
+            .er_diagram_state
+            .tables
+            .iter()
+            .find(|table| table.name == "orders")
+            .unwrap();
+        let invoices = app
+            .er_diagram_state
+            .tables
+            .iter()
+            .find(|table| table.name == "invoices")
+            .unwrap();
+        let restored_distance = invoices.center().distance(orders.center());
+
+        assert!(restored_distance < strategy_distance);
+        assert!(!invoices.rect().intersects(orders.rect()));
+        assert!(!app.er_diagram_state.has_pending_layout_restore());
+    }
+
+    #[test]
+    fn finalize_er_diagram_load_partial_restore_places_referencing_new_table_below_restored_parent()
+    {
+        let mut orders = ERTable::new("orders".into());
+        orders.size = egui::vec2(180.0, 200.0);
+        let mut invoices = ERTable::new("invoices".into());
+        invoices.size = egui::vec2(180.0, 200.0);
+        let relationships = vec![relationship("invoices", "orders")];
+
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        app.er_diagram_state.tables = vec![orders, invoices];
+        app.er_diagram_state
+            .set_pending_layout_restore(Some(std::collections::HashMap::from([(
+                "orders".to_string(),
+                egui::pos2(660.0, 50.0),
+            )])));
+        app.er_diagram_state.loading = false;
+        app.er_diagram_state.relationships = relationships;
+
+        app.finalize_er_diagram_load_if_ready();
+
+        let orders = app
+            .er_diagram_state
+            .tables
+            .iter()
+            .find(|table| table.name == "orders")
+            .unwrap();
+        let invoices = app
+            .er_diagram_state
+            .tables
+            .iter()
+            .find(|table| table.name == "invoices")
+            .unwrap();
+
+        assert!(invoices.rect().top() >= orders.rect().bottom() + 39.0);
+        assert!(!invoices.rect().intersects(orders.rect()));
+        assert!(!app.er_diagram_state.has_pending_layout_restore());
+    }
+
+    #[test]
+    fn finalize_er_diagram_load_partial_restore_keeps_bridge_table_between_restored_parent_and_child()
+     {
+        let mut customers = ERTable::new("customers".into());
+        customers.size = egui::vec2(180.0, 200.0);
+        let mut order_items = ERTable::new("order_items".into());
+        order_items.size = egui::vec2(180.0, 200.0);
+        let mut orders = ERTable::new("orders".into());
+        orders.size = egui::vec2(180.0, 200.0);
+        let relationships = vec![
+            relationship("orders", "customers"),
+            relationship("order_items", "orders"),
+        ];
+
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        app.er_diagram_state.tables = vec![customers, order_items, orders];
+        app.er_diagram_state
+            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+                ("customers".to_string(), egui::pos2(660.0, 50.0)),
+                ("order_items".to_string(), egui::pos2(940.0, 250.0)),
+            ])));
+        app.er_diagram_state.loading = false;
+        app.er_diagram_state.relationships = relationships;
+
+        app.finalize_er_diagram_load_if_ready();
+
+        let customers = app
+            .er_diagram_state
+            .tables
+            .iter()
+            .find(|table| table.name == "customers")
+            .unwrap();
+        let order_items = app
+            .er_diagram_state
+            .tables
+            .iter()
+            .find(|table| table.name == "order_items")
+            .unwrap();
+        let orders = app
+            .er_diagram_state
+            .tables
+            .iter()
+            .find(|table| table.name == "orders")
+            .unwrap();
+
+        assert!(orders.center().y > customers.center().y);
+        assert!(orders.center().y < order_items.center().y);
+        assert!(!orders.rect().intersects(customers.rect()));
+        assert!(!orders.rect().intersects(order_items.rect()));
+        assert!(!app.er_diagram_state.has_pending_layout_restore());
     }
 
     #[test]
