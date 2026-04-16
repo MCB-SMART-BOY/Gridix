@@ -18,13 +18,13 @@ Do not update downstream package definitions before the GitHub release and check
 
 `v6.1.0` status:
 
-- GitHub release: pending publication from this worktree
+- GitHub release: published
 - AUR: not yet synced for `v6.1.0`
 - Homebrew: not yet synced for `v6.1.0`
 - nixpkgs: not yet synced for `v6.1.0`
 
-This means the release version has been prepared locally, but downstream publication still starts only after the GitHub release artifacts and checksums exist.
-这表示当前版本已在本地进入发版准备状态，但下游同步仍必须等 GitHub release 制品和校验和生成后再开始。
+This means the release version is already published on GitHub, and downstream publication can now proceed using the final artifacts and checksums.
+这表示当前版本已经在 GitHub 上发布完成，下游同步现在可以直接基于最终制品和校验和继续。
 
 ## 1. Prerequisites | 前置条件
 

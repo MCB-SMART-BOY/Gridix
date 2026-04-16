@@ -2,7 +2,7 @@
 
 ## Scope
 
-This plan now records the `v6.1.0` release-execution state of the recovery stream carried forward in [Cargo.toml](../../Cargo.toml).
+This plan now records the `v6.1.0` post-release-closure state of the recovery stream carried forward in [Cargo.toml](../../Cargo.toml).
 
 It does **not** propose a broad rewrite.  
 It establishes a repair order for the flows that Gridix cannot afford to break, using the current codebase and the current dependency baseline.
@@ -11,15 +11,15 @@ Current release gate:
 
 - Local AI / agent guidance is now treated as workstation-local material and should stay out of tracked repository policy docs.
 - The release/distribution sequence is already documented in [docs/RELEASE_PROCESS.md](../RELEASE_PROCESS.md) and [docs/DISTRIBUTION.md](../DISTRIBUTION.md).
-- The current recovery stream has now reached **`v6.1.0` release execution**: there are no new unblocked active implementation workstreams left in the recovery ledger, and the remaining items have been reduced to `observation / live smoke / downstream follow-up`.
-- `v6.1.0` is being committed, tagged, and published from this worktree as the next minor release.
-- Downstream sync for AUR, Homebrew, and nixpkgs remains pending until the `v6.1.0` GitHub release artifacts and checksums exist.
+- The current recovery stream has now reached **`v6.1.0` post-release closure**: there are no new unblocked active implementation workstreams left in the recovery ledger, and the remaining items have been reduced to `observation / live smoke / downstream sync follow-up`.
+- `v6.1.0` has been committed, pushed, tagged, and published from this worktree as the current minor release.
+- The `v6.1.0` GitHub release artifacts and `SHA256SUMS.txt` now exist; downstream sync for AUR, Homebrew, and nixpkgs is no longer blocked by release publication.
 - Current closure-review check status on this worktree:
   - `cargo fmt --check`: pass
   - `cargo test`: pass
   - `python scripts/check_doc_links.py`: pass
   - `cargo clippy --all-targets --all-features -- -D warnings`: pass
-- Therefore the current phase is no longer only "ready for release closure review"; it is now **release execution**, with the remaining work in this stream limited to publishing `v6.1.0`, then downstream sync and any newly confirmed bugs.
+- Therefore the current phase is no longer "release execution"; it is now **post-release closure**, with the remaining work in this stream limited to downstream sync follow-up and any newly confirmed bugs.
 
 ## A. Dependency Baseline
 

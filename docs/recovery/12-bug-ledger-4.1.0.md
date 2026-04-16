@@ -2,7 +2,7 @@
 
 ## Scope
 
-这份账本只盘点 **当前 v6.1.0 发版执行阶段仍值得观察的根因问题**。  
+这份账本只盘点 **当前 v6.1.0 发版后收口阶段仍值得观察的根因问题**。  
 来源限定为：
 
 - `docs/recovery/10-master-recovery-plan.md`
@@ -33,7 +33,7 @@
 
 - 这份账本里已没有“未阻塞且应立即继续实现”的 active bug。
 - `G41-B007` 当前保留为 observation 条目；除非重新 live 复现，否则不再继续主动补丁。
-- `v6.1.0` 当前进入 release execution：版本 bump、提交/推送、tag、GitHub release 在本轮执行；AUR/Homebrew/nixpkgs 同步暂未开始，仍等待 `v6.1.0` release artifacts 与 `SHA256SUMS.txt` 生成。
+- `v6.1.0` 的版本 bump、提交/推送、tag 与 GitHub release 已完成；AUR/Homebrew/nixpkgs 同步当前仍未开始，但已不再受 `v6.1.0` release artifacts 与 `SHA256SUMS.txt` 阻塞。
 
 ### G41-B007
 
