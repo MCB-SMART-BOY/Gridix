@@ -16,8 +16,8 @@ This document defines how key bindings are stored outside `config.toml` and merg
 - `next_focus_area` / `prev_focus_area` are fallback actions, not global-first hard-coded keys.
   `next_focus_area` / `prev_focus_area` 是 fallback action，不是 global-first 的硬编码按键。
 
-`v5.0.0` implementation note:
-`v5.0.0` 实现说明：
+`v6.0.0` implementation note:
+`v6.0.0` 实现说明：
 - Runtime dispatch first resolves an input owner, then reads scoped bindings such as `dialog.common.confirm`, `dialog.export.format_csv`, `dialog.import.refresh`, or `sidebar.filters.input.leave_input`.
   运行时会先解析输入所有者，再读取 `dialog.common.confirm`、`dialog.export.format_csv`、`dialog.import.refresh` 或 `sidebar.filters.input.leave_input` 这类作用域绑定。
 - Scoped command metadata lives in `src/core/commands.rs`; legacy local shortcut helpers now read command ids, descriptions, categories, and default bindings from that registry.

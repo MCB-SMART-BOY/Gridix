@@ -1,8 +1,8 @@
-# Gridix 5.0.0 Master Recovery Plan
+# Gridix 6.1.0 Master Recovery Plan
 
 ## Scope
 
-This plan now records the `v5.0.0` release-closure state of the recovery stream carried forward in [Cargo.toml](../../Cargo.toml).
+This plan now records the `v6.1.0` release-execution state of the recovery stream carried forward in [Cargo.toml](../../Cargo.toml).
 
 It does **not** propose a broad rewrite.  
 It establishes a repair order for the flows that Gridix cannot afford to break, using the current codebase and the current dependency baseline.
@@ -11,18 +11,15 @@ Current release gate:
 
 - Local AI / agent guidance is now treated as workstation-local material and should stay out of tracked repository policy docs.
 - The release/distribution sequence is already documented in [docs/RELEASE_PROCESS.md](../RELEASE_PROCESS.md) and [docs/DISTRIBUTION.md](../DISTRIBUTION.md).
-- The current recovery stream has now completed **`v5.0.0` release execution**: there are no new unblocked active implementation workstreams left in the recovery ledger, and the remaining items have been reduced to `observation / live smoke / post-release follow-up`.
-- `v5.0.0` has already been committed, pushed, tagged, and published on GitHub Releases.
-- Downstream sync is also complete for the current release wave:
-  - AUR: `gridix`, `gridix-bin`, and `gridix-appimage` updated and pushed.
-  - Homebrew tap updated and pushed.
-  - nixpkgs sync moved onto a clean branch based on `nixos/master`, verified with `nix-instantiate` and `nix-build`, then pushed as `MCB-SMART-BOY:gridix-v5.0.0` with PR `NixOS/nixpkgs#510152`.
+- The current recovery stream has now reached **`v6.1.0` release execution**: there are no new unblocked active implementation workstreams left in the recovery ledger, and the remaining items have been reduced to `observation / live smoke / downstream follow-up`.
+- `v6.1.0` is being committed, tagged, and published from this worktree as the next minor release.
+- Downstream sync for AUR, Homebrew, and nixpkgs remains pending until the `v6.1.0` GitHub release artifacts and checksums exist.
 - Current closure-review check status on this worktree:
   - `cargo fmt --check`: pass
   - `cargo test`: pass
   - `python scripts/check_doc_links.py`: pass
   - `cargo clippy --all-targets --all-features -- -D warnings`: pass
-- Therefore the current phase is no longer "ready for release closure review"; it is now **post-release closure**, with remaining work limited to observation, package-review follow-up, or newly confirmed bugs.
+- Therefore the current phase is no longer only "ready for release closure review"; it is now **release execution**, with the remaining work in this stream limited to publishing `v6.1.0`, then downstream sync and any newly confirmed bugs.
 
 ## A. Dependency Baseline
 
@@ -226,7 +223,7 @@ Primary objective:
 - Entry: [AppAction::ToggleErDiagram](../../src/app/action/action_system.rs), [AppAction::FocusErDiagram](../../src/app/action/action_system.rs), [set_er_diagram_visible()](../../src/app/input/input_router.rs), [load_er_diagram_data()](../../src/app/runtime/er_diagram.rs), [ERDiagramState::show()](../../src/ui/components/er_diagram/render.rs).
 - Authority: `show_er_diagram` controls visibility; `er_diagram_state` holds loaded tables, relationships, loading, zoom, pan, selection, and drag state.
 - Invariants: opening ER triggers data load only when there is an active connection and now also enters `FocusArea::ErDiagram`; explicit focus still enters `FocusArea::ErDiagram` without toggling visibility or reloading; state is cleared before reloading; all table columns and relationships eventually reconcile into a stable layout.
-- Known risks: ER 现已具备第一阶段 TUI 式本地导航语义，返回历史会恢复最近一个合法的非 ER workspace 区域，`l / h` 语义也已切到更强的 TUI 主线；本轮又把键盘流拆成 `er_diagram` 浏览子作用域与 `er_diagram.viewport` 视口子作用域，`v` 只负责在两者间切换，`Esc` 在视口模式内只退回浏览模式，不再越级离开 ER。视口模式对 `q` 关闭、`r / Shift+L / f` 组合、reload 后回到浏览态、跨主题渲染不改 ER 局部状态，以及 `FocusErDiagram -> ToggleErDiagram` 在视口模式下的 focus restore / fallback 分支都已有 focused coverage；`Ctrl+R -> ToggleErDiagram` 在 ER 导航态/视口态下的 focused coverage也已补齐，因此 ER 自身持有 focus 时不再把顶层 toggle 卡死，而 ER 从隐藏切到可见时也会直接拿到 focus，不再把 `h/j/k/l` 留给 `DataGrid`。`Ctrl+H` 这类其他 workspace overlay 仍不会因为进入 ER scope 被顺手放开。本轮又把 `Shift+Left/Down/Up/Right` 作为 additive 的几何邻接导航落地：它只按当前表卡几何位置在 ER 局部选择最近邻，不替换 `j/k` 线性浏览或 `Shift+J/K` 关系邻接，也不反向驱动主业务 `selected_table`。结合当前 `OpenSelectedTable -> QuerySelectedTable -> DataGrid` 主链，ER 继续保持 companion pane 定位，独立 `detail mode` 当前明确不进入实现。主要剩余风险已收窄到几何邻接是否还需要进一步的启发式调优。
+- Known risks: ER 现已具备第一阶段 TUI 式本地导航语义，返回历史会恢复最近一个合法的非 ER workspace 区域；最新收口后，bare `h / l` 已不再承担返回 / 打开，而是留在 ER 内部作为左右几何邻接，`Enter / Right` 继续打开当前表，`Left / Esc` 继续返回主工作区。本轮又把键盘流拆成 `er_diagram` 浏览子作用域与 `er_diagram.viewport` 视口子作用域，`v` 只负责在两者间切换，`Esc` 在视口模式内只退回浏览模式，不再越级离开 ER。视口模式对 `q` 关闭、`r / Shift+L / f` 组合、reload 后回到浏览态、跨主题渲染不改 ER 局部状态，以及 `FocusErDiagram -> ToggleErDiagram` 在视口模式下的 focus restore / fallback 分支都已有 focused coverage；`Ctrl+R -> ToggleErDiagram` 在 ER 导航态/视口态下的 focused coverage也已补齐，因此 ER 自身持有 focus 时不再把顶层 toggle 卡死，而 ER 从隐藏切到可见时也会直接拿到 focus，不再把 `h/j/k/l` 留给 `DataGrid`。`Ctrl+H` 这类其他 workspace overlay 仍不会因为进入 ER scope 被顺手放开。本轮又把 `Shift+Left/Down/Up/Right` 作为 additive 的几何邻接导航落地：它只按当前表卡几何位置在 ER 局部选择最近邻，不替换 `j/k` 线性浏览或 `Shift+J/K` 关系邻接，也不反向驱动主业务 `selected_table`。关系优先默认布局现在还会先按断开的关系簇和孤立表拆成独立组件，再分别做层级种子和全局 refine，因此“无关系的几簇被压成一锅粥”的剩余结构性风险已进一步下降。结合当前 `OpenSelectedTable -> QuerySelectedTable -> DataGrid` 主链，ER 继续保持 companion pane 定位，独立 `detail mode` 当前明确不进入实现。主要剩余风险已收窄到几何邻接与关系布局是否还需要进一步的 live 启发式调优。
 - Related files: [src/app/runtime/er_diagram.rs](../../src/app/runtime/er_diagram.rs), [src/app/runtime/handler.rs](../../src/app/runtime/handler.rs), [src/ui/components/er_diagram/state.rs](../../src/ui/components/er_diagram/state.rs), [src/ui/components/er_diagram/render.rs](../../src/ui/components/er_diagram/render.rs), [src/ui/components/er_diagram/layout.rs](../../src/ui/components/er_diagram/layout.rs).
 
 ## E. Recovery Roadmap
@@ -263,13 +260,22 @@ Current execution order before further implementation:
 14. ER `l` contract 第十刀已落地：bare `l` 现在打开当前表，`Shift+L` 接管 relayout。
 15. 顶层回归覆盖已补上第四批窄锚点：`ToggleErDiagram` 命令注册/可用性、ER 聚焦状态栏、Help->Relationships 学习入口、close -> focus restore helper、open/refresh shared load plan，以及 `ERDiagramResponse -> app-level surface dispatch`；下一步继续收窄到 open/refresh/theme switch/focus restore 的端到端 UI 组合链路。
 16. ER 显式聚焦第十六刀已落地：新增 `FocusErDiagram` / `focus_er_diagram`，默认 `Alt+R`；它只在 ER 已打开时可用，只切入 `FocusArea::ErDiagram`，不改变显隐，也不触发 reload。
-17. ER 视口模式第十七刀已落地：新增局部 `interaction_mode`，把 ER 键盘流拆成 `er_diagram` 浏览子作用域与 `er_diagram.viewport` 视口子作用域；`v` 在两者间切换，浏览态继续承载 `j/k/l/h/q` 语义，视口态把 `h/j/k/l` 收回为平移，`Esc` 只退出视口模式回到浏览态，`q` 仍可直接关闭 ER。
+17. ER 视口模式第十七刀已落地：新增局部 `interaction_mode`，把 ER 键盘流拆成 `er_diagram` 浏览子作用域与 `er_diagram.viewport` 视口子作用域；`v` 在两者间切换，浏览态继续承载 `j/k` 线性浏览、`h/l` 左右几何邻接、`Enter/Right` 打开当前表与 `q` 关闭语义，视口态把 `h/j/k/l` 收回为平移，`Esc` 只退出视口模式回到浏览态，`q` 仍可直接关闭 ER。
 18. ER 视口模式组合锚点第十八刀已落地：focused tests 现已锁住视口模式内 `q` 仍关闭 ER、`r / Shift+L / f` 仍保持可用，以及 `begin_loading()/reload` 会把 `interaction_mode` 保守重置回 `Navigation`。
 19. ER 主题切换组合锚点第十九刀已落地：focused test 现已锁住跨 `ThemePreset` 渲染不会改写 ER 当前的 `interaction_mode / selected_table / pan_offset / zoom`；主题切换当前只应影响视觉 token，不得干扰局部浏览/视口状态。
 20. ER focus-restore combo anchor 第二十刀已落地：app-level focused tests 现已锁住 `FocusErDiagram -> ToggleErDiagram` 从视口模式关闭时，会恢复最近一个合法的非 ER workspace 区域；若跟踪目标已不可用，则回退到 `DataGrid`，且隐藏后不会残留 ER input scope。
 21. ER relation-adjacency 第二十一刀已落地：浏览态新增 `Shift+J / Shift+K`，会按稳定全局表顺序在当前表的关联集合内前进/后退；它只增强关系浏览，不替换原有 `j/k` 的线性选表。
 22. `UX / Input Recovery Batch A` 已完成阶段性收口：toolbar trigger 独立快捷键/tooltip、toolbar 与 ER toolbar 的交互态 chrome、sidebar connection-row destructive entrypoint recovery、`Ctrl+R` 在 ER scope 内的 toggle gate、About 回摆、以及 `KeyBindingsDialog` / `HelpDialog` 顶部 header compression 均已落地；后续不再把这批条目作为 active implementation workstream，而是转入 live smoke / regression observation。
 23. ER geometry-adjacency 第二十三刀已落地：浏览态新增 `Shift+Left / Shift+Down / Shift+Up / Shift+Right`，会按当前表卡中心点和方向锥体优先选择同方向最近邻；若没有轴向候选，则才保守回退到同方向对角候选。它是 additive 的局部浏览命令，不替换 `j/k` 线性或 `Shift+J / Shift+K` 关系邻接，也不直接同步主业务当前表。
+24. ER relation-first default layout 第二十四刀已落地：加载中的 ER 仍先显示稳定 grid skeleton，但 `finalize_er_diagram_load_if_ready()` 现在会在关系 ready 后统一决定默认完成态布局；空关系图继续保持 grid，而存在显式或推断关系时会自动走关系层级种子 + force-directed refine。手动 `Shift+L` 现在也复用同一条关系优先路径，不再只做纯 force pass。
+25. ER relation-seeded sibling ordering 第二十五刀已落地：`hierarchical_layout()` 的同层兄弟表不再继续依赖原始输入顺序，而是先按名称做稳定初始化，再按已知关系邻居的重心做轻量上下 sweep；因此关系优先布局现在不仅“有层级”，同层横向顺序也更贴近引用关系。
+26. ER viewport toggle de-dup 第二十六刀已落地：`v` 的视口模式切换现在只通过 input router 生效，render 不再重复消费同一个局部快捷键；因此 ER 聚焦时 `v` 不会再出现同帧切了又切回去的假失效。
+27. ER overlap-aware relation layout 第二十七刀已落地：`hierarchical_layout()` 现在会按真实表卡尺寸计算同层横向间距和层间纵向间距，而 `force_directed_layout()` 也改为按表卡中心与实际尺寸做分离；关系优先完成态不再继续只依赖固定 `180x200` 骨架和左上角点的斥力近似。
+28. ER component-aware relation seeding 第二十八刀已落地：`relationship_seeded_layout()` 现在会先把断开的关系簇和孤立表拆成独立组件，再分别做层级种子并按组件边界留白后进入全局 force-directed refine；默认完成态和手动 `Shift+L` 不再把彼此完全无关的簇压进同一条横向种子带。
+29. ER component row-packing 第二十九刀已落地：多组件关系种子现在会按组件面积估计目标行宽，并在种子阶段对断开的组件换排；默认完成态和手动 `Shift+L` 不再把所有无关组件只沿单一横带持续向右展开。
+30. ER component priority anchoring 第三十刀已落地：多组件关系种子现在会按组件面积/宽度优先排序，再进入按行换排；较大的关系主簇会先占据左上锚点，小型孤立表不再仅因名字更靠前就把主簇挤到后排。
+31. ER open-fit visibility 第三十一刀已落地：从隐藏态打开 ER 现在会请求一次延迟 `fit_to_view()`；如果默认完成态在旧 `25%` 下限下仍不足以容纳整图，ER 会把 `zoom` 进一步降到更低，直到主簇重新完整落回可见视口。当前这条自动 fit 只在 open 分支执行，不会把 reload/refresh 的“保留当前视图”合同一起洗掉。
+32. ER generation redesign 第一阶段已落地：`finalize_er_diagram_load_if_ready()` 现在不再直接把 `tables + relationships` 喂给单一布局函数，而是先经 `analyze_er_graph()` 生成语义摘要，再按 `Grid / Relation / Component` 三种完成态策略选择布局路径；ER render 侧也补上了 `All / Focus / ExplicitOnly` 边显示模式、`Standard / KeysOnly` 表卡密度模式、关系邻域降噪与正交式边路由，因此当前主线已从“继续局部调布局参数”升级为显式语义图 + 策略布局 + 视图密度控制的第一阶段架构。
 
 ### Phase 2.5: UX / Input Recovery Batch A Closure
 
@@ -291,9 +297,17 @@ Current execution order before further implementation:
 - `Alt+A`、`Alt+N`、`Alt+K`、`F1` 与 `Ctrl+P -> about` 的显式打开路径均通过；对应 chooser / workspace dialog / about 均能稳定打开并用 `q` 关闭。
 - toolbar 默认态已不再出现常驻灰底；`KeyBindingsDialog` 与 `HelpDialog` 顶部 header 也已在默认 workspace dialog 宽度下以内联双区块展示。
 - `AboutDialog` 当前 live 观感与自动化结构回归一致：已回摆成更轻的品牌页，不再是厚重的双卡片堆叠。
-- `Ctrl+R` 的自动注入 smoke 目前仍不构成可信证据：`Alt+A -> 切换ER图` 可以正常打开 ER，说明 action / owner / render 主链仍通；但 `wtype` 与 `hyprctl dispatch sendshortcut` 在当前 grid 场景下都会落成 bare `r` 的局部行为，因此这一步仍需实体键手动复核，暂不据此重新打开 ER bug。
+- `Ctrl+R` 的自动注入 smoke 目前仍不构成可信证据：`Alt+A -> 切换ER图` 可以正常打开 ER，命令面板链 `Ctrl+P -> toggle_er_diagram -> Enter` 现也已有 app-level focused regression 覆盖，说明 action / owner / render 主链仍通；但 `wtype` 与 `hyprctl dispatch sendshortcut` 在当前 grid 场景下都会落成 bare `r` 或不稳定的 palette 选择行为，因此这一步仍需实体键手动复核，暂不据此重新打开 ER bug。
 - ER 几何邻接已完成首轮 Wayland live 观察：沿 `Ctrl+P -> sample -> Enter -> Ctrl+R -> Alt+R -> Shift+Right/Down/Left/Up` 进入学习样例 ER 后，方向跳转与 `selection follows viewport` 目前未复现明显误跳；当前不继续对算法下补丁，先维持“观察 / 启发式调优候选”状态。
 - ER 几何邻接第二轮组合观察也已通过：在同一学习样例链路下继续执行 `Shift+L -> Shift+Down -> f -> Ctrl+Shift+T -> j -> Enter`，当前未复现 relayout / fit view / theme switch 之后的几何误跳；主题切换后 ER 的 `show_er_diagram`、缩放级别与当前布局均保持稳定。继续用 `Shift+Arrow` 浏览前，如需恢复 ER 键盘 owner，可显式再按一次 `Alt+R`，当前这更像既有显式聚焦模型，而不是新的 active bug。
+- ER 关系优先布局第三轮 live 观察已完成：在学习样例默认完成态下，当前关系种子 + 同层重心排序未再出现明显“同层兄弟表直接继承输入顺序”的反例，主簇分组观感比纯 grid skeleton 更贴近关系结构。当前不继续猜测性调 `force_directed_layout()` 参数；若后续要继续观察 `Shift+L / f` 之后的 live 观感，应优先用实体键或显式回焦后的链路复核，而不是把自动注入导致的焦点漂移误记成布局 bug。
+- ER 默认打开后的可见范围第四轮 live 观察已完成：在学习样例链路下重新执行 `Ctrl+P -> sample -> Enter -> 5 -> Ctrl+R` 后，ER 现在会在默认完成态自动降到约 `12%`，整簇重新完整落回右侧可见区，底部表不再继续被 `25%` 下限卡在视口外。当前不继续把这条问题维持为 active bug。
+- 当前 ER 新收口的两个 confirmed bug 已从 active fix 转为 observation：一是 `v` 视口切换的 router/render 双消费；二是关系优先布局继续忽略真实表卡尺寸导致的大表重叠。focused tests 已锁住两条 contract，后续若仍有 live 重叠，再优先观察具体 schema，而不是先回退到旧 grid 骨架。
+- 当前 ER 新增的第三条布局 contract 也已转入 observation：断开的关系簇与孤立表现在会先各自组件化种子，再进入全局 refine；若后续 live 仍出现“完全无关的两簇被压成一个主簇”的观感，再优先回看具体 schema 的组件边界，而不是先回退到单一全局层级种子。
+- ER generation redesign 第二阶段第二刀已落地：当 ER reload 后的表集合与旧布局快照只部分重合时，当前会先跑一遍新的完成态策略布局，再把仍同名的旧表位置恢复回去；新增表继续使用这轮策略布局给出的新位置，并会在必要时对恢复回来的旧表做局部避让，因此同表集与“主体不变的小幅表集变化”现在都不再每次把整图洗掉。
+- ER generation redesign 第二阶段第四刀已落地：当 partial reload 里的新增表本身和这些已恢复旧表存在关系时，当前不再只是“别撞上去”，而会优先贴近自己的关系邻居，再做最后一层局部避让；这样小幅 schema 漂移后的新表不再轻易被甩在旧簇很远的位置。
+- ER generation redesign 第二阶段第五刀已落地：当 partial reload 里的新增表和已恢复旧表存在明确父/子方向关系时，当前不再只做“无方向地靠近邻居”，而会优先按关系方向选择上下插入位置；引用父表的新表会优先落在父表下方，被子表引用的新表则优先落在这些子表上方。
+- ER generation redesign 第二阶段第六刀已落地：当 partial reload 里的新增表同时连到已恢复父表与子表时，当前不再在双向关系里简单退化成“落到父表下面”；局部插入现在会优先保留桥接表所在的上下层带，并在四向候选里按“总重叠最小、尽量留在原锚点垂直带内”的顺序选位，因此桥接表更稳定地落在已恢复父/子层之间，而不是继续被挤到整个子层下面。
 - 阶段总复审结论：当前 recovery 主线里已经没有新的未阻塞 active implementation workstream；剩余条目都属于 `observation / live smoke / release closure`，或需要新的 confirmed bug 才值得重新开刀。
 - release-closure review 进一步确认：当前若要继续推进主线，最合理的新 workstream 不是再修 recovery bug，而是单独开启一条 `lint / release gate closure` 小主线，专门处理 `cargo clippy --all-targets --all-features -- -D warnings` 目前报出的具体项。
 
@@ -336,6 +350,21 @@ Current execution order before further implementation:
 
 - 几何邻接已落地后的继续观察与可能的启发式调优
 - 是否还需要更高层浏览模型，而不是直接在 ER 内引入独立 `detail mode`
+- ER generation redesign `Phase 2A` 已先把 `graph.rs` 从轻量 summary helper 升级成 `ERGraph builder`；下一步应继续把策略选择和布局 dispatch 收进 `ERGraph -> strategy selector`，而不是再把语义判断塞回单一布局函数
+- ER generation redesign `Phase 2B` 已落地：`finalize_er_diagram_load_if_ready()` 与 render-side strategy label 现在都经由 `build_er_graph() -> select_er_layout_strategy()` 明确收口；当前兼容策略枚举已扩成 `Grid / Relation / Component / DenseGraph`，但布局决策已不再依赖隐式 summary 内联判断
+- ER generation redesign `Phase 2B` 追加一刀已落地：`pending_layout_restore` 现在不再只是 finalize 里的散逻辑分支；runtime 已把“有 snapshot 的 ready-state”正式提升为 `ERLayoutStrategy::StableIncremental`，并通过私有 selector 收口 exact restore、partial restore 与后续 `stabilize_incremental_layout_positions()` 这条桥接链。`ERGraph -> strategy selector` 继续保持纯语义判断，snapshot ownership 仍留在 state/runtime。
+- ER generation redesign `Phase 2C` 首刀已落地：纯语义 selector 现在会把高密度单主簇图显式分流到 `DenseGraph`，而不再继续复用普通 `Relation` 路径；当前 `DenseGraph` 仍保持“高密度完成态”的最小 contract，只把高密度连接图收口到更强的 force-refine 完成态，不顺手改 snapshot ownership、keyboard 或 toolbar owner。
+- ER generation redesign `Phase 2C` 第二刀已落地：`DenseGraph` 现在不再只是“grid 起步 + 更多 force iterations”；布局入口会先按 `ERGraph` 的 `Root / Bridge / Hub / Leaf` 角色生成紧凑的 `root/core/leaf` seed band，再交给 force-refine 收尾，因此高密度单主簇图终于拥有独立于普通 `Relation` 的内部布局 contract。
+- ER generation redesign `Phase 2C` 第三刀已落地：`DenseGraph` 的 band 内部排序也已开始吃关系重心，而不再继续停留在“root/leaf 按名称、core 按度数”的粗排；当前会先对相邻 band 做 barycenter sweep，再进入 refine，因此高密度图的 core band 已不再轻易因名称或初始度数 tie 而出现可避免的交叉。
+- ER generation redesign `Phase 2C` 第四刀已落地：`DenseGraph` 不再把所有 `Bridge / Hub` 节点一股脑压进单一 core row；当前 dense seed 已开始直接消费 `ERGraph.layer_hint`，把 bridge-heavy 的高密度图拆成多层 core band，再配合相邻带 barycenter sweep 与 refine 收尾，因此这类 schema 不再继续只沿单行横向摊开。
+- ER generation redesign `Phase 2C` 第五刀已落地：ER 边路由不再继续强制所有关系都从左右边进出；当前对上下堆叠的表会优先走 top/bottom 锚点，再按垂直正交路径布线，因此 bridge-heavy 的 DenseGraph 不再继续被长横折线和左右锚点噪声放大。
+- ER generation redesign `Phase 2C` 第六刀已落地：ER 边路由现在不再让同一走廊上的平行/近平行关系线继续压在同一条 `mid_x / mid_y` 中线上；当前 render 会先为共享走廊的正交边分配稳定 lane，再绘制最终折线，因此 dense layered 图里的并行关系不再全部挤成一条线。
+- ER generation redesign `Phase 2C` 第七刀已落地：共享 L 形肘点的 `Mixed` orthogonal connector 现在也不再跳过 lane 分配；render 会按共享的 elbow column 对这类 mixed route 分组，并在绘制时平移其垂直肘线，因此“同一目标列上的多条 L 形关系线”不再继续压在同一根竖肘线上。
+- ER generation redesign `Phase 2C` 的最新 live smoke 也已完成：在学习样例默认 `fit-to-view` 完成态下，lane-assignment 已能把共享走廊上的并行边从“看起来只有一条线”的状态里分开；继续对 dense cluster 的 mixed L 形关系线做 live 复核后，也没有再出现“多条边压在同一根竖肘线上”的新 confirmed bug。当前未确认新的 edge-routing root cause，后续若要继续推进，应优先针对更大 pane / minimap / 具体 schema 反例做可读性评估，而不是重新回到几何锚点合同。
+- 当前 ER 主线的下一阶段标准现已单独冻结在 [51-er-visual-layout-readability-standards.md](./51-er-visual-layout-readability-standards.md)：后续不再把“节点不重叠”当作完成条件，而应按“主簇构图、组件组织、孤立表安置、dense graph 可读性、edge readability、画布利用率”这些默认完成态标准驱动实现。
+- ER generation redesign 下一阶段第一刀已开始落地：普通 `Relation / Component` 关系种子不再继续在 `hierarchical_layout()` 内部重算一套与语义图层脱节的最长路径层级；当前层级种子已开始直接消费 `ERGraph.layer_hint`，并把窄父层带居中到更宽的子层带上，因此 learning-sample 风格的主簇不再继续只沿左边界堆成细长竖带。
+- ER generation redesign 下一阶段第二刀已落地到 `component pack / isolated-table placement`：关系种子在 pack 完相关组件后，纯孤立组件现在会进入显式的右侧边缘区，而不再只是“和主簇分开但仍漂在大片空白里”；这保证了主关系簇继续占据主视觉锚点，同时让孤立表退到边缘读取位。
+- ER generation redesign 第二阶段现已先收下“同表集 reload 保留布局”“表集变化时的交集保位”“新表对已恢复旧表的局部避让”“关系邻居驱动的新表局部插入”“父/子方向感知的新表插入”和“桥接表保持在已恢复父/子层之间”的六刀；剩余 follow-up 已收窄到 edge routing / minimap / pin/keep-layout UI / 更强的增量稳定布局，而不是再次回退到单函数启发式补丁
 
 当前仍未完全关闭、但已不再主导主线的是：
 
@@ -344,4 +373,5 @@ Current execution order before further implementation:
 当前 dialog 主线里不再存在环境 blocker；剩余的是观察项：
 
 - `CreateUserDialog` / `ExportDialog` / `DdlDialog` 在不同窗口管理器与更小窄视口下是否会再次出现 footer 或横向挤压回归
+- Dialog auto-reveal 第一刀已落地：`FormDialogShell` 现在拥有最小 `FirstError` reveal registry，`CreateUserDialog` 也已先把用户名/密码/确认密码/权限块接入这条 contract。当前其余 `FormDialogShell` 调用点只更新了 body 签名，没有顺手改行为；下一步若继续推进，应先补代表路径的 live 复核，再决定是否推广到 `CreateDbDialog` / `DdlDialog`
 - 当前若继续推进主线，应优先转入阶段收口、发布准备，或等待新的 confirmed bug，而不是继续对 observation 条目做猜测性补丁。

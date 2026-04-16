@@ -5,7 +5,7 @@
 **A keyboard-first database manager for command-style workflow**  
 **面向命令式工作流的键盘优先数据库管理工具**
 
-[![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
+[![Version](https://img.shields.io/badge/version-6.1.0-blue.svg)](https://github.com/MCB-SMART-BOY/Gridix/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024_edition-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
@@ -46,8 +46,8 @@ nix run github:MCB-SMART-BOY/Gridix
 nix profile install github:MCB-SMART-BOY/Gridix
 
 # pinned release
-nix run github:MCB-SMART-BOY/Gridix/v5.0.0
-nix profile install github:MCB-SMART-BOY/Gridix/v5.0.0
+nix run github:MCB-SMART-BOY/Gridix/v6.1.0
+nix profile install github:MCB-SMART-BOY/Gridix/v6.1.0
 
 # Homebrew (macOS/Linux)
 brew tap MCB-SMART-BOY/gridix

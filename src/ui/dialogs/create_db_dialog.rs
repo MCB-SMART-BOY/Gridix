@@ -299,7 +299,7 @@ impl CreateDbDialog {
                         ],
                     );
                 },
-                |ui| {
+                |ui, _body_ctx| {
                     Self::show_responsive_text_row(
                         ui,
                         "数据库名",

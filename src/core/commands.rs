@@ -466,7 +466,10 @@ pub const SCOPED_COMMANDS: &[ScopedCommand] = &[
         id: "er_diagram.geometry_left",
         description: "ER 图几何邻接向左",
         category: "ER 图",
-        default_bindings: &[bind(KeyCode::ArrowLeft, KeyModifiers::SHIFT)],
+        default_bindings: &[
+            bind(KeyCode::H, KeyModifiers::NONE),
+            bind(KeyCode::ArrowLeft, KeyModifiers::SHIFT),
+        ],
     },
     ScopedCommand {
         id: "er_diagram.geometry_down",
@@ -484,14 +487,16 @@ pub const SCOPED_COMMANDS: &[ScopedCommand] = &[
         id: "er_diagram.geometry_right",
         description: "ER 图几何邻接向右",
         category: "ER 图",
-        default_bindings: &[bind(KeyCode::ArrowRight, KeyModifiers::SHIFT)],
+        default_bindings: &[
+            bind(KeyCode::L, KeyModifiers::NONE),
+            bind(KeyCode::ArrowRight, KeyModifiers::SHIFT),
+        ],
     },
     ScopedCommand {
         id: "er_diagram.open_selected",
         description: "ER 图打开当前表",
         category: "ER 图",
         default_bindings: &[
-            bind(KeyCode::L, KeyModifiers::NONE),
             bind(KeyCode::Enter, KeyModifiers::NONE),
             bind(KeyCode::ArrowRight, KeyModifiers::NONE),
         ],
@@ -501,7 +506,6 @@ pub const SCOPED_COMMANDS: &[ScopedCommand] = &[
         description: "ER 图返回主工作区",
         category: "ER 图",
         default_bindings: &[
-            bind(KeyCode::H, KeyModifiers::NONE),
             bind(KeyCode::ArrowLeft, KeyModifiers::NONE),
             bind(KeyCode::Escape, KeyModifiers::NONE),
         ],

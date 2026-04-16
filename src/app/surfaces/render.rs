@@ -667,14 +667,14 @@ impl DbManagerApp {
                                                                         self.load_er_diagram_data();
                                                                     }
                                                                     ErDiagramSurfaceAction::Relayout => {
-                                                                        ui::force_directed_layout(
-                                                                            &mut self
-                                                                                .er_diagram_state
-                                                                                .tables,
-                                                                            &self
-                                                                                .er_diagram_state
-                                                                                .relationships,
-                                                                            50,
+                                                                        let summary = ui::analyze_er_graph(
+                                                                            &self.er_diagram_state.tables,
+                                                                            &self.er_diagram_state.relationships,
+                                                                        );
+                                                                        ui::apply_er_layout_strategy(
+                                                                            &mut self.er_diagram_state.tables,
+                                                                            &self.er_diagram_state.relationships,
+                                                                            summary.strategy,
                                                                         );
                                                                     }
                                                                     ErDiagramSurfaceAction::FitView => {
@@ -1792,5 +1792,40 @@ mod tests {
             app.er_diagram_state.selected_table_name(),
             Some("customers")
         );
+    }
+
+    #[test]
+    fn er_diagram_v_shortcut_toggles_viewport_mode_once_per_frame() {
+        let ctx = egui::Context::default();
+        let mut app = DbManagerApp::new_for_test();
+        prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
+        app.show_er_diagram = true;
+        app.set_focus_area(FocusArea::ErDiagram);
+
+        run_frame_with_event(
+            &mut app,
+            &ctx,
+            Event::Key {
+                key: Key::V,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            },
+        );
+        assert!(app.er_diagram_state.is_viewport_mode());
+
+        run_frame_with_event(
+            &mut app,
+            &ctx,
+            Event::Key {
+                key: Key::V,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            },
+        );
+        assert!(!app.er_diagram_state.is_viewport_mode());
     }
 }

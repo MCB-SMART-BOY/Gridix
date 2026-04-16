@@ -47,20 +47,22 @@ impl DbManagerApp {
     ///
     /// 从当前连接获取所有表信息，异步加载每个表的列结构和外键关系。
     pub fn load_er_diagram_data(&mut self) {
-        // 清空旧数据
-        self.er_diagram_state.clear();
-
         match plan_er_diagram_load(self.manager.get_active()) {
             ErDiagramLoadPlan::NoActiveConnection => {
+                self.er_diagram_state.clear();
                 self.notifications.warning("请先连接数据库");
                 self.er_diagram_state.loading = false;
             }
             ErDiagramLoadPlan::EmptyTables { db_name } => {
+                self.er_diagram_state.clear();
                 self.notifications
                     .warning(format!("数据库 {} 没有表，请先选择数据库", db_name));
                 self.er_diagram_state.loading = false;
             }
             ErDiagramLoadPlan::Load(load) => {
+                let layout_snapshot = self.er_diagram_state.capture_layout_snapshot();
+                self.er_diagram_state
+                    .set_pending_layout_restore(layout_snapshot);
                 self.er_diagram_state.begin_loading(&load.tables);
 
                 // 创建 ER 表结构
@@ -69,7 +71,7 @@ impl DbManagerApp {
                     self.er_diagram_state.tables.push(er_table);
                 }
 
-                // 应用初始布局
+                // 加载中的骨架仍先走稳定网格；最终完成态布局由 finalize 统一决定。
                 ui::grid_layout(
                     &mut self.er_diagram_state.tables,
                     4,
@@ -167,6 +169,7 @@ impl DbManagerApp {
                                 to_table: target_table.to_string(),
                                 to_column: "id".to_string(),
                                 relation_type: ui::RelationType::OneToMany,
+                                origin: ui::RelationshipOrigin::Inferred,
                             });
                             break;
                         }

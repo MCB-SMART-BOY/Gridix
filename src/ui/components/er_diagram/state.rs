@@ -2,12 +2,15 @@
 
 #![allow(dead_code)] // 公开 API
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use egui::{Pos2, Rect, Vec2};
 
 const SELECTION_REVEAL_MARGIN: f32 = 24.0;
 const KEYBOARD_PAN_STEP: f32 = 64.0;
+const ER_DIAGRAM_MIN_ZOOM: f32 = 0.1;
+const ER_DIAGRAM_MAX_ZOOM: f32 = 4.0;
+const ER_DIAGRAM_FIT_MAX_ZOOM: f32 = 2.0;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ERDiagramInteractionMode {
@@ -22,6 +25,62 @@ pub enum GeometricDirection {
     Right,
     Up,
     Down,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RelationshipOrigin {
+    #[default]
+    Explicit,
+    Inferred,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ERCardDisplayMode {
+    KeysOnly,
+    #[default]
+    Standard,
+}
+
+impl ERCardDisplayMode {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::KeysOnly => "关键列",
+            Self::Standard => "完整列",
+        }
+    }
+
+    pub const fn toggle(self) -> Self {
+        match self {
+            Self::KeysOnly => Self::Standard,
+            Self::Standard => Self::KeysOnly,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum EREdgeDisplayMode {
+    #[default]
+    All,
+    Focus,
+    ExplicitOnly,
+}
+
+impl EREdgeDisplayMode {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::All => "全部边",
+            Self::Focus => "焦点边",
+            Self::ExplicitOnly => "显式边",
+        }
+    }
+
+    pub const fn next(self) -> Self {
+        match self {
+            Self::All => Self::Focus,
+            Self::Focus => Self::ExplicitOnly,
+            Self::ExplicitOnly => Self::All,
+        }
+    }
 }
 
 /// 关系类型
@@ -103,6 +162,8 @@ pub struct Relationship {
     pub to_column: String,
     /// 关系类型
     pub relation_type: RelationType,
+    /// 关系来源
+    pub origin: RelationshipOrigin,
 }
 
 /// ER 图状态
@@ -124,8 +185,16 @@ pub struct ERDiagramState {
     pub selected_table: Option<usize>,
     /// 当前选中表是否需要在下一帧滚回可见区域
     pending_selection_reveal: bool,
+    /// 当前视图是否需要在下一帧按可用画布尺寸执行一次 fit-to-view
+    pending_fit_to_view: bool,
+    /// 刷新/重载期间待恢复的布局快照（仅用于同名表集合完全一致时）
+    pending_layout_restore: Option<HashMap<String, Pos2>>,
     /// 当前键盘交互模式
     interaction_mode: ERDiagramInteractionMode,
+    /// 表卡信息密度
+    card_display_mode: ERCardDisplayMode,
+    /// 边显示模式
+    edge_display_mode: EREdgeDisplayMode,
     /// 是否正在加载
     pub loading: bool,
     /// 是否需要重新布局
@@ -155,6 +224,8 @@ impl ERDiagramState {
         self.selected_table = None;
         self.dragging_table = None;
         self.pending_selection_reveal = false;
+        self.pending_fit_to_view = false;
+        self.pending_layout_restore = None;
         self.interaction_mode = ERDiagramInteractionMode::Navigation;
         self.needs_layout = true;
         self.pending_column_tables.clear();
@@ -164,9 +235,72 @@ impl ERDiagramState {
 
     /// 开始一轮新的 ER 数据加载。
     pub fn begin_loading(&mut self, table_names: &[String]) {
+        let pending_layout_restore = self.pending_layout_restore.take();
         self.clear();
+        self.pending_layout_restore = pending_layout_restore;
         self.loading = true;
         self.pending_column_tables = table_names.iter().cloned().collect();
+    }
+
+    pub fn capture_layout_snapshot(&self) -> Option<HashMap<String, Pos2>> {
+        (!self.tables.is_empty()).then(|| {
+            self.tables
+                .iter()
+                .map(|table| (table.name.clone(), table.position))
+                .collect()
+        })
+    }
+
+    pub fn set_pending_layout_restore(&mut self, snapshot: Option<HashMap<String, Pos2>>) {
+        self.pending_layout_restore = snapshot;
+    }
+
+    pub fn has_pending_layout_restore(&self) -> bool {
+        self.pending_layout_restore.is_some()
+    }
+
+    pub fn restore_layout_snapshot_if_exact_match(&mut self) -> bool {
+        let Some(snapshot) = self.pending_layout_restore.as_ref() else {
+            return false;
+        };
+
+        if snapshot.len() != self.tables.len()
+            || self
+                .tables
+                .iter()
+                .any(|table| !snapshot.contains_key(table.name.as_str()))
+        {
+            return false;
+        }
+
+        let snapshot = self
+            .pending_layout_restore
+            .take()
+            .expect("snapshot checked above");
+
+        for table in &mut self.tables {
+            if let Some(position) = snapshot.get(table.name.as_str()) {
+                table.position = *position;
+            }
+        }
+
+        true
+    }
+
+    pub fn restore_layout_snapshot_for_matching_tables(&mut self) -> HashSet<String> {
+        let Some(snapshot) = self.pending_layout_restore.take() else {
+            return HashSet::new();
+        };
+
+        let mut restored = HashSet::new();
+        for table in &mut self.tables {
+            if let Some(position) = snapshot.get(table.name.as_str()) {
+                table.position = *position;
+                restored.insert(table.name.clone());
+            }
+        }
+
+        restored
     }
 
     /// 设置表数据
@@ -240,7 +374,7 @@ impl ERDiagramState {
 
     /// 缩放
     pub fn zoom_by(&mut self, factor: f32) {
-        self.zoom = (self.zoom * factor).clamp(0.25, 4.0);
+        self.zoom = (self.zoom * factor).clamp(ER_DIAGRAM_MIN_ZOOM, ER_DIAGRAM_MAX_ZOOM);
     }
 
     /// 重置视图
@@ -275,7 +409,9 @@ impl ERDiagramState {
             // 计算合适的缩放比例
             let scale_x = (available_size.x - 40.0) / content_width;
             let scale_y = (available_size.y - 40.0) / content_height;
-            self.zoom = scale_x.min(scale_y).clamp(0.25, 2.0);
+            self.zoom = scale_x
+                .min(scale_y)
+                .clamp(ER_DIAGRAM_MIN_ZOOM, ER_DIAGRAM_FIT_MAX_ZOOM);
 
             // 计算偏移使内容居中
             let center_x = (min_x + max_x) / 2.0;
@@ -285,6 +421,24 @@ impl ERDiagramState {
                 available_size.y / 2.0 / self.zoom - center_y,
             );
         }
+    }
+
+    pub fn request_fit_to_view(&mut self) {
+        self.pending_fit_to_view = true;
+    }
+
+    pub fn has_pending_fit_to_view(&self) -> bool {
+        self.pending_fit_to_view
+    }
+
+    pub fn consume_pending_fit_to_view(&mut self, available_size: Vec2) -> bool {
+        if !self.pending_fit_to_view {
+            return false;
+        }
+
+        self.pending_fit_to_view = false;
+        self.fit_to_view(available_size);
+        true
     }
 
     /// 根据表名查找表索引
@@ -382,6 +536,14 @@ impl ERDiagramState {
         self.interaction_mode
     }
 
+    pub fn card_display_mode(&self) -> ERCardDisplayMode {
+        self.card_display_mode
+    }
+
+    pub fn edge_display_mode(&self) -> EREdgeDisplayMode {
+        self.edge_display_mode
+    }
+
     pub fn is_viewport_mode(&self) -> bool {
         self.interaction_mode == ERDiagramInteractionMode::Viewport
     }
@@ -392,6 +554,16 @@ impl ERDiagramState {
             ERDiagramInteractionMode::Viewport => ERDiagramInteractionMode::Navigation,
         };
         self.interaction_mode
+    }
+
+    pub fn toggle_card_display_mode(&mut self) -> ERCardDisplayMode {
+        self.card_display_mode = self.card_display_mode.toggle();
+        self.card_display_mode
+    }
+
+    pub fn cycle_edge_display_mode(&mut self) -> EREdgeDisplayMode {
+        self.edge_display_mode = self.edge_display_mode.next();
+        self.edge_display_mode
     }
 
     pub fn exit_viewport_mode(&mut self) -> bool {
@@ -633,10 +805,12 @@ impl ERDiagramState {
 #[cfg(test)]
 mod tests {
     use super::{
-        ERColumn, ERDiagramInteractionMode, ERDiagramState, ERTable, GeometricDirection,
-        RelationType, Relationship,
+        ER_DIAGRAM_MIN_ZOOM, ERCardDisplayMode, ERColumn, ERDiagramInteractionMode, ERDiagramState,
+        EREdgeDisplayMode, ERTable, GeometricDirection, RelationType, Relationship,
+        RelationshipOrigin,
     };
     use egui::{Pos2, Vec2};
+    use std::collections::{HashMap, HashSet};
 
     fn make_table(name: &str, position: Pos2) -> ERTable {
         let mut table = ERTable::new(name.to_string());
@@ -750,6 +924,7 @@ mod tests {
                 to_table: "customers".to_string(),
                 to_column: "id".to_string(),
                 relation_type: RelationType::OneToMany,
+                origin: RelationshipOrigin::Explicit,
             },
             Relationship {
                 from_table: "payments".to_string(),
@@ -757,6 +932,7 @@ mod tests {
                 to_table: "orders".to_string(),
                 to_column: "id".to_string(),
                 relation_type: RelationType::OneToMany,
+                origin: RelationshipOrigin::Explicit,
             },
             Relationship {
                 from_table: "audits".to_string(),
@@ -764,6 +940,7 @@ mod tests {
                 to_table: "orders".to_string(),
                 to_column: "id".to_string(),
                 relation_type: RelationType::OneToMany,
+                origin: RelationshipOrigin::Explicit,
             },
         ];
 
@@ -797,6 +974,7 @@ mod tests {
                 to_table: "customers".to_string(),
                 to_column: "id".to_string(),
                 relation_type: RelationType::OneToMany,
+                origin: RelationshipOrigin::Explicit,
             },
             Relationship {
                 from_table: "customers".to_string(),
@@ -804,6 +982,7 @@ mod tests {
                 to_table: "orders".to_string(),
                 to_column: "customer_id".to_string(),
                 relation_type: RelationType::OneToMany,
+                origin: RelationshipOrigin::Explicit,
             },
         ];
 
@@ -946,6 +1125,34 @@ mod tests {
     }
 
     #[test]
+    fn toggle_card_display_mode_switches_between_standard_and_keys_only() {
+        let mut state = ERDiagramState::new();
+
+        assert_eq!(state.card_display_mode(), ERCardDisplayMode::Standard);
+        assert_eq!(
+            state.toggle_card_display_mode(),
+            ERCardDisplayMode::KeysOnly
+        );
+        assert_eq!(
+            state.toggle_card_display_mode(),
+            ERCardDisplayMode::Standard
+        );
+    }
+
+    #[test]
+    fn cycle_edge_display_mode_rotates_through_all_modes() {
+        let mut state = ERDiagramState::new();
+
+        assert_eq!(state.edge_display_mode(), EREdgeDisplayMode::All);
+        assert_eq!(state.cycle_edge_display_mode(), EREdgeDisplayMode::Focus);
+        assert_eq!(
+            state.cycle_edge_display_mode(),
+            EREdgeDisplayMode::ExplicitOnly
+        );
+        assert_eq!(state.cycle_edge_display_mode(), EREdgeDisplayMode::All);
+    }
+
+    #[test]
     fn keyboard_pan_moves_viewport_in_expected_directions() {
         let mut state = ERDiagramState::new();
         state.zoom = 2.0;
@@ -969,6 +1176,11 @@ mod tests {
         state.toggle_interaction_mode();
         state.selected_table = Some(0);
         state.pending_selection_reveal = true;
+        state.pending_fit_to_view = true;
+        state.set_pending_layout_restore(Some(HashMap::from([(
+            "orders".to_string(),
+            Pos2::new(240.0, 120.0),
+        )])));
 
         state.begin_loading(&["orders".to_string()]);
 
@@ -977,6 +1189,121 @@ mod tests {
             ERDiagramInteractionMode::Navigation
         );
         assert!(!state.pending_selection_reveal);
+        assert!(!state.pending_fit_to_view);
         assert!(state.loading);
+        assert!(state.has_pending_layout_restore());
+    }
+
+    #[test]
+    fn restore_layout_snapshot_if_exact_match_reuses_previous_positions() {
+        let mut state = ERDiagramState::new();
+        state.set_pending_layout_restore(Some(HashMap::from([
+            ("customers".to_string(), Pos2::new(420.0, 80.0)),
+            ("orders".to_string(), Pos2::new(120.0, 300.0)),
+        ])));
+        state.tables = vec![
+            make_table("customers", Pos2::new(10.0, 10.0)),
+            make_table("orders", Pos2::new(20.0, 20.0)),
+        ];
+
+        assert!(state.restore_layout_snapshot_if_exact_match());
+        assert_eq!(state.tables[0].position, Pos2::new(420.0, 80.0));
+        assert_eq!(state.tables[1].position, Pos2::new(120.0, 300.0));
+        assert!(!state.has_pending_layout_restore());
+    }
+
+    #[test]
+    fn restore_layout_snapshot_if_exact_match_rejects_changed_table_set() {
+        let mut state = ERDiagramState::new();
+        state.set_pending_layout_restore(Some(HashMap::from([(
+            "customers".to_string(),
+            Pos2::new(420.0, 80.0),
+        )])));
+        state.tables = vec![
+            make_table("customers", Pos2::new(10.0, 10.0)),
+            make_table("orders", Pos2::new(20.0, 20.0)),
+        ];
+
+        assert!(!state.restore_layout_snapshot_if_exact_match());
+        assert_eq!(state.tables[0].position, Pos2::new(10.0, 10.0));
+        assert_eq!(state.tables[1].position, Pos2::new(20.0, 20.0));
+        assert!(state.has_pending_layout_restore());
+    }
+
+    #[test]
+    fn restore_layout_snapshot_for_matching_tables_reuses_overlap_and_preserves_new_entries() {
+        let mut state = ERDiagramState::new();
+        state.set_pending_layout_restore(Some(HashMap::from([
+            ("customers".to_string(), Pos2::new(420.0, 80.0)),
+            ("orders".to_string(), Pos2::new(120.0, 300.0)),
+            ("legacy".to_string(), Pos2::new(700.0, 40.0)),
+        ])));
+        state.tables = vec![
+            make_table("customers", Pos2::new(10.0, 10.0)),
+            make_table("orders", Pos2::new(20.0, 20.0)),
+            make_table("invoices", Pos2::new(30.0, 30.0)),
+        ];
+
+        assert_eq!(
+            state.restore_layout_snapshot_for_matching_tables(),
+            HashSet::from(["customers".to_string(), "orders".to_string()])
+        );
+        assert_eq!(state.tables[0].position, Pos2::new(420.0, 80.0));
+        assert_eq!(state.tables[1].position, Pos2::new(120.0, 300.0));
+        assert_eq!(state.tables[2].position, Pos2::new(30.0, 30.0));
+        assert!(!state.has_pending_layout_restore());
+    }
+
+    #[test]
+    fn consume_pending_fit_to_view_applies_once_and_clears_flag() {
+        let mut state = ERDiagramState::new();
+        let mut left = ERTable::new("customers".into());
+        left.position = Pos2::new(20.0, 40.0);
+        left.size = Vec2::new(220.0, 260.0);
+        let mut right = ERTable::new("orders".into());
+        right.position = Pos2::new(620.0, 520.0);
+        right.size = Vec2::new(240.0, 280.0);
+        state.tables = vec![left, right];
+        state.zoom = 1.0;
+        state.pan_offset = Vec2::ZERO;
+        state.request_fit_to_view();
+
+        assert!(state.has_pending_fit_to_view());
+        assert!(state.consume_pending_fit_to_view(Vec2::new(480.0, 360.0)));
+        assert!(!state.has_pending_fit_to_view());
+        assert_ne!(state.zoom, 1.0);
+
+        let applied_zoom = state.zoom;
+        let applied_pan = state.pan_offset;
+        assert!(!state.consume_pending_fit_to_view(Vec2::new(480.0, 360.0)));
+        assert_eq!(state.zoom, applied_zoom);
+        assert_eq!(state.pan_offset, applied_pan);
+    }
+
+    #[test]
+    fn fit_to_view_can_zoom_below_previous_quarter_scale_floor_for_large_content() {
+        let mut state = ERDiagramState::new();
+        let mut top = ERTable::new("customers".into());
+        top.position = Pos2::new(0.0, 0.0);
+        top.size = Vec2::new(320.0, 420.0);
+        let mut bottom = ERTable::new("orders".into());
+        bottom.position = Pos2::new(640.0, 1320.0);
+        bottom.size = Vec2::new(320.0, 420.0);
+        state.tables = vec![top, bottom];
+
+        state.fit_to_view(Vec2::new(480.0, 360.0));
+
+        assert!(state.zoom < 0.25);
+    }
+
+    #[test]
+    fn zoom_by_remains_monotonic_below_previous_quarter_scale_floor() {
+        let mut state = ERDiagramState::new();
+        state.zoom = 0.18;
+
+        state.zoom_by(0.8);
+
+        assert!(state.zoom < 0.18);
+        assert!(state.zoom >= ER_DIAGRAM_MIN_ZOOM);
     }
 }

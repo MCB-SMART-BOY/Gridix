@@ -14,6 +14,18 @@ This guide is step 4 of the major-phase release flow:
 Do not update downstream package definitions before the GitHub release and checksums are final.
 在 GitHub release 和校验和最终确定之前，不要提前更新下游包定义。
 
+## Current Status Snapshot | 当前状态快照
+
+`v6.1.0` status:
+
+- GitHub release: pending publication from this worktree
+- AUR: not yet synced for `v6.1.0`
+- Homebrew: not yet synced for `v6.1.0`
+- nixpkgs: not yet synced for `v6.1.0`
+
+This means the release version has been prepared locally, but downstream publication still starts only after the GitHub release artifacts and checksums exist.
+这表示当前版本已在本地进入发版准备状态，但下游同步仍必须等 GitHub release 制品和校验和生成后再开始。
+
 ## 1. Prerequisites | 前置条件
 
 - GitHub release for target version already exists (`vX.Y.Z`).
@@ -36,7 +48,7 @@ Do not update downstream package definitions before the GitHub release and check
 ## 2. Get Checksums | 获取校验和
 
 ```bash
-VERSION=5.0.0
+VERSION=6.1.0
 gh release download "v${VERSION}" -p "SHA256SUMS.txt" -D /tmp/gridix-release
 cat /tmp/gridix-release/SHA256SUMS.txt
 ```

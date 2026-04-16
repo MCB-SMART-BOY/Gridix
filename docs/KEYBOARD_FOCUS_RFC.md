@@ -3,8 +3,8 @@
 This document defines the guiding input model for current and near-term Gridix.
 本文定义 Gridix 当前与近期演进阶段的输入模型。
 
-Status for `v5.0.0`: the input owner, dialog host, scope-aware keymap router, and most high-frequency local command paths are implemented. The remaining disputes are about local policy and state boundaries, not a global-first router.
-`v5.0.0` 状态：输入所有者、对话框宿主、scope-aware keymap router，以及大多数高频局部命令路径都已经落地。当前剩余分歧主要是局部策略和状态边界，而不是 global-first 路由本身。
+Status for `v6.0.0`: the input owner, dialog host, scope-aware keymap router, and most high-frequency local command paths are implemented. The remaining disputes are about local policy and state boundaries, not a global-first router.
+`v6.0.0` 状态：输入所有者、对话框宿主、scope-aware keymap router，以及大多数高频局部命令路径都已经落地。当前剩余分歧主要是局部策略和状态边界，而不是 global-first 路由本身。
 
 Implemented foundation:
 已落地基础：

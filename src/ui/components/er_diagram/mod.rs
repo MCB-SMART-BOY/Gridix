@@ -5,12 +5,22 @@
 //! - 显示表之间的关系（外键连接）
 //! - 支持拖动、缩放、自动布局
 
+mod graph;
 mod layout;
 mod render;
 mod state;
 
-pub use layout::{force_directed_layout, grid_layout};
-pub use render::{ERDiagramResponse, calculate_table_size};
+pub use graph::{
+    ERComponent, ERComponentDirection, EREdge, EREdgeStrength, ERGraph, ERGraphSummary,
+    ERLayoutStrategy, ERNode, ERNodeRole, analyze_er_graph, build_er_graph,
+    select_er_layout_strategy, selected_neighborhood,
+};
+pub use layout::{
+    apply_er_layout_strategy, force_directed_layout, grid_layout, relationship_seeded_layout,
+    stabilize_incremental_layout_positions,
+};
+pub use render::{ERDiagramResponse, calculate_table_size, calculate_table_size_for_mode};
 pub use state::{
-    ERColumn, ERDiagramState, ERTable, GeometricDirection, RelationType, Relationship,
+    ERCardDisplayMode, ERColumn, ERDiagramState, EREdgeDisplayMode, ERTable, GeometricDirection,
+    RelationType, Relationship, RelationshipOrigin,
 };

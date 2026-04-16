@@ -11,6 +11,7 @@ use crate::ui::{
     text_entry_has_priority,
 };
 use egui::{self, Color32, CornerRadius, RichText, ScrollArea, Stroke, Vec2};
+use std::collections::HashMap;
 use std::hash::Hash;
 
 /// 对话框样式预设
@@ -1127,6 +1128,33 @@ impl WorkspaceDialogShell {
 /// 长表单对话框布局壳层。
 ///
 /// 负责固定 header/footer，并让 body 成为唯一主滚动区域。
+pub type FormFieldId = &'static str;
+
+#[derive(Default)]
+pub struct FormDialogBodyContext {
+    field_rects: HashMap<FormFieldId, egui::Rect>,
+    requested_first_error: Option<FormFieldId>,
+}
+
+impl FormDialogBodyContext {
+    pub fn register_field(&mut self, field_id: FormFieldId, response: &egui::Response) {
+        self.register_rect(field_id, response.rect);
+    }
+
+    pub fn register_rect(&mut self, field_id: FormFieldId, rect: egui::Rect) {
+        self.field_rects.insert(field_id, rect);
+    }
+
+    pub fn request_first_error(&mut self, field_id: FormFieldId) {
+        self.requested_first_error.get_or_insert(field_id);
+    }
+
+    fn requested_error_rect(&self) -> Option<egui::Rect> {
+        self.requested_first_error
+            .and_then(|field_id| self.field_rects.get(field_id).copied())
+    }
+}
+
 pub struct FormDialogShell;
 
 impl FormDialogShell {
@@ -1134,7 +1162,7 @@ impl FormDialogShell {
         ui: &mut egui::Ui,
         id_source: impl Hash,
         header: impl FnOnce(&mut egui::Ui),
-        body: impl FnOnce(&mut egui::Ui),
+        body: impl FnOnce(&mut egui::Ui, &mut FormDialogBodyContext),
         footer: impl FnOnce(&mut egui::Ui),
     ) {
         let shell_id = ui.id().with(id_source);
@@ -1159,7 +1187,11 @@ impl FormDialogShell {
                 ScrollArea::vertical()
                     .id_salt(shell_id.with("body"))
                     .show(ui, |ui| {
-                        body(ui);
+                        let mut body_context = FormDialogBodyContext::default();
+                        body(ui, &mut body_context);
+                        if let Some(rect) = body_context.requested_error_rect() {
+                            ui.scroll_to_rect(rect, Some(egui::Align::Center));
+                        }
                     });
             });
     }
@@ -1167,7 +1199,7 @@ impl FormDialogShell {
 
 #[cfg(test)]
 mod tests {
-    use super::{DialogContent, DialogShortcutContext, SPACING_LG};
+    use super::{DialogContent, DialogShortcutContext, FormDialogBodyContext, SPACING_LG};
     use crate::ui::{LocalShortcut, text_entry_has_priority};
     use egui::{Event, Key, Modifiers, RawInput};
 
@@ -1295,5 +1327,30 @@ mod tests {
         assert!(middle_width >= 260.0);
         assert!(right_width >= 280.0);
         assert!(left_width + middle_width + right_width + SPACING_LG * 2.0 <= 980.0 + f32::EPSILON);
+    }
+
+    #[test]
+    fn form_dialog_body_context_resolves_requested_first_error_rect() {
+        let mut ctx = FormDialogBodyContext::default();
+        let rect = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(30.0, 40.0));
+
+        ctx.register_rect("field.username", rect);
+        ctx.request_first_error("field.username");
+
+        assert_eq!(ctx.requested_error_rect(), Some(rect));
+    }
+
+    #[test]
+    fn form_dialog_body_context_keeps_first_requested_error_target() {
+        let mut ctx = FormDialogBodyContext::default();
+        let first_rect = egui::Rect::from_min_size(egui::pos2(1.0, 2.0), egui::vec2(3.0, 4.0));
+        let second_rect = egui::Rect::from_min_size(egui::pos2(5.0, 6.0), egui::vec2(7.0, 8.0));
+
+        ctx.register_rect("field.first", first_rect);
+        ctx.register_rect("field.second", second_rect);
+        ctx.request_first_error("field.first");
+        ctx.request_first_error("field.second");
+
+        assert_eq!(ctx.requested_error_rect(), Some(first_rect));
     }
 }

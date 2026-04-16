@@ -293,9 +293,12 @@ fn move_selection(selected_index: &mut usize, delta: isize, len: usize) {
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandPaletteKeyAction, command_palette_list_height, command_palette_widths,
-        consume_palette_key_action,
+        AppAction, CommandPaletteKeyAction, DbManagerApp, command_palette_list_height,
+        command_palette_widths, consume_palette_key_action, search_commands,
     };
+    use crate::app::dialogs::host::DialogId;
+    use crate::database::{Connection, ConnectionConfig, DatabaseType, QueryResult};
+    use crate::ui::FocusArea;
     use eframe::egui::{Area, Context, Event, Id, Key, Modifiers, RawInput};
 
     fn key_event(key: Key) -> Event {
@@ -321,6 +324,17 @@ mod tests {
         });
         let _ = ctx.end_pass();
         action
+    }
+
+    fn prime_active_connection_with_tables(app: &mut DbManagerApp, tables: &[&str]) {
+        let mut connection = Connection::new(ConnectionConfig::new("demo", DatabaseType::SQLite));
+        connection.connected = true;
+        connection.selected_database = Some("main".to_string());
+        connection.tables = tables.iter().map(|name| (*name).to_string()).collect();
+        app.manager
+            .connections
+            .insert("demo".to_string(), connection);
+        app.manager.active = Some("demo".to_string());
     }
 
     #[test]
@@ -366,5 +380,45 @@ mod tests {
     fn command_palette_list_height_stays_within_bounds() {
         assert_eq!(command_palette_list_height(360.0), 180.0);
         assert_eq!(command_palette_list_height(1200.0), 420.0);
+    }
+
+    #[test]
+    fn command_palette_confirm_executes_toggle_er_diagram_from_connected_workspace() {
+        let ctx = Context::default();
+        let mut app = DbManagerApp::new_for_test();
+        prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
+        app.result = Some(QueryResult::with_rows(
+            vec!["id".to_string()],
+            vec![vec!["1".to_string()]],
+        ));
+        app.selected_table = Some("customers".to_string());
+        app.set_focus_area(FocusArea::DataGrid);
+        app.open_dialog(DialogId::CommandPalette);
+        app.command_palette_state.query = "toggle_er_diagram".to_string();
+        app.command_palette_state.selected_index = 0;
+        app.command_palette_state.request_focus = false;
+
+        let matches = search_commands(&app.action_context(), &app.command_palette_state.query);
+        assert_eq!(
+            matches.first().map(|entry| entry.descriptor.action),
+            Some(AppAction::ToggleErDiagram)
+        );
+
+        ctx.begin_pass(RawInput {
+            events: vec![key_event(Key::Enter)],
+            modifiers: Modifiers::NONE,
+            ..Default::default()
+        });
+        app.render_command_palette(&ctx);
+        let _ = ctx.end_pass();
+
+        assert!(!app.command_palette_state.open);
+        assert!(app.show_er_diagram);
+        assert_eq!(app.focus_area, FocusArea::ErDiagram);
+        assert!(!app.grid_state.focused);
+        assert_eq!(
+            app.er_diagram_state.selected_table_name(),
+            Some("customers")
+        );
     }
 }

@@ -41,8 +41,8 @@ Trigger:
 
 Example:
 ```bash
-git tag v5.0.0
-git push origin v5.0.0
+git tag v6.1.0
+git push origin v6.1.0
 ```
 
 ## 2. Build Matrix | 构建矩阵
