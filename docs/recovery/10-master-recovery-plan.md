@@ -13,13 +13,13 @@ Current release gate:
 - The release/distribution sequence is already documented in [docs/RELEASE_PROCESS.md](../RELEASE_PROCESS.md) and [docs/DISTRIBUTION.md](../DISTRIBUTION.md).
 - The current recovery stream has now reached **`v6.1.0` post-release closure**: there are no new unblocked active implementation workstreams left in the recovery ledger, and the remaining items have been reduced to `observation / live smoke / downstream sync follow-up`.
 - `v6.1.0` has been committed, pushed, tagged, and published from this worktree as the current minor release.
-- The `v6.1.0` GitHub release artifacts and `SHA256SUMS.txt` now exist; downstream sync for AUR, Homebrew, and nixpkgs is no longer blocked by release publication.
+- The `v6.1.0` GitHub release artifacts and `SHA256SUMS.txt` now exist; AUR and Homebrew have been synced, and nixpkgs has been updated on PR [NixOS/nixpkgs#510299](https://github.com/NixOS/nixpkgs/pull/510299) pending upstream review/merge.
 - Current closure-review check status on this worktree:
   - `cargo fmt --check`: pass
   - `cargo test`: pass
   - `python scripts/check_doc_links.py`: pass
   - `cargo clippy --all-targets --all-features -- -D warnings`: pass
-- Therefore the current phase is no longer "release execution"; it is now **post-release closure**, with the remaining work in this stream limited to downstream sync follow-up and any newly confirmed bugs.
+- Therefore the current phase is no longer "release execution"; it is now **post-release closure**, with the remaining work in this stream limited to external nixpkgs follow-up and any newly confirmed bugs.
 
 ## A. Dependency Baseline
 

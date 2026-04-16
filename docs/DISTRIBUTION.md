@@ -19,12 +19,12 @@ Do not update downstream package definitions before the GitHub release and check
 `v6.1.0` status:
 
 - GitHub release: published
-- AUR: not yet synced for `v6.1.0`
-- Homebrew: not yet synced for `v6.1.0`
-- nixpkgs: not yet synced for `v6.1.0`
+- AUR: synced for `v6.1.0`
+- Homebrew: synced for `v6.1.0`
+- nixpkgs: branch and PR updated to `v6.1.0`; upstream review/merge still pending
 
-This means the release version is already published on GitHub, and downstream publication can now proceed using the final artifacts and checksums.
-这表示当前版本已经在 GitHub 上发布完成，下游同步现在可以直接基于最终制品和校验和继续。
+This means the release version is already published on GitHub, AUR/Homebrew are synced, and the remaining downstream work is the external review/merge cycle for nixpkgs.
+这表示当前版本已经在 GitHub 上发布完成，AUR 与 Homebrew 已同步，剩余下游动作只剩 nixpkgs 的上游审查与合并流程。
 
 ## 1. Prerequisites | 前置条件
 

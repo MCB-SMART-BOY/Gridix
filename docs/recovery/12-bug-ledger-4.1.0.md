@@ -33,7 +33,7 @@
 
 - 这份账本里已没有“未阻塞且应立即继续实现”的 active bug。
 - `G41-B007` 当前保留为 observation 条目；除非重新 live 复现，否则不再继续主动补丁。
-- `v6.1.0` 的版本 bump、提交/推送、tag 与 GitHub release 已完成；AUR/Homebrew/nixpkgs 同步当前仍未开始，但已不再受 `v6.1.0` release artifacts 与 `SHA256SUMS.txt` 阻塞。
+- `v6.1.0` 的版本 bump、提交/推送、tag 与 GitHub release 已完成；AUR 与 Homebrew 已同步，nixpkgs PR [#510299](https://github.com/NixOS/nixpkgs/pull/510299) 也已更新到 `6.1.0`，当前只剩上游审查与合并等待。
 
 ### G41-B007
 
