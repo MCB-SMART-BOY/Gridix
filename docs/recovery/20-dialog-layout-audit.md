@@ -237,6 +237,30 @@
 - 顶部视觉语言开始统一到同一套 workspace picker header，而不是“两个整宽块硬堆”
 - 这次改动只触及 header 组合层，不改变 body、footer、pane focus 或 dialog owner
 
+### L. `FormDialogShell` 已补上首个错误字段 auto-reveal contract
+
+已完成：
+
+- `FormDialogShell::show(...)` 的 body 现在接收一个最小 `FormDialogBodyContext`
+- shell 会登记字段 rect，并在同一滚动壳层内处理 `FirstError` reveal
+- `CreateUserDialog` 已先作为代表路径接入：
+  - 用户名
+  - 密码
+  - 确认密码
+  - 权限块
+- 其余 `FormDialogShell` 调用点当前只同步更新了 body 签名，没有顺手改变表单行为
+
+结果：
+
+- `CreateUserDialog` 在校验失败时，不再只是在 body 底部显示一条通用错误文本
+- 首个错误字段现在会被滚回主滚动区的可见位置，避免“错误看到了，但出错字段仍埋在上方/下方”的长表单断裂感
+- 这次改动仍保持 `FormDialogShell` 的单主体滚动所有权，不把 reveal 责任重新塞回具体 dialog
+
+当前边界：
+
+- 这条 contract 目前只在代表路径 `CreateUserDialog` 上启用，尚未扩到 `CreateDbDialog` / `DdlDialog`
+- 当前还没有 live 复核，因此下一步应先验证代表路径在真实桌面视口下的观感，再决定是否继续推广
+
 ## Current Remaining Issues
 
 ### 1. 低频长表单仍需要 live 视口回归确认

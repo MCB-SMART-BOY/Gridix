@@ -306,7 +306,7 @@ impl ConnectionDialog {
                             ],
                         );
                     },
-                    |ui| {
+                    |ui, _body_ctx| {
                         DialogContent::section_with_description(
                             ui,
                             "数据库类型",

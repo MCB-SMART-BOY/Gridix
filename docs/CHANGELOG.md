@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [6.1.0]
+
+### Changed
+- Added a first-error auto-reveal contract to `FormDialogShell` and wired `CreateUserDialog` onto it, so validation failures now scroll the first invalid field or privileges block back into view instead of leaving only a generic error line below the fold.
+  为 `FormDialogShell` 增加了首个错误字段的自动显露 contract，并让 `CreateUserDialog` 先接入这条路径，因此校验失败时现在会把第一个出错字段或权限块滚回可见区，而不再只是在折叠线下方留一条通用错误文本。
+- Added an explicit `DenseGraph` ER completed-layout strategy for high-density connected schemas, so dense single-cluster diagrams no longer reuse the ordinary `Relation` path and now dispatch through a stronger high-density refine contract instead.
+  为高密度单主簇 schema 新增了显式的 `DenseGraph` ER 完成态策略：这类高密度关系图不再继续复用普通 `Relation` 路径，而是通过单独的高密度 refine contract 完成布局分发。
+- Tightened the new `DenseGraph` path so it no longer starts from the same generic grid skeleton: dense schemas now seed a compact `root/core/leaf` band from `ERGraph` node roles before the refine pass, keeping high-density diagrams visually distinct from ordinary relation layouts.
+  收紧了新的 `DenseGraph` 路径，使其不再从同一套通用 grid 骨架起步：高密度 schema 现在会先基于 `ERGraph` 的节点角色生成紧凑的 `root/core/leaf` 带状 seed，再进入 refine，因此高密度关系图终于在视觉上区别于普通关系布局。
+- Refined DenseGraph intra-band ordering so high-density ER diagrams no longer keep `root/core/leaf` rows in arbitrary name/degree order: adjacent bands now use neighbor barycenter sweeps before refine, reducing avoidable crossings inside dense single-cluster diagrams.
+  继续收紧了 DenseGraph 的带内排序：高密度 ER 图的 `root/core/leaf` 三层带不再继续停留在按名称/度数的粗排上；相邻带在进入 refine 前会先做邻居重心排序，从而减少高密度单主簇图里的可避免交叉。
+- Refined DenseGraph again so bridge-heavy dense schemas no longer collapse every `Bridge / Hub` node into a single horizontal core strip: the dense seed now uses `ERGraph.layer_hint` to split the middle mass into multiple core bands before barycenter ordering and refine.
+  继续收紧了 DenseGraph：bridge-heavy 的高密度 schema 不再把所有 `Bridge / Hub` 节点继续压成单一横向 core strip；DenseGraph seed 现在会在 barycenter 排序和 refine 之前，先利用 `ERGraph.layer_hint` 把中间层拆成多层 core band。
+- Refined ER edge routing so stacked tables no longer default to left/right anchors: geometry-aware connectors now prefer top/bottom anchors and a vertical orthogonal route when vertical separation dominates, which reduces long horizontal doglegs in dense layered diagrams.
+  继续收紧了 ER 边路由：上下堆叠的表不再默认继续走左右锚点；当垂直分离占优时，geometry-aware connector 现在会优先走 top/bottom 锚点和纵向正交路径，从而减少高密度分层图里的长横折线噪声。
+- Refined ER edge routing again so parallel orthogonal relationships no longer collapse onto a single shared corridor: when multiple visible edges overlap on the same `mid_x / mid_y` route, Gridix now assigns stable lane offsets instead of drawing them directly on top of each other.
+  继续收紧了 ER 边路由：平行的正交关系线不再继续压到同一条共享走廊上；当多条可见边重叠在同一条 `mid_x / mid_y` 路径附近时，Gridix 现在会为它们分配稳定的 lane offset，而不是直接叠画成一条线。
+- Refined ER edge routing for mixed orthogonal connectors too: routes that share the same L-shaped elbow column now receive stable lane offsets instead of collapsing onto one vertical elbow, improving dense edge readability when several mixed relationships converge on the same target column.
+  继续收紧了 mixed 正交边的 ER 路由：当多条边共享同一根 L 形肘点列时，Gridix 现在也会为这些 mixed route 分配稳定的 lane offset，而不再继续压成同一根竖肘线，从而提升多条关系汇入同一目标列时的可读性。
+- Refined ordinary relation-first ER layouts so they now consume `ERGraph.layer_hint` directly and center narrower parent rows over wider child bands, instead of rebuilding a separate longest-path tower that tends to compress learning-sample-style main clusters into a thin left-aligned column.
+  收紧了普通关系优先的 ER 布局：它现在会直接消费 `ERGraph.layer_hint`，并把更窄的父层带围绕更宽的子层带居中，而不再继续重算一套独立的最长路径高塔，避免学习样例风格的主关系簇继续被压成左对齐的细长竖带。
+- Refined ordinary relation/component packing again so pure isolated tables no longer just sit “somewhere away from” the main cluster: after related components are packed, isolated components now move into an explicit right-edge zone, preserving the primary cluster as the main visual anchor instead of sharing the same open whitespace.
+  继续收紧了普通 `Relation / Component` 的组件 pack：纯孤立表不再只是“离主簇远一点”；在 pack 完相关组件之后，孤立组件现在会进入显式的右侧边缘区，从而让主关系簇继续保住主视觉锚点，而不是继续和孤立表共享同一片大片留白。
+
 ## [6.0.0]
 
 ### Changed

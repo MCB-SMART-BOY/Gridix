@@ -189,6 +189,7 @@
 - [48-er-visibility-entry-matrix-and-state-ledger.md](./48-er-visibility-entry-matrix-and-state-ledger.md)
 - [49-er-keyboard-flow-graph.md](./49-er-keyboard-flow-graph.md)
 - [50-er-token-map.md](./50-er-token-map.md)
+- [51-er-visual-layout-readability-standards.md](./51-er-visual-layout-readability-standards.md)
 
 关系说明：
 
@@ -197,3 +198,4 @@
 - `48` 负责显隐入口矩阵与字段级状态账本
 - `49` 负责键盘流图、焦点进出和命令分层
 - `50` 负责视觉 token 对照表
+- `51` 负责默认完成态的构图与可读性标准

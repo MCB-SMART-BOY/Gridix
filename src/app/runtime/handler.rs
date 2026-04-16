@@ -138,9 +138,51 @@ fn er_diagram_ready_message(table_count: usize, ready_kind: ErDiagramReadyKind) 
     }
 }
 
+#[cfg(test)]
 fn apply_default_er_diagram_layout(tables: &mut [ui::ERTable], relationships: &[ui::Relationship]) {
-    let summary = ui::analyze_er_graph(tables, relationships);
-    ui::apply_er_layout_strategy(tables, relationships, summary.strategy);
+    let graph = ui::build_er_graph(tables, relationships);
+    let strategy = ui::select_er_layout_strategy(&graph);
+    ui::apply_er_layout_strategy(tables, relationships, strategy);
+}
+
+fn select_ready_state_er_layout_strategy(
+    graph: &ui::ERGraph,
+    has_pending_layout_restore: bool,
+) -> ui::ERLayoutStrategy {
+    if has_pending_layout_restore {
+        ui::ERLayoutStrategy::StableIncremental
+    } else {
+        ui::select_er_layout_strategy(graph)
+    }
+}
+
+fn apply_stable_incremental_er_diagram_layout(state: &mut ui::ERDiagramState, graph: &ui::ERGraph) {
+    if state.restore_layout_snapshot_if_exact_match() {
+        return;
+    }
+
+    let base_strategy = ui::select_er_layout_strategy(graph);
+    ui::apply_er_layout_strategy(&mut state.tables, &state.relationships, base_strategy);
+
+    let restored_names = state.restore_layout_snapshot_for_matching_tables();
+    ui::stabilize_incremental_layout_positions(
+        &mut state.tables,
+        &state.relationships,
+        &restored_names,
+    );
+}
+
+fn apply_ready_state_er_diagram_layout(state: &mut ui::ERDiagramState) {
+    let graph = ui::build_er_graph(&state.tables, &state.relationships);
+    let strategy =
+        select_ready_state_er_layout_strategy(&graph, state.has_pending_layout_restore());
+
+    match strategy {
+        ui::ERLayoutStrategy::StableIncremental => {
+            apply_stable_incremental_er_diagram_layout(state, &graph);
+        }
+        strategy => ui::apply_er_layout_strategy(&mut state.tables, &state.relationships, strategy),
+    }
 }
 
 impl DbManagerApp {
@@ -170,23 +212,7 @@ impl DbManagerApp {
         let (relationships, ready_kind) =
             resolve_er_diagram_ready_state(explicit_relationships, inferred_relationships);
         self.er_diagram_state.relationships = relationships;
-        if !self
-            .er_diagram_state
-            .restore_layout_snapshot_if_exact_match()
-        {
-            apply_default_er_diagram_layout(
-                &mut self.er_diagram_state.tables,
-                &self.er_diagram_state.relationships,
-            );
-            let restored_names = self
-                .er_diagram_state
-                .restore_layout_snapshot_for_matching_tables();
-            ui::stabilize_incremental_layout_positions(
-                &mut self.er_diagram_state.tables,
-                &self.er_diagram_state.relationships,
-                &restored_names,
-            );
-        }
+        apply_ready_state_er_diagram_layout(&mut self.er_diagram_state);
 
         self.notifications.info(er_diagram_ready_message(
             self.er_diagram_state.tables.len(),
@@ -1065,11 +1091,11 @@ impl DbManagerApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        ErDiagramReadyKind, apply_default_er_diagram_layout, clamp_grid_cursor_for_result,
-        collect_er_relationships_from_foreign_keys, er_diagram_ready_message,
-        grid_save_context_matches_current, is_cancelled_query_error,
-        resolve_er_diagram_ready_state, should_drop_query_error_as_stale,
-        should_record_active_query_time,
+        ErDiagramReadyKind, apply_default_er_diagram_layout, apply_ready_state_er_diagram_layout,
+        clamp_grid_cursor_for_result, collect_er_relationships_from_foreign_keys,
+        er_diagram_ready_message, grid_save_context_matches_current, is_cancelled_query_error,
+        resolve_er_diagram_ready_state, select_ready_state_er_layout_strategy,
+        should_drop_query_error_as_stale, should_record_active_query_time,
     };
     use crate::app::{GridSaveContext, GridWorkspaceId};
     use crate::database::ForeignKeyInfo;
@@ -1272,6 +1298,29 @@ mod tests {
     }
 
     #[test]
+    fn select_ready_state_er_layout_strategy_prefers_stable_incremental_with_snapshot() {
+        let graph = crate::ui::build_er_graph(&[ERTable::new("customers".into())], &[]);
+
+        let strategy = select_ready_state_er_layout_strategy(&graph, true);
+
+        assert_eq!(strategy, ERLayoutStrategy::StableIncremental);
+    }
+
+    #[test]
+    fn select_ready_state_er_layout_strategy_delegates_to_graph_selector_without_snapshot() {
+        let tables = vec![
+            ERTable::new("customers".into()),
+            ERTable::new("orders".into()),
+        ];
+        let relationships = vec![relationship("orders", "customers")];
+        let graph = crate::ui::build_er_graph(&tables, &relationships);
+
+        let strategy = select_ready_state_er_layout_strategy(&graph, false);
+
+        assert_eq!(strategy, ERLayoutStrategy::Relation);
+    }
+
+    #[test]
     fn apply_default_er_diagram_layout_keeps_grid_positions_without_relationships() {
         let mut tables = vec![
             ERTable::new("customers".into()),
@@ -1324,6 +1373,28 @@ mod tests {
             egui::pos2(80.0, 420.0)
         );
         assert!(!app.er_diagram_state.has_pending_layout_restore());
+    }
+
+    #[test]
+    fn apply_ready_state_er_diagram_layout_uses_stable_incremental_path_for_exact_snapshot_match() {
+        let mut customers = ERTable::new("customers".into());
+        customers.size = egui::vec2(180.0, 200.0);
+        let mut orders = ERTable::new("orders".into());
+        orders.size = egui::vec2(180.0, 200.0);
+
+        let mut state = crate::ui::ERDiagramState::new();
+        state.tables = vec![customers, orders];
+        state.relationships = vec![relationship("orders", "customers")];
+        state.set_pending_layout_restore(Some(std::collections::HashMap::from([
+            ("customers".to_string(), egui::pos2(320.0, 140.0)),
+            ("orders".to_string(), egui::pos2(80.0, 420.0)),
+        ])));
+
+        apply_ready_state_er_diagram_layout(&mut state);
+
+        assert_eq!(state.tables[0].position, egui::pos2(320.0, 140.0));
+        assert_eq!(state.tables[1].position, egui::pos2(80.0, 420.0));
+        assert!(!state.has_pending_layout_restore());
     }
 
     #[test]

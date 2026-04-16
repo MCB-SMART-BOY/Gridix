@@ -16,15 +16,15 @@ Do not update downstream package definitions before the GitHub release and check
 
 ## Current Status Snapshot | 当前状态快照
 
-`v6.0.0` status:
+`v6.1.0` status:
 
-- GitHub release: published
-- AUR: `gridix` / `gridix-bin` / `gridix-appimage` pushed
-- Homebrew: formula update pushed
-- nixpkgs: branch pushed and PR opened as [NixOS/nixpkgs#510299](https://github.com/NixOS/nixpkgs/pull/510299)
+- GitHub release: pending publication from this worktree
+- AUR: not yet synced for `v6.1.0`
+- Homebrew: not yet synced for `v6.1.0`
+- nixpkgs: not yet synced for `v6.1.0`
 
-This means the downstream publication work is complete from the Gridix side, with only external platform propagation and nixpkgs review/merge still pending.
-这表示从 Gridix 侧看，下游发布动作已经完成；剩余仅是外部平台索引传播与 nixpkgs 上游 review / merge。
+This means the release version has been prepared locally, but downstream publication still starts only after the GitHub release artifacts and checksums exist.
+这表示当前版本已在本地进入发版准备状态，但下游同步仍必须等 GitHub release 制品和校验和生成后再开始。
 
 ## 1. Prerequisites | 前置条件
 
@@ -48,7 +48,7 @@ This means the downstream publication work is complete from the Gridix side, wit
 ## 2. Get Checksums | 获取校验和
 
 ```bash
-VERSION=6.0.0
+VERSION=6.1.0
 gh release download "v${VERSION}" -p "SHA256SUMS.txt" -D /tmp/gridix-release
 cat /tmp/gridix-release/SHA256SUMS.txt
 ```

@@ -1,6 +1,6 @@
 //! ER 图布局算法
 
-use super::graph::ERLayoutStrategy;
+use super::graph::{ERLayoutStrategy, ERNodeRole, build_er_graph};
 use super::state::{ERTable, Relationship};
 use egui::{Pos2, Rect, Vec2};
 use std::collections::{HashMap, HashSet};
@@ -10,6 +10,8 @@ const DEFAULT_TABLE_HEIGHT: f32 = 200.0;
 const LAYOUT_CLEARANCE: f32 = 40.0;
 const COMPONENT_SPACING_X: f32 = 160.0;
 const COMPONENT_SPACING_Y: f32 = 120.0;
+const DENSE_GRAPH_ROW_SPACING: f32 = 120.0;
+const DENSE_GRAPH_COLUMN_SPACING: f32 = 56.0;
 
 /// 网格布局
 ///
@@ -204,12 +206,193 @@ pub fn apply_er_layout_strategy(
     relationships: &[Relationship],
     strategy: ERLayoutStrategy,
 ) {
+    if matches!(strategy, ERLayoutStrategy::DenseGraph) {
+        dense_graph_seed_layout(tables, relationships);
+        force_directed_layout(tables, relationships, 72);
+        return;
+    }
+
     grid_layout(tables, 4, Vec2::new(60.0, 50.0));
 
     match strategy {
         ERLayoutStrategy::Grid => {}
         ERLayoutStrategy::Relation => relationship_seeded_layout(tables, relationships, 50),
         ERLayoutStrategy::Component => relationship_seeded_layout(tables, relationships, 36),
+        ERLayoutStrategy::DenseGraph => unreachable!("handled by dense_graph_seed_layout"),
+        ERLayoutStrategy::StableIncremental => {
+            // Snapshot-aware restore remains owned by the runtime finalize path.
+            relationship_seeded_layout(tables, relationships, 36);
+        }
+    }
+}
+
+fn dense_graph_seed_layout(tables: &mut [ERTable], relationships: &[Relationship]) {
+    if tables.is_empty() {
+        return;
+    }
+
+    let graph = build_er_graph(tables, relationships);
+    let dense_relationship_indices = relationship_index_pairs(tables, relationships);
+
+    let mut root_indices = Vec::new();
+    let mut core_indices = Vec::new();
+    let mut leaf_indices = Vec::new();
+
+    for node in &graph.nodes {
+        match node.role {
+            ERNodeRole::Root => root_indices.push(node.table_index),
+            ERNodeRole::Leaf => leaf_indices.push(node.table_index),
+            ERNodeRole::Bridge | ERNodeRole::Hub | ERNodeRole::Regular | ERNodeRole::Isolated => {
+                core_indices.push(node.table_index)
+            }
+        }
+    }
+
+    if core_indices.is_empty()
+        && let Some(index) = graph
+            .nodes
+            .iter()
+            .max_by_key(|node| node.in_degree + node.out_degree)
+            .map(|node| node.table_index)
+    {
+        core_indices.push(index);
+        root_indices.retain(|&candidate| candidate != index);
+        leaf_indices.retain(|&candidate| candidate != index);
+    }
+
+    root_indices.sort_by(|left, right| tables[*left].name.cmp(&tables[*right].name));
+    leaf_indices.sort_by(|left, right| tables[*left].name.cmp(&tables[*right].name));
+    let core_rows = split_dense_core_rows(&core_indices, &graph, tables);
+
+    let mut rows = Vec::new();
+    if !root_indices.is_empty() {
+        rows.push(root_indices);
+    }
+    rows.extend(core_rows);
+    if !leaf_indices.is_empty() {
+        rows.push(leaf_indices);
+    }
+
+    if rows.is_empty() {
+        return;
+    }
+
+    reorder_dense_rows_by_adjacent_barycenter(&mut rows, &dense_relationship_indices, tables);
+
+    let max_row_width = rows
+        .iter()
+        .map(|row| table_row_width(tables, row.as_slice()))
+        .fold(0.0, f32::max);
+
+    let mut current_y = 60.0;
+    for row in rows {
+        let row_width = table_row_width(tables, row.as_slice());
+        let row_height = table_row_height(tables, row.as_slice());
+        let mut current_x = 60.0 + (max_row_width - row_width) * 0.5;
+
+        for &table_idx in &row {
+            tables[table_idx].position = Pos2::new(current_x, current_y);
+            current_x += effective_table_size(&tables[table_idx]).x + DENSE_GRAPH_COLUMN_SPACING;
+        }
+
+        current_y += row_height + DENSE_GRAPH_ROW_SPACING;
+    }
+}
+
+fn split_dense_core_rows(
+    core_indices: &[usize],
+    graph: &super::graph::ERGraph,
+    tables: &[ERTable],
+) -> Vec<Vec<usize>> {
+    if core_indices.is_empty() {
+        return Vec::new();
+    }
+
+    let mut rows_by_layer: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut unlayered = Vec::new();
+
+    for &table_idx in core_indices {
+        if let Some(layer) = graph.nodes[table_idx].layer_hint {
+            rows_by_layer.entry(layer).or_default().push(table_idx);
+        } else {
+            unlayered.push(table_idx);
+        }
+    }
+
+    let mut ordered_layers: Vec<usize> = rows_by_layer.keys().copied().collect();
+    ordered_layers.sort_unstable();
+
+    if ordered_layers.len() <= 1 {
+        let mut single_row = core_indices.to_vec();
+        single_row.sort_by(|left, right| {
+            dense_core_priority(*right, graph)
+                .cmp(&dense_core_priority(*left, graph))
+                .then_with(|| tables[*left].name.cmp(&tables[*right].name))
+        });
+        return vec![single_row];
+    }
+
+    let mut rows = Vec::with_capacity(ordered_layers.len());
+    for layer in ordered_layers {
+        let mut row = rows_by_layer.remove(&layer).unwrap_or_default();
+        row.sort_by(|left, right| {
+            dense_core_priority(*right, graph)
+                .cmp(&dense_core_priority(*left, graph))
+                .then_with(|| tables[*left].name.cmp(&tables[*right].name))
+        });
+        rows.push(row);
+    }
+
+    if !unlayered.is_empty() {
+        let middle_row = rows.len() / 2;
+        rows[middle_row].extend(unlayered);
+        rows[middle_row].sort_by(|left, right| {
+            dense_core_priority(*right, graph)
+                .cmp(&dense_core_priority(*left, graph))
+                .then_with(|| tables[*left].name.cmp(&tables[*right].name))
+        });
+    }
+
+    rows
+}
+
+fn reorder_dense_rows_by_adjacent_barycenter(
+    rows: &mut [Vec<usize>],
+    relationships: &[(usize, usize)],
+    tables: &[ERTable],
+) {
+    if rows.len() <= 1 {
+        return;
+    }
+
+    for row_index in 1..rows.len() {
+        let (previous_rows, current_and_rest) = rows.split_at_mut(row_index);
+        reorder_dense_band_by_neighbor_barycenter(
+            &mut current_and_rest[0],
+            &previous_rows[row_index - 1],
+            relationships,
+            tables,
+        );
+    }
+
+    for row_index in (0..rows.len() - 1).rev() {
+        let (current_and_previous, next_rows) = rows.split_at_mut(row_index + 1);
+        reorder_dense_band_by_neighbor_barycenter(
+            &mut current_and_previous[row_index],
+            &next_rows[0],
+            relationships,
+            tables,
+        );
+    }
+
+    for row_index in 1..rows.len() {
+        let (previous_rows, current_and_rest) = rows.split_at_mut(row_index);
+        reorder_dense_band_by_neighbor_barycenter(
+            &mut current_and_rest[0],
+            &previous_rows[row_index - 1],
+            relationships,
+            tables,
+        );
     }
 }
 
@@ -259,24 +442,13 @@ pub fn hierarchical_layout(tables: &mut [ERTable], relationships: &[Relationship
         return;
     }
 
+    let graph = build_er_graph(tables, relationships);
     let relationship_indices = relationship_index_pairs(tables, relationships);
-
-    // 计算每个表的层级（被引用次数越多，层级越高）
-    let mut levels: Vec<usize> = vec![0; tables.len()];
-
-    for &(_, to_idx) in &relationship_indices {
-        // 被引用的表层级+1
-        levels[to_idx] = levels[to_idx].max(1);
-    }
-
-    // 传播层级
-    for _ in 0..tables.len() {
-        for &(from_idx, to_idx) in &relationship_indices {
-            if levels[from_idx] <= levels[to_idx] {
-                levels[from_idx] = levels[to_idx] + 1;
-            }
-        }
-    }
+    let levels: Vec<usize> = graph
+        .nodes
+        .iter()
+        .map(|node| node.layer_hint.unwrap_or(0))
+        .collect();
 
     // 按层级分组
     let max_level = *levels.iter().max().unwrap_or(&0);
@@ -321,8 +493,14 @@ pub fn hierarchical_layout(tables: &mut [ERTable], relationships: &[Relationship
             level_y[level - 1] + max_level_height(&level_groups[level - 1], tables) + spacing.y;
     }
 
+    let row_widths: Vec<f32> = level_groups
+        .iter()
+        .map(|group| level_group_width(group, tables, spacing.x))
+        .collect();
+    let max_row_width = row_widths.iter().copied().fold(0.0, f32::max);
+
     for (level, group) in level_groups.iter().enumerate() {
-        let mut current_x = spacing.x;
+        let mut current_x = spacing.x + (max_row_width - row_widths[level]).max(0.0) * 0.5;
         for &table_idx in group {
             let table = &mut tables[table_idx];
             let table_size = effective_table_size(table);
@@ -373,7 +551,8 @@ fn seed_relationship_components(tables: &mut [ERTable], relationships: &[Relatio
     }
 
     let spacing = Vec2::new(80.0, 80.0);
-    let mut component_layouts = Vec::with_capacity(components.len());
+    let mut related_component_layouts = Vec::with_capacity(components.len());
+    let mut isolated_component_layouts = Vec::new();
 
     for component in components {
         let component_names: HashSet<&str> = component
@@ -395,15 +574,23 @@ fn seed_relationship_components(tables: &mut [ERTable], relationships: &[Relatio
 
         hierarchical_layout(&mut component_tables, &component_relationships, spacing);
         let bounds = component_bounds(&component_tables);
-        component_layouts.push((component, component_tables, bounds));
+        let layout = (component, component_tables, bounds);
+        if component_relationships.is_empty() {
+            isolated_component_layouts.push(layout);
+        } else {
+            related_component_layouts.push(layout);
+        }
     }
 
-    component_layouts.sort_by(|left, right| {
+    related_component_layouts.sort_by(|left, right| {
+        compare_component_priority(&left.0, left.2, &right.0, right.2, tables)
+    });
+    isolated_component_layouts.sort_by(|left, right| {
         compare_component_priority(&left.0, left.2, &right.0, right.2, tables)
     });
 
     let target_row_width = component_layout_target_width(
-        &component_layouts
+        &related_component_layouts
             .iter()
             .map(|(_, _, bounds)| bounds)
             .collect::<Vec<_>>(),
@@ -411,8 +598,11 @@ fn seed_relationship_components(tables: &mut [ERTable], relationships: &[Relatio
     let mut current_x = spacing.x;
     let mut current_y = spacing.y;
     let mut row_height = 0.0;
+    let mut related_region_right = spacing.x;
+    let mut related_region_top = spacing.y;
+    let mut related_region_bottom = spacing.y;
 
-    for (component, component_tables, bounds) in component_layouts {
+    for (component, component_tables, bounds) in related_component_layouts {
         let component_width = bounds.width();
         let component_height = bounds.height();
 
@@ -430,8 +620,44 @@ fn seed_relationship_components(tables: &mut [ERTable], relationships: &[Relatio
             tables[table_idx].position.y += y_offset;
         }
 
+        related_region_right = related_region_right.max(current_x + component_width);
+        related_region_top = related_region_top.min(current_y);
+        related_region_bottom = related_region_bottom.max(current_y + component_height);
         current_x += component_width + COMPONENT_SPACING_X;
         row_height = row_height.max(component_height);
+    }
+
+    if isolated_component_layouts.is_empty() {
+        return;
+    }
+
+    let mut isolated_x = related_region_right + COMPONENT_SPACING_X;
+    let mut isolated_y = related_region_top;
+    let mut isolated_column_width = 0.0;
+    let isolated_column_limit = (related_region_bottom - related_region_top).max(spacing.y);
+
+    for (component, component_tables, bounds) in isolated_component_layouts {
+        let component_width = bounds.width();
+        let component_height = bounds.height();
+
+        if isolated_y > related_region_top
+            && isolated_y + component_height > related_region_top + isolated_column_limit
+        {
+            isolated_x += isolated_column_width + COMPONENT_SPACING_X;
+            isolated_y = related_region_top;
+            isolated_column_width = 0.0;
+        }
+
+        let x_offset = isolated_x - bounds.min_x;
+        let y_offset = isolated_y - bounds.min_y;
+        for (component_idx, &table_idx) in component.iter().enumerate() {
+            tables[table_idx].position = component_tables[component_idx].position;
+            tables[table_idx].position.x += x_offset;
+            tables[table_idx].position.y += y_offset;
+        }
+
+        isolated_column_width = isolated_column_width.max(component_width);
+        isolated_y += component_height + COMPONENT_SPACING_Y;
     }
 }
 
@@ -654,6 +880,20 @@ fn max_level_height(level_group: &[usize], tables: &[ERTable]) -> f32 {
         .fold(DEFAULT_TABLE_HEIGHT, f32::max)
 }
 
+fn level_group_width(level_group: &[usize], tables: &[ERTable], spacing_x: f32) -> f32 {
+    level_group
+        .iter()
+        .enumerate()
+        .fold(0.0, |width, (index, &table_idx)| {
+            let table_width = effective_table_size(&tables[table_idx]).x;
+            if index == 0 {
+                table_width
+            } else {
+                width + spacing_x + table_width
+            }
+        })
+}
+
 fn desired_center_clearance(left: &ERTable, right: &ERTable) -> f32 {
     let left_size = effective_table_size(left);
     let right_size = effective_table_size(right);
@@ -739,6 +979,98 @@ fn compare_table_anchor(left: &ERTable, right: &ERTable) -> std::cmp::Ordering {
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
         .then_with(|| left.name.cmp(&right.name))
+}
+
+fn reorder_dense_band_by_neighbor_barycenter(
+    band: &mut [usize],
+    neighbor_band: &[usize],
+    relationships: &[(usize, usize)],
+    tables: &[ERTable],
+) {
+    if band.len() <= 1 || neighbor_band.is_empty() {
+        return;
+    }
+
+    let mut neighbor_slots = HashMap::new();
+    for (slot, &table_idx) in neighbor_band.iter().enumerate() {
+        neighbor_slots.insert(table_idx, slot);
+    }
+
+    band.sort_by(|left, right| {
+        dense_band_neighbor_barycenter(*left, &neighbor_slots, relationships)
+            .partial_cmp(&dense_band_neighbor_barycenter(
+                *right,
+                &neighbor_slots,
+                relationships,
+            ))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| tables[*left].name.cmp(&tables[*right].name))
+    });
+}
+
+fn dense_band_neighbor_barycenter(
+    table_idx: usize,
+    neighbor_slots: &HashMap<usize, usize>,
+    relationships: &[(usize, usize)],
+) -> f32 {
+    let mut total = 0.0;
+    let mut count = 0.0;
+
+    for &(from_idx, to_idx) in relationships {
+        let neighbor_idx = if from_idx == table_idx {
+            Some(to_idx)
+        } else if to_idx == table_idx {
+            Some(from_idx)
+        } else {
+            None
+        };
+
+        let Some(neighbor_idx) = neighbor_idx else {
+            continue;
+        };
+        let Some(&slot) = neighbor_slots.get(&neighbor_idx) else {
+            continue;
+        };
+
+        total += slot as f32;
+        count += 1.0;
+    }
+
+    if count > 0.0 {
+        total / count
+    } else {
+        f32::INFINITY
+    }
+}
+
+fn dense_core_priority(table_idx: usize, graph: &super::graph::ERGraph) -> (usize, usize) {
+    let node = &graph.nodes[table_idx];
+    let role_priority = match node.role {
+        ERNodeRole::Hub => 3,
+        ERNodeRole::Bridge => 2,
+        ERNodeRole::Regular => 1,
+        ERNodeRole::Isolated | ERNodeRole::Root | ERNodeRole::Leaf => 0,
+    };
+    (role_priority, node.in_degree + node.out_degree)
+}
+
+fn table_row_width(tables: &[ERTable], row: &[usize]) -> f32 {
+    row.iter()
+        .enumerate()
+        .fold(0.0, |width, (index, &table_idx)| {
+            let table_width = effective_table_size(&tables[table_idx]).x;
+            if index == 0 {
+                table_width
+            } else {
+                width + DENSE_GRAPH_COLUMN_SPACING + table_width
+            }
+        })
+}
+
+fn table_row_height(tables: &[ERTable], row: &[usize]) -> f32 {
+    row.iter()
+        .map(|&table_idx| effective_table_size(&tables[table_idx]).y)
+        .fold(DEFAULT_TABLE_HEIGHT, f32::max)
 }
 
 fn relationship_neighbor_seed_position(
@@ -1050,7 +1382,8 @@ fn overlap_area(left: Rect, right: Rect) -> f32 {
 mod tests {
     use super::{
         COMPONENT_SPACING_X, COMPONENT_SPACING_Y, LAYOUT_CLEARANCE, apply_er_layout_strategy,
-        hierarchical_layout, relationship_seeded_layout, stabilize_incremental_layout_positions,
+        dense_graph_seed_layout, hierarchical_layout, relationship_seeded_layout,
+        stabilize_incremental_layout_positions,
     };
     use crate::ui::{ERLayoutStrategy, ERTable, RelationType, Relationship, RelationshipOrigin};
     use egui::{Vec2, pos2};
@@ -1113,6 +1446,246 @@ mod tests {
     }
 
     #[test]
+    fn apply_er_layout_strategy_dense_graph_refines_grid_for_dense_graphs() {
+        let mut tables = vec![
+            ERTable::new("customers".into()),
+            ERTable::new("orders".into()),
+            ERTable::new("payments".into()),
+            ERTable::new("products".into()),
+        ];
+        let grid_positions = [
+            pos2(60.0, 50.0),
+            pos2(300.0, 50.0),
+            pos2(540.0, 50.0),
+            pos2(780.0, 50.0),
+        ];
+        let relationships = vec![
+            relationship("orders", "customers"),
+            relationship("payments", "customers"),
+            relationship("products", "customers"),
+            relationship("payments", "orders"),
+            relationship("products", "orders"),
+        ];
+
+        apply_er_layout_strategy(&mut tables, &relationships, ERLayoutStrategy::DenseGraph);
+
+        assert!(
+            tables
+                .iter()
+                .zip(grid_positions)
+                .any(|(table, grid_position)| table.position != grid_position)
+        );
+    }
+
+    #[test]
+    fn dense_graph_seed_layout_places_root_core_and_leafs_in_vertical_bands() {
+        let mut tables = vec![
+            ERTable::new("customers".into()),
+            ERTable::new("orders".into()),
+            ERTable::new("payments".into()),
+            ERTable::new("products".into()),
+        ];
+        let relationships = vec![
+            relationship("orders", "customers"),
+            relationship("payments", "customers"),
+            relationship("products", "customers"),
+            relationship("payments", "orders"),
+            relationship("products", "orders"),
+        ];
+
+        dense_graph_seed_layout(&mut tables, &relationships);
+
+        let customers = tables
+            .iter()
+            .find(|table| table.name == "customers")
+            .unwrap();
+        let orders = tables.iter().find(|table| table.name == "orders").unwrap();
+        let payments = tables
+            .iter()
+            .find(|table| table.name == "payments")
+            .unwrap();
+        let products = tables
+            .iter()
+            .find(|table| table.name == "products")
+            .unwrap();
+
+        assert!(customers.position.y < orders.position.y);
+        assert!(payments.position.y > orders.position.y);
+        assert!(products.position.y > orders.position.y);
+    }
+
+    #[test]
+    fn apply_er_layout_strategy_dense_graph_preserves_root_core_leaf_band_order_after_refine() {
+        let mut tables = vec![
+            ERTable::new("customers".into()),
+            ERTable::new("orders".into()),
+            ERTable::new("payments".into()),
+            ERTable::new("products".into()),
+        ];
+        let relationships = vec![
+            relationship("orders", "customers"),
+            relationship("payments", "customers"),
+            relationship("products", "customers"),
+            relationship("payments", "orders"),
+            relationship("products", "orders"),
+        ];
+
+        apply_er_layout_strategy(&mut tables, &relationships, ERLayoutStrategy::DenseGraph);
+
+        let customers = tables
+            .iter()
+            .find(|table| table.name == "customers")
+            .unwrap();
+        let orders = tables.iter().find(|table| table.name == "orders").unwrap();
+        let payments = tables
+            .iter()
+            .find(|table| table.name == "payments")
+            .unwrap();
+        let products = tables
+            .iter()
+            .find(|table| table.name == "products")
+            .unwrap();
+
+        assert!(customers.position.y < orders.position.y);
+        assert!(payments.position.y > orders.position.y);
+        assert!(products.position.y > orders.position.y);
+    }
+
+    #[test]
+    fn dense_graph_seed_layout_orders_core_band_by_neighbor_barycenter() {
+        let mut tables = vec![
+            ERTable::new("customers".into()),
+            ERTable::new("suppliers".into()),
+            ERTable::new("inventory".into()),
+            ERTable::new("orders".into()),
+            ERTable::new("payments".into()),
+            ERTable::new("shipments".into()),
+        ];
+        let relationships = vec![
+            relationship("orders", "customers"),
+            relationship("inventory", "suppliers"),
+            relationship("payments", "orders"),
+            relationship("shipments", "inventory"),
+            relationship("inventory", "orders"),
+        ];
+
+        dense_graph_seed_layout(&mut tables, &relationships);
+
+        let orders = tables.iter().find(|table| table.name == "orders").unwrap();
+        let inventory = tables
+            .iter()
+            .find(|table| table.name == "inventory")
+            .unwrap();
+
+        assert!(orders.position.x < inventory.position.x);
+    }
+
+    #[test]
+    fn apply_er_layout_strategy_dense_graph_preserves_core_band_neighbor_order_after_refine() {
+        let mut tables = vec![
+            ERTable::new("customers".into()),
+            ERTable::new("suppliers".into()),
+            ERTable::new("inventory".into()),
+            ERTable::new("orders".into()),
+            ERTable::new("payments".into()),
+            ERTable::new("shipments".into()),
+        ];
+        let relationships = vec![
+            relationship("orders", "customers"),
+            relationship("inventory", "suppliers"),
+            relationship("payments", "orders"),
+            relationship("shipments", "inventory"),
+            relationship("inventory", "orders"),
+        ];
+
+        apply_er_layout_strategy(&mut tables, &relationships, ERLayoutStrategy::DenseGraph);
+
+        let orders = tables.iter().find(|table| table.name == "orders").unwrap();
+        let inventory = tables
+            .iter()
+            .find(|table| table.name == "inventory")
+            .unwrap();
+
+        assert!(orders.position.x < inventory.position.x);
+    }
+
+    #[test]
+    fn dense_graph_seed_layout_splits_bridge_heavy_core_into_multiple_rows_by_layer_hint() {
+        let mut tables = vec![
+            ERTable::new("customers".into()),
+            ERTable::new("orders".into()),
+            ERTable::new("shipments".into()),
+            ERTable::new("payments".into()),
+            ERTable::new("tracking_events".into()),
+        ];
+        let relationships = vec![
+            relationship("orders", "customers"),
+            relationship("shipments", "orders"),
+            relationship("payments", "orders"),
+            relationship("tracking_events", "shipments"),
+            relationship("tracking_events", "orders"),
+        ];
+
+        dense_graph_seed_layout(&mut tables, &relationships);
+
+        let customers = tables
+            .iter()
+            .find(|table| table.name == "customers")
+            .unwrap();
+        let orders = tables.iter().find(|table| table.name == "orders").unwrap();
+        let shipments = tables
+            .iter()
+            .find(|table| table.name == "shipments")
+            .unwrap();
+        let tracking = tables
+            .iter()
+            .find(|table| table.name == "tracking_events")
+            .unwrap();
+
+        assert!(customers.position.y < orders.position.y);
+        assert!(orders.position.y < shipments.position.y);
+        assert!(shipments.position.y < tracking.position.y);
+    }
+
+    #[test]
+    fn apply_er_layout_strategy_dense_graph_preserves_multiple_core_rows_after_refine() {
+        let mut tables = vec![
+            ERTable::new("customers".into()),
+            ERTable::new("orders".into()),
+            ERTable::new("shipments".into()),
+            ERTable::new("payments".into()),
+            ERTable::new("tracking_events".into()),
+        ];
+        let relationships = vec![
+            relationship("orders", "customers"),
+            relationship("shipments", "orders"),
+            relationship("payments", "orders"),
+            relationship("tracking_events", "shipments"),
+            relationship("tracking_events", "orders"),
+        ];
+
+        apply_er_layout_strategy(&mut tables, &relationships, ERLayoutStrategy::DenseGraph);
+
+        let customers = tables
+            .iter()
+            .find(|table| table.name == "customers")
+            .unwrap();
+        let orders = tables.iter().find(|table| table.name == "orders").unwrap();
+        let shipments = tables
+            .iter()
+            .find(|table| table.name == "shipments")
+            .unwrap();
+        let tracking = tables
+            .iter()
+            .find(|table| table.name == "tracking_events")
+            .unwrap();
+
+        assert!(customers.position.y < orders.position.y);
+        assert!(orders.position.y < shipments.position.y);
+        assert!(shipments.position.y < tracking.position.y);
+    }
+
+    #[test]
     fn hierarchical_layout_orders_same_level_tables_by_referenced_parent_barycenter() {
         let mut tables = vec![
             ERTable::new("inventory".into()),
@@ -1161,6 +1734,82 @@ mod tests {
             .unwrap();
         let orders = tables.iter().find(|table| table.name == "orders").unwrap();
         assert!(invoices.position.x < orders.position.x);
+    }
+
+    #[test]
+    fn hierarchical_layout_centers_narrow_parent_band_over_wider_child_band() {
+        let mut customers = ERTable::new("customers".into());
+        customers.size = Vec2::new(220.0, 240.0);
+        let mut orders = ERTable::new("orders".into());
+        orders.size = Vec2::new(220.0, 240.0);
+        let mut invoices = ERTable::new("invoices".into());
+        invoices.size = Vec2::new(220.0, 240.0);
+        let mut addresses = ERTable::new("addresses".into());
+        addresses.size = Vec2::new(220.0, 240.0);
+        let mut tables = vec![orders, invoices, addresses, customers];
+
+        hierarchical_layout(
+            &mut tables,
+            &[
+                relationship("orders", "customers"),
+                relationship("invoices", "customers"),
+                relationship("addresses", "customers"),
+            ],
+            Vec2::new(80.0, 80.0),
+        );
+
+        let customers = tables
+            .iter()
+            .find(|table| table.name == "customers")
+            .unwrap();
+        let child_band_left = tables
+            .iter()
+            .filter(|table| table.name != "customers")
+            .map(|table| table.rect().left())
+            .fold(f32::INFINITY, f32::min);
+        let child_band_right = tables
+            .iter()
+            .filter(|table| table.name != "customers")
+            .map(|table| table.rect().right())
+            .fold(f32::NEG_INFINITY, f32::max);
+
+        assert!(customers.center().x > child_band_left + 40.0);
+        assert!(customers.center().x < child_band_right - 40.0);
+    }
+
+    #[test]
+    fn hierarchical_layout_uses_graph_layer_hints_to_keep_bridge_child_on_shared_band() {
+        let mut tables = vec![
+            ERTable::new("customers".into()),
+            ERTable::new("suppliers".into()),
+            ERTable::new("orders".into()),
+            ERTable::new("products".into()),
+            ERTable::new("payments".into()),
+            ERTable::new("order_items".into()),
+        ];
+
+        hierarchical_layout(
+            &mut tables,
+            &[
+                relationship("orders", "customers"),
+                relationship("products", "suppliers"),
+                relationship("payments", "orders"),
+                relationship("order_items", "orders"),
+                relationship("order_items", "products"),
+            ],
+            Vec2::new(80.0, 80.0),
+        );
+
+        let payments = tables
+            .iter()
+            .find(|table| table.name == "payments")
+            .unwrap();
+        let order_items = tables
+            .iter()
+            .find(|table| table.name == "order_items")
+            .unwrap();
+
+        assert_eq!(payments.position.y, order_items.position.y);
     }
 
     #[test]
@@ -1267,6 +1916,34 @@ mod tests {
     }
 
     #[test]
+    fn relationship_seeded_layout_places_multiple_isolated_tables_in_right_edge_zone() {
+        let mut customers = ERTable::new("customers".into());
+        customers.size = Vec2::new(260.0, 280.0);
+        let mut orders = ERTable::new("orders".into());
+        orders.size = Vec2::new(260.0, 280.0);
+        let mut logs = ERTable::new("z_logs".into());
+        logs.size = Vec2::new(220.0, 240.0);
+        let mut audit = ERTable::new("z_audit".into());
+        audit.size = Vec2::new(220.0, 240.0);
+        let mut tables = vec![orders, customers, logs, audit];
+
+        relationship_seeded_layout(&mut tables, &[relationship("orders", "customers")], 50);
+
+        let orders = tables.iter().find(|table| table.name == "orders").unwrap();
+        let customers = tables
+            .iter()
+            .find(|table| table.name == "customers")
+            .unwrap();
+        let logs = tables.iter().find(|table| table.name == "z_logs").unwrap();
+        let audit = tables.iter().find(|table| table.name == "z_audit").unwrap();
+
+        let related_cluster_right = orders.rect().right().max(customers.rect().right());
+        assert!(logs.rect().left() >= related_cluster_right + COMPONENT_SPACING_X * 0.25);
+        assert!(audit.rect().left() >= related_cluster_right + COMPONENT_SPACING_X * 0.25);
+        assert!((logs.position.x - audit.position.x).abs() <= COMPONENT_SPACING_X * 0.25);
+    }
+
+    #[test]
     fn relationship_seeded_layout_wraps_many_components_into_multiple_rows() {
         let make_table = |name: &str| {
             let mut table = ERTable::new(name.into());
@@ -1348,17 +2025,20 @@ mod tests {
             .left()
             .min(z_invoices.rect().left())
             .min(z_orders.rect().left());
+        let cluster_right = z_customers
+            .rect()
+            .right()
+            .max(z_invoices.rect().right())
+            .max(z_orders.rect().right());
         let cluster_top = z_customers
             .rect()
             .top()
             .min(z_invoices.rect().top())
             .min(z_orders.rect().top());
 
-        assert!(
-            cluster_top < alpha_logs.rect().top()
-                || (cluster_top == alpha_logs.rect().top()
-                    && cluster_left < alpha_logs.rect().left())
-        );
+        assert!(cluster_left < alpha_logs.rect().left());
+        assert!(cluster_right + COMPONENT_SPACING_X * 0.25 <= alpha_logs.rect().left());
+        assert!(cluster_top <= alpha_logs.rect().bottom());
     }
 
     #[test]

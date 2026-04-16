@@ -5,6 +5,7 @@
 
 use super::common::{
     DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow, FormDialogShell,
+    FormFieldId,
 };
 use crate::database::DatabaseType;
 use crate::ui::{LocalShortcut, local_shortcut_text};
@@ -74,6 +75,8 @@ pub struct CreateUserDialogState {
     pub available_databases: Vec<String>,
     /// 错误信息
     pub error: Option<String>,
+    /// 错误对应的首个字段
+    pub error_field: Option<FormFieldId>,
 }
 
 impl Default for CreateUserDialogState {
@@ -90,6 +93,7 @@ impl Default for CreateUserDialogState {
             db_type: DatabaseType::MySQL,
             available_databases: Vec::new(),
             error: None,
+            error_field: None,
         }
     }
 }
@@ -153,6 +157,7 @@ impl CreateUserDialogState {
         self.privileges.clear();
         self.grant_all = true;
         self.error = None;
+        self.error_field = None;
     }
 
     /// 验证输入
@@ -323,6 +328,11 @@ impl CreateUserDialogState {
 /// 创建用户对话框
 pub struct CreateUserDialog;
 
+const FIELD_USERNAME: FormFieldId = "create_user.username";
+const FIELD_PASSWORD: FormFieldId = "create_user.password";
+const FIELD_CONFIRM_PASSWORD: FormFieldId = "create_user.confirm_password";
+const FIELD_PRIVILEGES: FormFieldId = "create_user.privileges";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CreateUserKeyAction {
     Confirm,
@@ -330,13 +340,27 @@ enum CreateUserKeyAction {
 }
 
 impl CreateUserDialog {
+    fn error_field_for_message(error: &str) -> Option<FormFieldId> {
+        match error {
+            "用户名不能为空" | "用户名只能包含字母、数字和下划线" => {
+                Some(FIELD_USERNAME)
+            }
+            "密码不能为空" | "密码长度至少为 4 位" => Some(FIELD_PASSWORD),
+            "两次输入的密码不一致" => Some(FIELD_CONFIRM_PASSWORD),
+            "请至少选择一个权限" => Some(FIELD_PRIVILEGES),
+            _ => None,
+        }
+    }
+
     fn try_create(state: &mut CreateUserDialogState) -> Result<Vec<String>, String> {
         match state.generate_sql() {
             Ok(statements) => {
                 state.error = None;
+                state.error_field = None;
                 Ok(statements)
             }
             Err(error) => {
+                state.error_field = Self::error_field_for_message(&error);
                 state.error = Some(error.clone());
                 Err(error)
             }
@@ -412,36 +436,49 @@ impl CreateUserDialog {
                         ],
                     );
                 },
-                |ui| {
+                |ui, body_ctx| {
+                    if let Some(field_id) = state.error_field {
+                        body_ctx.request_first_error(field_id);
+                    }
+
                     DialogContent::section(ui, "基本信息", |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label("用户名:");
-                            ui.add(
-                                TextEdit::singleline(&mut state.username)
-                                    .desired_width(200.0)
-                                    .hint_text("输入用户名"),
-                            );
-                        });
+                        let username_response = ui
+                            .horizontal(|ui| {
+                                ui.label("用户名:");
+                                ui.add(
+                                    TextEdit::singleline(&mut state.username)
+                                        .desired_width(200.0)
+                                        .hint_text("输入用户名"),
+                                )
+                            })
+                            .inner;
+                        body_ctx.register_field(FIELD_USERNAME, &username_response);
 
-                        ui.horizontal(|ui| {
-                            ui.label("密  码:");
-                            ui.add(
-                                TextEdit::singleline(&mut state.password)
-                                    .password(true)
-                                    .desired_width(200.0)
-                                    .hint_text("输入密码"),
-                            );
-                        });
+                        let password_response = ui
+                            .horizontal(|ui| {
+                                ui.label("密  码:");
+                                ui.add(
+                                    TextEdit::singleline(&mut state.password)
+                                        .password(true)
+                                        .desired_width(200.0)
+                                        .hint_text("输入密码"),
+                                )
+                            })
+                            .inner;
+                        body_ctx.register_field(FIELD_PASSWORD, &password_response);
 
-                        ui.horizontal(|ui| {
-                            ui.label("确  认:");
-                            ui.add(
-                                TextEdit::singleline(&mut state.confirm_password)
-                                    .password(true)
-                                    .desired_width(200.0)
-                                    .hint_text("再次输入密码"),
-                            );
-                        });
+                        let confirm_response = ui
+                            .horizontal(|ui| {
+                                ui.label("确  认:");
+                                ui.add(
+                                    TextEdit::singleline(&mut state.confirm_password)
+                                        .password(true)
+                                        .desired_width(200.0)
+                                        .hint_text("再次输入密码"),
+                                )
+                            })
+                            .inner;
+                        body_ctx.register_field(FIELD_CONFIRM_PASSWORD, &confirm_response);
 
                         if matches!(state.db_type, DatabaseType::MySQL) {
                             ui.horizontal(|ui| {
@@ -502,26 +539,32 @@ impl CreateUserDialog {
                             ui.checkbox(&mut state.grant_all, "授予所有权限 (ALL PRIVILEGES)");
 
                             if !state.grant_all {
-                                ui.add_space(4.0);
-                                ui.label(
-                                    RichText::new("选择权限:")
-                                        .small()
-                                        .color(Color32::from_rgb(150, 150, 150)),
-                                );
+                                let privileges_response = ui
+                                    .scope(|ui| {
+                                        ui.add_space(4.0);
+                                        ui.label(
+                                            RichText::new("选择权限:")
+                                                .small()
+                                                .color(Color32::from_rgb(150, 150, 150)),
+                                        );
 
-                                egui::ScrollArea::vertical()
-                                    .max_height(150.0)
-                                    .show(ui, |ui| {
-                                        ui.horizontal_wrapped(|ui| {
-                                            for priv_item in &mut state.privileges {
-                                                ui.checkbox(
-                                                    &mut priv_item.selected,
-                                                    priv_item.name,
-                                                )
-                                                .on_hover_text(priv_item.description);
-                                            }
-                                        });
-                                    });
+                                        egui::ScrollArea::vertical().max_height(150.0).show(
+                                            ui,
+                                            |ui| {
+                                                ui.horizontal_wrapped(|ui| {
+                                                    for priv_item in &mut state.privileges {
+                                                        ui.checkbox(
+                                                            &mut priv_item.selected,
+                                                            priv_item.name,
+                                                        )
+                                                        .on_hover_text(priv_item.description);
+                                                    }
+                                                });
+                                            },
+                                        );
+                                    })
+                                    .response;
+                                body_ctx.register_field(FIELD_PRIVILEGES, &privileges_response);
                             }
                         }
                     });
@@ -643,5 +686,57 @@ mod tests {
         assert_eq!(action, Some(CreateUserKeyAction::Confirm));
 
         let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn try_create_sets_error_field_for_first_invalid_username() {
+        let mut state = CreateUserDialogState {
+            password: "secret1".to_string(),
+            confirm_password: "secret1".to_string(),
+            ..Default::default()
+        };
+
+        let result = CreateUserDialog::try_create(&mut state);
+
+        assert!(result.is_err());
+        assert_eq!(state.error_field, Some(FIELD_USERNAME));
+        assert_eq!(state.error.as_deref(), Some("用户名不能为空"));
+    }
+
+    #[test]
+    fn try_create_sets_error_field_for_password_mismatch() {
+        let mut state = CreateUserDialogState {
+            username: "tester".to_string(),
+            password: "secret1".to_string(),
+            confirm_password: "secret2".to_string(),
+            ..Default::default()
+        };
+
+        let result = CreateUserDialog::try_create(&mut state);
+
+        assert!(result.is_err());
+        assert_eq!(state.error_field, Some(FIELD_CONFIRM_PASSWORD));
+        assert_eq!(state.error.as_deref(), Some("两次输入的密码不一致"));
+    }
+
+    #[test]
+    fn try_create_sets_error_field_for_missing_privilege_selection() {
+        let mut state = CreateUserDialogState {
+            db_type: DatabaseType::MySQL,
+            username: "tester".to_string(),
+            password: "secret1".to_string(),
+            confirm_password: "secret1".to_string(),
+            host: "localhost".to_string(),
+            grant_database: "appdb".to_string(),
+            grant_all: false,
+            privileges: vec![Privilege::new("SELECT", "查询数据")],
+            ..Default::default()
+        };
+
+        let result = CreateUserDialog::try_create(&mut state);
+
+        assert!(result.is_err());
+        assert_eq!(state.error_field, Some(FIELD_PRIVILEGES));
+        assert_eq!(state.error.as_deref(), Some("请至少选择一个权限"));
     }
 }

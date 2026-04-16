@@ -1,8 +1,8 @@
-# Gridix 6.0.0 Master Recovery Plan
+# Gridix 6.1.0 Master Recovery Plan
 
 ## Scope
 
-This plan now records the `v6.0.0` post-release closure state of the recovery stream carried forward in [Cargo.toml](../../Cargo.toml).
+This plan now records the `v6.1.0` release-execution state of the recovery stream carried forward in [Cargo.toml](../../Cargo.toml).
 
 It does **not** propose a broad rewrite.  
 It establishes a repair order for the flows that Gridix cannot afford to break, using the current codebase and the current dependency baseline.
@@ -11,15 +11,15 @@ Current release gate:
 
 - Local AI / agent guidance is now treated as workstation-local material and should stay out of tracked repository policy docs.
 - The release/distribution sequence is already documented in [docs/RELEASE_PROCESS.md](../RELEASE_PROCESS.md) and [docs/DISTRIBUTION.md](../DISTRIBUTION.md).
-- The current recovery stream has now reached **`v6.0.0` post-release closure**: there are no new unblocked active implementation workstreams left in the recovery ledger, and the remaining items have been reduced to `observation / live smoke / downstream follow-up`.
-- `v6.0.0` has already been committed, tagged, and published on GitHub Releases from this worktree.
-- Downstream sync has been executed for AUR and Homebrew, and nixpkgs has been pushed to a clean fork branch with PR [NixOS/nixpkgs#510299](https://github.com/NixOS/nixpkgs/pull/510299).
+- The current recovery stream has now reached **`v6.1.0` release execution**: there are no new unblocked active implementation workstreams left in the recovery ledger, and the remaining items have been reduced to `observation / live smoke / downstream follow-up`.
+- `v6.1.0` is being committed, tagged, and published from this worktree as the next minor release.
+- Downstream sync for AUR, Homebrew, and nixpkgs remains pending until the `v6.1.0` GitHub release artifacts and checksums exist.
 - Current closure-review check status on this worktree:
   - `cargo fmt --check`: pass
   - `cargo test`: pass
   - `python scripts/check_doc_links.py`: pass
   - `cargo clippy --all-targets --all-features -- -D warnings`: pass
-- Therefore the current phase is no longer "ready for release closure review" or "release execution"; it is now **post-release closure**, with the remaining work in this stream limited to external platform propagation, nixpkgs review/merge follow-up, and any newly confirmed bugs.
+- Therefore the current phase is no longer only "ready for release closure review"; it is now **release execution**, with the remaining work in this stream limited to publishing `v6.1.0`, then downstream sync and any newly confirmed bugs.
 
 ## A. Dependency Baseline
 
@@ -350,6 +350,20 @@ Current execution order before further implementation:
 
 - 几何邻接已落地后的继续观察与可能的启发式调优
 - 是否还需要更高层浏览模型，而不是直接在 ER 内引入独立 `detail mode`
+- ER generation redesign `Phase 2A` 已先把 `graph.rs` 从轻量 summary helper 升级成 `ERGraph builder`；下一步应继续把策略选择和布局 dispatch 收进 `ERGraph -> strategy selector`，而不是再把语义判断塞回单一布局函数
+- ER generation redesign `Phase 2B` 已落地：`finalize_er_diagram_load_if_ready()` 与 render-side strategy label 现在都经由 `build_er_graph() -> select_er_layout_strategy()` 明确收口；当前兼容策略枚举已扩成 `Grid / Relation / Component / DenseGraph`，但布局决策已不再依赖隐式 summary 内联判断
+- ER generation redesign `Phase 2B` 追加一刀已落地：`pending_layout_restore` 现在不再只是 finalize 里的散逻辑分支；runtime 已把“有 snapshot 的 ready-state”正式提升为 `ERLayoutStrategy::StableIncremental`，并通过私有 selector 收口 exact restore、partial restore 与后续 `stabilize_incremental_layout_positions()` 这条桥接链。`ERGraph -> strategy selector` 继续保持纯语义判断，snapshot ownership 仍留在 state/runtime。
+- ER generation redesign `Phase 2C` 首刀已落地：纯语义 selector 现在会把高密度单主簇图显式分流到 `DenseGraph`，而不再继续复用普通 `Relation` 路径；当前 `DenseGraph` 仍保持“高密度完成态”的最小 contract，只把高密度连接图收口到更强的 force-refine 完成态，不顺手改 snapshot ownership、keyboard 或 toolbar owner。
+- ER generation redesign `Phase 2C` 第二刀已落地：`DenseGraph` 现在不再只是“grid 起步 + 更多 force iterations”；布局入口会先按 `ERGraph` 的 `Root / Bridge / Hub / Leaf` 角色生成紧凑的 `root/core/leaf` seed band，再交给 force-refine 收尾，因此高密度单主簇图终于拥有独立于普通 `Relation` 的内部布局 contract。
+- ER generation redesign `Phase 2C` 第三刀已落地：`DenseGraph` 的 band 内部排序也已开始吃关系重心，而不再继续停留在“root/leaf 按名称、core 按度数”的粗排；当前会先对相邻 band 做 barycenter sweep，再进入 refine，因此高密度图的 core band 已不再轻易因名称或初始度数 tie 而出现可避免的交叉。
+- ER generation redesign `Phase 2C` 第四刀已落地：`DenseGraph` 不再把所有 `Bridge / Hub` 节点一股脑压进单一 core row；当前 dense seed 已开始直接消费 `ERGraph.layer_hint`，把 bridge-heavy 的高密度图拆成多层 core band，再配合相邻带 barycenter sweep 与 refine 收尾，因此这类 schema 不再继续只沿单行横向摊开。
+- ER generation redesign `Phase 2C` 第五刀已落地：ER 边路由不再继续强制所有关系都从左右边进出；当前对上下堆叠的表会优先走 top/bottom 锚点，再按垂直正交路径布线，因此 bridge-heavy 的 DenseGraph 不再继续被长横折线和左右锚点噪声放大。
+- ER generation redesign `Phase 2C` 第六刀已落地：ER 边路由现在不再让同一走廊上的平行/近平行关系线继续压在同一条 `mid_x / mid_y` 中线上；当前 render 会先为共享走廊的正交边分配稳定 lane，再绘制最终折线，因此 dense layered 图里的并行关系不再全部挤成一条线。
+- ER generation redesign `Phase 2C` 第七刀已落地：共享 L 形肘点的 `Mixed` orthogonal connector 现在也不再跳过 lane 分配；render 会按共享的 elbow column 对这类 mixed route 分组，并在绘制时平移其垂直肘线，因此“同一目标列上的多条 L 形关系线”不再继续压在同一根竖肘线上。
+- ER generation redesign `Phase 2C` 的最新 live smoke 也已完成：在学习样例默认 `fit-to-view` 完成态下，lane-assignment 已能把共享走廊上的并行边从“看起来只有一条线”的状态里分开；继续对 dense cluster 的 mixed L 形关系线做 live 复核后，也没有再出现“多条边压在同一根竖肘线上”的新 confirmed bug。当前未确认新的 edge-routing root cause，后续若要继续推进，应优先针对更大 pane / minimap / 具体 schema 反例做可读性评估，而不是重新回到几何锚点合同。
+- 当前 ER 主线的下一阶段标准现已单独冻结在 [51-er-visual-layout-readability-standards.md](./51-er-visual-layout-readability-standards.md)：后续不再把“节点不重叠”当作完成条件，而应按“主簇构图、组件组织、孤立表安置、dense graph 可读性、edge readability、画布利用率”这些默认完成态标准驱动实现。
+- ER generation redesign 下一阶段第一刀已开始落地：普通 `Relation / Component` 关系种子不再继续在 `hierarchical_layout()` 内部重算一套与语义图层脱节的最长路径层级；当前层级种子已开始直接消费 `ERGraph.layer_hint`，并把窄父层带居中到更宽的子层带上，因此 learning-sample 风格的主簇不再继续只沿左边界堆成细长竖带。
+- ER generation redesign 下一阶段第二刀已落地到 `component pack / isolated-table placement`：关系种子在 pack 完相关组件后，纯孤立组件现在会进入显式的右侧边缘区，而不再只是“和主簇分开但仍漂在大片空白里”；这保证了主关系簇继续占据主视觉锚点，同时让孤立表退到边缘读取位。
 - ER generation redesign 第二阶段现已先收下“同表集 reload 保留布局”“表集变化时的交集保位”“新表对已恢复旧表的局部避让”“关系邻居驱动的新表局部插入”“父/子方向感知的新表插入”和“桥接表保持在已恢复父/子层之间”的六刀；剩余 follow-up 已收窄到 edge routing / minimap / pin/keep-layout UI / 更强的增量稳定布局，而不是再次回退到单函数启发式补丁
 
 当前仍未完全关闭、但已不再主导主线的是：
@@ -359,4 +373,5 @@ Current execution order before further implementation:
 当前 dialog 主线里不再存在环境 blocker；剩余的是观察项：
 
 - `CreateUserDialog` / `ExportDialog` / `DdlDialog` 在不同窗口管理器与更小窄视口下是否会再次出现 footer 或横向挤压回归
+- Dialog auto-reveal 第一刀已落地：`FormDialogShell` 现在拥有最小 `FirstError` reveal registry，`CreateUserDialog` 也已先把用户名/密码/确认密码/权限块接入这条 contract。当前其余 `FormDialogShell` 调用点只更新了 body 签名，没有顺手改行为；下一步若继续推进，应先补代表路径的 live 复核，再决定是否推广到 `CreateDbDialog` / `DdlDialog`
 - 当前若继续推进主线，应优先转入阶段收口、发布准备，或等待新的 confirmed bug，而不是继续对 observation 条目做猜测性补丁。

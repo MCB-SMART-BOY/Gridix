@@ -1,8 +1,8 @@
-# Gridix 6.0.0 Bug Ledger
+# Gridix 6.1.0 Bug Ledger
 
 ## Scope
 
-这份账本只盘点 **当前 v6.0.0 发版后收口阶段仍值得观察的根因问题**。  
+这份账本只盘点 **当前 v6.1.0 发版执行阶段仍值得观察的根因问题**。  
 来源限定为：
 
 - `docs/recovery/10-master-recovery-plan.md`
@@ -33,7 +33,7 @@
 
 - 这份账本里已没有“未阻塞且应立即继续实现”的 active bug。
 - `G41-B007` 当前保留为 observation 条目；除非重新 live 复现，否则不再继续主动补丁。
-- `v6.0.0` 当前已完成 release execution：版本 bump、提交/推送、tag、GitHub release、AUR/Homebrew 同步均已完成，nixpkgs 已推送至 fork 并创建 PR [NixOS/nixpkgs#510299](https://github.com/NixOS/nixpkgs/pull/510299)。
+- `v6.1.0` 当前进入 release execution：版本 bump、提交/推送、tag、GitHub release 在本轮执行；AUR/Homebrew/nixpkgs 同步暂未开始，仍等待 `v6.1.0` release artifacts 与 `SHA256SUMS.txt` 生成。
 
 ### G41-B007
 
@@ -471,7 +471,7 @@
   - `src/app/runtime/handler.rs` 现已为 `explicit / inferred / empty` 三种 ready-state 决策，以及“空 FK 结果保持为空显式关系”的分支补上 focused tests；finalize/FK fallback contract 已收口。
   - `src/ui/components/er_diagram/render.rs` 现已将 card/background、text、border、selection、toolbar chrome，以及 `grid_line / relation_line / pk_icon / fk_icon / table_shadow / text_type` 全部收口到 `ThemePreset::colors()` + `egui::Visuals` 的派生规则。
   - `src/ui/components/er_diagram/render.rs` 现已把 ER 顶部工具栏按钮的 chrome 改成交互态显示：默认透明，hover / focus 时临时显现，视口模式按钮保留显式 selected 态，不再常驻灰底。
-  - `src/ui/components/er_diagram/graph.rs` 现已把 ER 完成态的结构判断从“直接靠布局函数内部启发式”收口成独立语义摘要：当前会先分析关系图的组件数、孤立表、关系数量与主簇规模，再显式选择 `Grid / Relation / Component` 三种完成态策略。
+  - `src/ui/components/er_diagram/graph.rs` 现已把 ER 完成态的结构判断从“直接靠布局函数内部启发式”收口成独立语义摘要：当前会先分析关系图的组件数、孤立表、关系数量、主簇规模与高密度组件，再显式选择 `Grid / Relation / Component / DenseGraph` 完成态策略。
   - `src/app/runtime/handler.rs` 与 `src/app/surfaces/render.rs` 现已不再直接把 `tables + relationships` 喂给单一关系布局函数；默认完成态和手动 relayout 都会先经过 `analyze_er_graph()` 再调用 `apply_er_layout_strategy()`，因此“何时 grid、何时 relation、何时 component”已经变成可测试 contract，而不是散在 finalize/render 分支里的隐式行为。
   - `src/ui/components/er_diagram/state.rs` 与 `render.rs` 现已新增 `RelationshipOrigin::{Explicit, Inferred}`、`ERCardDisplayMode::{Standard, KeysOnly}` 与 `EREdgeDisplayMode::{All, Focus, ExplicitOnly}`；它们只改变 ER 本地视图密度与边可见性，不反向改写 loaded graph 或 app-level 当前表。
   - `src/ui/components/er_diagram/render.rs` 现已把边渲染从单一平滑曲线收口成带短 stub 的正交式分段路由，并结合关系来源和焦点邻域区分显式边、推断边、焦点边；未选中邻域在 `Focus` 模式下会被主动降噪。
@@ -526,7 +526,7 @@
   35. component row-packing 第三十五刀已落地：组件化关系种子现在会按组件面积估计目标行宽，并在种子阶段对断开组件换排，而不再默认把所有组件沿单一横带持续向右排开；相关 focused tests 已锁住“多簇 schema 会进入多行种子布局”的最小边界。
   36. component priority anchoring 第三十六刀已落地：组件化关系种子现在会按组件面积/宽度优先排序，再进入按行换排；较大的关系主簇会先占据左上锚点，小型孤立表不再仅因名字更靠前就把主簇挤到后排。相关 focused test 已锁住“较大的关系簇优先于小型孤立表占据主锚点”的最小边界。
   37. open-fit visibility 第三十七刀已落地：ER 从隐藏态打开后现在会挂起一次延迟 `fit_to_view()`，必要时允许 `zoom` 低于旧 `25%` 下限，因此学习样例默认完成态不再继续把底部表卡在视口外；focused tests 已锁住“fit 可低于 25%”和“低于 25% 后继续缩小不会反向跳大”的最小边界，reload/refresh 仍保持原有保留视图合同。
-  38. ER generation redesign 第一阶段已落地：ER 现在显式引入 `ERGraphSummary` 和 `ERLayoutStrategy`，默认完成态与手动 relayout 都会先做语义图分析，再在 `Grid / Relation / Component` 之间选策略；render 侧也同步补上 `All / Focus / ExplicitOnly` 边模式、`Standard / KeysOnly` 表卡密度、关系邻域降噪与正交式边路由，正式把“语义图、布局策略、视图密度、边显示”拆成独立 contract。
+  38. ER generation redesign 第一阶段已落地：ER 现在显式引入 `ERGraphSummary` 和 `ERLayoutStrategy`，默认完成态与手动 relayout 都会先做语义图分析，再在 `Grid / Relation / Component / DenseGraph` 之间选策略；render 侧也同步补上 `All / Focus / ExplicitOnly` 边模式、`Standard / KeysOnly` 表卡密度、关系邻域降噪与正交式边路由，正式把“语义图、布局策略、视图密度、边显示”拆成独立 contract。
   39. ER generation redesign 第二阶段第一刀已落地：reload 现在会先暂存当前布局快照，并在 finalize 后对“表名集合完全一致”的图直接恢复原位置。
   40. ER generation redesign 第二阶段第二刀已落地：当 reload 后的表集合与旧快照只部分重合时，finalize 现在会先跑一遍新的 `Grid / Relation / Component` 完成态策略布局，再把仍同名的旧表位置恢复回去；新增表继续使用这轮策略布局位置。这样“主体不变的小幅 schema 漂移”不再每次都把整图洗掉，但也不会把旧 schema 的专属位置泄漏给完全无关的新表。
   41. ER generation redesign 第二阶段第三刀已落地：在“交集保位”之后，新表现在还会对这些已恢复回原位的旧表做局部避让，因此 partial-reload 不再出现“旧表回位后，新表又直接撞回去”的新重叠；这条补丁只影响新表的局部插入，不改变 exact-match 直恢复合同。
@@ -538,7 +538,22 @@
 
 - `UX / Input Recovery Batch A` 现已完成阶段性收口：`G41-B006`、`G41-B010`、`G41-B011`、`G41-B012` 以及 `G41-B005` 的顶层 follow-up 已不再作为 active open bug 重复列入 `Priority Summary`。
 - ER 默认打开后的可见范围第四轮 live 观察已完成：沿 `Ctrl+P -> sample -> Enter -> 5 -> Ctrl+R` 进入学习样例后，ER 现在会在默认完成态自动降到约 `12%`，整簇重新完整落回右侧可见区，底部表不再继续被旧 `25%` 下限卡在视口外；当前这条问题不再维持为 active bug。
+- ER generation redesign `Phase 2A` 已落地：`src/ui/components/er_diagram/graph.rs` 现已从轻量 `summary helper` 升级成可构建 `ERGraph { nodes, edges, components, summary }` 的 transient builder；`analyze_er_graph(...)` 现在只是兼容封装，不再是唯一语义入口。当前这刀不改用户可见布局或键盘行为，只为后续 `ERGraph -> strategy selector -> layout apply` 收口提供结构前提。
+- ER generation redesign `Phase 2B` 已落地：`src/app/runtime/handler.rs` 的默认完成态布局与 `src/ui/components/er_diagram/render.rs` 的策略标签现在都经由 `build_er_graph() -> select_er_layout_strategy()` 显式收口；当前兼容策略枚举已扩成 `Grid / Relation / Component / DenseGraph`，但布局 dispatch 已不再依赖散落的 summary 内联判断。
+- ER generation redesign `Phase 2B` 追加一刀已落地：`pending_layout_restore` 现在被 runtime 显式提升成 `ERLayoutStrategy::StableIncremental` 入口；`src/app/runtime/handler.rs` 新增了 snapshot-aware ready-state selector 与统一 apply helper，exact restore / partial restore / `stabilize_incremental_layout_positions()` 不再散落在 finalize 分支里，而 `ERGraph -> select_er_layout_strategy()` 继续保持纯语义选择，不接管 snapshot ownership。
+- ER generation redesign `Phase 2C` 首刀已落地：纯语义 selector 现在会把高密度单主簇图显式分流到 `DenseGraph`，而不再继续复用普通 `Relation` 完成态；`src/ui/components/er_diagram/layout.rs` 也已为这条路径补上单独 dispatch，因此高密度连接图不再继续和普通关系簇共享同一条完成态 contract。
+- ER generation redesign `Phase 2C` 第二刀已落地：`DenseGraph` 现在不再只是“grid 起步 + 更多 force iterations”；`src/ui/components/er_diagram/layout.rs` 会先按 `ERGraph` 的 `Root / Bridge / Hub / Leaf` 角色生成紧凑的 `root/core/leaf` seed band，再交给 force refine 收尾，因此高密度单主簇图终于具备了独立于普通 `Relation` 的内部布局合同。
+- ER generation redesign `Phase 2C` 第三刀已落地：`DenseGraph` 的带内排序现在也开始吃相邻层的邻居重心，而不再继续停留在“root/leaf 按名称、core 按度数”的粗排；当前会先对 `root/core/leaf` 相邻带做 barycenter sweep，再进入 refine，因此高密度图里的 core band 已不再轻易因名称或初始度数 tie 而留下可避免的交叉。
+- ER generation redesign `Phase 2C` 第四刀已落地：`DenseGraph` 不再把所有 `Bridge / Hub` 节点继续压进单一 core row；当前 dense seed 已开始直接消费 `ERGraph.layer_hint`，把 bridge-heavy 的高密度图拆成多层 core band 后再进入 barycenter sweep 与 refine，因此这类 schema 不再继续只沿单行横向摊开。
+- ER generation redesign `Phase 2C` 第五刀已落地：ER 边路由不再继续强制所有关系都从左右边进出；当前对上下堆叠的表会优先走 top/bottom 锚点与纵向正交路径，因此 bridge-heavy 的 DenseGraph 不再继续被长横折线和左右锚点噪声放大。
+- ER generation redesign `Phase 2C` 第六刀已落地：ER 边路由现在还会对共享同一走廊的正交关系线分配稳定 lane，而不再继续把平行/近平行边压到同一条 `mid_x / mid_y` 中线上；这样 dense layered 图里的并行关系不再一眼看起来像只有一条边。
+- ER generation redesign `Phase 2C` 第七刀已落地：共享同一 L 形肘点的 mixed orthogonal edge 现在也会参与 lane 分配，而不再继续因为 `Mixed` connector 被 selector 直接跳过；当前 render 会按共享的 elbow column 为这类边分 lane，并在绘制时平移竖向肘线，因此“多条边压在同一根竖肘线上”的 dense-readability 缺口也已收口。
+- ER generation redesign `Phase 2C` 的最近一轮 live smoke 已完成：沿 welcome 样例链路进入学习样例并打开 ER 后，默认 `fit-to-view` 完成态下的并行关系边已不再继续塌成单线；继续对 dense cluster 的 mixed orthogonal edge 做 live 复核后，共享同一 L 形肘点列的关系线也没有再继续压回同一根竖肘线上。当前没有新的 confirmed edge-routing bug 被提升出来，后续若要继续推进，应优先拿更具体 schema 反例或更大 pane 复核可读性，而不是继续猜测性地改 lane/anchor 规则。
+- ER generation redesign 的默认完成态标准现已补到 [51-er-visual-layout-readability-standards.md](./51-er-visual-layout-readability-standards.md)：当前下一阶段不再只以“避免重叠/压线”为标准，而应按“主簇构图、组件 pack、孤立表边缘化、DenseGraph 结构可读性、edge readability、画布利用率”来判断是否继续推进实现。
+- ER generation redesign 按 `51` 的第一刀已落地到普通关系布局：`hierarchical_layout()` 不再继续自己重算与语义图层脱节的最长路径层级，而开始直接吃 `ERGraph.layer_hint`；同时更窄的父层带现在也会围绕更宽的子层带居中，因此 learning-sample 风格的主关系簇不再继续左对齐成细长竖带，bridge child 也不会再轻易因为“取最长路径”被拖到更深层。
+- ER generation redesign 按 `51` 的第二刀已落地到 `component pack / isolated-table placement`：`relationship_seeded_layout()` 现在会在 pack 完相关组件后，把纯孤立组件推进显式的右侧边缘区，而不再只是“和主簇分开但仍漂在大片空白里”；主关系簇因此继续占据主视觉锚点，孤立表则退到边缘读取位。
 - ER generation redesign 当前已进入第二阶段起步：前六刀已把“同表集 reload 保留布局”“表集变化时的交集保位”“新表局部避让”“关系邻居驱动的新表局部插入”“父/子方向感知的新表插入”和“桥接表保持在已恢复父/子层之间”从概念变成最小可验证 contract。下一步如果继续推进，不应再回到“单一布局函数里继续塞条件分支”的修补方式，而应在 `ERGraph / strategy selector / edge routing / density controls / incremental stability` 这些已拆开的层之间继续演进。
+- Dialog auto-reveal 第一刀已落地：`src/ui/dialogs/common.rs` 的 `FormDialogShell` 现在拥有最小 `FirstError` reveal registry，`CreateUserDialog` 也已先把用户名/密码/确认密码/权限块接入字段级错误目标；当前其余 `FormDialogShell` 调用点只同步更新了 body 签名，没有顺手改变行为。这条修复已把“校验失败但首个错误字段埋在滚动区外”的问题从结构性缺口推进到代表路径已覆盖，但仍缺 live 复核，暂不扩成更多 dialog 的 active patch。
 - 这批条目当前只保留观察项，而不是新的 active implementation 队列：
   - connection-row 右键菜单稳定弹出仍缺真正的 egui/widget live regression；
   - `AboutDialog` 与 `KeyBindingsDialog` / `HelpDialog` 顶部 header compression 仍缺截图级回归锚点；

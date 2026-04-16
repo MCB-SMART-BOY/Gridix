@@ -10,7 +10,11 @@ mod layout;
 mod render;
 mod state;
 
-pub use graph::{ERGraphSummary, ERLayoutStrategy, analyze_er_graph, selected_neighborhood};
+pub use graph::{
+    ERComponent, ERComponentDirection, EREdge, EREdgeStrength, ERGraph, ERGraphSummary,
+    ERLayoutStrategy, ERNode, ERNodeRole, analyze_er_graph, build_er_graph,
+    select_er_layout_strategy, selected_neighborhood,
+};
 pub use layout::{
     apply_er_layout_strategy, force_directed_layout, grid_layout, relationship_seeded_layout,
     stabilize_incremental_layout_positions,

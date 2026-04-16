@@ -1,6 +1,6 @@
 //! ER 图渲染
 
-use super::graph::{ERLayoutStrategy, analyze_er_graph, selected_neighborhood};
+use super::graph::{ERLayoutStrategy, selected_neighborhood};
 use super::state::{
     ERCardDisplayMode, ERDiagramInteractionMode, ERDiagramState, EREdgeDisplayMode, ERTable,
     RelationType, Relationship, RelationshipOrigin,
@@ -13,6 +13,7 @@ use crate::ui::{
     LocalShortcut, consume_local_shortcut, local_shortcut_text, local_shortcut_tooltip,
 };
 use egui::{self, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Sense, Stroke, Vec2};
+use std::collections::HashMap;
 
 /// ER 图渲染响应
 #[derive(Default)]
@@ -177,6 +178,30 @@ struct TableRenderContext {
     display_mode: ERCardDisplayMode,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum RouteOrientation {
+    Horizontal,
+    Vertical,
+    Mixed,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RouteDescriptor {
+    orientation: RouteOrientation,
+    baseline_bucket: i32,
+    span_start: f32,
+    span_end: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RoutedRelationship {
+    relationship_index: usize,
+    from_screen: Pos2,
+    to_screen: Pos2,
+    from_dir: i32,
+    to_dir: i32,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct ERToolbarButtonChrome {
     fill: Option<Color32>,
@@ -252,7 +277,7 @@ impl ERDiagramState {
     ) -> ERDiagramResponse {
         let mut response = ERDiagramResponse::default();
         let colors = RenderColors::from_theme(theme, ui.visuals());
-        let graph_summary = analyze_er_graph(&self.tables, &self.relationships);
+        let graph_summary = super::graph::build_er_graph(&self.tables, &self.relationships).summary;
 
         // 工具栏
         ui.horizontal(|ui| {
@@ -373,6 +398,8 @@ impl ERDiagramState {
                 ERLayoutStrategy::Grid => "网格完成态",
                 ERLayoutStrategy::Relation => "关系完成态",
                 ERLayoutStrategy::Component => "组件完成态",
+                ERLayoutStrategy::DenseGraph => "高密度完成态",
+                ERLayoutStrategy::StableIncremental => "稳定增量完成态",
             };
             ui.label(
                 RichText::new(strategy_label)
@@ -1086,9 +1113,29 @@ impl ERDiagramState {
         // 计算两个表的中心点X坐标
         let from_center_x = from.position.x + from.size.x / 2.0;
         let to_center_x = to.position.x + to.size.x / 2.0;
+        let from_center_y = from.position.y + from.size.y / 2.0;
+        let to_center_y = to.position.y + to.size.y / 2.0;
+        let prefers_vertical =
+            (to_center_y - from_center_y).abs() > (to_center_x - from_center_x).abs();
 
-        // 只使用左右连接
-        let (from_edge, to_edge, from_dir, to_dir) = if to_center_x > from_center_x {
+        // 根据几何方向选择左右或上下连接，避免上下堆叠的表仍被强行拉成长横折线。
+        let (from_edge, to_edge, from_dir, to_dir) = if prefers_vertical {
+            if to_center_y > from_center_y {
+                (
+                    Pos2::new(from_center_x, from.position.y + from.size.y),
+                    Pos2::new(to_center_x, to.position.y),
+                    1,
+                    3,
+                )
+            } else {
+                (
+                    Pos2::new(from_center_x, from.position.y),
+                    Pos2::new(to_center_x, to.position.y + to.size.y),
+                    3,
+                    1,
+                )
+            }
+        } else if to_center_x > from_center_x {
             // to 在 from 的右边：from右边 -> to左边
             (
                 Pos2::new(from.position.x + from.size.x, from.position.y + from_col_y),
@@ -1125,28 +1172,186 @@ impl ERDiagramState {
         from_dir: i32,
         to_dir: i32,
         zoom: f32,
+        lane_offset: f32,
     ) -> [Pos2; 6] {
         let stub = 18.0 * zoom;
         let from_stub = match from_dir {
             0 => from + Vec2::new(stub, 0.0),
+            1 => from + Vec2::new(0.0, stub),
             2 => from - Vec2::new(stub, 0.0),
+            3 => from - Vec2::new(0.0, stub),
             _ => from,
         };
         let to_stub = match to_dir {
             0 => to + Vec2::new(stub, 0.0),
+            1 => to + Vec2::new(0.0, stub),
             2 => to - Vec2::new(stub, 0.0),
+            3 => to - Vec2::new(0.0, stub),
             _ => to,
         };
-        let mid_x = (from_stub.x + to_stub.x) / 2.0;
+        let horizontal = matches!(from_dir, 0 | 2) && matches!(to_dir, 0 | 2);
+        let vertical = matches!(from_dir, 1 | 3) && matches!(to_dir, 1 | 3);
 
-        [
-            from,
-            from_stub,
-            Pos2::new(mid_x, from_stub.y),
-            Pos2::new(mid_x, to_stub.y),
-            to_stub,
-            to,
-        ]
+        if vertical {
+            let mid_y = (from_stub.y + to_stub.y) / 2.0 + lane_offset;
+            [
+                from,
+                from_stub,
+                Pos2::new(from_stub.x, mid_y),
+                Pos2::new(to_stub.x, mid_y),
+                to_stub,
+                to,
+            ]
+        } else if horizontal {
+            let mid_x = (from_stub.x + to_stub.x) / 2.0 + lane_offset;
+            [
+                from,
+                from_stub,
+                Pos2::new(mid_x, from_stub.y),
+                Pos2::new(mid_x, to_stub.y),
+                to_stub,
+                to,
+            ]
+        } else {
+            let elbow_x = to_stub.x + lane_offset;
+            [
+                from,
+                from_stub,
+                Pos2::new(elbow_x, from_stub.y),
+                Pos2::new(elbow_x, to_stub.y),
+                to_stub,
+                to,
+            ]
+        }
+    }
+
+    fn route_orientation(from_dir: i32, to_dir: i32) -> RouteOrientation {
+        if matches!(from_dir, 0 | 2) && matches!(to_dir, 0 | 2) {
+            RouteOrientation::Horizontal
+        } else if matches!(from_dir, 1 | 3) && matches!(to_dir, 1 | 3) {
+            RouteOrientation::Vertical
+        } else {
+            RouteOrientation::Mixed
+        }
+    }
+
+    fn route_stubs(from: Pos2, to: Pos2, from_dir: i32, to_dir: i32, zoom: f32) -> (Pos2, Pos2) {
+        let stub = 18.0 * zoom;
+        let from_stub = match from_dir {
+            0 => from + Vec2::new(stub, 0.0),
+            1 => from + Vec2::new(0.0, stub),
+            2 => from - Vec2::new(stub, 0.0),
+            3 => from - Vec2::new(0.0, stub),
+            _ => from,
+        };
+        let to_stub = match to_dir {
+            0 => to + Vec2::new(stub, 0.0),
+            1 => to + Vec2::new(0.0, stub),
+            2 => to - Vec2::new(stub, 0.0),
+            3 => to - Vec2::new(0.0, stub),
+            _ => to,
+        };
+
+        (from_stub, to_stub)
+    }
+
+    fn route_descriptor(
+        from: Pos2,
+        to: Pos2,
+        from_dir: i32,
+        to_dir: i32,
+        zoom: f32,
+    ) -> RouteDescriptor {
+        let orientation = Self::route_orientation(from_dir, to_dir);
+        let (from_stub, to_stub) = Self::route_stubs(from, to, from_dir, to_dir, zoom);
+        let (baseline, span_start, span_end) = match orientation {
+            RouteOrientation::Horizontal => (
+                (from_stub.x + to_stub.x) / 2.0,
+                from_stub.y.min(to_stub.y),
+                from_stub.y.max(to_stub.y),
+            ),
+            RouteOrientation::Vertical => (
+                (from_stub.y + to_stub.y) / 2.0,
+                from_stub.x.min(to_stub.x),
+                from_stub.x.max(to_stub.x),
+            ),
+            // Mixed connectors still use an orthogonal elbow; lane separation should
+            // operate on that shared vertical elbow column rather than skipping them.
+            RouteOrientation::Mixed => (
+                to_stub.x,
+                from_stub.y.min(to_stub.y),
+                from_stub.y.max(to_stub.y),
+            ),
+        };
+
+        RouteDescriptor {
+            orientation,
+            baseline_bucket: (baseline / 12.0).round() as i32,
+            span_start,
+            span_end,
+        }
+    }
+
+    fn route_lane_offsets(routes: &[RoutedRelationship], zoom: f32) -> Vec<f32> {
+        let mut offsets = vec![0.0; routes.len()];
+        let mut groups: HashMap<(RouteOrientation, i32), Vec<(usize, RouteDescriptor)>> =
+            HashMap::new();
+
+        for (index, route) in routes.iter().enumerate() {
+            let descriptor = Self::route_descriptor(
+                route.from_screen,
+                route.to_screen,
+                route.from_dir,
+                route.to_dir,
+                zoom,
+            );
+
+            groups
+                .entry((descriptor.orientation, descriptor.baseline_bucket))
+                .or_default()
+                .push((index, descriptor));
+        }
+
+        let lane_spacing = (10.0 * zoom).clamp(8.0, 18.0);
+        for entries in groups.values_mut() {
+            entries.sort_by(|left, right| {
+                left.1
+                    .span_start
+                    .total_cmp(&right.1.span_start)
+                    .then(left.1.span_end.total_cmp(&right.1.span_end))
+                    .then(left.0.cmp(&right.0))
+            });
+
+            let mut lane_last_end: Vec<f32> = Vec::new();
+            let mut assigned_lanes = Vec::with_capacity(entries.len());
+            for (_, descriptor) in entries.iter() {
+                let lane = lane_last_end
+                    .iter_mut()
+                    .enumerate()
+                    .find_map(|(lane_index, last_end)| {
+                        (descriptor.span_start > *last_end).then(|| {
+                            *last_end = descriptor.span_end;
+                            lane_index
+                        })
+                    })
+                    .unwrap_or_else(|| {
+                        lane_last_end.push(descriptor.span_end);
+                        lane_last_end.len() - 1
+                    });
+                assigned_lanes.push(lane);
+            }
+
+            if lane_last_end.len() <= 1 {
+                continue;
+            }
+
+            let center = (lane_last_end.len() - 1) as f32 / 2.0;
+            for ((route_index, _), lane) in entries.iter().zip(assigned_lanes.into_iter()) {
+                offsets[*route_index] = (lane as f32 - center) * lane_spacing;
+            }
+        }
+
+        offsets
     }
 
     fn relationship_is_visible(
@@ -1172,7 +1377,8 @@ impl ERDiagramState {
         selected_neighborhood: Option<&std::collections::HashSet<String>>,
     ) {
         let selected_table = self.selected_table_name();
-        for rel in &self.relationships {
+        let mut routed_relationships = Vec::new();
+        for (relationship_index, rel) in self.relationships.iter().enumerate() {
             if !Self::relationship_is_visible(rel, self.edge_display_mode(), selected_table) {
                 continue;
             }
@@ -1191,73 +1397,85 @@ impl ERDiagramState {
                         self.zoom,
                         canvas_rect,
                     );
-
-                let points = Self::orthogonal_route_points(
+                routed_relationships.push(RoutedRelationship {
+                    relationship_index,
                     from_screen,
                     to_screen,
                     from_dir,
                     to_dir,
-                    self.zoom,
-                );
-                let highlight = selected_neighborhood.is_some_and(|neighborhood| {
-                    neighborhood.contains(rel.from_table.as_str())
-                        && neighborhood.contains(rel.to_table.as_str())
                 });
-                let relation_color = if highlight {
-                    colors.relation_line_selected
+            }
+        }
+
+        let lane_offsets = Self::route_lane_offsets(&routed_relationships, self.zoom);
+        for (route, lane_offset) in routed_relationships.iter().zip(lane_offsets.into_iter()) {
+            let rel = &self.relationships[route.relationship_index];
+            let points = Self::orthogonal_route_points(
+                route.from_screen,
+                route.to_screen,
+                route.from_dir,
+                route.to_dir,
+                self.zoom,
+                lane_offset,
+            );
+            let highlight = selected_neighborhood.is_some_and(|neighborhood| {
+                neighborhood.contains(rel.from_table.as_str())
+                    && neighborhood.contains(rel.to_table.as_str())
+            });
+            let relation_color = if highlight {
+                colors.relation_line_selected
+            } else if rel.origin == RelationshipOrigin::Explicit {
+                colors.relation_line_explicit
+            } else {
+                colors.relation_line_inferred
+            };
+            let stroke = Stroke::new(
+                if highlight {
+                    2.3
                 } else if rel.origin == RelationshipOrigin::Explicit {
-                    colors.relation_line_explicit
+                    1.8
                 } else {
-                    colors.relation_line_inferred
+                    1.1
+                },
+                relation_color,
+            );
+
+            for window in points.windows(2) {
+                painter.line_segment([window[0], window[1]], stroke);
+            }
+
+            let arrow_size = 8.0 * self.zoom;
+            let tail = points[points.len() - 2];
+            let angle = (route.to_screen.y - tail.y).atan2(route.to_screen.x - tail.x);
+            let arrow_p1 = Pos2::new(
+                route.to_screen.x - arrow_size * (angle - 0.4).cos(),
+                route.to_screen.y - arrow_size * (angle - 0.4).sin(),
+            );
+            let arrow_p2 = Pos2::new(
+                route.to_screen.x - arrow_size * (angle + 0.4).cos(),
+                route.to_screen.y - arrow_size * (angle + 0.4).sin(),
+            );
+            painter.line_segment([route.to_screen, arrow_p1], stroke);
+            painter.line_segment([route.to_screen, arrow_p2], stroke);
+
+            if highlight || self.zoom >= 0.9 {
+                let mid = points[2].lerp(points[3], 0.5);
+                let label = match rel.relation_type {
+                    RelationType::OneToOne => "1:1",
+                    RelationType::OneToMany => "1:N",
+                    RelationType::ManyToMany => "N:M",
                 };
-                let stroke = Stroke::new(
+                painter.text(
+                    Pos2::new(mid.x, mid.y - 10.0 * self.zoom),
+                    egui::Align2::CENTER_CENTER,
+                    label,
+                    FontId::proportional(10.0 * self.zoom),
                     if highlight {
-                        2.3
-                    } else if rel.origin == RelationshipOrigin::Explicit {
-                        1.8
+                        colors.text_primary
                     } else {
-                        1.1
+                        colors.text_secondary
                     },
-                    relation_color,
                 );
-
-                for window in points.windows(2) {
-                    painter.line_segment([window[0], window[1]], stroke);
-                }
-
-                let arrow_size = 8.0 * self.zoom;
-                let tail = points[points.len() - 2];
-                let angle = (to_screen.y - tail.y).atan2(to_screen.x - tail.x);
-                let arrow_p1 = Pos2::new(
-                    to_screen.x - arrow_size * (angle - 0.4).cos(),
-                    to_screen.y - arrow_size * (angle - 0.4).sin(),
-                );
-                let arrow_p2 = Pos2::new(
-                    to_screen.x - arrow_size * (angle + 0.4).cos(),
-                    to_screen.y - arrow_size * (angle + 0.4).sin(),
-                );
-                painter.line_segment([to_screen, arrow_p1], stroke);
-                painter.line_segment([to_screen, arrow_p2], stroke);
-
-                if highlight || self.zoom >= 0.9 {
-                    let mid = points[2].lerp(points[3], 0.5);
-                    let label = match rel.relation_type {
-                        RelationType::OneToOne => "1:1",
-                        RelationType::OneToMany => "1:N",
-                        RelationType::ManyToMany => "N:M",
-                    };
-                    painter.text(
-                        Pos2::new(mid.x, mid.y - 10.0 * self.zoom),
-                        egui::Align2::CENTER_CENTER,
-                        label,
-                        FontId::proportional(10.0 * self.zoom),
-                        if highlight {
-                            colors.text_primary
-                        } else {
-                            colors.text_secondary
-                        },
-                    );
-                }
             }
         }
     }
@@ -1347,8 +1565,8 @@ impl ERDiagramState {
 mod tests {
     use super::{
         ERCardDisplayMode, ERDiagramInteractionMode, ERDiagramState, EREdgeDisplayMode,
-        Relationship, RelationshipOrigin, RenderColors, er_toolbar_button_chrome,
-        table_visual_state, visible_column_indices,
+        Relationship, RelationshipOrigin, RenderColors, RoutedRelationship,
+        er_toolbar_button_chrome, table_visual_state, visible_column_indices,
     };
     use crate::core::ThemePreset;
     use crate::ui::styles::{
@@ -1356,7 +1574,7 @@ mod tests {
     };
     use crate::ui::{ERTable, RelationType};
     use eframe::egui::{Area, Context, Event, Id, Key, Modifiers, RawInput};
-    use egui::{Color32, Pos2, Stroke, Vec2, Visuals};
+    use egui::{Color32, Pos2, Rect, Stroke, Vec2, Visuals};
 
     fn key_event_with_modifiers(key: Key, modifiers: Modifiers) -> Event {
         Event::Key {
@@ -1522,6 +1740,234 @@ mod tests {
             EREdgeDisplayMode::ExplicitOnly,
             Some("orders")
         ));
+    }
+
+    #[test]
+    fn calculate_connection_points_prefers_vertical_anchors_for_stacked_tables() {
+        let mut parent = ERTable::new("customers".into());
+        parent.position = Pos2::new(100.0, 80.0);
+        parent.size = Vec2::new(180.0, 140.0);
+        parent.columns.push(crate::ui::ERColumn {
+            name: "id".into(),
+            data_type: "INTEGER".into(),
+            is_primary_key: true,
+            is_foreign_key: false,
+            nullable: false,
+            default_value: None,
+        });
+
+        let mut child = ERTable::new("orders".into());
+        child.position = Pos2::new(120.0, 320.0);
+        child.size = Vec2::new(180.0, 160.0);
+        child.columns.push(crate::ui::ERColumn {
+            name: "customer_id".into(),
+            data_type: "INTEGER".into(),
+            is_primary_key: false,
+            is_foreign_key: true,
+            nullable: false,
+            default_value: None,
+        });
+
+        let canvas_rect = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(1200.0, 900.0));
+        let (from, to, from_dir, to_dir) = ERDiagramState::calculate_connection_points_at_column(
+            &child,
+            &parent,
+            "customer_id",
+            "id",
+            Vec2::ZERO,
+            1.0,
+            canvas_rect,
+        );
+
+        assert_eq!(from_dir, 3);
+        assert_eq!(to_dir, 1);
+        assert_eq!(from.x, child.position.x + child.size.x * 0.5);
+        assert_eq!(to.x, parent.position.x + parent.size.x * 0.5);
+        assert_eq!(from.y, child.position.y);
+        assert_eq!(to.y, parent.position.y + parent.size.y);
+    }
+
+    #[test]
+    fn orthogonal_route_points_use_mid_y_for_vertical_connectors() {
+        let points = ERDiagramState::orthogonal_route_points(
+            Pos2::new(120.0, 260.0),
+            Pos2::new(180.0, 80.0),
+            3,
+            1,
+            1.0,
+            0.0,
+        );
+
+        assert!(points[1].y < points[0].y);
+        assert!(points[4].y > points[5].y);
+        assert_eq!(points[2].y, points[3].y);
+        assert_eq!(points[2].x, points[1].x);
+        assert_eq!(points[3].x, points[4].x);
+    }
+
+    #[test]
+    fn route_lane_offsets_separate_overlapping_horizontal_routes() {
+        let routes = vec![
+            RoutedRelationship {
+                relationship_index: 0,
+                from_screen: Pos2::new(200.0, 180.0),
+                to_screen: Pos2::new(440.0, 260.0),
+                from_dir: 0,
+                to_dir: 2,
+            },
+            RoutedRelationship {
+                relationship_index: 1,
+                from_screen: Pos2::new(200.0, 220.0),
+                to_screen: Pos2::new(440.0, 300.0),
+                from_dir: 0,
+                to_dir: 2,
+            },
+        ];
+
+        let offsets = ERDiagramState::route_lane_offsets(&routes, 1.0);
+
+        assert_eq!(offsets.len(), 2);
+        assert!(offsets[0] != 0.0);
+        assert!(offsets[1] != 0.0);
+        assert_eq!(offsets[0], -offsets[1]);
+    }
+
+    #[test]
+    fn route_lane_offsets_separate_overlapping_vertical_routes() {
+        let routes = vec![
+            RoutedRelationship {
+                relationship_index: 0,
+                from_screen: Pos2::new(280.0, 380.0),
+                to_screen: Pos2::new(360.0, 140.0),
+                from_dir: 3,
+                to_dir: 1,
+            },
+            RoutedRelationship {
+                relationship_index: 1,
+                from_screen: Pos2::new(340.0, 380.0),
+                to_screen: Pos2::new(420.0, 140.0),
+                from_dir: 3,
+                to_dir: 1,
+            },
+        ];
+
+        let offsets = ERDiagramState::route_lane_offsets(&routes, 1.0);
+
+        assert_eq!(offsets.len(), 2);
+        assert!(offsets[0] != 0.0);
+        assert!(offsets[1] != 0.0);
+        assert_eq!(offsets[0], -offsets[1]);
+    }
+
+    #[test]
+    fn route_lane_offsets_keep_separated_horizontal_routes_on_same_baseline() {
+        let routes = vec![
+            RoutedRelationship {
+                relationship_index: 0,
+                from_screen: Pos2::new(200.0, 180.0),
+                to_screen: Pos2::new(440.0, 220.0),
+                from_dir: 0,
+                to_dir: 2,
+            },
+            RoutedRelationship {
+                relationship_index: 1,
+                from_screen: Pos2::new(200.0, 420.0),
+                to_screen: Pos2::new(440.0, 460.0),
+                from_dir: 0,
+                to_dir: 2,
+            },
+        ];
+
+        let offsets = ERDiagramState::route_lane_offsets(&routes, 1.0);
+
+        assert_eq!(offsets, vec![0.0, 0.0]);
+    }
+
+    #[test]
+    fn route_lane_offsets_separate_overlapping_mixed_routes() {
+        let routes = vec![
+            RoutedRelationship {
+                relationship_index: 0,
+                from_screen: Pos2::new(200.0, 180.0),
+                to_screen: Pos2::new(440.0, 320.0),
+                from_dir: 0,
+                to_dir: 3,
+            },
+            RoutedRelationship {
+                relationship_index: 1,
+                from_screen: Pos2::new(240.0, 220.0),
+                to_screen: Pos2::new(440.0, 360.0),
+                from_dir: 0,
+                to_dir: 3,
+            },
+        ];
+
+        let offsets = ERDiagramState::route_lane_offsets(&routes, 1.0);
+
+        assert_eq!(offsets.len(), 2);
+        assert!(offsets[0] != 0.0);
+        assert!(offsets[1] != 0.0);
+        assert_eq!(offsets[0], -offsets[1]);
+    }
+
+    #[test]
+    fn orthogonal_route_points_shift_mixed_connector_elbow_column_by_lane_offset() {
+        let points = ERDiagramState::orthogonal_route_points(
+            Pos2::new(180.0, 160.0),
+            Pos2::new(420.0, 320.0),
+            0,
+            3,
+            1.0,
+            14.0,
+        );
+
+        assert_eq!(points[2].x, points[3].x);
+        assert_eq!(points[2].x, points[4].x + 14.0);
+        assert_eq!(points[2].y, points[1].y);
+        assert_eq!(points[3].y, points[4].y);
+    }
+
+    #[test]
+    fn calculate_connection_points_keep_horizontal_anchors_for_side_by_side_tables() {
+        let mut left = ERTable::new("customers".into());
+        left.position = Pos2::new(80.0, 200.0);
+        left.size = Vec2::new(180.0, 140.0);
+        left.columns.push(crate::ui::ERColumn {
+            name: "id".into(),
+            data_type: "INTEGER".into(),
+            is_primary_key: true,
+            is_foreign_key: false,
+            nullable: false,
+            default_value: None,
+        });
+
+        let mut right = ERTable::new("orders".into());
+        right.position = Pos2::new(420.0, 220.0);
+        right.size = Vec2::new(180.0, 160.0);
+        right.columns.push(crate::ui::ERColumn {
+            name: "customer_id".into(),
+            data_type: "INTEGER".into(),
+            is_primary_key: false,
+            is_foreign_key: true,
+            nullable: false,
+            default_value: None,
+        });
+
+        let canvas_rect = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(1200.0, 900.0));
+        let (from, to, from_dir, to_dir) = ERDiagramState::calculate_connection_points_at_column(
+            &right,
+            &left,
+            "customer_id",
+            "id",
+            Vec2::ZERO,
+            1.0,
+            canvas_rect,
+        );
+
+        assert_eq!(from_dir, 2);
+        assert_eq!(to_dir, 0);
+        assert_eq!(from.x, right.position.x);
+        assert_eq!(to.x, left.position.x + left.size.x);
     }
 
     #[test]

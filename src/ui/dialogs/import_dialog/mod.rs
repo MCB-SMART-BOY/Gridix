@@ -218,7 +218,7 @@ impl ImportDialog {
                         ],
                     );
                 },
-                |ui| {
+                |ui, _body_ctx| {
                     DialogContent::section_with_description(
                         ui,
                         "导入源",

@@ -44,11 +44,13 @@ pub use components::{
     check_filter_match,
     // ER 关系图
     er_diagram::{
-        ERCardDisplayMode, ERColumn, ERDiagramResponse, ERDiagramState, EREdgeDisplayMode,
-        ERGraphSummary, ERLayoutStrategy, ERTable, GeometricDirection, RelationType, Relationship,
-        RelationshipOrigin, analyze_er_graph, apply_er_layout_strategy, calculate_table_size,
-        calculate_table_size_for_mode, force_directed_layout, grid_layout,
-        relationship_seeded_layout, selected_neighborhood, stabilize_incremental_layout_positions,
+        ERCardDisplayMode, ERColumn, ERComponent, ERComponentDirection, ERDiagramResponse,
+        ERDiagramState, EREdge, EREdgeDisplayMode, EREdgeStrength, ERGraph, ERGraphSummary,
+        ERLayoutStrategy, ERNode, ERNodeRole, ERTable, GeometricDirection, RelationType,
+        Relationship, RelationshipOrigin, analyze_er_graph, apply_er_layout_strategy,
+        build_er_graph, calculate_table_size, calculate_table_size_for_mode, force_directed_layout,
+        grid_layout, relationship_seeded_layout, select_er_layout_strategy, selected_neighborhood,
+        stabilize_incremental_layout_positions,
     },
     escape_identifier,
     escape_value,
