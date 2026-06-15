@@ -345,7 +345,7 @@ impl DbManagerApp {
             results.theme_preset = ui::ToolbarThemeDialog::show(
                 ctx,
                 &mut self.toolbar_theme_dialog_state,
-                self.theme_manager.current,
+                self.state.theme_manager.current,
                 self.app_config.is_dark_mode,
             );
         }

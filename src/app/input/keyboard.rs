@@ -100,7 +100,7 @@ impl DbManagerApp {
                 // 重置为 1.0
                 self.set_ui_scale(ctx, 1.0);
             } else {
-                let new_scale = self.ui_scale + delta;
+                let new_scale = self.state.ui_scale + delta;
                 self.set_ui_scale(ctx, new_scale);
             }
         }

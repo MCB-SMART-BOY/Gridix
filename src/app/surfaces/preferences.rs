@@ -12,9 +12,9 @@ impl DbManagerApp {
     /// 设置 UI 缩放比例
     pub(in crate::app) fn set_ui_scale(&mut self, ctx: &egui::Context, scale: f32) {
         let scale = scale.clamp(constants::ui::UI_SCALE_MIN, constants::ui::UI_SCALE_MAX);
-        self.ui_scale = scale;
+        self.state.ui_scale = scale;
         self.app_config.ui_scale = scale;
-        ctx.set_pixels_per_point(self.base_pixels_per_point * scale);
+        ctx.set_pixels_per_point(self.state.base_pixels_per_point * scale);
         let _ = self.app_config.save();
     }
 
@@ -27,9 +27,9 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn set_theme(&mut self, ctx: &egui::Context, preset: ThemePreset) {
-        self.theme_manager.set_theme(preset);
-        self.theme_manager.apply(ctx);
-        self.highlight_colors = HighlightColors::from_theme(&self.theme_manager.colors);
+        self.state.theme_manager.set_theme(preset);
+        self.state.theme_manager.apply(ctx);
+        self.state.highlight_colors = HighlightColors::from_theme(&self.state.theme_manager.colors);
         self.app_config.theme_preset = preset;
         // 清除语法高亮缓存，确保使用新主题颜色
         clear_highlight_cache();

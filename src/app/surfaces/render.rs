@@ -329,7 +329,7 @@ impl DbManagerApp {
 
                 let cid = ui::Toolbar::show_with_focus(
                     ui,
-                    &self.theme_manager,
+                    &self.state.theme_manager,
                     &self.keybindings,
                     self.result.is_some(),
                     self.show_sidebar,
@@ -342,7 +342,7 @@ impl DbManagerApp {
                     selected_database.as_deref(),
                     &tables,
                     selected_table.as_deref(),
-                    self.ui_scale,
+                    self.state.ui_scale,
                     &self.progress,
                     is_toolbar_focused,
                     self.toolbar_index,
@@ -415,7 +415,7 @@ impl DbManagerApp {
 
     /// 渲染 ER 关系图，供 egui_dock TabViewer 调用
     pub(crate) fn render_er_diagram_in_ui(&mut self, ui: &mut egui::Ui) {
-        let theme_preset = self.theme_manager.current;
+        let theme_preset = self.state.theme_manager.current;
         let er_is_focused = self.focus_area == ui::FocusArea::ErDiagram
             && !self.has_modal_dialog_open();
         let er_response = self.er_diagram_state.show(ui, &theme_preset, er_is_focused);
@@ -537,7 +537,7 @@ impl DbManagerApp {
                     &mut self.history_index,
                     self.executing,
                     &latest_msg,
-                    &self.highlight_colors,
+                    &self.state.highlight_colors,
                     self.last_query_time_ms,
                     &self.autocomplete,
                     &mut self.show_autocomplete,
@@ -698,10 +698,10 @@ impl DbManagerApp {
 
         // 缩放操作
         if actions.zoom_in {
-            self.set_ui_scale(ctx, self.ui_scale + 0.1);
+            self.set_ui_scale(ctx, self.state.ui_scale + 0.1);
         }
         if actions.zoom_out {
-            self.set_ui_scale(ctx, self.ui_scale - 0.1);
+            self.set_ui_scale(ctx, self.state.ui_scale - 0.1);
         }
         if actions.zoom_reset {
             self.set_ui_scale(ctx, 1.0);

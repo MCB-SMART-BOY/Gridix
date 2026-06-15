@@ -130,6 +130,8 @@ pub struct DbManagerApp {
     tab_manager: QueryTabManager,
     /// 会话状态 — 聚合 DB 连接、异步基础设施、请求追踪（渐进迁移中）
     session: crate::session::Session,
+    /// UI 状态 — 聚合渲染状态（渐进迁移中）
+    state: crate::state::UiState,
 
     // ==================== 异步通信 ====================
     /// 消息接收端，UI 线程轮询获取异步结果
@@ -219,10 +221,6 @@ pub struct DbManagerApp {
     pending_filter_input_focus: Option<usize>,
 
     // ==================== 主题和外观 ====================
-    /// 主题管理器
-    theme_manager: ThemeManager,
-    /// 语法高亮颜色配置
-    highlight_colors: HighlightColors,
     /// 上次查询耗时（毫秒）
     last_query_time_ms: Option<u64>,
 
@@ -276,9 +274,7 @@ pub struct DbManagerApp {
     /// 当前显式 dialog owner（输入/渲染优先走这里，再兼容回退到可见性采样）
     active_dialog_owner: Option<DialogId>,
     /// 用户设置的 UI 缩放比例
-    ui_scale: f32,
     /// 系统基础 DPI 缩放
-    base_pixels_per_point: f32,
     /// DDL 对话框状态（新建表等）
     ddl_dialog_state: DdlDialogState,
     /// 新建数据库对话框状态
@@ -359,8 +355,9 @@ impl DbManagerApp {
         let session = crate::session::Session::new(runtime, tx.clone());
 
         ui::sync_runtime_local_shortcuts(&keybindings);
-        let theme_manager = ThemeManager::new(app_config.theme_preset);
-        let highlight_colors = HighlightColors::from_theme(&theme_manager.colors);
+        let _theme_manager = ThemeManager::new(app_config.theme_preset);
+        let _highlight_colors = HighlightColors::from_theme(&theme_manager.colors);
+        self.state.highlight_colors = HighlightColors::from_theme(&self.state.theme_manager.colors);
         let query_history = app_config.query_history.clone();
 
         // 应用主题
@@ -393,6 +390,7 @@ impl DbManagerApp {
             result: None,
             tab_manager: QueryTabManager::new(),
             session,
+            state: crate::state::UiState::default(),
             rx,
             connecting: false,
             executing: false,
