@@ -103,7 +103,7 @@ impl DbManagerApp {
 
         let tx = self.session.tx.clone();
         self.import_executing = true;
-        self.refresh_executing_flag();
+        self.session.refresh_executing_flag();
         self.last_query_time_ms = None;
 
         self.session.runtime.spawn(async move {

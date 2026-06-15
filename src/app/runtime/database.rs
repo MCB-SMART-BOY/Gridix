@@ -97,7 +97,7 @@ impl DbManagerApp {
         if let Some(conn) = self.manager.connections.get(&name) {
             let config = conn.config.clone();
             let tx = self.session.tx.clone();
-            let request_id = self.next_connect_request_id();
+            let request_id = self.session.next_connect_request_id();
 
             self.manager.active = Some(name.clone());
             self.pending_connect_requests
@@ -109,7 +109,7 @@ impl DbManagerApp {
             self.sidebar_panel_state.loading_routines = false;
             self.sidebar_panel_state.clear_triggers();
             self.sidebar_panel_state.clear_routines();
-            self.refresh_connecting_flag();
+            self.session.refresh_connecting_flag();
 
             tracing::info!(connection = %name, db_type = ?config.db_type, "开始连接数据库");
 
@@ -164,7 +164,7 @@ impl DbManagerApp {
         };
         let config = conn.config.clone();
         let tx = self.session.tx.clone();
-        let request_id = self.next_connect_request_id();
+        let request_id = self.session.next_connect_request_id();
 
         self.pending_database_requests
             .insert(active_name.clone(), (database.clone(), request_id));
@@ -174,7 +174,7 @@ impl DbManagerApp {
         self.sidebar_panel_state.loading_routines = false;
         self.sidebar_panel_state.clear_triggers();
         self.sidebar_panel_state.clear_routines();
-        self.refresh_connecting_flag();
+        self.session.refresh_connecting_flag();
 
         self.session.runtime.spawn(async move {
             use tokio::time::{Duration, timeout};
@@ -252,7 +252,7 @@ impl DbManagerApp {
             self.sidebar_panel_state.loading_triggers = false;
             self.sidebar_panel_state.loading_routines = false;
         }
-        self.refresh_connecting_flag();
+        self.session.refresh_connecting_flag();
     }
 
     /// 删除连接配置
@@ -421,7 +421,7 @@ impl DbManagerApp {
         if let Some(prev_request_id) = previous_request_id {
             self.cancel_query_request_silently(prev_request_id);
         }
-        self.refresh_executing_flag();
+        self.session.refresh_executing_flag();
 
         let tx_tab_id = target_tab_id;
         let task_conn_name = active_name.clone();

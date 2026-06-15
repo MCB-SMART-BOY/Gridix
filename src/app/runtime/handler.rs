@@ -277,7 +277,7 @@ impl DbManagerApp {
             return;
         }
         self.pending_connect_requests.remove(&name);
-        self.refresh_connecting_flag();
+        self.session.refresh_connecting_flag();
 
         let is_active = self.manager.active.as_deref() == Some(name.as_str());
         match result {
@@ -333,7 +333,7 @@ impl DbManagerApp {
             return;
         }
         self.pending_connect_requests.remove(&name);
-        self.refresh_connecting_flag();
+        self.session.refresh_connecting_flag();
 
         let is_active = self.manager.active.as_deref() == Some(name.as_str());
         match result {
@@ -388,7 +388,7 @@ impl DbManagerApp {
             return;
         }
         self.pending_database_requests.remove(&conn_name);
-        self.refresh_connecting_flag();
+        self.session.refresh_connecting_flag();
 
         let is_active = self.manager.active.as_deref() == Some(conn_name.as_str());
         match result {
@@ -595,7 +595,7 @@ impl DbManagerApp {
                         request_id,
                         "忽略过期查询回包（请求已被新查询覆盖或标签已关闭）"
                     );
-                    self.refresh_executing_flag();
+                    self.session.refresh_executing_flag();
                     ctx.request_repaint();
                     return;
                 }
@@ -701,7 +701,7 @@ impl DbManagerApp {
                         error = %e,
                         "忽略过期查询错误回包（请求已被新查询覆盖或标签已关闭）"
                     );
-                    self.refresh_executing_flag();
+                    self.session.refresh_executing_flag();
                     ctx.request_repaint();
                     return;
                 }
@@ -711,7 +711,7 @@ impl DbManagerApp {
                     if is_drop_table {
                         self.pending_drop_requests.remove(&request_id);
                     }
-                    self.refresh_executing_flag();
+                    self.session.refresh_executing_flag();
                     ctx.request_repaint();
                     return;
                 }
@@ -761,7 +761,7 @@ impl DbManagerApp {
                 }
             }
         }
-        self.refresh_executing_flag();
+        self.session.refresh_executing_flag();
         ctx.request_repaint();
     }
     /// 处理导入完成消息
@@ -772,7 +772,7 @@ impl DbManagerApp {
         elapsed_ms: u64,
     ) {
         self.import_executing = false;
-        self.refresh_executing_flag();
+        self.session.refresh_executing_flag();
 
         match result {
             Ok(report) => {

@@ -14,7 +14,7 @@ impl DbManagerApp {
         {
             let config = conn.config.clone();
             let database = conn.selected_database.clone();
-            let request_id = self.next_metadata_request_id();
+            let request_id = self.session.next_metadata_request_id();
             let tx = self.session.tx.clone();
 
             self.sidebar_panel_state.loading_triggers = true;
@@ -49,7 +49,7 @@ impl DbManagerApp {
         {
             let config = conn.config.clone();
             let database = conn.selected_database.clone();
-            let request_id = self.next_metadata_request_id();
+            let request_id = self.session.next_metadata_request_id();
             let tx = self.session.tx.clone();
 
             self.sidebar_panel_state.loading_routines = true;

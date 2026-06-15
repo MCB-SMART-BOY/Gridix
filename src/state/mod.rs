@@ -51,7 +51,7 @@ pub struct UiState {
 impl Default for UiState {
     fn default() -> Self {
         let theme_manager = ThemeManager::default();
-        let highlight_colors = HighlightColors::from_theme(&theme_manager.colors());
+        let highlight_colors = HighlightColors::from_theme(&theme_manager.colors);
         Self {
             focus_area: FocusArea::DataGrid,
             sidebar_section: SidebarSection::Tables,

@@ -130,7 +130,7 @@ impl DbManagerApp {
         self.pending_query_connections.remove(&request_id);
         self.pending_drop_requests.remove(&request_id);
         self.clear_tab_pending_request(request_id);
-        self.refresh_executing_flag();
+        self.session.refresh_executing_flag();
     }
 
     /// 取消某个连接关联的所有查询请求

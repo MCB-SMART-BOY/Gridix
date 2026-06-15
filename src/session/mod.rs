@@ -112,4 +112,54 @@ impl Session {
     pub fn active_result(&self) -> Option<&QueryResult> {
         self.tab_manager.get_active().and_then(|t| t.result.as_ref())
     }
+
+    // ── 请求 ID 生成 ──
+
+    fn next_nonzero_request_id(counter: &mut u64) -> u64 {
+        *counter = counter.wrapping_add(1);
+        if *counter == 0 {
+            *counter = 1;
+        }
+        *counter
+    }
+
+    pub fn next_connect_request_id(&mut self) -> u64 {
+        Self::next_nonzero_request_id(&mut self.next_connect_request_id)
+    }
+
+    pub fn next_metadata_request_id(&mut self) -> u64 {
+        Self::next_nonzero_request_id(&mut self.next_metadata_request_id)
+    }
+
+    // ── 执行状态刷新 ──
+
+    pub fn refresh_connecting_flag(&mut self) {
+        let has_pending = self.manager.active.as_ref().is_some_and(|active_name| {
+            self.pending_connect_requests.contains_key(active_name)
+                || self.pending_database_requests.contains_key(active_name)
+        });
+        self.connecting = has_pending;
+    }
+
+    pub fn refresh_executing_flag(&mut self) {
+        let query_executing = self.tab_manager.tabs.iter().any(|t| t.executing);
+        self.executing = self.import_executing || query_executing;
+    }
+
+    // ── 查询任务追踪 ──
+
+    pub fn track_query_task(
+        &mut self,
+        request_id: u64,
+        conn_name: String,
+        handle: tokio::task::JoinHandle<()>,
+        cancel_sender: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
+    ) {
+        if let Some(prev_handle) = self.pending_query_tasks.insert(request_id, handle) {
+            prev_handle.abort();
+        }
+        self.pending_query_connections.insert(request_id, conn_name);
+        self.pending_query_cancellers
+            .insert(request_id, cancel_sender);
+    }
 }
