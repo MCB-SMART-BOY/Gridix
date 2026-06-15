@@ -511,18 +511,21 @@ impl DbManagerApp {
         if self.tab_manager.tabs.is_empty() {
             self.tab_manager.new_tab();
         }
+        // 在获取 &mut sql 之前提取不可变值
+        let active_tab_message = self
+            .tab_manager
+            .tabs
+            .get(self.tab_manager.active_index)
+            .and_then(|tab| tab.last_message.as_deref())
+            .map(|s| s.to_owned());
         let tab_sql = &mut self.tab_manager.tabs[self.tab_manager.active_index].sql;
 
         ui.allocate_ui_with_layout(
             egui::vec2(ui.available_width(), editor_height),
             egui::Layout::top_down(egui::Align::LEFT),
             |ui| {
-                let active_tab_message = self
-                    .tab_manager
-                    .get_active()
-                    .and_then(|tab| tab.last_message.as_deref());
                 let latest_msg = select_sql_editor_status_message(
-                    active_tab_message,
+                    active_tab_message.as_deref(),
                     self.notifications.latest_message(),
                 );
                 let mut request_editor_widget_focus =

@@ -180,7 +180,7 @@ impl ActionContext {
                 .as_ref()
                 .is_some_and(|result| !result.rows.is_empty()),
             selected_table: app.selected_table.clone(),
-            has_sql: !app.sql.trim().is_empty(),
+            has_sql: !app.active_sql().trim().is_empty(),
             has_search_text: !app.search_text.trim().is_empty(),
             grid_has_changes: app.grid_state.has_changes(),
             query_tab_count: app.tab_manager.tabs.len(),
@@ -1137,9 +1137,9 @@ impl DbManagerApp {
                 self.close_active_query_tab();
                 Vec::new()
             }
-            AppAction::RunCurrentSql => vec![AppEffect::ExecuteSql(self.sql.clone())],
+            AppAction::RunCurrentSql => vec![AppEffect::ExecuteSql(self.active_sql().clone())],
             AppAction::ClearCommandLine => {
-                self.sql.clear();
+                self.set_active_sql(String::new());
                 self.notifications.dismiss_all();
                 Vec::new()
             }
@@ -1218,7 +1218,7 @@ impl DbManagerApp {
                         format!("DESCRIBE `{}`;", escaped)
                     }
                 };
-                self.sql.clear();
+                self.set_active_sql(String::new());
                 vec![AppEffect::ExecuteSql(schema_sql)]
             }
             AppAction::RecheckEnvironment => vec![AppEffect::RefreshWelcomeEnvironment],
@@ -1274,7 +1274,7 @@ impl DbManagerApp {
         };
 
         if clear_sql {
-            self.sql.clear();
+            self.set_active_sql(String::new());
         }
 
         let mut effects = vec![AppEffect::ExecuteSql(query_sql)];

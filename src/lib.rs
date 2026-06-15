@@ -32,6 +32,7 @@ pub mod core;
 pub mod database;
 pub mod prelude;
 pub mod session;
+pub mod state;
 pub mod ui;
 
 // ============================================================================
