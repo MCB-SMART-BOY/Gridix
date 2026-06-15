@@ -23,10 +23,8 @@ result
 
 # AI / agent tooling (local only)
 AGENTS.md
-CLAUDE.md
 GEMINI.md
 QWEN.md
-.claude/
 .cursor/
 .cursorrules
 .copilot/
@@ -39,6 +37,9 @@ QWEN.md
 .codex/
 .llm/
 .promptfoo/
+
+# Claude tooling — shared with team
+# CLAUDE.md and .claude/ are tracked
 
 flake.nix
 flake.lock
