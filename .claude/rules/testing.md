@@ -67,7 +67,7 @@ async fn test_query() {
 - If testing egui keyboard behavior, use `egui::Event::Key` with `Key::Character` or `Key::Named`
 - For input routing tests, reference the ~115 tests in `input_router.rs` as patterns
 - MySQL integration tests must be `#[ignore]`d — they need external DB
-- No shared test utilities exist yet — if you create one, put it in `tests/common/mod.rs`
+- Shared test utilities: `tests/common/mod.rs` provides `begin_key_pass()` and `focus_text_input()`. Use `mod common;` in external test files.
 
 ## Known gaps
 

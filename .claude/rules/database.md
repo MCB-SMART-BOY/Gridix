@@ -18,10 +18,6 @@ Three backends with divergent patterns:
 
 Orchestrator: `database/query/mod.rs` dispatches via `match db_type`.
 
-## The DatabaseDriver trait (aspirational — NOT used)
-
-`database/driver.rs` defines `DatabaseDriver` trait with ~11 operations. This is aspirational — actual dispatch is via `match db_type` in `query/mod.rs`. Do NOT implement this trait for new backends until the architecture is unified.
-
 ## Connection lifecycle
 
 1. `connect()` in `app/runtime/database.rs` → spawns async task with timeout
@@ -64,6 +60,7 @@ This is deliberate — avoids sentinel values for distinguishing NULL from empty
 - `russh` + `known_hosts` verification
 - Config rewritten to `127.0.0.1:<dynamic_port>` before connecting
 - `pool_route_key_material()` includes tunnel routing so pool keys remain stable after rewrite
+- `SshError::HostKeyVerification` — distinct error variant for known_hosts mismatch vs. missing known_hosts
 
 ## Error handling
 

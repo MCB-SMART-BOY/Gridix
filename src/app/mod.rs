@@ -10,13 +10,11 @@
 //! - `runtime`: 数据库请求、异步消息、元数据和请求生命周期
 //! - `surfaces`: 主渲染循环、对话框和偏好设置
 //! - `workflow`: 导入导出、帮助和欢迎页用户流程
-//! - `state`: 应用状态定义
 
 mod action;
 mod dialogs;
 mod input;
 mod runtime;
-pub mod state;
 mod surfaces;
 mod workflow;
 

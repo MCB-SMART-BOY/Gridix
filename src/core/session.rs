@@ -73,10 +73,6 @@ pub struct SessionState {
     #[serde(default = "default_sidebar_width")]
     pub sidebar_width: f32,
 
-    /// 中央面板分割比例（SQL 编辑器 vs 数据表格）
-    #[serde(default = "default_central_panel_ratio")]
-    pub central_panel_ratio: f32,
-
     /// 是否显示侧边栏
     #[serde(default = "default_show_sidebar")]
     pub show_sidebar: bool,
@@ -111,10 +107,6 @@ pub struct WindowState {
 
 fn default_sidebar_width() -> f32 {
     250.0
-}
-
-fn default_central_panel_ratio() -> f32 {
-    0.3 // SQL 编辑器占 30%
 }
 
 fn default_show_sidebar() -> bool {
@@ -230,20 +222,6 @@ impl SessionState {
         self.last_connection = connection;
         self.last_database = database;
         self.last_table = table;
-    }
-
-    /// 记录 UI 布局
-    pub fn record_layout(
-        &mut self,
-        sidebar_width: f32,
-        central_panel_ratio: f32,
-        show_sidebar: bool,
-        show_sql_editor: bool,
-    ) {
-        self.sidebar_width = sidebar_width;
-        self.central_panel_ratio = central_panel_ratio;
-        self.show_sidebar = show_sidebar;
-        self.show_sql_editor = show_sql_editor;
     }
 
     /// 是否有有效的会话数据

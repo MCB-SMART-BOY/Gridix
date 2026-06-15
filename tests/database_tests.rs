@@ -1,46 +1,9 @@
 //! 数据库模块测试
 
 use gridix::database::{
-    ConnectionConfig, DatabaseType, DriverCapabilities, DriverInfo, DriverRegistry, MySqlSslMode,
-    PostgresSslMode, SshAuthMethod, SshTunnelConfig,
+    ConnectionConfig, DatabaseType, MySqlSslMode, PostgresSslMode, SshAuthMethod,
+    SshTunnelConfig,
 };
-
-// ============================================================================
-// Driver 测试
-// ============================================================================
-
-#[test]
-fn test_driver_capabilities() {
-    let sqlite = DriverCapabilities::for_db_type(DatabaseType::SQLite);
-    assert!(!sqlite.user_management);
-    assert!(sqlite.transactions);
-
-    let postgres = DriverCapabilities::for_db_type(DatabaseType::PostgreSQL);
-    assert!(postgres.user_management);
-    assert!(postgres.stored_procedures);
-
-    let mysql = DriverCapabilities::for_db_type(DatabaseType::MySQL);
-    assert!(mysql.user_management);
-    assert!(mysql.batch_insert);
-}
-
-#[test]
-fn test_driver_registry() {
-    let registry = DriverRegistry::new();
-    assert!(registry.registered_types().is_empty());
-}
-
-#[test]
-fn test_driver_info() {
-    let info = DriverInfo::new(
-        "SQLite Driver",
-        "1.0.0",
-        DatabaseType::SQLite,
-        "SQLite database driver",
-    );
-    assert_eq!(info.name, "SQLite Driver");
-    assert_eq!(info.db_type, DatabaseType::SQLite);
-}
 
 // ============================================================================
 // SSH Tunnel 测试

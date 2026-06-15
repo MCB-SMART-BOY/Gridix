@@ -1,28 +1,20 @@
 //! SQL 语法高亮模块
 //!
-//! 使用 syntect 库提供专业级的 SQL 语法高亮，支持多种主题。
+//! 使用自定义 tokenizer 进行 SQL 语法高亮。
 
 use super::theme::ThemeColors;
 use egui::{Color32, FontFamily, FontId, TextFormat, text::LayoutJob};
-use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use syntect::highlighting::{Style, ThemeSet};
-use syntect::parsing::SyntaxSet;
+use std::sync::LazyLock;
 
 // ============================================================================
-// 全局语法高亮资源（延迟初始化）
+// 全局高亮缓存
 // ============================================================================
-
-/// 全局语法集（包含 SQL 语法定义）
-static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines);
-
-/// 全局主题集
-static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
 
 /// 高亮缓存（避免重复计算）
-static HIGHLIGHT_CACHE: Lazy<RwLock<HighlightCache>> =
-    Lazy::new(|| RwLock::new(HighlightCache::new(500)));
+static HIGHLIGHT_CACHE: LazyLock<RwLock<HighlightCache>> =
+    LazyLock::new(|| RwLock::new(HighlightCache::new(500)));
 
 // ============================================================================
 // 高亮缓存
@@ -470,21 +462,11 @@ struct Token {
 /// SQL 语法高亮器
 pub struct SqlHighlighter {
     pub colors: HighlightColors,
-    use_syntect: bool,
 }
 
 impl SqlHighlighter {
     pub fn new(colors: HighlightColors) -> Self {
-        // 为了与应用主题（尤其是 Tokyo Night 系）保持一致，默认使用自定义高亮配色。
-        // syntect 主题作为后续可选增强保留。
-        const ENABLE_SYNTECT_THEME: bool = false;
-        let use_syntect =
-            ENABLE_SYNTECT_THEME && SYNTAX_SET.find_syntax_by_extension("sql").is_some();
-
-        Self {
-            colors,
-            use_syntect,
-        }
+        Self { colors }
     }
 
     /// 创建带语法高亮的 LayoutJob
@@ -498,11 +480,7 @@ impl SqlHighlighter {
         }
 
         // 计算高亮
-        let job = if self.use_syntect {
-            self.highlight_with_syntect(text)
-        } else {
-            self.highlight_fallback(text)
-        };
+        let job = self.highlight_fallback(text);
 
         // 存入缓存
         {
@@ -513,110 +491,7 @@ impl SqlHighlighter {
         job
     }
 
-    /// 使用 syntect 进行高亮
-    fn highlight_with_syntect(&self, text: &str) -> LayoutJob {
-        use syntect::easy::HighlightLines;
-
-        let syntax = SYNTAX_SET
-            .find_syntax_by_extension("sql")
-            .unwrap_or_else(|| SYNTAX_SET.find_syntax_plain_text());
-
-        // 选择合适的主题
-        let theme_name = if self.is_dark_theme() {
-            "base16-ocean.dark"
-        } else {
-            "base16-ocean.light"
-        };
-
-        let Some(theme) = THEME_SET
-            .themes
-            .get(theme_name)
-            .or_else(|| THEME_SET.themes.values().next())
-        else {
-            return self.highlight_fallback(text);
-        };
-
-        let mut highlighter = HighlightLines::new(syntax, theme);
-        let mut job = LayoutJob::default();
-        let font_id = FontId::new(14.0, FontFamily::Monospace);
-
-        for line in text.lines() {
-            match highlighter.highlight_line(line, &SYNTAX_SET) {
-                Ok(ranges) => {
-                    for (style, text_part) in ranges {
-                        let color = self.syntect_style_to_color(&style);
-                        job.append(
-                            text_part,
-                            0.0,
-                            TextFormat {
-                                font_id: font_id.clone(),
-                                color,
-                                ..Default::default()
-                            },
-                        );
-                    }
-                }
-                Err(_) => {
-                    // 高亮失败，使用默认颜色
-                    job.append(
-                        line,
-                        0.0,
-                        TextFormat {
-                            font_id: font_id.clone(),
-                            color: self.colors.default,
-                            ..Default::default()
-                        },
-                    );
-                }
-            }
-            // 添加换行符
-            job.append(
-                "\n",
-                0.0,
-                TextFormat {
-                    font_id: font_id.clone(),
-                    color: self.colors.default,
-                    ..Default::default()
-                },
-            );
-        }
-
-        // 移除最后多余的换行符
-        if text.ends_with('\n') || job.text.ends_with("\n\n") {
-            // 保持原样
-        } else if job.text.ends_with('\n') && !text.ends_with('\n') {
-            job.text.pop();
-            if let Some(section) = job.sections.last_mut()
-                && section.byte_range.end > job.text.len()
-            {
-                section.byte_range.end = job.text.len();
-            }
-        }
-
-        job
-    }
-
-    /// 将 syntect 样式转换为 egui 颜色
-    fn syntect_style_to_color(&self, style: &Style) -> Color32 {
-        Color32::from_rgba_unmultiplied(
-            style.foreground.r,
-            style.foreground.g,
-            style.foreground.b,
-            style.foreground.a,
-        )
-    }
-
-    /// 判断是否是深色主题
-    fn is_dark_theme(&self) -> bool {
-        // 通过背景色亮度判断
-        let r = self.colors.default.r() as u32;
-        let g = self.colors.default.g() as u32;
-        let b = self.colors.default.b() as u32;
-        let luminance = (r * 299 + g * 587 + b * 114) / 1000;
-        luminance > 128
-    }
-
-    /// 使用自定义 tokenizer 的回退高亮方式
+    /// 使用自定义 tokenizer 进行高亮
     fn highlight_fallback(&self, text: &str) -> LayoutJob {
         let mut job = LayoutJob::default();
         let tokens = self.tokenize(text);

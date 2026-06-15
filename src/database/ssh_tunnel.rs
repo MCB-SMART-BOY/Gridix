@@ -23,6 +23,8 @@ pub enum SshError {
     Connection(String),
     #[error("SSH 认证失败: {0}")]
     Authentication(String),
+    #[error("SSH 主机密钥验证失败: {0}")]
+    HostKeyVerification(String),
     #[error("隧道创建失败: {0}")]
     Tunnel(String),
     #[error("IO 错误: {0}")]
@@ -225,7 +227,7 @@ impl Handler for SshClientHandler {
                     tracing::error!(
                         host = %host,
                         port,
-                        "SSH 服务器密钥未在 known_hosts 中找到或不匹配"
+                        "SSH 主机密钥不匹配 — known_hosts 中已有不同密钥，可能是服务器重装或中间人攻击"
                     );
                     Ok(false)
                 }
@@ -234,7 +236,8 @@ impl Handler for SshClientHandler {
                         host = %host,
                         port,
                         error = %e,
-                        "SSH 服务器密钥校验失败"
+                        "SSH 主机密钥不在 known_hosts 中 — 请先通过 ssh <user>@{} 手动连接以信任主机密钥",
+                        host
                     );
                     Ok(false)
                 }

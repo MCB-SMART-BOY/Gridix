@@ -240,6 +240,23 @@ fn test_multicolumn_select() {
     assert!(formatted.contains("SELECT"));
 }
 
+#[test]
+fn test_cte_formatting() {
+    let sql = "with cte as (select id from users) select * from cte";
+    let formatted = format_sql(sql);
+    assert!(formatted.contains("WITH"));
+    assert!(formatted.contains("SELECT"));
+}
+
+#[test]
+fn test_recursive_cte_formatting() {
+    let sql = "with recursive cte as (select 1 union all select n+1 from cte where n<10) select * from cte";
+    let formatted = format_sql(sql);
+    assert!(formatted.contains("WITH"));
+    assert!(formatted.contains("RECURSIVE"));
+    assert!(formatted.contains("SELECT"));
+}
+
 // ============================================================================
 // Syntax Highlighter 测试
 // ============================================================================

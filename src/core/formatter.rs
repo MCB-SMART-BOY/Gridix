@@ -10,6 +10,8 @@ pub fn format_sql(sql: &str) -> String {
 
     // 主要关键字 - 需要新行
     let major_keywords = [
+        "WITH",
+        "RECURSIVE",
         "SELECT",
         "FROM",
         "WHERE",

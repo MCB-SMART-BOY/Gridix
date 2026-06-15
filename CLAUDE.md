@@ -4,7 +4,7 @@ Keyboard-first cross-platform database management desktop app.
 Rust + eframe/egui 0.34.1. SQLite, PostgreSQL, MySQL.
 Tokio async runtime. Helix-inspired modal editing throughout.
 
-**Deps:** russh 0.61, tokio-postgres 0.7.18, rusqlite 0.39, mysql_async 0.36, syntect 5.3, egui_dock 0.19.
+**Deps:** russh 0.61, tokio-postgres 0.7.18, rusqlite 0.39, mysql_async 0.36, egui_dock 0.19.
 **Toolchain:** rust-toolchain.toml (stable), cargo-audit in CI.
 **Binaries:** `gridix` (GUI), `check-doc-links` (link validator), `gridix-driver` (headless driver).
 **Code is the source of truth.** When docs and code disagree, code wins. Update `.claude/` after code changes (`.claude/rules/sync-claude.md`).
@@ -66,14 +66,13 @@ src/
 │   │   ├── render.rs (1831 lines)  # run_frame() main loop: reconcile owner → messages → input → dialogs → panels
 │   │   ├── dialogs.rs   # render_dialogs() + handle_dialog_results()
 │   │   └── preferences.rs  # set_ui_scale (0.5–2.0 clamp), set_theme, save_config
-│   ├── state/mod.rs     # (planned) structured state — currently most state inlined in DbManagerApp
 │   └── workflow/        # export, import (rfd::FileDialog), help (learning sample DB, 8 tables/100+ rows), welcome
 ├── core/                # framework-agnostic
 │   ├── config.rs        # AppConfig (TOML, atomic temp-file+rename, Unix 0o600)
 │   ├── keybindings.rs   # Action (35 variants), KeyBindings, keymap.toml engine, scope_resolution_chain()
 │   ├── commands.rs      # ~100 ScopedCommand entries with default_bindings
 │   ├── theme.rs         # ThemeManager, 18 ThemePresets (default: TokyoNightStorm dark, TokyoNightLight light)
-│   ├── syntax.rs        # SQL highlighting — custom tokenizer (110 keywords, 85 functions), syntect (disabled)
+│   ├── syntax.rs        # SQL highlighting — custom tokenizer (110 keywords, 85 functions)
 │   ├── autocomplete.rs  # SQL completion — keywords, functions, tables, columns, WHERE-context aware
 │   ├── export.rs        # CSV/TSV/SQL/JSON export + import parsing (csv crate, manual JSON parser)
 │   ├── transfer.rs      # Unified TransferSession→Plan→Execution pipeline (wraps export.rs)
@@ -84,7 +83,6 @@ src/
 │   ├── progress.rs      # ProgressTask with Arc<AtomicBool> cancel token
 │   └── constants.rs     # All magic numbers (pool sizes, timeouts, scale limits, cache sizes)
 ├── database/
-│   ├── driver.rs        # DatabaseDriver trait (aspirational — NOT used by actual impls)
 │   ├── config.rs        # ConnectionConfig — AES-256-GCM encrypted passwords, keyring via password_ref UUID
 │   ├── connection.rs    # ConnectionManager — HashMap registry, active tracking
 │   ├── pool.rs          # Manual pooling: MySQL pools (idle TTL + LRU eviction), PG clients (health-check), SQLite none

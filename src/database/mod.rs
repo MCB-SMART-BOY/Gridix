@@ -8,7 +8,6 @@
 
 mod config;
 mod connection;
-mod driver;
 mod error;
 mod pool;
 mod query;
@@ -53,9 +52,3 @@ pub use query::{
 #[allow(unused_imports)] // SshTunnelConfig 公开 API
 pub use ssh_tunnel::{SshAuthMethod, SshTunnelConfig};
 
-// 驱动抽象
-#[allow(unused_imports)] // 驱动抽象 API，供未来扩展使用
-pub use driver::{
-    ColumnMeta, ConnectResultType, DatabaseDriver, DriverCapabilities, DriverInfo, DriverRegistry,
-    TableMeta,
-};
