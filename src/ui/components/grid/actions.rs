@@ -114,7 +114,9 @@ fn escape_result_cell(value: &str, is_null: bool) -> String {
 }
 
 fn escape_editor_input(value: &str) -> String {
-    if value.is_empty() || value.eq_ignore_ascii_case("null") {
+    // Only truly empty input means NULL. The literal string "null" is a valid value.
+    // Users can type \N or use the right-click menu to explicitly set NULL.
+    if value.is_empty() {
         "NULL".to_string()
     } else {
         escape_value(value)
@@ -127,9 +129,17 @@ pub fn generate_save_sql(
     state: &mut DataGridState,
     table_name: &str,
     actions: &mut DataGridActions,
+    db_type: Option<crate::database::DatabaseType>,
 ) {
-    // 验证表名
-    let safe_table_name = match escape_identifier(table_name) {
+    // Determine quoting style: backticks for MySQL, double-quotes for PG/SQLite.
+    // SQLite supports both; PostgreSQL requires double-quotes; MySQL requires backticks.
+    let use_backticks = matches!(
+        db_type,
+        Some(crate::database::DatabaseType::MySQL)
+    );
+
+    // 验证并引用表名
+    let safe_table_name = match quote_identifier(table_name, use_backticks) {
         Ok(name) => name,
         Err(e) => {
             actions.message = Some(format!("表名无效: {}", e));
@@ -137,10 +147,10 @@ pub fn generate_save_sql(
         }
     };
 
-    // 验证所有列名
+    // 验证并引用所有列名
     let mut safe_columns: Vec<String> = Vec::new();
     for col in &result.columns {
-        match escape_identifier(col) {
+        match quote_identifier(col, use_backticks) {
             Ok(name) => safe_columns.push(name),
             Err(e) => {
                 actions.message = Some(format!("列名无效: {}", e));
@@ -290,7 +300,7 @@ mod tests {
 
         state.modified_cells.insert((0, 1), "bob".to_string());
 
-        generate_save_sql(&result, &mut state, "users", &mut actions);
+        generate_save_sql(&result, &mut state, "users", &mut actions, None);
 
         assert_eq!(actions.sql_to_execute.len(), 1);
         assert_eq!(state.modified_cells.get(&(0, 1)), Some(&"bob".to_string()));
@@ -304,7 +314,7 @@ mod tests {
         let mut actions = DataGridActions::default();
 
         state.rows_to_delete.push(0);
-        generate_save_sql(&result, &mut state, "users", &mut actions);
+        generate_save_sql(&result, &mut state, "users", &mut actions, None);
 
         assert!(state.show_save_confirm);
         assert_eq!(state.pending_sql.len(), 1);
@@ -324,7 +334,7 @@ mod tests {
         let mut actions = DataGridActions::default();
 
         state.rows_to_delete.push(0);
-        generate_save_sql(&result, &mut state, "users", &mut actions);
+        generate_save_sql(&result, &mut state, "users", &mut actions, None);
 
         cancel_pending_sql(&mut state);
 

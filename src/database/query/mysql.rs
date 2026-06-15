@@ -666,7 +666,7 @@ pub async fn get_columns(
           AND c.TABLE_NAME = '{}'
         ORDER BY c.ORDINAL_POSITION
         "#,
-        table.replace('\'', "''")
+        table.replace('\\', "\\\\").replace('\'', "''")
     );
 
     let result: Vec<mysql_async::Row> = conn

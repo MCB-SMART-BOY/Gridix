@@ -152,7 +152,7 @@ impl DataGrid {
         // 处理 Ctrl+S 保存请求
         if state.pending_save && state.has_changes() {
             if let Some(table) = table_name {
-                actions::generate_save_sql(result, state, table, &mut actions);
+                actions::generate_save_sql(result, state, table, &mut actions, None);
             }
             state.pending_save = false;
         } else if state.pending_save {
@@ -516,7 +516,7 @@ impl DataGrid {
                     .clicked()
                     && let Some(table) = table_name
                 {
-                    actions::generate_save_sql(result, state, table, actions);
+                    actions::generate_save_sql(result, state, table, actions, None);
                 }
 
                 let discard_color = if has_changes {

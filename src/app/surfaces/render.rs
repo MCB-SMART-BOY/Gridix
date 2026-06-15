@@ -127,10 +127,6 @@ impl DbManagerApp {
             self.new_config = ConnectionConfig::default();
         }
 
-        // SQL 编辑器操作（将在主内容区内部渲染）
-        let mut sql_editor_actions = SqlEditorActions::default();
-        let mut welcome_action = None;
-
         // ===== 中心面板 =====
         let central_frame = egui::Frame::NONE
             .fill(ctx.global_style().visuals.panel_fill)
@@ -142,27 +138,10 @@ impl DbManagerApp {
         egui::CentralPanel::default()
             .frame(central_frame)
             .show_inside(root_ui, |ui| {
-                // 准备连接、数据库和表列表数据（提前克隆以避免借用冲突）
+                // 准备连接列表（侧边栏使用）
                 let mut connections: Vec<String> =
                     self.manager.connections.keys().cloned().collect();
                 connections.sort_unstable();
-                let active_connection = self.manager.active.clone();
-                let (databases, selected_database, tables): (
-                    Vec<String>,
-                    Option<String>,
-                    Vec<String>,
-                ) = self
-                    .manager
-                    .get_active()
-                    .map(|c| {
-                        (
-                            c.databases.clone(),
-                            c.selected_database.clone(),
-                            c.tables.clone(),
-                        )
-                    })
-                    .unwrap_or_default();
-                let selected_table_for_toolbar = self.selected_table.clone();
 
                 // 使用 horizontal 布局：侧边栏 + 分割条 + 主内容区
                 let available_width = ui.available_width();
@@ -282,521 +261,23 @@ impl DbManagerApp {
                         }
                     }
 
-                    // ===== 主内容区 =====
+                    // ===== 主内容区 — egui_dock DockArea =====
                     ui.allocate_ui_with_layout(
                         egui::vec2(main_width, available_height),
                         egui::Layout::top_down(egui::Align::LEFT),
                         |ui| {
                             ui.set_min_size(egui::vec2(main_width, available_height));
-
-                            // 添加左边距（仅当侧边栏显示时不需要，否则需要）
-                            let content_margin = if self.show_sidebar { 0 } else { 8 };
-                            egui::Frame::NONE
-                                .inner_margin(egui::Margin {
-                                    left: content_margin,
-                                    right: 8,
-                                    top: 8,
-                                    bottom: 8,
-                                })
-                                .show(ui, |ui| {
-                                    // 工具栏
-                                    let is_toolbar_focused =
-                                        self.focus_area == ui::FocusArea::Toolbar;
-                                    let mut toolbar_clicked = false;
-                                    let cancel_task_id = ui
-                                        .scope(|ui| {
-                                            let cancel_task_id = ui::Toolbar::show_with_focus(
-                                                ui,
-                                                &self.theme_manager,
-                                                &self.keybindings,
-                                                self.result.is_some(),
-                                                self.show_sidebar,
-                                                self.show_sql_editor,
-                                                self.app_config.is_dark_mode,
-                                                &mut toolbar_actions,
-                                                &connections,
-                                                active_connection.as_deref(),
-                                                &databases,
-                                                selected_database.as_deref(),
-                                                &tables,
-                                                selected_table_for_toolbar.as_deref(),
-                                                self.ui_scale,
-                                                &self.progress,
-                                                is_toolbar_focused,
-                                                self.toolbar_index,
-                                            );
-                                            if ui.ui_contains_pointer()
-                                                && ui.input(|input| input.pointer.primary_clicked())
-                                            {
-                                                toolbar_clicked = true;
-                                            }
-                                            cancel_task_id
-                                        })
-                                        .inner;
-
-                                    if toolbar_clicked {
-                                        self.set_focus_area(ui::FocusArea::Toolbar);
-                                    }
-
-                                    // 处理进度任务取消
-                                    if let Some(id) = cancel_task_id {
-                                        self.progress.cancel(id);
-                                    }
-
-                                    // 如果焦点在工具栏，处理键盘输入
-                                    if self.focus_area == ui::FocusArea::Toolbar {
-                                        ui::Toolbar::handle_keyboard(
-                                            ui,
-                                            &mut self.toolbar_index,
-                                            &mut toolbar_actions,
-                                        );
-
-                                        // 显示焦点提示
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                egui::RichText::new("工具栏焦点")
-                                                    .small()
-                                                    .color(self.highlight_colors.keyword),
-                                            );
-                                            ui.label(
-                                                egui::RichText::new(format!(
-                                                    " {}:移动  {}:Tab栏  {}:选择",
-                                                    ui::local_shortcuts_text(&[
-                                                        ui::LocalShortcut::ToolbarPrev,
-                                                        ui::LocalShortcut::ToolbarNext,
-                                                    ]),
-                                                    ui::local_shortcut_text(
-                                                        ui::LocalShortcut::ToolbarToQueryTabs,
-                                                    ),
-                                                    ui::local_shortcut_text(
-                                                        ui::LocalShortcut::ToolbarActivate,
-                                                    ),
-                                                ))
-                                                    .small()
-                                                    .color(egui::Color32::GRAY),
-                                            );
-                                        });
-
-                                        // 处理焦点转移
-                                        if let Some(transfer) = toolbar_actions.focus_transfer {
-                                            match transfer {
-                                                ui::ToolbarFocusTransfer::ToQueryTabs => {
-                                                    self.set_focus_area(ui::FocusArea::QueryTabs);
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    ui.separator();
-
-                                    // Tab 栏（多查询窗口）
-                                    let mut tab_clicked = false;
-                                    let mut tab_actions = ui
-                                        .scope(|ui| {
-                                            let actions = ui::QueryTabBar::show(
-                                                ui,
-                                                &self.tab_manager.tabs,
-                                                self.tab_manager.active_index,
-                                                &self.highlight_colors,
-                                                &self.keybindings,
-                                            );
-                                            if ui.ui_contains_pointer()
-                                                && ui.input(|input| input.pointer.primary_clicked())
-                                            {
-                                                tab_clicked = true;
-                                            }
-                                            actions
-                                        })
-                                        .inner;
-
-                                    if tab_clicked {
-                                        self.set_focus_area(ui::FocusArea::QueryTabs);
-                                    }
-
-                                    // 如果焦点在Tab栏，处理键盘输入
-                                    if self.focus_area == ui::FocusArea::QueryTabs {
-                                        ui::QueryTabBar::handle_keyboard(
-                                            ui,
-                                            self.tab_manager.tabs.len(),
-                                            self.tab_manager.active_index,
-                                            &mut tab_actions,
-                                        );
-
-                                        // 显示焦点提示
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                egui::RichText::new("TAB焦点")
-                                                    .small()
-                                                    .color(self.highlight_colors.keyword),
-                                            );
-                                            ui.label(
-                                                egui::RichText::new(
-                                                    format!(
-                                                        " {}:切换  {}:表格  {}:工具栏  {}:删除",
-                                                        ui::local_shortcuts_text(&[
-                                                            ui::LocalShortcut::QueryTabPrev,
-                                                            ui::LocalShortcut::QueryTabNext,
-                                                        ]),
-                                                        ui::local_shortcut_text(
-                                                            ui::LocalShortcut::QueryTabToDataGrid,
-                                                        ),
-                                                        ui::local_shortcut_text(
-                                                            ui::LocalShortcut::QueryTabToToolbar,
-                                                        ),
-                                                        ui::local_shortcut_text(
-                                                            ui::LocalShortcut::QueryTabClose,
-                                                        ),
-                                                    ),
-                                                )
-                                                .small()
-                                                .color(egui::Color32::GRAY),
-                                            );
-                                        });
-                                    }
-
-                                    // 处理Tab栏焦点转移
-                                    if let Some(transfer) = tab_actions.focus_transfer {
-                                        match transfer {
-                                            ui::TabBarFocusTransfer::ToToolbar => {
-                                                self.set_focus_area(ui::FocusArea::Toolbar);
-                                            }
-                                            ui::TabBarFocusTransfer::ToDataGrid => {
-                                                self.set_focus_area(ui::FocusArea::DataGrid);
-                                            }
-                                        }
-                                    }
-
-                                    self.handle_tab_actions(&ctx, tab_actions);
-
-                                    ui.separator();
-
-                                    // 计算数据表格和 SQL 编辑器的高度分配
-                                    let total_content_height = ui.available_height();
-                                    let sql_editor_height = if self.show_sql_editor {
-                                        clamped_sql_editor_height(
-                                            self.sql_editor_height,
-                                            total_content_height,
-                                        )
-                                    } else {
-                                        0.0
-                                    };
-                                    let divider_height =
-                                        if self.show_sql_editor { 6.0 } else { 0.0 };
-                                    let data_grid_height =
-                                        (total_content_height - sql_editor_height - divider_height)
-                                            .max(0.0);
-
-                                    // 数据表格区域（支持左右分割显示 ER 图）
-                                    ui.allocate_ui_with_layout(
-                                        egui::vec2(ui.available_width(), data_grid_height),
-                                        egui::Layout::top_down(egui::Align::LEFT),
-                                        |ui| {
-                                            let active_query_error = self
-                                                .tab_manager
-                                                .get_active()
-                                                .and_then(|tab| tab.last_error.clone());
-                                            let workspace_surface =
-                                                classify_workspace_surface(
-                                                    self.result.as_ref(),
-                                                    active_query_error.as_deref(),
-                                                );
-
-                                            if self.show_er_diagram {
-                                                // 左右分割布局 - 使用 horizontal 和固定宽度的子区域
-                                                let available_width = ui.available_width();
-                                                let available_height = data_grid_height;
-                                                let divider_width = 8.0;
-                                                let left_width = (available_width - divider_width)
-                                                    * self.central_panel_ratio;
-                                                let right_width =
-                                                    available_width - left_width - divider_width;
-                                                let theme_preset = self.theme_manager.current;
-
-                                                ui.horizontal(|ui| {
-                                                    // 左侧：数据表格
-                                                    ui.allocate_ui_with_layout(
-                                                        egui::vec2(left_width, available_height),
-                                                        egui::Layout::top_down(egui::Align::LEFT),
-                                                        |ui| {
-                                                            ui.set_min_size(egui::vec2(
-                                                                left_width,
-                                                                available_height,
-                                                            ));
-
-                                                            if workspace_surface
-                                                                == WorkspaceSurface::TabularResult
-                                                            {
-                                                                if let Some(result) = &self.result {
-                                                                    self.grid_state.focused = self
-                                                                        .focus_area
-                                                                        == ui::FocusArea::DataGrid
-                                                                        && !self
-                                                                            .has_modal_dialog_open(
-                                                                            );
-
-                                                                    let table_name = self
-                                                                        .selected_table
-                                                                        .as_deref();
-                                                                    let (grid_actions, _) =
-                                                                        ui::DataGrid::show_editable(
-                                                                            ui,
-                                                                            result,
-                                                                            &self.search_text,
-                                                                            &self.search_column,
-                                                                            &mut self.selected_row,
-                                                                            &mut self.selected_cell,
-                                                                            &mut self.grid_state,
-                                                                            table_name,
-                                                                            &self.keybindings,
-                                                                        );
-
-                                                                    if grid_actions
-                                                                        .open_filter_panel
-                                                                    {
-                                                                        self.dispatch_app_action(
-                                                                            &ctx,
-                                                                            AppAction::OpenFilterWorkspace,
-                                                                        );
-                                                                    }
-                                                                }
-                                                            } else if workspace_surface
-                                                                == WorkspaceSurface::QueryError
-                                                            {
-                                                                Self::render_query_error_surface(
-                                                                    ui,
-                                                                    active_query_error
-                                                                        .as_deref()
-                                                                        .unwrap_or("查询失败"),
-                                                                );
-                                                            } else {
-                                                                welcome_action = ui::Welcome::show(
-                                                                    ui,
-                                                                    self.welcome_status,
-                                                                    &self.keybindings,
-                                                                );
-                                                            }
-                                                        },
-                                                    );
-
-                                                    // 可拖动的垂直分割条
-                                                    let (divider_rect, divider_response) = ui
-                                                        .allocate_exact_size(
-                                                            egui::vec2(
-                                                                divider_width,
-                                                                available_height,
-                                                            ),
-                                                            egui::Sense::drag(),
-                                                        );
-
-                                                    // 绘制分割条
-                                                    let divider_color = if divider_response
-                                                        .dragged()
-                                                        || divider_response.hovered()
-                                                    {
-                                                        egui::Color32::from_rgb(100, 150, 255)
-                                                    } else {
-                                                        egui::Color32::from_rgba_unmultiplied(
-                                                            128, 128, 128, 80,
-                                                        )
-                                                    };
-
-                                                    ui.painter().rect_filled(
-                                                        divider_rect.shrink2(egui::vec2(2.0, 4.0)),
-                                                        egui::CornerRadius::same(2),
-                                                        divider_color,
-                                                    );
-
-                                                    // 中间的拖动指示器（三个小点）
-                                                    let center = divider_rect.center();
-                                                    for offset in [-10.0, 0.0, 10.0] {
-                                                        ui.painter().circle_filled(
-                                                            egui::pos2(center.x, center.y + offset),
-                                                            2.0,
-                                                            egui::Color32::from_gray(180),
-                                                        );
-                                                    }
-
-                                                    // 处理拖动
-                                                    if divider_response.dragged() {
-                                                        let delta = divider_response.drag_delta().x;
-                                                        let delta_ratio = delta / available_width;
-                                                        self.central_panel_ratio = (self
-                                                            .central_panel_ratio
-                                                            + delta_ratio)
-                                                            .clamp(0.2, 0.8);
-                                                    }
-
-                                                    // 鼠标光标
-                                                    if divider_response.hovered()
-                                                        || divider_response.dragged()
-                                                    {
-                                                        ui.ctx().set_cursor_icon(
-                                                            egui::CursorIcon::ResizeHorizontal,
-                                                        );
-                                                    }
-
-                                                    // 右侧：ER 关系图
-                                                    ui.allocate_ui_with_layout(
-                                                        egui::vec2(right_width, available_height),
-                                                        egui::Layout::top_down(egui::Align::LEFT),
-                                                        |ui| {
-                                                            ui.set_min_size(egui::vec2(
-                                                                right_width,
-                                                                available_height,
-                                                            ));
-
-                                                            let er_is_focused = self.focus_area
-                                                                == ui::FocusArea::ErDiagram
-                                                                && !self.has_modal_dialog_open();
-                                                            let er_response = self
-                                                                .er_diagram_state
-                                                                .show(
-                                                                    ui,
-                                                                    &theme_preset,
-                                                                    er_is_focused,
-                                                                );
-
-                                                            for action in collect_er_diagram_surface_actions(&er_response) {
-                                                                match action {
-                                                                    ErDiagramSurfaceAction::FocusDiagram => {
-                                                                        self.set_focus_area(
-                                                                            ui::FocusArea::ErDiagram,
-                                                                        );
-                                                                    }
-                                                                    ErDiagramSurfaceAction::RefreshData => {
-                                                                        self.load_er_diagram_data();
-                                                                    }
-                                                                    ErDiagramSurfaceAction::Relayout => {
-                                                                        let summary = ui::analyze_er_graph(
-                                                                            &self.er_diagram_state.tables,
-                                                                            &self.er_diagram_state.relationships,
-                                                                        );
-                                                                        ui::apply_er_layout_strategy(
-                                                                            &mut self.er_diagram_state.tables,
-                                                                            &self.er_diagram_state.relationships,
-                                                                            summary.strategy,
-                                                                        );
-                                                                    }
-                                                                    ErDiagramSurfaceAction::FitView => {
-                                                                        self.er_diagram_state
-                                                                            .fit_to_view(
-                                                                                ui.available_size(),
-                                                                            );
-                                                                    }
-                                                                }
-                                                            }
-                                                        },
-                                                    );
-                                                });
-                                            } else if workspace_surface
-                                                == WorkspaceSurface::TabularResult
-                                            {
-                                                if let Some(result) = &self.result {
-                                                    // 同步焦点状态：只有当全局焦点在 DataGrid 且没有对话框打开时才响应键盘
-                                                    self.grid_state.focused = self.focus_area
-                                                        == ui::FocusArea::DataGrid
-                                                        && !self.has_modal_dialog_open();
-
-                                                    let table_name = self.selected_table.as_deref();
-                                                    let (grid_actions, _) =
-                                                        ui::DataGrid::show_editable(
-                                                            ui,
-                                                            result,
-                                                            &self.search_text,
-                                                            &self.search_column,
-                                                            &mut self.selected_row,
-                                                            &mut self.selected_cell,
-                                                            &mut self.grid_state,
-                                                            table_name,
-                                                            &self.keybindings,
-                                                        );
-
-                                                    if let Some(msg) = grid_actions.message {
-                                                        self.notifications.info(msg);
-                                                    }
-
-                                                    if !grid_actions.sql_to_execute.is_empty() {
-                                                        let _ = self.execute_grid_save(
-                                                            grid_actions.sql_to_execute,
-                                                        );
-                                                    }
-
-                                                    if grid_actions.refresh_requested {
-                                                        self.dispatch_app_action(
-                                                            &ctx,
-                                                            AppAction::RefreshSelectedTable,
-                                                        );
-                                                    }
-
-                                                    if let Some(transfer) =
-                                                        grid_actions.focus_transfer
-                                                    {
-                                                        match transfer {
-                                                            ui::FocusTransfer::Sidebar => {
-                                                                self.show_sidebar = true;
-                                                                self.set_focus_area(
-                                                                    ui::FocusArea::Sidebar,
-                                                                );
-                                                            }
-                                                            ui::FocusTransfer::SqlEditor => {
-                                                                self.show_sql_editor = true;
-                                                                self.set_focus_area(
-                                                                    ui::FocusArea::SqlEditor,
-                                                                );
-                                                            }
-                                                            ui::FocusTransfer::QueryTabs => {
-                                                                self.set_focus_area(
-                                                                    ui::FocusArea::QueryTabs,
-                                                                );
-                                                            }
-                                                        }
-                                                    }
-
-                                                    if grid_actions.request_focus {
-                                                        self.set_focus_area(
-                                                            ui::FocusArea::DataGrid,
-                                                        );
-                                                    }
-
-                                                    if grid_actions.open_filter_panel {
-                                                        self.dispatch_app_action(
-                                                            &ctx,
-                                                            AppAction::OpenFilterWorkspace,
-                                                        );
-                                                    }
-
-                                                    if let Some(tab_idx) =
-                                                        grid_actions.switch_to_tab
-                                                    {
-                                                        self.dispatch_app_action(
-                                                            &ctx,
-                                                            AppAction::SwitchToQueryTab(tab_idx),
-                                                        );
-                                                    }
-                                                }
-                                            } else if workspace_surface
-                                                == WorkspaceSurface::QueryError
-                                            {
-                                                Self::render_query_error_surface(
-                                                    ui,
-                                                    active_query_error
-                                                        .as_deref()
-                                                        .unwrap_or("查询失败"),
-                                                );
-                                            } else {
-                                                welcome_action = ui::Welcome::show(
-                                                    ui,
-                                                    self.welcome_status,
-                                                    &self.keybindings,
-                                                );
-                                            }
-                                        },
-                                    ); // allocate_ui_with_layout 数据表格区域结束
-
-                                    // ===== SQL 编辑器 =====
-                                    sql_editor_actions =
-                                        self.render_sql_editor_in_ui(ui, total_content_height);
-                                }); // Frame 闭包结束
+                            // Take dock_state to avoid borrow conflict with viewer
+                            let mut dock = std::mem::replace(
+                                &mut self.dock_state,
+                                ui::dock_tabs::default_layout(),
+                            );
+                            ui::dock_tabs::sync_all(&mut dock, self);
+                            let mut viewer = ui::dock_tabs::WorkspaceViewer { app: self };
+                            egui_dock::DockArea::new(&mut dock)
+                                .show_inside(ui, &mut viewer);
+                            // Put dock_state back
+                            self.dock_state = dock;
                         },
                     ); // allocate_ui_with_layout 主内容区结束
                 }); // horizontal 布局结束
@@ -805,10 +286,6 @@ impl DbManagerApp {
         // ===== 处理各种操作 =====
         self.handle_toolbar_actions(&ctx, toolbar_actions);
         self.handle_sidebar_actions(&ctx, sidebar_actions);
-        self.handle_sql_editor_actions(sql_editor_actions);
-        if let Some(action) = welcome_action {
-            self.handle_welcome_action(&ctx, action);
-        }
         if matches!(self.active_dialog_id(), None | Some(DialogId::WelcomeSetup)) {
             self.show_welcome_setup_dialog_window(&ctx);
         }
@@ -834,8 +311,143 @@ impl DbManagerApp {
         }
     }
 
+    /// 渲染工作区内容（工具栏 + Tab栏 + 数据表格/欢迎页），供 egui_dock TabViewer 调用
+    pub(crate) fn render_workspace_content(&mut self, ui: &mut egui::Ui) {
+        // 工具栏
+        let is_toolbar_focused = self.focus_area == ui::FocusArea::Toolbar;
+        let mut toolbar_actions = ui::ToolbarActions::default();
+        let cancel_task_id = ui
+            .scope(|ui| {
+                let connections: Vec<String> = self.manager.connections.keys().cloned().collect();
+                let (databases, selected_database, tables) = self
+                    .manager
+                    .get_active()
+                    .map(|c| (c.databases.clone(), c.selected_database.clone(), c.tables.clone()))
+                    .unwrap_or_default();
+                let active_connection = self.manager.active.clone();
+                let selected_table = self.selected_table.clone();
+
+                let cid = ui::Toolbar::show_with_focus(
+                    ui,
+                    &self.theme_manager,
+                    &self.keybindings,
+                    self.result.is_some(),
+                    self.show_sidebar,
+                    self.show_sql_editor,
+                    self.app_config.is_dark_mode,
+                    &mut toolbar_actions,
+                    &connections,
+                    active_connection.as_deref(),
+                    &databases,
+                    selected_database.as_deref(),
+                    &tables,
+                    selected_table.as_deref(),
+                    self.ui_scale,
+                    &self.progress,
+                    is_toolbar_focused,
+                    self.toolbar_index,
+                );
+                if ui.ui_contains_pointer() && ui.input(|i| i.pointer.primary_clicked()) {
+                    self.set_focus_area(ui::FocusArea::Toolbar);
+                }
+                cid
+            })
+            .inner;
+        if let Some(id) = cancel_task_id {
+            self.progress.cancel(id);
+        }
+        if self.focus_area == ui::FocusArea::Toolbar {
+            ui::Toolbar::handle_keyboard(ui, &mut self.toolbar_index, &mut toolbar_actions);
+        }
+        self.handle_toolbar_actions(ui.ctx(), toolbar_actions);
+
+        ui.separator();
+
+        // Tab 栏 — dock tabs 提供原生标签UI，此处仅保留键盘快捷键处理
+        let mut tab_actions = ui::TabBarActions::default();
+        if self.focus_area == ui::FocusArea::QueryTabs {
+            ui::QueryTabBar::handle_keyboard(
+                ui,
+                self.tab_manager.tabs.len(),
+                self.tab_manager.active_index,
+                &mut tab_actions,
+            );
+        }
+        self.handle_tab_actions(ui.ctx(), tab_actions);
+
+        ui.separator();
+
+        // 数据表格 / 欢迎页 / 错误
+        let active_query_error = self.tab_manager.get_active()
+            .and_then(|tab| tab.last_error.clone());
+        let workspace_surface = classify_workspace_surface(
+            self.result.as_ref(),
+            active_query_error.as_deref(),
+        );
+
+        if workspace_surface == WorkspaceSurface::TabularResult {
+            if let Some(result) = &self.result {
+                self.grid_state.focused = self.focus_area == ui::FocusArea::DataGrid
+                    && !self.has_modal_dialog_open();
+                let table_name = self.selected_table.as_deref();
+                let (grid_actions, _) = ui::DataGrid::show_editable(
+                    ui, result,
+                    &self.search_text, &self.search_column,
+                    &mut self.selected_row, &mut self.selected_cell,
+                    &mut self.grid_state, table_name, &self.keybindings,
+                );
+                if grid_actions.open_filter_panel {
+                    let ctx = ui.ctx().clone();
+                    self.dispatch_app_action(&ctx, AppAction::OpenFilterWorkspace);
+                }
+            }
+        } else if workspace_surface == WorkspaceSurface::QueryError {
+            Self::render_query_error_surface(ui, active_query_error.as_deref().unwrap_or("查询失败"));
+        } else {
+            // Welcome surface — show when no table is selected and no result exists
+            let action = ui::Welcome::show(ui, self.welcome_status, &self.keybindings);
+            if let Some(action) = action {
+                let ctx = ui.ctx().clone();
+                self.handle_welcome_action(&ctx, action);
+            }
+        }
+    }
+
+    /// 渲染 ER 关系图，供 egui_dock TabViewer 调用
+    pub(crate) fn render_er_diagram_in_ui(&mut self, ui: &mut egui::Ui) {
+        let theme_preset = self.theme_manager.current;
+        let er_is_focused = self.focus_area == ui::FocusArea::ErDiagram
+            && !self.has_modal_dialog_open();
+        let er_response = self.er_diagram_state.show(ui, &theme_preset, er_is_focused);
+        for action in collect_er_diagram_surface_actions(&er_response) {
+            match action {
+                ErDiagramSurfaceAction::FocusDiagram => {
+                    self.set_focus_area(ui::FocusArea::ErDiagram);
+                }
+                ErDiagramSurfaceAction::RefreshData => {
+                    self.load_er_diagram_data();
+                }
+                ErDiagramSurfaceAction::Relayout => {
+                    let summary = ui::analyze_er_graph(
+                        &self.er_diagram_state.tables,
+                        &self.er_diagram_state.relationships,
+                    );
+                    ui::apply_er_layout_strategy(
+                        &mut self.er_diagram_state.tables,
+                        &self.er_diagram_state.relationships,
+                        summary.strategy,
+                    );
+                }
+                ErDiagramSurfaceAction::FitView => {
+                    let available_size = ui.available_size();
+                    self.er_diagram_state.fit_to_view(available_size);
+                }
+            }
+        }
+    }
+
     /// 渲染 SQL 编辑器面板（在主内容区内部渲染，不遮挡侧边栏）
-    pub(in crate::app) fn render_sql_editor_in_ui(
+    pub(crate) fn render_sql_editor_in_ui(
         &mut self,
         ui: &mut egui::Ui,
         available_height: f32,
@@ -932,7 +544,7 @@ impl DbManagerApp {
     }
 
     /// 处理 SQL 编辑器操作
-    pub(in crate::app) fn handle_sql_editor_actions(&mut self, actions: SqlEditorActions) {
+    pub(crate) fn handle_sql_editor_actions(&mut self, actions: SqlEditorActions) {
         // 执行查询
         if actions.execute && !self.sql.is_empty() {
             let sql = self.sql.clone();
@@ -1552,6 +1164,32 @@ impl DbManagerApp {
             }
             self.sync_from_active_tab();
         }
+    }
+
+    /// 渲染辅助面板，供 egui_dock AuxPanel 调用
+    pub(crate) fn render_aux_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        kind: ui::dock_tabs::AuxPanelKind,
+    ) {
+        use ui::dock_tabs::AuxPanelKind;
+        ui.vertical_centered(|ui| {
+            ui.add_space(20.0);
+            match kind {
+                AuxPanelKind::Help => {
+                    ui.heading("帮助和学习");
+                    ui.label("按 F1 或使用菜单打开帮助面板");
+                }
+                AuxPanelKind::Keybindings => {
+                    ui.heading("快捷键设置");
+                    ui.label("使用 设置 → 快捷键 菜单打开快捷键编辑器");
+                }
+                AuxPanelKind::History => {
+                    ui.heading("查询历史");
+                    ui.label("使用 工具栏 → 历史 菜单打开查询历史");
+                }
+            }
+        });
     }
 }
 

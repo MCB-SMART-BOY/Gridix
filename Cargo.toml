@@ -46,7 +46,7 @@ tokio = { version = "1", features = [
 # 数据库驱动
 # -----------------------------------------------------------------------------
 rusqlite = { version = "0.39", features = ["bundled"] }
-tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+tokio-postgres = { version = "0.7.18", features = ["with-chrono-0_4"] }
 postgres-native-tls = "0.5"
 native-tls = "0.2"
 mysql_async = { version = "0.36", default-features = false, features = ["default"] }
@@ -54,7 +54,7 @@ mysql_async = { version = "0.36", default-features = false, features = ["default
 # -----------------------------------------------------------------------------
 # SSH 隧道支持
 # -----------------------------------------------------------------------------
-russh = "0.58.1"
+russh = "0.61"
 async-trait = "0.1"
 
 # -----------------------------------------------------------------------------
@@ -118,6 +118,7 @@ keyring = "3"
 # -----------------------------------------------------------------------------
 regex = "1"
 uuid = { version = "1", features = ["v4"] }
+egui_dock = "0.19"
 
 # =============================================================================
 # 开发依赖
@@ -127,6 +128,22 @@ uuid = { version = "1", features = ["v4"] }
 tokio-test = "0.4"
 tempfile = "3.10"
 pretty_assertions = "1.4"
+
+# =============================================================================
+# 二进制目标
+# =============================================================================
+
+[[bin]]
+name = "gridix"
+path = "src/main.rs"
+
+[[bin]]
+name = "check-doc-links"
+path = "src/bin/check_doc_links.rs"
+
+[[bin]]
+name = "gridix-driver"
+path = "src/bin/gridix_driver.rs"
 
 # =============================================================================
 # 构建配置

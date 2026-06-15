@@ -266,6 +266,8 @@ pub struct DbManagerApp {
     editor_mode: ui::EditorMode,
 
     // ==================== UI 显示状态 ====================
+    /// egui_dock 布局状态（管理主工作区的面板布局）
+    dock_state: egui_dock::DockState<ui::dock_tabs::DockTab>,
     /// SQL 编辑器是否展开显示
     show_sql_editor: bool,
     /// SQL 编辑器是否需要获取焦点
@@ -324,8 +326,6 @@ pub struct DbManagerApp {
     toolbar_theme_dialog_state: ui::ToolbarThemeDialogState,
     /// 命令面板状态
     command_palette_state: CommandPaletteState,
-    /// 中央面板左右分割比例 (0.0-1.0, 左侧占比)
-    central_panel_ratio: f32,
     /// 是否显示 ER 图面板
     show_er_diagram: bool,
     /// ER 图状态
@@ -449,6 +449,7 @@ impl DbManagerApp {
             show_autocomplete: false,
             selected_completion: 0,
             editor_mode: ui::EditorMode::Normal,
+            dock_state: ui::dock_tabs::default_layout(),
             show_sql_editor: false,
             focus_sql_editor: false,
             show_sidebar: false,
@@ -478,7 +479,6 @@ impl DbManagerApp {
             toolbar_create_menu_state: ui::ToolbarMenuDialogState::default(),
             toolbar_theme_dialog_state: ui::ToolbarThemeDialogState::default(),
             command_palette_state: CommandPaletteState::default(),
-            central_panel_ratio: 0.65,
             show_er_diagram: false,
             er_diagram_state: ui::ERDiagramState::new(),
             sql_editor_height: 200.0, // 默认 SQL 编辑器高度
@@ -486,6 +486,44 @@ impl DbManagerApp {
         };
         app.refresh_welcome_environment_status();
         app
+    }
+
+    // ==================== egui_dock 集成访问器 ====================
+
+    pub(crate) fn tab_manager(&self) -> &QueryTabManager {
+        &self.tab_manager
+    }
+
+    pub(crate) fn tab_manager_mut(&mut self) -> &mut QueryTabManager {
+        &mut self.tab_manager
+    }
+
+    pub(crate) fn show_er_diagram(&self) -> bool {
+        self.show_er_diagram
+    }
+
+    pub(crate) fn show_sql_editor(&self) -> bool {
+        self.show_sql_editor
+    }
+
+    /// Dock tab 关闭时的清理：持久化状态、取消查询、移除工作区
+    pub(crate) fn on_dock_tab_close(&mut self, tab_index: usize) {
+        self.persist_active_tab_state_for_navigation();
+        // Clone needed values before mutable operations
+        let pending_id = self.tab_manager.tabs
+            .get(tab_index)
+            .and_then(|tab| tab.pending_request_id);
+        let tab_id = self.tab_manager.tabs
+            .get(tab_index)
+            .map(|tab| tab.id.clone());
+        if let Some(request_id) = pending_id {
+            self.cancel_query_request_silently(request_id);
+        }
+        if let Some(ref id) = tab_id {
+            self.remove_grid_workspaces_for_tab(id);
+        }
+        self.tab_manager.close_tab(tab_index);
+        self.sync_from_active_tab();
     }
 
     #[cfg(test)]
@@ -571,7 +609,7 @@ impl DbManagerApp {
         self.grid_workspaces.remove_connection(connection_name);
     }
 
-    pub(in crate::app) fn remove_grid_workspaces_for_tab(&mut self, tab_id: &str) {
+    pub(crate) fn remove_grid_workspaces_for_tab(&mut self, tab_id: &str) {
         self.grid_workspaces.remove_tab(tab_id);
     }
 

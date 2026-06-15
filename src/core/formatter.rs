@@ -51,7 +51,6 @@ pub fn format_sql(sql: &str) -> String {
     // 规范化空白字符
     let normalized: String = sql.split_whitespace().collect::<Vec<_>>().join(" ");
 
-    let upper = normalized.to_uppercase();
     let chars: Vec<char> = normalized.chars().collect();
     let mut i = 0;
 
@@ -117,15 +116,21 @@ pub fn format_sql(sql: &str) -> String {
             continue;
         }
 
-        // 检查主要关键字
-        let remaining = &upper[i..];
+        // 检查主要关键字 — 使用字符数组避免字节索引问题
         let mut found_keyword = false;
 
         for keyword in &major_keywords {
-            if remaining.starts_with(keyword) {
-                // 确保是完整的关键字（后面是空格或结束）
-                let kw_len = keyword.len();
-                if i + kw_len <= chars.len() {
+            let kw_chars: Vec<char> = keyword.chars().collect();
+            let kw_len = kw_chars.len();
+
+            // Compare case-insensitively using chars (avoid byte-index panic)
+            if i + kw_len <= chars.len() {
+                let slice = &chars[i..i + kw_len];
+                let matches_kw = slice.iter().zip(kw_chars.iter())
+                    .all(|(a, b)| a.to_ascii_uppercase() == b.to_ascii_uppercase());
+
+                if matches_kw {
+                    // 确保是完整的关键字（后面是空格或结束，不是字母数字）
                     let next_char = if i + kw_len < chars.len() {
                         Some(chars[i + kw_len])
                     } else {
@@ -139,7 +144,7 @@ pub fn format_sql(sql: &str) -> String {
                         }
                         result.push_str(&"    ".repeat(indent_level));
 
-                        // 添加关键字（保持原始大小写但转为大写）
+                        // 添加关键字（大写形式）
                         result.push_str(keyword);
 
                         // 特定关键字后设置标记

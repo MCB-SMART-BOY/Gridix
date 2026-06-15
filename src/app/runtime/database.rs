@@ -238,8 +238,13 @@ impl DbManagerApp {
         self.cancel_queries_for_connection(&name);
         self.pending_connect_requests.remove(&name);
         self.pending_database_requests.remove(&name);
-        self.pending_triggers_request = None;
-        self.pending_routines_request = None;
+        // Only clear metadata requests belonging to the disconnecting connection
+        if self.pending_triggers_request.as_ref().is_some_and(|(cn, _, _)| cn == &name) {
+            self.pending_triggers_request = None;
+        }
+        if self.pending_routines_request.as_ref().is_some_and(|(cn, _, _)| cn == &name) {
+            self.pending_routines_request = None;
+        }
         self.pending_drop_requests
             .retain(|_, (conn_name, _)| conn_name != &name);
         self.remove_grid_workspaces_for_connection(&name);

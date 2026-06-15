@@ -35,33 +35,23 @@ impl PoolManager {
     ) -> Result<mysql_async::Pool, DbError> {
         let key = config.pool_key();
 
-        // 先尝试读取缓存并验证连接池健康
+        // 检查缓存并验证连接池健康 — 健康检查和移除在写锁内原子执行
         let cached_pool = {
-            let pools = self.mysql_pools.read().await;
-            pools.get(&key).map(|(pool, _)| pool.clone())
+            let mut pools = self.mysql_pools.write().await;
+            if let Some((pool, last_used)) = pools.get_mut(&key) {
+                // 尝试获取连接以验证连接池是否健康
+                if pool.get_conn().await.is_ok() {
+                    *last_used = Instant::now();
+                    return Ok(pool.clone());
+                }
+                // 不健康 — 移除并断开
+                let (pool, _) = pools.remove(&key).expect("just checked");
+                Some(pool)
+            } else {
+                None
+            }
         };
         if let Some(pool) = cached_pool {
-            // 尝试获取连接以验证连接池是否健康
-            match pool.get_conn().await {
-                Ok(_) => {
-                    let mut pools = self.mysql_pools.write().await;
-                    if let Some((_, last_used)) = pools.get_mut(&key) {
-                        *last_used = Instant::now();
-                    }
-                    return Ok(pool);
-                }
-                Err(_) => {
-                    // 连接池不健康，稍后会重新创建
-                }
-            }
-        }
-
-        // 移除失效的连接池
-        let invalid_pool = {
-            let mut pools = self.mysql_pools.write().await;
-            pools.remove(&key).map(|(pool, _)| pool)
-        };
-        if let Some(pool) = invalid_pool {
             pool.disconnect().await.ok();
         }
 
@@ -202,26 +192,17 @@ impl PoolManager {
     ) -> Result<Arc<tokio_postgres::Client>, DbError> {
         let key = config.pool_key();
 
-        // 先尝试读取缓存并验证连接健康
-        let cached_client = {
-            let clients = self.pg_clients.read().await;
-            clients.get(&key).map(|(client, _)| client.clone())
-        };
-        if let Some(client) = cached_client {
-            // 检查连接是否仍然有效
-            if !client.is_closed() {
-                let mut clients = self.pg_clients.write().await;
-                if let Some((_, last_used)) = clients.get_mut(&key) {
-                    *last_used = Instant::now();
-                }
-                return Ok(client);
-            }
-        }
-
-        // 移除失效的连接
+        // 检查缓存并验证连接健康 — 在写锁内原子执行
         {
             let mut clients = self.pg_clients.write().await;
-            clients.remove(&key);
+            if let Some((client, last_used)) = clients.get_mut(&key) {
+                if !client.is_closed() {
+                    *last_used = Instant::now();
+                    return Ok(client.clone());
+                }
+                // 连接已关闭 — 移除
+                clients.remove(&key);
+            }
         }
 
         // 创建新连接（根据 SSL 模式选择连接方式）

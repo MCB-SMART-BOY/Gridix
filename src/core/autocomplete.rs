@@ -319,13 +319,15 @@ impl AutoComplete {
             .unwrap_or(text.len())
     }
 
+    /// Check if cursor is in a column context using word-boundary matching.
+    /// Uses regex to avoid false positives like `CONSTRAINT` matching `ON`.
     fn is_column_context(upper_text: &str) -> bool {
-        upper_text.contains("FROM")
-            || upper_text.contains("JOIN")
-            || upper_text.contains("WHERE")
-            || upper_text.contains("SELECT")
-            || upper_text.contains("HAVING")
-            || upper_text.contains("ON")
+        // \b word boundaries prevent substring matches: "ON" won't match inside "CONSTRAINT"
+        static COLUMN_CTX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+            regex::Regex::new(r"(?ix)\b(?:FROM|JOIN|WHERE|SELECT|HAVING|ON)\b")
+                .expect("valid regex")
+        });
+        COLUMN_CTX.is_match(upper_text)
     }
 
     fn extend_keyword_completions(&self, prefix: &str, completions: &mut Vec<CompletionItem>) {

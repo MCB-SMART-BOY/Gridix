@@ -998,6 +998,10 @@ fn handle_number_input(i: &egui::InputState, cmd: &mut CmdBuffer) -> bool {
         if i.key_pressed(key) {
             // 0 只有在已有计数时才追加，否则作为跳转到行首
             if digit == 0 && cmd.count.is_none() {
+                // 如果有活跃的前缀（如 "z"），清除它让 0 正确触发 JumpLineStart
+                if !cmd.keys.is_empty() {
+                    cmd.clear();
+                }
                 return false;
             }
             let current = cmd.count.unwrap_or(0);

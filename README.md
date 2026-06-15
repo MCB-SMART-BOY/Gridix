@@ -106,7 +106,7 @@ sudo zypper install gtk3-devel libxdo-devel
   Gridix 采用作用域感知的键盘优先交互模型。
 - `Tab / Shift+Tab` are default bindings for `next_focus_area / prev_focus_area`, not unconditional global-first keys.
   `Tab / Shift+Tab` 是 `next_focus_area / prev_focus_area` 的默认绑定，不是无条件 global-first 按键。
-- Full area-by-area guide / 分区域完整指南: [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md)
+- Full area-by-area guide / 分区域完整指南: see `.claude/CLAUDE.md` keyboard routing section
 
 ## Core Features | 核心能力
 | Area | Description |
@@ -128,10 +128,8 @@ sudo zypper install gtk3-devel libxdo-devel
 
 ## Documentation | 文档
 - Docs index / 文档索引: [docs/README.md](docs/README.md)
-- Getting started / 新手上手: [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)
-- Keyboard guide / 键盘指南: [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md)
-- Architecture / 架构说明: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Changelog / 版本变更: [docs/CHANGELOG.md](docs/CHANGELOG.md)
+- Learning curriculum / 学习路线: [docs/LEARNING_CURRICULUM.md](docs/LEARNING_CURRICULUM.md)
 
 ## Development | 开发
 ```bash

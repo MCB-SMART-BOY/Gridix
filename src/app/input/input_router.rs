@@ -1081,7 +1081,7 @@ impl DbManagerApp {
         }
     }
 
-    pub(in crate::app) fn toggle_sql_editor_visibility(&mut self) {
+    pub(crate) fn toggle_sql_editor_visibility(&mut self) {
         self.set_sql_editor_visible(!self.show_sql_editor);
     }
 
@@ -1168,7 +1168,7 @@ impl DbManagerApp {
         self.set_er_diagram_visible_with_notice(visible, ErDiagramVisibilityNotice::Default);
     }
 
-    pub(in crate::app) fn toggle_er_diagram_visibility(&mut self) {
+    pub(crate) fn toggle_er_diagram_visibility(&mut self) {
         self.set_er_diagram_visible(!self.show_er_diagram);
     }
 

@@ -34,6 +34,14 @@ jobs:
       - name: Test
         run: cargo test
 
+      - name: Doc links
+        run: cargo run --bin check-doc-links
+
+      - name: Security audit
+        run: |
+          cargo install cargo-audit
+          cargo audit
+
   build:
     strategy:
       matrix:

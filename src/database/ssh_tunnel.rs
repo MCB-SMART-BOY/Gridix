@@ -486,7 +486,7 @@ impl SshTunnelManager {
         name: &str,
         config: &SshTunnelConfig,
     ) -> Result<Arc<SshTunnel>, SshError> {
-        // 检查是否已有隧道
+        // 检查是否已有运行中的隧道
         {
             let tunnels = self.tunnels.read().await;
             if let Some(tunnel) = tunnels.get(name)
@@ -499,8 +499,15 @@ impl SshTunnelManager {
         // 创建新隧道
         let tunnel = Arc::new(SshTunnel::start(config).await?);
 
+        // 原子地存储或获取已有隧道（防止并发创建）
         {
             let mut tunnels = self.tunnels.write().await;
+            if let Some(existing) = tunnels.get(name)
+                && existing.is_running().await
+            {
+                // 另一个调用者已创建，使用已有的并丢弃新创建的
+                return Ok(existing.clone());
+            }
             tunnels.insert(name.to_string(), tunnel.clone());
         }
 

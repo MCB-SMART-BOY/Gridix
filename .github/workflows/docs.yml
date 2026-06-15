@@ -15,10 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Check local doc links
-        run: python scripts/check_doc_links.py
+      - name: Check doc links
+        run: cargo run --bin check-doc-links

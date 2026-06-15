@@ -2,6 +2,7 @@
 
 pub mod components;
 pub mod dialogs;
+pub mod dock_tabs;
 pub mod panels;
 mod shortcut_tooltip;
 pub mod styles;

@@ -32,7 +32,8 @@ fn test_parse_csv_line_preserves_whitespace() {
 fn test_sql_value_from_string() {
     assert_eq!(sql_value_from_string("123"), "123");
     assert_eq!(sql_value_from_string("3.14"), "3.14");
-    assert_eq!(sql_value_from_string("null"), "NULL");
+    // The literal string "null" is a valid CSV value, not SQL NULL
+    assert_eq!(sql_value_from_string("null"), "'null'");
     assert_eq!(sql_value_from_string("hello"), "'hello'");
     assert_eq!(sql_value_from_string("it's"), "'it''s'");
 }

@@ -1191,7 +1191,8 @@ pub fn json_value_to_sql(value: &serde_json::Value) -> String {
 pub fn sql_value_from_string(s: &str) -> String {
     let trimmed = s.trim();
 
-    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("null") {
+    // Only truly empty means NULL. The literal string "null" is a valid CSV value.
+    if trimmed.is_empty() {
         "NULL".to_string()
     } else if trimmed.parse::<i64>().is_ok() || trimmed.parse::<f64>().is_ok() {
         trimmed.to_string()

@@ -451,7 +451,17 @@ impl KeyModifiers {
 
     /// 检查是否匹配 egui 的修饰键状态
     pub fn matches(&self, mods: &Modifiers) -> bool {
-        self.ctrl == mods.ctrl && self.shift == mods.shift && self.alt == mods.alt
+        // Handle Cmd key: on macOS, the Command key is reported as `mac_cmd` in egui.
+        // On Linux with super-key remapping, it may appear as `command` without `mac_cmd`.
+        // We normalize by treating `command` as equivalent to `ctrl || mac_cmd` when
+        // our binding has `mac_cmd` set (meaning "Cmd/Ctrl either one").
+        let ctrl_match = if self.mac_cmd {
+            // Cmd binding: accept either Ctrl or Command (macOS convention)
+            self.ctrl == mods.ctrl || mods.command || mods.mac_cmd
+        } else {
+            self.ctrl == mods.ctrl
+        };
+        ctrl_match && self.shift == mods.shift && self.alt == mods.alt && self.mac_cmd == mods.mac_cmd
     }
 }
 

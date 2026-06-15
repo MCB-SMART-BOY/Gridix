@@ -24,7 +24,7 @@ impl DbManagerApp {
     }
 
     /// 从当前活动 Tab 同步 SQL 和结果到主视图
-    pub(in crate::app) fn sync_from_active_tab(&mut self) {
+    pub(crate) fn sync_from_active_tab(&mut self) {
         if let Some(tab) = self.tab_manager.get_active() {
             self.sql = tab.sql.clone();
             self.result = tab.result.clone();
