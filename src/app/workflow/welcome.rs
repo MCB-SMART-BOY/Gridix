@@ -135,7 +135,7 @@ impl DbManagerApp {
         match step {
             ui::WelcomeOnboardingStep::EnvironmentCheck => {
                 self.refresh_welcome_environment_status();
-                self.notifications.success("环境检测已完成");
+                self.session.notifications.success("环境检测已完成");
             }
             ui::WelcomeOnboardingStep::CreateConnection => {
                 self.open_connection_dialog_for(self.onboarding_target_db_type());
@@ -206,7 +206,7 @@ impl DbManagerApp {
         self.show_sql_editor = true;
         self.set_focus_area(ui::FocusArea::DataGrid);
         let _ = self.execute(sql.to_string());
-        self.notifications.info("已执行首条查询示例");
+        self.session.notifications.info("已执行首条查询示例");
     }
 
     pub(in crate::app) fn open_welcome_setup_dialog(&mut self, db_type: DatabaseType) {

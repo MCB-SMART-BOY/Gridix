@@ -227,7 +227,7 @@ impl DbManagerApp {
         self.command_palette_state.request_focus = false;
 
         if let Some(reason) = disabled_reason {
-            self.notifications.warning(reason);
+            self.session.notifications.warning(reason);
         }
 
         if let Some(action) = action_to_execute {

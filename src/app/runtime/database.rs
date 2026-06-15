@@ -286,11 +286,11 @@ impl DbManagerApp {
     /// 删除数据库（执行 DROP DATABASE）。
     pub(in crate::app) fn delete_database(&mut self, connection_name: &str, database: &str) {
         let Some(conn) = self.manager.connections.get(connection_name) else {
-            self.notifications.warning("目标连接已失效");
+            self.session.notifications.warning("目标连接已失效");
             return;
         };
         if !conn.connected {
-            self.notifications.warning("请先连接数据库");
+            self.session.notifications.warning("请先连接数据库");
             return;
         };
         if matches!(conn.config.db_type, crate::database::DatabaseType::SQLite) {
@@ -328,11 +328,11 @@ impl DbManagerApp {
     /// 删除表（执行 DROP TABLE）
     pub(in crate::app) fn delete_table(&mut self, connection_name: &str, table: &str) {
         let Some(conn) = self.manager.connections.get(connection_name) else {
-            self.notifications.warning("目标连接已失效");
+            self.session.notifications.warning("目标连接已失效");
             return;
         };
         if !conn.connected {
-            self.notifications.warning("请先连接数据库");
+            self.session.notifications.warning("请先连接数据库");
             return;
         }
         let target_connection = conn.config.name.clone();
@@ -341,7 +341,7 @@ impl DbManagerApp {
         let quoted_table = match ui::quote_identifier(table, use_backticks) {
             Ok(name) => name,
             Err(e) => {
-                self.notifications.error(format!("表名无效: {}", e));
+                self.session.notifications.error(format!("表名无效: {}", e));
                 return;
             }
         };
@@ -374,12 +374,12 @@ impl DbManagerApp {
         // 提前检查连接状态
         let Some(active_name) = self.manager.active.clone() else {
             tracing::warn!("尝试执行查询但未连接数据库");
-            self.notifications.warning("请先连接数据库");
+            self.session.notifications.warning("请先连接数据库");
             return None;
         };
         let Some(conn) = self.manager.connections.get(&active_name) else {
             tracing::warn!(connection = %active_name, "连接配置不存在");
-            self.notifications.warning("请先连接数据库");
+            self.session.notifications.warning("请先连接数据库");
             return None;
         };
 
@@ -520,10 +520,10 @@ impl DbManagerApp {
             .map(|cfg| Self::friendly_connection_error(cfg, &error))
             .unwrap_or_else(|| format!("连接失败：{}", error));
 
-        self.notifications.error(friendly);
+        self.session.notifications.error(friendly);
         if let Some(config) = conn_config {
             self.open_welcome_setup_dialog(config.db_type);
-            self.notifications.info(format!(
+            self.session.notifications.info(format!(
                 "已打开 {} 安装与初始化引导",
                 config.db_type.display_name()
             ));

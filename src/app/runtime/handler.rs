@@ -194,7 +194,7 @@ impl DbManagerApp {
         self.er_diagram_state.relationships = relationships;
         apply_ready_state_er_diagram_layout(&mut self.er_diagram_state);
 
-        self.notifications.info(er_diagram_ready_message(
+        self.session.notifications.info(er_diagram_ready_message(
             self.er_diagram_state.tables.len(),
             ready_kind,
         ));
@@ -287,7 +287,7 @@ impl DbManagerApp {
                 }
 
                 if is_active {
-                    self.notifications.success(format!(
+                    self.session.notifications.success(format!(
                         "已连接到 {} ({} 张表)",
                         name,
                         tables.len()
@@ -343,7 +343,7 @@ impl DbManagerApp {
                 }
 
                 if is_active {
-                    self.notifications.success(format!(
+                    self.session.notifications.success(format!(
                         "已连接到 {} ({} 个数据库)",
                         name,
                         databases.len()
@@ -398,7 +398,7 @@ impl DbManagerApp {
                 }
 
                 if is_active {
-                    self.notifications.success(format!(
+                    self.session.notifications.success(format!(
                         "已选择数据库 {} ({} 张表)",
                         db_name,
                         tables.len()
@@ -415,7 +415,7 @@ impl DbManagerApp {
             }
             Err(e) => {
                 if is_active {
-                    self.notifications.error(format!("选择数据库失败: {}", e));
+                    self.session.notifications.error(format!("选择数据库失败: {}", e));
                 }
             }
         }
@@ -628,7 +628,7 @@ impl DbManagerApp {
                         if should_update_active_query_time {
                             self.last_query_time_ms = Some(elapsed_ms);
                         }
-                        self.notifications.success(&msg);
+                        self.session.notifications.success(&msg);
                         self.selected_row = None;
                         self.selected_cell = None;
                         self.search_text.clear();
@@ -726,9 +726,9 @@ impl DbManagerApp {
                     format!("错误: {}", e)
                 };
                 if is_cancelled {
-                    self.notifications.warning(&err_msg);
+                    self.session.notifications.warning(&err_msg);
                 } else {
-                    self.notifications.error(&err_msg);
+                    self.session.notifications.error(&err_msg);
                 }
                 if let Some(idx) = target_tab_index {
                     let is_active_tab = idx == self.tab_manager.active_index;
@@ -777,20 +777,20 @@ impl DbManagerApp {
         match result {
             Ok(report) => {
                 if report.failed == 0 {
-                    self.notifications.success(format!(
+                    self.session.notifications.success(format!(
                         "导入完成：成功 {} / {} 条 ({}ms)",
                         report.succeeded, report.total, elapsed_ms
                     ));
                 } else {
                     let detail = report.first_error.as_deref().unwrap_or("部分语句执行失败");
-                    self.notifications.warning(format!(
+                    self.session.notifications.warning(format!(
                         "导入部分完成：成功 {}，失败 {}，总计 {} 条 ({}ms)。首个错误: {}",
                         report.succeeded, report.failed, report.total, elapsed_ms, detail
                     ));
                 }
             }
             Err(e) => {
-                self.notifications.error(format!("导入失败: {}", e));
+                self.session.notifications.error(format!("导入失败: {}", e));
             }
         }
 
@@ -875,7 +875,7 @@ impl DbManagerApp {
                 self.sidebar_panel_state.set_triggers(triggers);
             }
             Err(e) => {
-                self.notifications.error(format!("加载触发器失败: {}", e));
+                self.session.notifications.error(format!("加载触发器失败: {}", e));
             }
         }
         ctx.request_repaint();
@@ -924,7 +924,7 @@ impl DbManagerApp {
             Err(e) => {
                 // 对于 SQLite 不显示错误，因为它不支持存储过程
                 if !e.contains("不支持") {
-                    self.notifications.error(format!("加载存储过程失败: {}", e));
+                    self.session.notifications.error(format!("加载存储过程失败: {}", e));
                 }
             }
         }
@@ -951,7 +951,7 @@ impl DbManagerApp {
             }
             Err(e) => {
                 self.er_diagram_state.mark_foreign_keys_resolved();
-                self.notifications.error(format!("加载外键关系失败: {}", e));
+                self.session.notifications.error(format!("加载外键关系失败: {}", e));
                 self.finalize_er_diagram_load_if_ready();
             }
         }

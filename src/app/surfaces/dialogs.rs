@@ -385,7 +385,7 @@ impl DbManagerApp {
                 self.set_focus_area(ui::FocusArea::SqlEditor);
                 self.close_dialog(DialogId::Import);
                 self.import_state.clear();
-                self.notifications.success("SQL 已复制到编辑器");
+                self.session.notifications.success("SQL 已复制到编辑器");
             }
             ui::ImportAction::Close => {
                 self.import_state.clear();
@@ -420,7 +420,7 @@ impl DbManagerApp {
                     self.set_active_sql(sql);
                     self.show_sql_editor = true;
                     self.set_focus_area(ui::FocusArea::SqlEditor);
-                    self.notifications.info(format!(
+                    self.session.notifications.info(format!(
                         "SQL 已生成，按 {} 执行",
                         local_shortcut_text(LocalShortcut::SqlExecute)
                     ));
@@ -433,7 +433,7 @@ impl DbManagerApp {
             self.set_active_sql(statements.join("\n"));
             self.show_sql_editor = true;
             self.set_focus_area(ui::FocusArea::SqlEditor);
-            self.notifications.info(format!(
+            self.session.notifications.info(format!(
                 "SQL 已生成，按 {} 执行",
                 local_shortcut_text(LocalShortcut::SqlExecute)
             ));
@@ -459,9 +459,9 @@ impl DbManagerApp {
             self.keybindings = keybindings;
             ui::sync_runtime_local_shortcuts(&self.keybindings);
             if let Err(e) = self.keybindings.save_to_disk() {
-                self.notifications.error(format!("快捷键保存失败: {}", e));
+                self.session.notifications.error(format!("快捷键保存失败: {}", e));
             } else {
-                self.notifications.success("快捷键设置已保存");
+                self.session.notifications.success("快捷键设置已保存");
             }
         }
 

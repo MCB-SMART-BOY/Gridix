@@ -112,7 +112,7 @@ impl DbManagerApp {
         self.handle_zoom_shortcuts(&ctx);
 
         // 清理过期通知，如果有通知被清理则请求重绘
-        if self.notifications.tick() {
+        if self.session.notifications.tick() {
             ctx.request_repaint();
         }
 
@@ -306,7 +306,7 @@ impl DbManagerApp {
         ui::NotificationToast::show(&ctx, &self.notifications);
 
         // 持续刷新（有活动任务或有通知时需要刷新）
-        if self.connecting || self.executing || !self.notifications.is_empty() {
+        if self.connecting || self.executing || !self.session.notifications.is_empty() {
             ctx.request_repaint();
         }
     }
@@ -526,7 +526,7 @@ impl DbManagerApp {
             |ui| {
                 let latest_msg = select_sql_editor_status_message(
                     active_tab_message.as_deref(),
-                    self.notifications.latest_message(),
+                    self.session.notifications.latest_message(),
                 );
                 let mut request_editor_widget_focus =
                     is_editor_focused && self.editor_mode == ui::EditorMode::Insert;
@@ -576,7 +576,7 @@ impl DbManagerApp {
                 format!("EXPLAIN QUERY PLAN {}", sql)
             };
             let _ = self.execute(explain_sql);
-            self.notifications.info("正在分析执行计划...");
+            self.session.notifications.info("正在分析执行计划...");
         }
 
         // 格式化
@@ -593,7 +593,7 @@ impl DbManagerApp {
                 tab.modified = false;
                 tab.update_title();
             }
-            self.notifications.dismiss_all();
+            self.session.notifications.dismiss_all();
             self.last_query_time_ms = None;
         }
 
@@ -729,14 +729,14 @@ impl DbManagerApp {
         if let Some(conn) = self.manager.get_active() {
             let db_type = conn.config.db_type;
             if matches!(db_type, crate::database::DatabaseType::SQLite) {
-                self.notifications.warning("SQLite 不支持用户管理");
+                self.session.notifications.warning("SQLite 不支持用户管理");
             } else {
                 let databases = conn.databases.clone();
                 self.create_user_dialog_state.open(db_type, databases);
                 self.mark_dialog_owner(DialogId::CreateUser);
             }
         } else {
-            self.notifications.warning("请先连接数据库");
+            self.session.notifications.warning("请先连接数据库");
         }
     }
 
@@ -788,7 +788,7 @@ impl DbManagerApp {
                     self.prepare_table_rename_sql(&name);
                 }
                 _ => {
-                    self.notifications.info("当前区域暂不支持重命名");
+                    self.session.notifications.info("当前区域暂不支持重命名");
                 }
             }
         }
@@ -843,7 +843,7 @@ impl DbManagerApp {
             self.set_active_sql(definition);
             self.show_sql_editor = true;
             self.set_focus_area(ui::FocusArea::SqlEditor);
-            self.notifications.info("触发器定义已加载到编辑器");
+            self.session.notifications.info("触发器定义已加载到编辑器");
         }
 
         // 存储过程/函数定义
@@ -851,7 +851,7 @@ impl DbManagerApp {
             self.set_active_sql(definition);
             self.show_sql_editor = true;
             self.set_focus_area(ui::FocusArea::SqlEditor);
-            self.notifications.info("存储过程/函数定义已加载到编辑器");
+            self.session.notifications.info("存储过程/函数定义已加载到编辑器");
         }
     }
 
@@ -881,7 +881,7 @@ impl DbManagerApp {
                 if let Some(name) = active_name {
                     self.connect(name);
                 } else {
-                    self.notifications.info("当前没有活动连接可刷新");
+                    self.session.notifications.info("当前没有活动连接可刷新");
                 }
             }
             ui::SidebarSection::Tables => match db_type {
@@ -889,7 +889,7 @@ impl DbManagerApp {
                     if let Some(name) = active_name {
                         self.connect(name);
                     } else {
-                        self.notifications.info("当前没有活动连接可刷新");
+                        self.session.notifications.info("当前没有活动连接可刷新");
                     }
                 }
                 crate::database::DatabaseType::PostgreSQL
@@ -897,7 +897,7 @@ impl DbManagerApp {
                     if let Some(db) = selected_database {
                         self.select_database(db);
                     } else {
-                        self.notifications.info("请先选择数据库");
+                        self.session.notifications.info("请先选择数据库");
                     }
                 }
             },
@@ -926,7 +926,7 @@ impl DbManagerApp {
             .cloned()
             .or_else(|| result.columns.first().cloned())
         else {
-            self.notifications.warning("当前结果集没有可筛选的列");
+            self.session.notifications.warning("当前结果集没有可筛选的列");
             return;
         };
 
@@ -1012,7 +1012,7 @@ impl DbManagerApp {
             return;
         };
         if !filter.operator.needs_value() {
-            self.notifications.info("当前筛选操作符不需要输入值");
+            self.session.notifications.info("当前筛选操作符不需要输入值");
             return;
         }
         filter.enabled = true;
@@ -1028,7 +1028,7 @@ impl DbManagerApp {
     /// 为表重命名生成 SQL 模板
     fn prepare_table_rename_sql(&mut self, table: &str) {
         let Some(conn) = self.manager.get_active() else {
-            self.notifications.warning("请先连接数据库");
+            self.session.notifications.warning("请先连接数据库");
             return;
         };
 
@@ -1037,7 +1037,7 @@ impl DbManagerApp {
         let quoted_old = match ui::quote_identifier(table, use_backticks) {
             Ok(name) => name,
             Err(e) => {
-                self.notifications.error(format!("表名无效: {}", e));
+                self.session.notifications.error(format!("表名无效: {}", e));
                 return;
             }
         };

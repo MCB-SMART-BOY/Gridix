@@ -60,7 +60,7 @@ impl DbManagerApp {
                 open_er_diagram,
             } => {
                 if let Err(error) = self.ensure_learning_connection(false, false) {
-                    self.notifications.error(error);
+                    self.session.notifications.error(error);
                     return;
                 }
 
@@ -100,12 +100,12 @@ impl DbManagerApp {
                     &preview_sql,
                     &success_message,
                 ) {
-                    self.notifications.error(error);
+                    self.session.notifications.error(error);
                 }
             }
             ui::HelpAction::ShowLearningErDiagram => {
                 if let Err(error) = self.ensure_learning_connection(false, false) {
-                    self.notifications.error(error);
+                    self.session.notifications.error(error);
                     return;
                 }
 
@@ -176,9 +176,9 @@ impl DbManagerApp {
 
         if notify {
             if reset {
-                self.notifications.success("学习示例库已重置");
+                self.session.notifications.success("学习示例库已重置");
             } else {
-                self.notifications.info("学习示例库已打开");
+                self.session.notifications.info("学习示例库已打开");
             }
         }
 
@@ -202,7 +202,7 @@ impl DbManagerApp {
         conn.execute_batch(mutation_sql)
             .map_err(|e| format!("执行学习演示失败: {}", e))?;
 
-        self.notifications.success(success_message);
+        self.session.notifications.success(success_message);
         self.show_sidebar = true;
         self.sidebar_panel_state.show_connections = true;
         self.sidebar_section = ui::SidebarSection::Tables;

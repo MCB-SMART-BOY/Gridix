@@ -75,23 +75,23 @@ impl DbManagerApp {
                 .filter(|statement| !statement.trim().is_empty())
                 .collect(),
             Err(error) => {
-                self.notifications.error(error);
+                self.session.notifications.error(error);
                 return;
             }
         };
         let valid_count = valid_statements.len();
 
         if valid_count == 0 {
-            self.notifications.warning("没有有效的 SQL 语句");
+            self.session.notifications.warning("没有有效的 SQL 语句");
             return;
         }
 
         let Some(active_name) = self.manager.active.clone() else {
-            self.notifications.warning("请先连接数据库");
+            self.session.notifications.warning("请先连接数据库");
             return;
         };
         let Some(conn) = self.manager.connections.get(&active_name) else {
-            self.notifications.warning("请先连接数据库");
+            self.session.notifications.warning("请先连接数据库");
             return;
         };
         let config = conn.config.clone();
@@ -119,7 +119,7 @@ impl DbManagerApp {
             }
         });
 
-        self.notifications.info(format!(
+        self.session.notifications.info(format!(
             "导入已开始：共 {} 条语句（事务: {}，遇错停止: {}）",
             valid_count,
             if use_transaction { "是" } else { "否" },

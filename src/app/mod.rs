@@ -173,8 +173,6 @@ pub struct DbManagerApp {
     command_history: Vec<String>,
     /// 命令历史导航索引
     history_index: Option<usize>,
-    /// 通知管理器（替代原来的 last_message）
-    notifications: NotificationManager,
     /// 进度管理器
     progress: ProgressManager,
     /// 当前历史记录对应的连接名（用于切换连接时保存/恢复）
@@ -415,7 +413,6 @@ impl DbManagerApp {
             query_history,
             command_history: Vec::new(),
             history_index: None,
-            notifications: NotificationManager::new(),
             progress: ProgressManager::new(),
             current_history_connection: None,
             search_text: String::new(),

@@ -903,7 +903,7 @@ impl DbManagerApp {
             },
             RouterLocalAction::FocusSidebarSection(section) => {
                 self.activate_sidebar_section_shortcut(section);
-                self.notifications.info(format!(
+                self.session.notifications.info(format!(
                     "切换到: {}",
                     sidebar_section_shortcut_name(section)
                 ));
@@ -1156,7 +1156,7 @@ impl DbManagerApp {
         }
 
         if let Some(message) = resolve_er_diagram_visibility_notice(visible, notice) {
-            self.notifications.info(message);
+            self.session.notifications.info(message);
         }
 
         if let Some(restored_focus) = restored_focus {

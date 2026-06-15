@@ -995,7 +995,7 @@ impl DbManagerApp {
         let availability = self.action_availability(action);
         if !availability.enabled {
             if let Some(reason) = availability.reason {
-                self.notifications.warning(reason);
+                self.session.notifications.warning(reason);
             }
             return;
         }
@@ -1140,7 +1140,7 @@ impl DbManagerApp {
             AppAction::RunCurrentSql => vec![AppEffect::ExecuteSql(self.active_sql().clone())],
             AppAction::ClearCommandLine => {
                 self.set_active_sql(String::new());
-                self.notifications.dismiss_all();
+                self.session.notifications.dismiss_all();
                 Vec::new()
             }
             AppAction::ClearSearch => {
@@ -1268,7 +1268,7 @@ impl DbManagerApp {
                 constants::database::DEFAULT_QUERY_LIMIT
             ),
             Err(error) => {
-                self.notifications.error(format!("表名无效: {}", error));
+                self.session.notifications.error(format!("表名无效: {}", error));
                 return Vec::new();
             }
         };
@@ -1311,7 +1311,7 @@ impl DbManagerApp {
                 }
                 AppEffect::RefreshWelcomeEnvironment => {
                     self.refresh_welcome_environment_status();
-                    self.notifications.info("已重新检测本机数据库环境");
+                    self.session.notifications.info("已重新检测本机数据库环境");
                 }
                 AppEffect::EnsureLearningSample {
                     reset,
@@ -1329,7 +1329,7 @@ impl DbManagerApp {
                         }
                     }
                     Err(error) => {
-                        self.notifications.error(error);
+                        self.session.notifications.error(error);
                     }
                 },
             }

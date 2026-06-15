@@ -50,7 +50,7 @@ impl DbManagerApp {
         match plan_er_diagram_load(self.manager.get_active()) {
             ErDiagramLoadPlan::NoActiveConnection => {
                 self.er_diagram_state.clear();
-                self.notifications.warning("请先连接数据库");
+                self.session.notifications.warning("请先连接数据库");
                 self.er_diagram_state.loading = false;
             }
             ErDiagramLoadPlan::EmptyTables { db_name } => {
@@ -78,7 +78,7 @@ impl DbManagerApp {
                     eframe::egui::Vec2::new(60.0, 50.0),
                 );
 
-                self.notifications.info(format!(
+                self.session.notifications.info(format!(
                     "ER图: 加载 {} 张表，正在获取结构... ({})",
                     load.tables.len(),
                     load.db_name
