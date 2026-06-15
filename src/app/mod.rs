@@ -128,6 +128,8 @@ pub struct DbManagerApp {
     result: Option<QueryResult>,
     /// 多 Tab 查询管理器，支持多个独立查询
     tab_manager: QueryTabManager,
+    /// 会话状态 — 聚合 DB 连接、异步基础设施、请求追踪（渐进迁移中）
+    session: crate::session::Session,
 
     // ==================== 异步通信 ====================
     /// 消息发送端，用于从异步任务发送结果到 UI
@@ -357,6 +359,9 @@ impl DbManagerApp {
             })
             .expect("无法创建 tokio 运行时，系统资源可能不足");
 
+        // 创建 Session（Layer 2 聚合结构体）
+        let session = crate::session::Session::new(runtime, tx.clone());
+
         ui::sync_runtime_local_shortcuts(&keybindings);
         let theme_manager = ThemeManager::new(app_config.theme_preset);
         let highlight_colors = HighlightColors::from_theme(&theme_manager.colors);
@@ -391,6 +396,7 @@ impl DbManagerApp {
             selected_table: None,
             result: None,
             tab_manager: QueryTabManager::new(),
+            session,
             tx,
             rx,
             runtime,

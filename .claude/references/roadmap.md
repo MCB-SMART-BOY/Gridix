@@ -40,10 +40,13 @@
 ## Near-term (next release)
 
 ### Architecture refactoring (in progress)
-- [ ] Phase A: Create `src/types.rs` shared types layer
-- [ ] Phase B: Reorganize `data/` layer, extract `session/` module
-- [ ] Phase C: Extract `UiState` — 4-field `DbManagerApp`
-- [ ] Phase D: Eliminate `self.sql` dual source
+- [x] Phase A: Create `src/types.rs` shared types layer
+- [x] Phase B: `src/session/` — Session struct, QueryTab data, Message enum
+- [x] Phase C: `src/state/` — UiState struct (25 fields)
+- [x] Phase D: Eliminate `self.sql` dual source
+- [ ] Wire Session + UiState into DbManagerApp (field-by-field migration)
+- [ ] Migrate app/runtime/ methods to session/ (connect, execute, disconnect)
+- [ ] `database/` → `data/` rename
 
 ### Dependency health
 - [ ] Monitor `rsa` crate — 1 remaining MEDIUM vuln (no fix available, transitive via russh)

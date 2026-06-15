@@ -30,7 +30,6 @@ pub struct Session {
 
     // ── 异步基础设施 ──
     pub tx: Sender<message::Message>,
-    pub rx: Receiver<message::Message>,
     pub runtime: tokio::runtime::Runtime,
 
     // ── 执行状态 ──
@@ -63,13 +62,11 @@ impl Session {
     pub fn new(
         runtime: tokio::runtime::Runtime,
         tx: Sender<message::Message>,
-        rx: Receiver<message::Message>,
     ) -> Self {
         Self {
             manager: ConnectionManager::default(),
             tab_manager: tab::QueryTabManager::new(),
             tx,
-            rx,
             runtime,
             connecting: false,
             executing: false,

@@ -48,99 +48,105 @@ src/
 ├── lib.rs               # public API re-exports
 ├── bootstrap.rs         # tracing (RUST_LOG, default gridix=info,warn), panic hook, fonts, eframe launch (1200×800)
 ├── prelude.rs           # use crate::prelude::* — HashMap, Arc, Color32, tokio, serde, thiserror
-├── types.rs             # Layer -1: shared data types (ConnectionConfig, DbError, DatabaseType, QueryResult, SshError)
-├── core/                # Layer 0: pure functions, no side effects, no egui
+├── types.rs             # Layer -1: shared types — DatabaseType, PostgresSslMode, MySqlSslMode, QueryResult
+├── core/                # Layer 0: pure functions, no side effects
 │   ├── config.rs        # AppConfig (TOML, atomic temp-file+rename, Unix 0o600)
-│   ├── keybindings.rs   # Action (35 variants), KeyBindings, keymap.toml engine, scope_resolution_chain()
+│   ├── keybindings.rs   # Action (35 variants), KeyBindings, keymap.toml engine
 │   ├── commands.rs      # ~100 ScopedCommand entries with default_bindings
-│   ├── theme.rs         # ThemeManager, 18 ThemePresets (default: TokyoNightStorm dark, TokyoNightLight light)
-│   ├── syntax.rs        # SQL highlighting — custom tokenizer (110 keywords, 85 functions)
-│   ├── autocomplete.rs  # SQL completion — keywords, functions, tables, columns, WHERE-context aware
-│   ├── export.rs        # CSV/TSV/SQL/JSON export + import parsing (csv crate, manual JSON parser)
-│   ├── transfer.rs      # Unified TransferSession→Plan→Execution pipeline (wraps export.rs)
+│   ├── theme.rs         # ThemeManager, 18 ThemePresets, ThemeColors
+│   ├── syntax.rs        # SQL highlighting — custom tokenizer
+│   ├── autocomplete.rs  # SQL completion — keywords, functions, tables, columns
+│   ├── export.rs        # CSV/TSV/SQL/JSON export + import parsing
+│   ├── transfer.rs      # Unified TransferSession→Plan→Execution pipeline
 │   ├── formatter.rs     # Best-effort SQL beautifier (no AST, keyword-based indent)
 │   ├── history.rs       # QueryHistory (100 items max, newest first)
 │   ├── notification.rs  # Toast: Info(3s)/Success(3s)/Warning(5s)/Error(8s), max 5 visible
 │   ├── progress.rs      # ProgressTask with Arc<AtomicBool> cancel token
 │   └── constants.rs     # All magic numbers (pool sizes, timeouts, scale limits, cache sizes)
-├── data/                # Layer 1: database operations (was database/)
-│   ├── config.rs        # Low-level connection config (encryption, keyring, password migration)
+├── database/            # Layer 1: database operations
+│   ├── config.rs        # ConnectionConfig — AES-256-GCM, keyring, password migration
 │   ├── connection.rs    # ConnectionManager — HashMap registry, active tracking
-│   ├── pool.rs          # Manual pooling: MySQL pools (idle TTL + LRU eviction), PG clients (health-check), SQLite none
-│   ├── ssh_tunnel.rs    # russh-based SSH port forwarding, known_hosts verification, tunnel reuse by name
-│   ├── error.rs         # DbError (thiserror, 2 active variants)
+│   ├── pool.rs          # Manual pooling: MySQL (TTL+LRU), PG (health-check), SQLite none
+│   ├── ssh_tunnel.rs    # russh SSH port forwarding, known_hosts + fingerprint verification
+│   ├── error.rs         # DbError (2 variants: Connection, Query)
 │   └── query/           # mod.rs orchestrator + sqlite.rs (sync), postgres.rs, mysql.rs (async)
-├── session/             # Layer 2: connection lifecycle + tab management + async dispatch (NEW)
-│   ├── mod.rs           # Session struct — runtime, mpsc channel, request ID tracking
-│   ├── database.rs      # connect, execute (with cancel+timeout), disconnect
-│   ├── handler.rs       # poll_messages() → FrameEffects, dispatch, stale-request guard
+├── session/             # Layer 2: connection lifecycle + tab management + async dispatch
+│   ├── mod.rs           # Session struct (20 fields): runtime, mpsc, manager, tab_manager, request tracking
 │   ├── message.rs       # Message enum (13 variants, ALL carry request_id: u64)
-│   ├── lifecycle.rs     # ID generation, cancel via oneshot, task tracking
-│   ├── tab.rs           # QueryTab (pure data), QueryTabManager (tabs + active index)
-│   ├── er_diagram.rs    # ER data loading, relationship inference (heuristic: _id suffix matching)
-│   └── metadata.rs      # Sidebar triggers/routines loading
-├── state/               # Layer 3: UI state — all rendering state, no DB logic (NEW)
-│   ├── mod.rs           # UiState struct
-│   ├── focus.rs         # FocusArea, focus_cycle
-│   ├── sidebar.rs       # SidebarPanelState, sidebar visibility/width
-│   ├── editor.rs        # Editor visibility, autocomplete state
-│   ├── dialogs.rs       # DialogId (17 variants), active_dialog_owner
-│   ├── grid.rs          # DataGridState, GridWorkspaceStore
-│   ├── er_diagram.rs    # ERDiagramState (visual state — table positions, selection, viewport)
-│   └── theme.rs         # ThemeManager, scale, highlight_colors
-└── ui/                  # Layer 4: rendering — eframe App impl, widgets, components
-    ├── mod.rs           # DbManagerApp (4 fields: session, state, config, keybindings)
-    ├── dock_tabs.rs     # egui_dock integration — DockTab enum, WorkspaceViewer, sync_all()
-    ├── styles.rs        # SUCCESS/DANGER/GRAY/MUTED helpers from egui Visuals
-    ├── shortcut_tooltip.rs  # LocalShortcut (141 variants), config_key() paths, runtime overrides
-    ├── surfaces/
-    │   ├── render.rs    # run_frame() main loop: poll → apply effects → render
-    │   ├── dialogs.rs   # render_dialogs() + handle_dialog_results()
-    │   └── preferences.rs  # set_ui_scale (0.5–2.0 clamp), set_theme, save_config
-    ├── input/           # Keyboard routing (8-stage pipeline)
-    │   ├── input_router.rs  # resolve_input_action_with() — 8-stage dispatch
-    │   ├── owner.rs     # InputOwner: Recording|Modal|TextEntry|Select|Command|Disabled
-    │   └── keyboard.rs  # focus_cycle_areas, zoom shortcuts
-    └── components/      # grid (10 files), sql_editor, toolbar (4 files),
-        │                   query_tab_bar, welcome, er_diagram (render part), notifications, progress_indicator
-        ├── dialogs/     # connection (~1243 lines), export, import (3 files), help (4 files),
-        │                   ddl, keybindings (~3560 lines), about, create_db, create_user, picker_shell
-        └── panels/      # sidebar (8 files, ~4300 lines), history_panel
+│   └── tab.rs           # QueryTab (pure data), QueryTabManager (tabs + active index)
+│       (pending: migrate app/runtime/{database,handler,lifecycle,metadata,er_diagram}.rs)
+├── state/               # Layer 3: UI state — no DB logic
+│   └── mod.rs           # UiState struct (25 fields): focus, sidebar, editor, dialogs, ER, grid, theme
+│       (pending: split into focus/sidebar/editor/dialogs/grid/er_diagram submodules)
+├── app/                 # Transitional: DbManagerApp — being decomposed into Session + UiState
+│   ├── mod.rs           # DbManagerApp (~85 fields remaining, target: 4)
+│   ├── action/          # AppAction (44 variants) → AppEffect, command palette, CommandDescriptor registry
+│   ├── dialogs/host.rs  # DialogId (17 variants), active_dialog_owner
+│   ├── input/           # Keyboard routing (8-stage dispatch pipeline)
+│   │   ├── input_router.rs (3370 lines)
+│   │   ├── owner.rs     # InputOwner: Recording|Modal|TextEntry|Select|Command|Disabled
+│   │   └── keyboard.rs  # focus_cycle_areas, zoom shortcuts
+│   ├── runtime/         # tokio → mpsc → UI thread (gradually migrating to session/)
+│   │   ├── database.rs  # connect, execute (cancel+timeout), disconnect
+│   │   ├── handler.rs   # handle_messages() — poll with try_recv, dispatch
+│   │   ├── message.rs   # → re-exports session::message::Message
+│   │   ├── request_lifecycle.rs  # ID generation, cancel, tab sync
+│   │   ├── er_diagram.rs  # ER data loading, relationship inference
+│   │   └── metadata.rs  # Sidebar triggers/routines loading
+│   ├── surfaces/
+│   │   ├── render.rs    # run_frame() main loop
+│   │   ├── dialogs.rs   # render_dialogs() + handle_dialog_results()
+│   │   └── preferences.rs  # set_ui_scale (0.5–2.0), set_theme, save_config
+│   └── workflow/        # export, import, help, welcome
+└── ui/                  # Layer 4: egui rendering — widgets, components, styling
+    ├── dock_tabs.rs     # egui_dock integration — DockTab, WorkspaceViewer, sync_all()
+    ├── styles.rs        # SUCCESS/DANGER/GRAY/MUTED from egui Visuals
+    ├── shortcut_tooltip.rs  # LocalShortcut (141 variants), config_key() paths
+    ├── components/      # grid (10 files), sql_editor, toolbar (4 files),
+    │   │                   query_tabs (tab bar rendering), welcome, er_diagram (render),
+    │   │                   notifications, progress_indicator
+    │   ├── dialogs/     # connection, export, import, help, ddl, keybindings,
+    │   │                   about, create_db, create_user, picker_shell, toolbar_menu, toolbar_theme
+    │   └── panels/      # sidebar (8 files, ~4300 lines), history_panel
+    └── surfaces/        # render.rs, dialogs.rs, preferences.rs (thin wrappers delegating to app/)
 ```
 
 ## Architecture
 
-**4-layer unidirectional dependency:**
+**4-layer unidirectional dependency (in progress):**
 ```
-src/types.rs  (Layer -1) ← shared by all layers
+src/types.rs    (Layer -1) ← shared by all layers
      ↑
-src/core/     (Layer 0)  ← pure functions, no side effects
+src/core/       (Layer 0)  ← pure functions, no side effects
      ↑
-src/data/     (Layer 1)  ← database operations, match db_type dispatch
+src/database/   (Layer 1)  ← database operations, match db_type dispatch
      ↑
-src/session/  (Layer 2)  ← connection lifecycle, query lifecycle, tab mgmt, mpsc, async
+src/session/    (Layer 2)  ← connection lifecycle, tab management, async dispatch
      ↑
-src/state/    (Layer 3)  ← UI state structs, FrameEffects application
+src/state/      (Layer 3)  ← UI state structs (incremental extraction)
      ↑
-src/ui/       (Layer 4)  ← eframe App impl, rendering, input routing
+src/app/ + ui/  (Layer 4)  ← eframe App impl, rendering, input routing
 ```
 
-Each layer depends only on layers below it. Layers above never import from layers that are higher.
+**Refactoring phases completed:**
+- ✅ Phase A: `src/types.rs` — shared types (DatabaseType, SslModes, QueryResult)
+- ✅ Phase B: `src/session/` — Session struct, QueryTab data, Message enum
+- ✅ Phase C: `src/state/` — UiState struct (25 fields)
+- ✅ Phase D: `self.sql` dual-source eliminated — single source = `tab_manager.active_tab().sql`
+
+**Remaining:**
+- ⬜ Wire `Session` + `UiState` into `DbManagerApp` (gradually, field by field)
+- ⬜ Migrate `app/runtime/` methods to `session/` (connect, execute, disconnect, handler)
+- ⬜ `database/` → `data/` rename (low priority, backward-compatible)
+- ⬜ Split oversized files (keybindings_dialog, input_router, keybindings)
 
 **Key architectural decisions:**
-- **No trait for DB backends.** `match db_type` is the correct pattern for three backends with fundamentally different execution models (SQLite sync/spawn_blocking, PG async, MySQL async pooled). This was verified against a previous attempt (`DatabaseDriver` trait, deleted as dead code).
-- **Session returns FrameEffects, not direct UI mutations.** `poll_messages()` processes async results internally (tab state, history, autocomplete) and emits structured effects for the UI layer to apply.
-- **One truth source per data.** `QueryTab.sql` is the sole authority; `self.sql` mirror eliminated.
-- **No process separation.** The serialization tax on QueryResult is too high; SSH tunnel management across processes adds unnecessary complexity.
+- **No trait for DB backends.** `match db_type` is the correct pattern for three backends with fundamentally different execution models.
+- **One truth source per data.** `QueryTab.sql` is the sole authority; `self.sql` field eliminated.
+- **No process separation.** The serialization tax on QueryResult is too high.
+- **Backward compatibility.** All re-exports preserved during module migrations.
 
 **Runtime:** UI thread (egui frames) + Tokio multi-thread (async DB). Communication via `std::sync::mpsc::channel`.
-
-**Data flow (per frame):**
-```
-1. session.poll_messages() → FrameEffects
-2. state.apply_frame_effects(effects)
-3. ui.render(ctx) — reads session (immutable) + state (mutable for UI state)
-```
 
 **Layout (egui_dock):** The main workspace uses `DockArea` with resizable panels. `DockTab` variants: `QueryData` (data grid), `SqlEditor`, `ErDiagram`, `AuxPanel`. `sync_all()` runs each frame to synchronize dock tabs with session tab state.
 
@@ -155,16 +161,14 @@ Each layer depends only on layers below it. Layers above never import from layer
 - Text entry always wins over command keys (`TextEntryGuard`)
 - Every async message carries `request_id: u64` — stale responses dropped
 - Grid workspace isolated per `(tab_id, connection, database, table)` via `GridWorkspaceStore`
-- `Session` owns all async infrastructure; `UiState` is never touched by async code
-- `poll_messages()` returns `FrameEffects`; handlers never directly mutate State
+- `QueryTab::sql` is the sole authority for editor SQL — no dual source
+- `Session` struct exists as a data container; methods still on `DbManagerApp` (incremental migration)
 
 ## Config & persistence
 
-**Files (all platforms via `dirs` crate):** `~/.config/gridix/config.toml` (AppConfig), `~/.config/gridix/keymap.toml` (keybindings). All atomic temp-file+rename, Unix `0o600`.
+**Files:** `~/.config/gridix/config.toml` (AppConfig), `~/.config/gridix/keymap.toml` (keybindings). Atomic temp-file+rename, Unix `0o600`.
 
-**Config ownership:** `SessionConfig` (connections, history) lives in Session. `UiConfig` (theme, scale, onboarding) lives in State. `AppConfig` is the persistence format, composed from both on save.
-
-**Password security:** `password_ref` UUID in config.toml → actual secret in OS keyring (`keyring` crate). Legacy AES-256-GCM encrypted passwords auto-migrated. SSL/TLS: PG default Prefer, MySQL default Preferred. Both Required modes validate certificates. SSH: `russh` + `known_hosts` + key fingerprint logging. SSH passwords `#[serde(skip_serializing)]`.
+**Password security:** `password_ref` UUID in config.toml → OS keyring. Legacy AES-256-GCM auto-migrated. SSL: PG default Prefer, MySQL default Preferred. Required modes validate certificates. SSH: `russh` + `known_hosts` + SHA-256 fingerprint. SSH passwords `#[serde(skip_serializing)]`.
 
 ## Test infrastructure
 
