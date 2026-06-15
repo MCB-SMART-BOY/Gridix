@@ -533,13 +533,13 @@ impl DbManagerApp {
         self.finalize_query_task(request_id);
         let was_user_cancelled = self.user_cancelled_query_requests.remove(&request_id);
 
-        let target_tab_index = self.tab_manager.tabs.iter().position(|t| t.id == tab_id);
+        let target_tab_index = self.session.tab_manager.tabs.iter().position(|t| t.id == tab_id);
         let is_stale_for_existing_tab = target_tab_index
-            .and_then(|idx| self.tab_manager.tabs.get(idx))
+            .and_then(|idx| self.session.tab_manager.tabs.get(idx))
             .is_some_and(|tab| tab.pending_request_id != Some(request_id));
         let should_update_active_query_time = should_record_active_query_time(
             target_tab_index,
-            self.tab_manager.active_index,
+            self.session.tab_manager.active_index,
             is_stale_for_existing_tab,
         );
 
@@ -614,8 +614,8 @@ impl DbManagerApp {
                 };
 
                 if let Some(idx) = target_tab_index {
-                    let is_active_tab = idx == self.tab_manager.active_index;
-                    if let Some(tab) = self.tab_manager.tabs.get_mut(idx) {
+                    let is_active_tab = idx == self.session.tab_manager.active_index;
+                    if let Some(tab) = self.session.tab_manager.tabs.get_mut(idx) {
                         tab.result = Some(res.clone());
                         tab.executing = false;
                         tab.last_error = None;
@@ -731,8 +731,8 @@ impl DbManagerApp {
                     self.session.notifications.error(&err_msg);
                 }
                 if let Some(idx) = target_tab_index {
-                    let is_active_tab = idx == self.tab_manager.active_index;
-                    if let Some(tab) = self.tab_manager.tabs.get_mut(idx) {
+                    let is_active_tab = idx == self.session.tab_manager.active_index;
+                    if let Some(tab) = self.session.tab_manager.tabs.get_mut(idx) {
                         tab.executing = false;
                         if !is_cancelled {
                             tab.result = None;
@@ -771,7 +771,7 @@ impl DbManagerApp {
         result: Result<crate::database::ImportExecutionReport, String>,
         elapsed_ms: u64,
     ) {
-        self.import_executing = false;
+        self.session.import_executing = false;
         self.session.refresh_executing_flag();
 
         match result {

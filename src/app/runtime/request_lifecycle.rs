@@ -25,7 +25,7 @@ impl DbManagerApp {
 
     /// 从当前活动 Tab 同步 SQL 和结果到主视图
     pub(crate) fn sync_from_active_tab(&mut self) {
-        if let Some(tab) = self.tab_manager.get_active() {
+        if let Some(tab) = self.session.tab_manager.get_active() {
             self.result = tab.result.clone();
             self.last_query_time_ms = tab.query_time_ms;
             self.selected_table = tab.selected_table.clone();
@@ -53,7 +53,7 @@ impl DbManagerApp {
 
     /// 更新活动 Tab 的元数据（modified 标记、标题）
     pub(in crate::app) fn sync_sql_to_active_tab(&mut self) {
-        if let Some(tab) = self.tab_manager.get_active_mut() {
+        if let Some(tab) = self.session.tab_manager.get_active_mut() {
             tab.modified = !tab.sql.trim().is_empty();
             tab.update_title();
         }
@@ -61,8 +61,8 @@ impl DbManagerApp {
 
     /// 根据导入状态和 Tab 执行状态刷新全局 executing 标记
     pub(in crate::app) fn refresh_executing_flag(&mut self) {
-        let query_executing = self.tab_manager.tabs.iter().any(|t| t.executing);
-        self.executing = self.import_executing || query_executing;
+        let query_executing = self.session.tab_manager.tabs.iter().any(|t| t.executing);
+        self.session.executing = self.session.import_executing || query_executing;
     }
 
     /// 生成新的连接请求 ID
@@ -81,7 +81,7 @@ impl DbManagerApp {
             self.pending_connect_requests.contains_key(active_name)
                 || self.pending_database_requests.contains_key(active_name)
         });
-        self.connecting = has_pending;
+        self.session.connecting = has_pending;
     }
 
     /// 记录进行中的查询任务
@@ -153,7 +153,7 @@ impl DbManagerApp {
     }
 
     fn clear_tab_pending_request(&mut self, request_id: u64) {
-        for tab in &mut self.tab_manager.tabs {
+        for tab in &mut self.session.tab_manager.tabs {
             if tab.pending_request_id == Some(request_id) {
                 tab.pending_request_id = None;
                 tab.executing = false;

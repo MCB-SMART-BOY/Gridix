@@ -1286,7 +1286,7 @@ impl DbManagerApp {
 
     fn switch_to_query_tab(&mut self, index: usize) {
         self.persist_active_tab_state_for_navigation();
-        self.tab_manager.set_active(index);
+        self.session.tab_manager.set_active(index);
         self.sync_from_active_tab();
     }
 

@@ -1174,25 +1174,25 @@ impl DbManagerApp {
 
     pub(in crate::app) fn open_new_query_tab(&mut self) {
         self.persist_active_tab_state_for_navigation();
-        self.tab_manager.new_tab();
+        self.session.tab_manager.new_tab();
         self.sync_from_active_tab();
     }
 
     pub(in crate::app) fn select_next_query_tab(&mut self) {
         self.persist_active_tab_state_for_navigation();
-        self.tab_manager.next_tab();
+        self.session.tab_manager.next_tab();
         self.sync_from_active_tab();
     }
 
     pub(in crate::app) fn select_previous_query_tab(&mut self) {
         self.persist_active_tab_state_for_navigation();
-        self.tab_manager.prev_tab();
+        self.session.tab_manager.prev_tab();
         self.sync_from_active_tab();
     }
 
     pub(in crate::app) fn close_active_query_tab(&mut self) {
-        let closing_tab_id = self.tab_manager.get_active().map(|tab| tab.id.clone());
-        if self.tab_manager.tabs.len() > 1
+        let closing_tab_id = self.session.tab_manager.get_active().map(|tab| tab.id.clone());
+        if self.session.tab_manager.tabs.len() > 1
             && let Some(request_id) = self
                 .tab_manager
                 .get_active()
@@ -1200,7 +1200,7 @@ impl DbManagerApp {
         {
             self.cancel_query_request_silently(request_id);
         }
-        self.tab_manager.close_active_tab();
+        self.session.tab_manager.close_active_tab();
         if let Some(tab_id) = closing_tab_id {
             self.remove_grid_workspaces_for_tab(&tab_id);
         }

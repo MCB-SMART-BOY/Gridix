@@ -401,7 +401,7 @@ impl DbManagerApp {
         }
         self.history_index = None;
 
-        self.executing = true;
+        self.session.executing = true;
         self.result = None;
         self.last_query_time_ms = None;
         self.next_query_request_id = self.next_query_request_id.wrapping_add(1);
@@ -413,7 +413,7 @@ impl DbManagerApp {
 
         // 同步 SQL 到当前 Tab 并设置执行状态
         let mut previous_request_id = None;
-        if let Some(tab) = self.tab_manager.get_active_mut() {
+        if let Some(tab) = self.session.tab_manager.get_active_mut() {
             previous_request_id = tab.pending_request_id.take();
             prepare_tab_for_query_execution(tab, &sql, request_id);
             target_tab_id = tab.id.clone();

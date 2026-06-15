@@ -127,7 +127,6 @@ pub struct DbManagerApp {
     /// 当前查询结果
     result: Option<QueryResult>,
     /// 多 Tab 查询管理器，支持多个独立查询
-    tab_manager: QueryTabManager,
     /// 会话状态 — 聚合 DB 连接、异步基础设施、请求追踪（渐进迁移中）
     session: crate::session::Session,
     /// UI 状态 — 聚合渲染状态（渐进迁移中）
@@ -137,11 +136,8 @@ pub struct DbManagerApp {
     /// 消息接收端，UI 线程轮询获取异步结果
     rx: Receiver<Message>,
     /// 是否正在建立连接
-    connecting: bool,
     /// 是否正在执行查询
-    executing: bool,
     /// 是否正在执行导入
-    import_executing: bool,
     /// 连接请求自增序列（用于丢弃过期连接/选库回包）
     next_connect_request_id: u64,
     /// 查询请求自增序列（用于丢弃过期回包）
@@ -312,10 +308,10 @@ impl DbManagerApp {
 
     /// 设置编辑器 SQL（如无 tab 则自动创建）
     pub(crate) fn set_active_sql(&mut self, sql: String) {
-        if self.tab_manager.tabs.is_empty() {
-            self.tab_manager.new_tab();
+        if self.session.tab_manager.tabs.is_empty() {
+            self.session.tab_manager.new_tab();
         }
-        if let Some(tab) = self.tab_manager.get_active_mut() {
+        if let Some(tab) = self.session.tab_manager.get_active_mut() {
             tab.sql = sql;
         }
     }
@@ -382,7 +378,6 @@ impl DbManagerApp {
             editing_connection_name: None,
             selected_table: None,
             result: None,
-            tab_manager: QueryTabManager::new(),
             session,
             state: {
                 let mut s = crate::state::UiState::default();
@@ -393,9 +388,6 @@ impl DbManagerApp {
                 s
             },
             rx,
-            connecting: false,
-            executing: false,
-            import_executing: false,
             next_connect_request_id: 0,
             next_query_request_id: 0,
             next_metadata_request_id: 0,
@@ -494,10 +486,10 @@ impl DbManagerApp {
     pub(crate) fn on_dock_tab_close(&mut self, tab_index: usize) {
         self.persist_active_tab_state_for_navigation();
         // Clone needed values before mutable operations
-        let pending_id = self.tab_manager.tabs
+        let pending_id = self.session.tab_manager.tabs
             .get(tab_index)
             .and_then(|tab| tab.pending_request_id);
-        let tab_id = self.tab_manager.tabs
+        let tab_id = self.session.tab_manager.tabs
             .get(tab_index)
             .map(|tab| tab.id.clone());
         if let Some(request_id) = pending_id {
@@ -506,7 +498,7 @@ impl DbManagerApp {
         if let Some(ref id) = tab_id {
             self.remove_grid_workspaces_for_tab(id);
         }
-        self.tab_manager.close_tab(tab_index);
+        self.session.tab_manager.close_tab(tab_index);
         self.sync_from_active_tab();
     }
 
@@ -520,7 +512,7 @@ impl DbManagerApp {
         &self,
         table_name: &str,
     ) -> Option<GridWorkspaceId> {
-        let tab_id = self.tab_manager.get_active()?.id.clone();
+        let tab_id = self.session.tab_manager.get_active()?.id.clone();
         let connection_name = self.manager.active.clone()?;
         let database_name = self
             .manager
@@ -554,7 +546,7 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn sync_active_surface_binding_to_tab(&mut self) {
-        if let Some(tab) = self.tab_manager.get_active_mut() {
+        if let Some(tab) = self.session.tab_manager.get_active_mut() {
             tab.selected_table = self.selected_table.clone();
             tab.search_text = self.search_text.clone();
             tab.search_column = self.search_column.clone();

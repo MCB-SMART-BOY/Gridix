@@ -102,7 +102,7 @@ impl DbManagerApp {
         let stop_on_error = self.import_state.sql_config.stop_on_error;
 
         let tx = self.session.tx.clone();
-        self.import_executing = true;
+        self.session.import_executing = true;
         self.session.refresh_executing_flag();
         self.last_query_time_ms = None;
 

@@ -306,7 +306,7 @@ impl DbManagerApp {
         ui::NotificationToast::show(&ctx, &self.notifications);
 
         // 持续刷新（有活动任务或有通知时需要刷新）
-        if self.connecting || self.executing || !self.session.notifications.is_empty() {
+        if self.session.connecting || self.session.executing || !self.session.notifications.is_empty() {
             ctx.request_repaint();
         }
     }
@@ -368,8 +368,8 @@ impl DbManagerApp {
         if self.focus_area == ui::FocusArea::QueryTabs {
             ui::QueryTabBar::handle_keyboard(
                 ui,
-                self.tab_manager.tabs.len(),
-                self.tab_manager.active_index,
+                self.session.tab_manager.tabs.len(),
+                self.session.tab_manager.active_index,
                 &mut tab_actions,
             );
         }
@@ -378,7 +378,7 @@ impl DbManagerApp {
         ui.separator();
 
         // 数据表格 / 欢迎页 / 错误
-        let active_query_error = self.tab_manager.get_active()
+        let active_query_error = self.session.tab_manager.get_active()
             .and_then(|tab| tab.last_error.clone());
         let workspace_surface = classify_workspace_surface(
             self.result.as_ref(),
@@ -508,17 +508,17 @@ impl DbManagerApp {
 
         // SQL 编辑器内容区域
         // 确保至少有一个 tab 用于 SQL 编辑
-        if self.tab_manager.tabs.is_empty() {
-            self.tab_manager.new_tab();
+        if self.session.tab_manager.tabs.is_empty() {
+            self.session.tab_manager.new_tab();
         }
         // 在获取 &mut sql 之前提取不可变值
         let active_tab_message = self
             .tab_manager
             .tabs
-            .get(self.tab_manager.active_index)
+            .get(self.session.tab_manager.active_index)
             .and_then(|tab| tab.last_message.as_deref())
             .map(|s| s.to_owned());
-        let tab_sql = &mut self.tab_manager.tabs[self.tab_manager.active_index].sql;
+        let tab_sql = &mut self.session.tab_manager.tabs[self.session.tab_manager.active_index].sql;
 
         ui.allocate_ui_with_layout(
             egui::vec2(ui.available_width(), editor_height),
@@ -535,7 +535,7 @@ impl DbManagerApp {
                     tab_sql,
                     &self.command_history,
                     &mut self.history_index,
-                    self.executing,
+                    self.session.executing,
                     &latest_msg,
                     &self.state.highlight_colors,
                     self.last_query_time_ms,
@@ -588,7 +588,7 @@ impl DbManagerApp {
         // 清空
         if actions.clear {
             self.set_active_sql(String::new());
-            if let Some(tab) = self.tab_manager.get_active_mut() {
+            if let Some(tab) = self.session.tab_manager.get_active_mut() {
                 tab.sql.clear();
                 tab.modified = false;
                 tab.update_title();
@@ -1083,8 +1083,8 @@ impl DbManagerApp {
         }
 
         if let Some(idx) = tab_actions.close_tab {
-            let closing_tab_id = self.tab_manager.tabs.get(idx).map(|tab| tab.id.clone());
-            if self.tab_manager.tabs.len() > 1
+            let closing_tab_id = self.session.tab_manager.tabs.get(idx).map(|tab| tab.id.clone());
+            if self.session.tab_manager.tabs.len() > 1
                 && let Some(request_id) = self
                     .tab_manager
                     .tabs
@@ -1093,14 +1093,14 @@ impl DbManagerApp {
             {
                 self.cancel_query_request_silently(request_id);
             }
-            self.tab_manager.close_tab(idx);
+            self.session.tab_manager.close_tab(idx);
             if let Some(tab_id) = closing_tab_id {
                 self.remove_grid_workspaces_for_tab(&tab_id);
             }
         }
 
         if tab_actions.close_others {
-            let active_index = self.tab_manager.active_index;
+            let active_index = self.session.tab_manager.active_index;
             let request_ids: Vec<u64> = self
                 .tab_manager
                 .tabs
@@ -1130,14 +1130,14 @@ impl DbManagerApp {
             for request_id in request_ids {
                 self.cancel_query_request_silently(request_id);
             }
-            self.tab_manager.close_other_tabs();
+            self.session.tab_manager.close_other_tabs();
             for tab_id in closing_tab_ids {
                 self.remove_grid_workspaces_for_tab(&tab_id);
             }
         }
 
         if tab_actions.close_right {
-            let active_index = self.tab_manager.active_index;
+            let active_index = self.session.tab_manager.active_index;
             let request_ids: Vec<u64> = self
                 .tab_manager
                 .tabs
@@ -1167,7 +1167,7 @@ impl DbManagerApp {
             for request_id in request_ids {
                 self.cancel_query_request_silently(request_id);
             }
-            self.tab_manager.close_tabs_to_right();
+            self.session.tab_manager.close_tabs_to_right();
             for tab_id in closing_tab_ids {
                 self.remove_grid_workspaces_for_tab(&tab_id);
             }
