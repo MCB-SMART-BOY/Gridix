@@ -138,10 +138,18 @@ impl PoolManager {
                 Ok(opts.ssl_opts(Some(ssl_opts)))
             }
             MySqlSslMode::Required => {
-                // 必须使用 SSL，但不验证证书
-                let ssl_opts = SslOpts::default()
-                    .with_danger_accept_invalid_certs(true)
-                    .with_danger_skip_domain_validation(true);
+                // 必须使用 SSL，验证证书
+                let mut ssl_opts = SslOpts::default();
+                if !config.ssl_ca_cert.is_empty() {
+                    let ca_path = Path::new(&config.ssl_ca_cert);
+                    if !ca_path.exists() {
+                        return Err(DbError::Connection(format!(
+                            "CA 证书文件不存在: {}",
+                            config.ssl_ca_cert
+                        )));
+                    }
+                    ssl_opts = ssl_opts.with_root_certs(vec![ca_path.to_path_buf().into()]);
+                }
                 Ok(opts.ssl_opts(Some(ssl_opts)))
             }
             MySqlSslMode::VerifyCa => {
@@ -264,8 +272,8 @@ impl PoolManager {
                 }
             }
             PostgresSslMode::Require => {
-                // 必须使用 TLS，但不验证证书
-                Self::connect_pg_tls(config, true).await
+                // 必须使用 TLS，使用系统 CA 验证证书
+                Self::connect_pg_tls(config, false).await
             }
             PostgresSslMode::VerifyCa | PostgresSslMode::VerifyFull => {
                 // 验证证书

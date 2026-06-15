@@ -446,7 +446,7 @@ impl DbManagerApp {
             let query_result = tokio::select! {
                 result = &mut execute_fut => result.map_err(|e| e.to_string()),
                 _ = &mut timeout_fut => {
-                    if let Some(sender) = timeout_cancel_sender.lock().unwrap().take() {
+                    if let Some(sender) = timeout_cancel_sender.lock().unwrap_or_else(|e| e.into_inner()).take() {
                         let _ = sender.send(());
                     }
 

@@ -119,7 +119,7 @@ impl DbManagerApp {
             .is_some_and(|sender| {
                 sender
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(|e| e.into_inner())
                     .take()
                     .is_some_and(|cancel| cancel.send(()).is_ok())
             });

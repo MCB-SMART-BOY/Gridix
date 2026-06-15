@@ -93,10 +93,14 @@ pub struct SshTunnelConfig {
     /// SSH 用户名
     pub ssh_username: String,
     /// SSH 密码（密码认证时使用）
+    /// 注意：此字段在序列化时会被跳过，密码通过 OS keyring 存储。
+    #[serde(default, skip_serializing)]
     pub ssh_password: String,
     /// 私钥路径（私钥认证时使用）
     pub private_key_path: String,
     /// 私钥密码（如果私钥有密码保护）
+    /// 注意：此字段在序列化时会被跳过，密码通过 OS keyring 存储。
+    #[serde(default, skip_serializing)]
     pub private_key_passphrase: String,
     /// 认证方式
     pub auth_method: SshAuthMethod,

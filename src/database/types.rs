@@ -53,10 +53,10 @@ impl DatabaseType {
 /// PostgreSQL SSL 模式
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub enum PostgresSslMode {
-    /// 禁用 SSL（默认）
-    #[default]
+    /// 禁用 SSL
     Disable,
-    /// 优先使用 SSL，但允许不安全连接
+    /// 优先使用 SSL，但允许不安全连接（默认）
+    #[default]
     Prefer,
     /// 必须使用 SSL
     Require,
@@ -114,10 +114,10 @@ impl PostgresSslMode {
 /// MySQL SSL 模式
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub enum MySqlSslMode {
-    /// 禁用 SSL（默认）
-    #[default]
+    /// 禁用 SSL
     Disabled,
-    /// 优先使用 SSL，但允许不安全连接
+    /// 优先使用 SSL，但允许不安全连接（默认）
+    #[default]
     Preferred,
     /// 必须使用 SSL
     Required,

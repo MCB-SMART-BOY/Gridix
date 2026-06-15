@@ -25,7 +25,7 @@
 // 内部模块
 // ============================================================================
 
-pub mod app;
+pub(crate) mod app;
 pub mod bootstrap;
 pub mod core;
 pub mod database;
