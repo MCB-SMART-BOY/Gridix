@@ -507,6 +507,12 @@ impl DbManagerApp {
         }
 
         // SQL 编辑器内容区域
+        // 确保至少有一个 tab 用于 SQL 编辑
+        if self.tab_manager.tabs.is_empty() {
+            self.tab_manager.new_tab();
+        }
+        let tab_sql = &mut self.tab_manager.tabs[self.tab_manager.active_index].sql;
+
         ui.allocate_ui_with_layout(
             egui::vec2(ui.available_width(), editor_height),
             egui::Layout::top_down(egui::Align::LEFT),
@@ -523,7 +529,7 @@ impl DbManagerApp {
                     is_editor_focused && self.editor_mode == ui::EditorMode::Insert;
                 sql_editor_actions = ui::SqlEditor::show(
                     ui,
-                    &mut self.sql,
+                    tab_sql,
                     &self.command_history,
                     &mut self.history_index,
                     self.executing,
@@ -546,14 +552,14 @@ impl DbManagerApp {
     /// 处理 SQL 编辑器操作
     pub(crate) fn handle_sql_editor_actions(&mut self, actions: SqlEditorActions) {
         // 执行查询
-        if actions.execute && !self.sql.is_empty() {
-            let sql = self.sql.clone();
-            let _ = self.execute(sql);
+        let active_sql = self.active_sql().to_string();
+        if actions.execute && !active_sql.is_empty() {
+            let _ = self.execute(active_sql.clone());
         }
 
         // EXPLAIN 分析
-        if actions.explain && !self.sql.is_empty() {
-            let sql = self.sql.trim();
+        if actions.explain && !active_sql.is_empty() {
+            let sql = active_sql.trim();
             let explain_sql = if self.is_mysql() {
                 format!("EXPLAIN FORMAT=TRADITIONAL {}", sql)
             } else if self
@@ -572,12 +578,13 @@ impl DbManagerApp {
 
         // 格式化
         if actions.format {
-            self.sql = format_sql(&self.sql);
+            let formatted = format_sql(&active_sql);
+            self.set_active_sql(formatted);
         }
 
         // 清空
         if actions.clear {
-            self.sql.clear();
+            self.set_active_sql(String::new());
             if let Some(tab) = self.tab_manager.get_active_mut() {
                 tab.sql.clear();
                 tab.modified = false;
@@ -598,7 +605,7 @@ impl DbManagerApp {
         }
 
         if actions.text_changed {
-            self.sync_sql_to_active_tab();
+            // SQL 直接写入 tab，无需反向同步
         }
     }
 
@@ -830,7 +837,7 @@ impl DbManagerApp {
 
         // 触发器定义
         if let Some(definition) = actions.show_trigger_definition {
-            self.sql = definition;
+            self.set_active_sql(definition);
             self.show_sql_editor = true;
             self.set_focus_area(ui::FocusArea::SqlEditor);
             self.notifications.info("触发器定义已加载到编辑器");
@@ -838,7 +845,7 @@ impl DbManagerApp {
 
         // 存储过程/函数定义
         if let Some(definition) = actions.show_routine_definition {
-            self.sql = definition;
+            self.set_active_sql(definition);
             self.show_sql_editor = true;
             self.set_focus_area(ui::FocusArea::SqlEditor);
             self.notifications.info("存储过程/函数定义已加载到编辑器");
@@ -1040,7 +1047,7 @@ impl DbManagerApp {
             }
         };
 
-        self.sql = match db_type {
+        let rename_sql = match db_type {
             crate::database::DatabaseType::MySQL => {
                 format!("RENAME TABLE {} TO {};", quoted_old, quoted_new)
             }
@@ -1048,6 +1055,7 @@ impl DbManagerApp {
                 format!("ALTER TABLE {} RENAME TO {};", quoted_old, quoted_new)
             }
         };
+        self.set_active_sql(rename_sql);
         self.show_sql_editor = true;
         self.set_focus_area(ui::FocusArea::SqlEditor);
         self.notifications
@@ -1086,7 +1094,6 @@ impl DbManagerApp {
             if let Some(tab_id) = closing_tab_id {
                 self.remove_grid_workspaces_for_tab(&tab_id);
             }
-            self.sync_from_active_tab();
         }
 
         if tab_actions.close_others {
@@ -1124,7 +1131,6 @@ impl DbManagerApp {
             for tab_id in closing_tab_ids {
                 self.remove_grid_workspaces_for_tab(&tab_id);
             }
-            self.sync_from_active_tab();
         }
 
         if tab_actions.close_right {
@@ -1162,7 +1168,6 @@ impl DbManagerApp {
             for tab_id in closing_tab_ids {
                 self.remove_grid_workspaces_for_tab(&tab_id);
             }
-            self.sync_from_active_tab();
         }
     }
 

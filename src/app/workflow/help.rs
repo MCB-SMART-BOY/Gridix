@@ -69,7 +69,7 @@ impl DbManagerApp {
                 self.sidebar_section = ui::SidebarSection::Tables;
                 self.show_sql_editor = true;
                 self.set_focus_area(ui::FocusArea::DataGrid);
-                self.sql = sql.clone();
+                self.set_active_sql(sql.clone());
 
                 if let Some(table_name) = table {
                     self.switch_grid_workspace(Some(table_name.clone()));
@@ -208,11 +208,11 @@ impl DbManagerApp {
         self.sidebar_section = ui::SidebarSection::Tables;
         self.show_sql_editor = true;
         self.set_focus_area(ui::FocusArea::DataGrid);
-        self.sql = format!(
+        self.set_active_sql(format!(
             "{}\n\n-- 查看变更结果\n{}",
             mutation_sql.trim(),
             preview_sql.trim()
-        );
+        ));
 
         if let Some(table_name) = preview_table {
             self.switch_grid_workspace(Some(table_name.clone()));

@@ -124,8 +124,6 @@ pub struct DbManagerApp {
     // ==================== 查询状态 ====================
     /// 当前选中的表名
     selected_table: Option<String>,
-    /// 当前 SQL 编辑器内容
-    sql: String,
     /// 当前查询结果
     result: Option<QueryResult>,
     /// 多 Tab 查询管理器，支持多个独立查询
@@ -311,6 +309,28 @@ pub struct DbManagerApp {
     pending_toggle_dark_mode: bool,
 }
 
+// ===== SQL 编辑器访问方法（委托给 tab_manager，消除 self.sql 双源）=====
+
+impl DbManagerApp {
+    /// 获取当前活动 Tab 的 SQL（只读）
+    pub(crate) fn active_sql(&self) -> &str {
+        self.tab_manager
+            .get_active()
+            .map(|t| t.sql.as_str())
+            .unwrap_or("")
+    }
+
+    /// 设置编辑器 SQL（如无 tab 则自动创建）
+    pub(crate) fn set_active_sql(&mut self, sql: String) {
+        if self.tab_manager.tabs.is_empty() {
+            self.tab_manager.new_tab();
+        }
+        if let Some(tab) = self.tab_manager.get_active_mut() {
+            tab.sql = sql;
+        }
+    }
+}
+
 impl DbManagerApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let app_config = AppConfig::load();
@@ -369,7 +389,6 @@ impl DbManagerApp {
             new_config: ConnectionConfig::default(),
             editing_connection_name: None,
             selected_table: None,
-            sql: String::new(),
             result: None,
             tab_manager: QueryTabManager::new(),
             tx,

@@ -380,7 +380,7 @@ impl DbManagerApp {
                 self.execute_import();
             }
             ui::ImportAction::CopyToEditor(sql) => {
-                self.sql = sql;
+                self.set_active_sql(sql);
                 self.show_sql_editor = true;
                 self.set_focus_area(ui::FocusArea::SqlEditor);
                 self.close_dialog(DialogId::Import);
@@ -395,7 +395,7 @@ impl DbManagerApp {
 
         // 处理 DDL
         if let Some(create_sql) = results.ddl_sql {
-            self.sql = create_sql;
+            self.set_active_sql(create_sql);
             self.show_sql_editor = true;
             self.set_focus_area(ui::FocusArea::SqlEditor);
         }
@@ -417,7 +417,7 @@ impl DbManagerApp {
                     }
                 },
                 ui::CreateDatabaseRequest::Sql(sql) => {
-                    self.sql = sql;
+                    self.set_active_sql(sql);
                     self.show_sql_editor = true;
                     self.set_focus_area(ui::FocusArea::SqlEditor);
                     self.notifications.info(format!(
@@ -430,7 +430,7 @@ impl DbManagerApp {
 
         // 处理创建用户
         if let Some(statements) = results.create_user_sql {
-            self.sql = statements.join("\n");
+            self.set_active_sql(statements.join("\n"));
             self.show_sql_editor = true;
             self.set_focus_area(ui::FocusArea::SqlEditor);
             self.notifications.info(format!(
@@ -441,7 +441,7 @@ impl DbManagerApp {
 
         // 处理历史记录
         if let Some(sql) = results.history_selected_sql {
-            self.sql = sql;
+            self.set_active_sql(sql);
         }
 
         if results.clear_history {

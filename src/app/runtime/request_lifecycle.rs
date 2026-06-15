@@ -26,7 +26,6 @@ impl DbManagerApp {
     /// 从当前活动 Tab 同步 SQL 和结果到主视图
     pub(crate) fn sync_from_active_tab(&mut self) {
         if let Some(tab) = self.tab_manager.get_active() {
-            self.sql = tab.sql.clone();
             self.result = tab.result.clone();
             self.last_query_time_ms = tab.query_time_ms;
             self.selected_table = tab.selected_table.clone();
@@ -52,13 +51,10 @@ impl DbManagerApp {
         self.sync_active_surface_binding_to_tab();
     }
 
-    /// 将当前编辑中的 SQL 草稿同步回活动 Tab
+    /// 更新活动 Tab 的元数据（modified 标记、标题）
     pub(in crate::app) fn sync_sql_to_active_tab(&mut self) {
-        if let Some(tab) = self.tab_manager.get_active_mut()
-            && tab.sql != self.sql
-        {
-            tab.sql = self.sql.clone();
-            tab.modified = !self.sql.trim().is_empty();
+        if let Some(tab) = self.tab_manager.get_active_mut() {
+            tab.modified = !tab.sql.trim().is_empty();
             tab.update_title();
         }
     }
