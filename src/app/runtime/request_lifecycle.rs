@@ -2,7 +2,7 @@
 //!
 //! 负责请求 ID、执行状态、取消信号与 pending 任务清理。
 
-use parking_lot::Mutex;
+use std::sync::Mutex;
 use std::sync::Arc;
 
 use super::DbManagerApp;
@@ -66,8 +66,7 @@ impl DbManagerApp {
     /// 根据导入状态和 Tab 执行状态刷新全局 executing 标记
     pub(in crate::app) fn refresh_executing_flag(&mut self) {
         let query_executing = self.tab_manager.tabs.iter().any(|t| t.executing);
-        let grid_save_executing = !self.pending_grid_save_requests.is_empty();
-        self.executing = self.import_executing || query_executing || grid_save_executing;
+        self.executing = self.import_executing || query_executing;
     }
 
     /// 生成新的连接请求 ID
@@ -78,11 +77,6 @@ impl DbManagerApp {
     /// 生成新的元数据请求 ID
     pub(in crate::app) fn next_metadata_request_id(&mut self) -> u64 {
         Self::next_nonzero_request_id(&mut self.next_metadata_request_id)
-    }
-
-    /// 生成新的表格保存请求 ID
-    pub(in crate::app) fn next_grid_save_request_id(&mut self) -> u64 {
-        Self::next_nonzero_request_id(&mut self.next_grid_save_request_id)
     }
 
     /// 根据当前活动连接的 pending 请求刷新 connecting 标记
@@ -125,6 +119,7 @@ impl DbManagerApp {
             .is_some_and(|sender| {
                 sender
                     .lock()
+                    .unwrap()
                     .take()
                     .is_some_and(|cancel| cancel.send(()).is_ok())
             });

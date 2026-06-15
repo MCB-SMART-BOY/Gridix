@@ -1346,7 +1346,7 @@ impl ERDiagramState {
             }
 
             let center = (lane_last_end.len() - 1) as f32 / 2.0;
-            for ((route_index, _), lane) in entries.iter().zip(assigned_lanes.into_iter()) {
+            for ((route_index, _), lane) in entries.iter().zip(assigned_lanes) {
                 offsets[*route_index] = (lane as f32 - center) * lane_spacing;
             }
         }
@@ -1408,7 +1408,7 @@ impl ERDiagramState {
         }
 
         let lane_offsets = Self::route_lane_offsets(&routed_relationships, self.zoom);
-        for (route, lane_offset) in routed_relationships.iter().zip(lane_offsets.into_iter()) {
+        for (route, lane_offset) in routed_relationships.iter().zip(lane_offsets) {
             let rel = &self.relationships[route.relationship_index];
             let points = Self::orthogonal_route_points(
                 route.from_screen,

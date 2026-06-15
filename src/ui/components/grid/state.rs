@@ -129,6 +129,7 @@ impl DataGridState {
         self.column_width_cache.clear();
     }
 
+    #[allow(dead_code)]
     pub fn clear_save_state(&mut self) {
         self.clear_edits();
         self.pending_sql.clear();

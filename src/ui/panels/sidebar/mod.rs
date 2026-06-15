@@ -967,11 +967,11 @@ impl Sidebar {
                     ConnectionList::request_database_delete(&conn.config.name, database, actions);
                 }
             }
-            SidebarSection::Filters => {
-                if selected_index < filters.len() {
-                    filters.remove(selected_index);
-                    actions.filter_changed = true;
-                }
+            SidebarSection::Filters
+                if selected_index < filters.len() =>
+            {
+                filters.remove(selected_index);
+                actions.filter_changed = true;
             }
             _ => {}
         }

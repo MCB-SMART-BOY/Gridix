@@ -2,7 +2,7 @@
 //!
 //! 处理数据库连接、断开、查询执行等操作。
 
-use parking_lot::Mutex;
+use std::sync::Mutex;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -10,14 +10,13 @@ use crate::app::dialogs::host::DialogId;
 use crate::core::constants;
 use crate::database::{
     ConnectResult, ConnectionConfig, DatabaseType, connect_database, drop_database,
-    execute_import_batch, execute_query, execute_query_cancellable, get_primary_key_column,
+    execute_query, execute_query_cancellable, get_primary_key_column,
     get_tables_for_database, ssh_tunnel::SSH_TUNNEL_MANAGER,
 };
 use crate::ui;
 
 use super::message::Message;
-use super::{DbManagerApp, GridSaveContext};
-use crate::app::GridWorkspaceId;
+use super::DbManagerApp;
 
 fn prepare_tab_for_query_execution(tab: &mut crate::ui::QueryTab, sql: &str, request_id: u64) {
     tab.sql = sql.to_string();
@@ -447,7 +446,7 @@ impl DbManagerApp {
             let query_result = tokio::select! {
                 result = &mut execute_fut => result.map_err(|e| e.to_string()),
                 _ = &mut timeout_fut => {
-                    if let Some(sender) = timeout_cancel_sender.lock().take() {
+                    if let Some(sender) = timeout_cancel_sender.lock().unwrap().take() {
                         let _ = sender.send(());
                     }
 
@@ -494,135 +493,6 @@ impl DbManagerApp {
         self.track_query_task(request_id, task_conn_name, query_task, cancel_sender);
 
         Some(request_id)
-    }
-
-    /// 批量保存表格修改，并在成功后刷新当前表格视图。
-    pub(in crate::app) fn execute_grid_save(&mut self, statements: Vec<String>) -> Option<u64> {
-        let statements: Vec<String> = statements
-            .into_iter()
-            .filter(|statement| !statement.trim().is_empty())
-            .collect();
-        if statements.is_empty() {
-            return None;
-        }
-
-        let Some(active_name) = self.manager.active.clone() else {
-            self.notifications.warning("请先连接数据库");
-            return None;
-        };
-        let Some(conn) = self.manager.connections.get(&active_name) else {
-            self.notifications.warning("请先连接数据库");
-            return None;
-        };
-        let Some(table_name) = self.selected_table.clone() else {
-            self.notifications.warning("当前没有可刷新的表格上下文");
-            return None;
-        };
-
-        let config = conn.config.clone();
-        let selected_database = conn.selected_database.clone();
-        let request_id = self.next_grid_save_request_id();
-        let active_tab_id = self
-            .tab_manager
-            .get_active()
-            .map(|tab| tab.id.clone())
-            .unwrap_or_default();
-        let tx = self.tx.clone();
-        let statement_count = statements.len();
-
-        self.pending_grid_save_requests.insert(
-            request_id,
-            GridSaveContext {
-                workspace_id: self
-                    .active_grid_workspace_id()
-                    .unwrap_or_else(|| GridWorkspaceId {
-                        tab_id: active_tab_id.clone(),
-                        connection_name: active_name.clone(),
-                        database_name: selected_database.clone(),
-                        table_name: table_name.clone(),
-                    }),
-                table_name,
-                tab_id: active_tab_id,
-                cursor: self.grid_state.cursor,
-                search_text: self.search_text.clone(),
-                search_column: self.search_column.clone(),
-            },
-        );
-        self.refresh_executing_flag();
-        self.last_query_time_ms = None;
-
-        self.runtime.spawn(async move {
-            let start = Instant::now();
-            let result = execute_import_batch(&config, statements, true, true)
-                .await
-                .map_err(|error| error.to_string());
-            let elapsed_ms = start.elapsed().as_millis() as u64;
-
-            if tx
-                .send(Message::GridSaveDone(request_id, result, elapsed_ms))
-                .is_err()
-            {
-                tracing::warn!("无法发送表格保存结果：接收端已关闭");
-            }
-        });
-
-        self.notifications
-            .info(format!("保存已开始：共 {} 条 SQL 语句", statement_count));
-
-        Some(request_id)
-    }
-
-    pub(in crate::app) fn refresh_table_after_grid_save(
-        &mut self,
-        ctx: &egui::Context,
-        restore: GridSaveContext,
-    ) {
-        if self.active_grid_workspace_id().as_ref() != Some(&restore.workspace_id) {
-            self.notifications
-                .info("保存已完成；当前表格上下文已变化，未自动覆盖其他表格工作区");
-            ctx.request_repaint();
-            return;
-        }
-
-        let active_tab_matches = self
-            .tab_manager
-            .get_active()
-            .is_some_and(|tab| tab.id == restore.tab_id);
-        if !active_tab_matches {
-            self.notifications
-                .info("保存已完成；当前已切换到其他查询标签，未自动覆盖当前页面");
-            ctx.request_repaint();
-            return;
-        }
-
-        let query_sql = match self.build_table_query_sql(&restore.table_name) {
-            Ok(sql) => sql,
-            Err(error) => {
-                self.notifications
-                    .warning(format!("保存成功，但刷新表格失败: {}", error));
-                ctx.request_repaint();
-                return;
-            }
-        };
-
-        self.switch_grid_workspace(Some(restore.table_name.clone()));
-        if let Some(request_id) = self.execute(query_sql) {
-            self.pending_grid_refresh_restores
-                .insert(request_id, restore);
-        } else {
-            self.notifications.warning("保存成功，但未能发起表格刷新");
-        }
-        ctx.request_repaint();
-    }
-
-    fn build_table_query_sql(&self, table_name: &str) -> Result<String, String> {
-        let quoted_table = ui::quote_identifier(table_name, self.is_mysql())
-            .map_err(|error| format!("表名无效: {}", error))?;
-        Ok(format!(
-            "SELECT * FROM {} LIMIT {};",
-            quoted_table,
-            constants::database::DEFAULT_QUERY_LIMIT
-        ))
     }
 
     /// 异步获取表的主键列

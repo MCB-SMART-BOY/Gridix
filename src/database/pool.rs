@@ -11,7 +11,7 @@ use tokio::sync::RwLock;
 
 /// 全局连接池管理器
 ///
-/// 使用 lazy_static 模式实现单例，避免每次查询都创建新连接
+/// 使用 LazyLock 实现单例，避免每次查询都创建新连接
 pub struct PoolManager {
     /// MySQL 连接池缓存
     mysql_pools: RwLock<HashMap<String, (mysql_async::Pool, Instant)>>,
@@ -387,6 +387,5 @@ impl Default for PoolManager {
 }
 
 // 全局连接池实例
-lazy_static::lazy_static! {
-    pub static ref POOL_MANAGER: PoolManager = PoolManager::new();
-}
+pub static POOL_MANAGER: std::sync::LazyLock<PoolManager> =
+    std::sync::LazyLock::new(PoolManager::new);

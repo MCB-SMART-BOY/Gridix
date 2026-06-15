@@ -76,7 +76,7 @@ fn sync_query_tabs(state: &mut DockState<DockTab>, tab_manager: &crate::ui::Quer
             if let Some(ref node_idx) = target {
                 tree.push_to_focused_leaf(tab);
                 // 确保焦点在正确的 leaf
-                let _ = tree.set_focused_node(*node_idx);
+                tree.set_focused_node(*node_idx);
             } else {
                 let _ = tree.split_right(NodeIndex::root(), 0.3, vec![tab]);
             }

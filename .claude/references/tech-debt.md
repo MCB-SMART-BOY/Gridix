@@ -4,17 +4,17 @@ Code-verified issues found during audit. Ordered by severity.
 
 ## Architectural debt
 
-### DatabaseDriver trait is dead code (medium)
-`database/driver.rs` defines `DatabaseDriver` trait with ~11 operations — well-designed but never used. Actual dispatch: `match db_type` in `query/mod.rs`. Either delete the trait or refactor backends to implement it.
+### ~~DatabaseDriver trait is dead code~~ FIXED
+Deleted `database/driver.rs` — trait had 0 implementors. Actual dispatch: `match db_type` in `query/mod.rs`.
 
-### state/mod.rs is dead code (low)
-`app/state/mod.rs` (259 lines) — structured state type definitions. Marked `#![allow(dead_code)]`. Actual `DbManagerApp` has all fields inlined. Either finish the refactoring or remove the file.
+### ~~state/mod.rs is dead code~~ FIXED
+Deleted `app/state/mod.rs` — 8 unused structs, all fields already inlined in `DbManagerApp`.
 
 ### Dual-source self.sql (medium)
 Both `DbManagerApp::sql` and `active_tab().sql` exist — can diverge. Known structural cost from recovery docs. Fix: make tab the sole authority, remove the app-level mirror.
 
-### No shared test utilities (low)
-620 tests, zero shared fixtures. `tests/common/mod.rs` doesn't exist. Two test files are identical duplicates (ddl_tests.rs = ddl_dialog_tests.rs). autocomplete_tests.rs duplicates tests in core_tests.rs.
+### ~~No shared test utilities~~ FIXED
+`tests/common/mod.rs` provides `begin_key_pass()` and `focus_text_input()`. Duplicate test files removed (ddl_dialog_tests.rs, autocomplete_tests.rs, formatter_tests.rs, syntax_tests.rs).
 
 ## Logic bugs & limitations
 
@@ -72,5 +72,5 @@ Multi-leaf removal collected pre-removal indices. Fixed: sort descending before 
 5 unused connection-data clones removed from CentralPanel. Cleanup: dead welcome_action/sql_editor_actions vars and their handlers removed.
 ### ~~Double toolbar_actions handling~~ DOCUMENTED
 Two sources (input router + toolbar widget) use separate ToolbarActions instances — no double-processing. By design.
-### Session: central_panel_ratio persists but unused (low)
-`session.rs` still serializes `central_panel_ratio` — harmless but wasted bytes.
+### ~~Session: central_panel_ratio persists but unused~~ FIXED
+Removed `central_panel_ratio` field, `default_central_panel_ratio()`, and `record_layout()` from `session.rs`.

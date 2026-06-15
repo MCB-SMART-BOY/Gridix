@@ -550,9 +550,8 @@ impl Default for SshTunnelManager {
 }
 
 // 全局隧道管理器
-lazy_static::lazy_static! {
-    pub static ref SSH_TUNNEL_MANAGER: SshTunnelManager = SshTunnelManager::new();
-}
+pub static SSH_TUNNEL_MANAGER: std::sync::LazyLock<SshTunnelManager> =
+    std::sync::LazyLock::new(SshTunnelManager::new);
 
 // ============================================================================
 // 测试

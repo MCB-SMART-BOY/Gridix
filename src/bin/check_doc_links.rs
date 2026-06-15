@@ -64,7 +64,7 @@ fn iter_docs(root: &Path) -> Vec<PathBuf> {
         let mut md_files: Vec<PathBuf> = entries
             .filter_map(|e| e.ok())
             .map(|e| e.path())
-            .filter(|p| p.extension().map_or(false, |ext| ext == "md"))
+            .filter(|p| p.extension().is_some_and(|ext| ext == "md"))
             .collect();
         md_files.sort();
         files.extend(md_files);

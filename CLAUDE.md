@@ -166,7 +166,7 @@ src/
 
 ## Docs reliability
 
-Code-verified: ARCHITECTURE.md, CONFIGURATION.md, SECURITY.md, RELEASE_PROCESS.md, CONTRIBUTING.md, ENVIRONMENT_VARIABLES.md. Partially outdated: KEYBINDINGS.md (ER section wrong), KEYBOARD_FOCUS_RFC.md (design doc, target items now implemented). Recovery docs: stale line numbers but authoritative invariants.
+Standalone docs (ARCHITECTURE.md, etc.) were consolidated into CLAUDE.md and `.claude/` during v5.0.0 docs consolidation. `.claude/rules/` and `.claude/references/` are the authoritative design documents. CHANGELOG.md is in `docs/CHANGELOG.md`. Code is the source of truth — when docs and code disagree, code wins.
 
 ## Architecture of `.claude/`
 

@@ -6,8 +6,7 @@ use std::collections::HashSet;
 
 use eframe::egui;
 
-use super::{DbManagerApp, GridSaveContext, Message};
-use crate::app::GridWorkspaceId;
+use super::{DbManagerApp, Message};
 use crate::ui;
 
 struct QueryDonePayload {
@@ -39,6 +38,7 @@ fn is_cancelled_query_error(err: &str) -> bool {
         || lower.contains("query execution was interrupted")
 }
 
+#[allow(dead_code)]
 fn clamp_grid_cursor_for_result(
     cursor: (usize, usize),
     result: &crate::database::QueryResult,
@@ -53,14 +53,6 @@ fn clamp_grid_cursor_for_result(
     )
 }
 
-fn grid_save_context_matches_current(
-    active_workspace_id: Option<&GridWorkspaceId>,
-    active_tab_id: Option<&str>,
-    context: &GridSaveContext,
-) -> bool {
-    active_workspace_id == Some(&context.workspace_id)
-        && active_tab_id == Some(context.tab_id.as_str())
-}
 
 fn should_drop_query_error_as_stale(
     is_stale_for_existing_tab: bool,
@@ -186,18 +178,6 @@ fn apply_ready_state_er_diagram_layout(state: &mut ui::ERDiagramState) {
 }
 
 impl DbManagerApp {
-    fn apply_successful_grid_save_state(&mut self, context: &GridSaveContext) {
-        let active_tab_id = self.tab_manager.get_active().map(|tab| tab.id.as_str());
-        if grid_save_context_matches_current(
-            self.active_grid_workspace_id().as_ref(),
-            active_tab_id,
-            context,
-        ) {
-            self.grid_state.clear_save_state();
-        }
-        self.grid_workspaces.clear_save_state(&context.workspace_id);
-    }
-
     fn finalize_er_diagram_load_if_ready(&mut self) {
         if self.er_diagram_state.loading || self.er_diagram_state.tables.is_empty() {
             return;
@@ -256,9 +236,6 @@ impl DbManagerApp {
                 }
                 Message::ImportDone(result, elapsed_ms) => {
                     self.handle_import_done(ctx, result, elapsed_ms);
-                }
-                Message::GridSaveDone(request_id, result, elapsed_ms) => {
-                    self.handle_grid_save_done(ctx, request_id, result, elapsed_ms);
                 }
                 Message::PrimaryKeyFetched(table_name, pk_column) => {
                     self.handle_primary_key_fetched(ctx, table_name, pk_column);
@@ -613,7 +590,6 @@ impl DbManagerApp {
                     if is_drop_table {
                         self.pending_drop_requests.remove(&request_id);
                     }
-                    self.pending_grid_refresh_restores.remove(&request_id);
                     tracing::debug!(
                         tab_id = %tab_id,
                         request_id,
@@ -680,24 +656,8 @@ impl DbManagerApp {
 
                         self.result = Some(res.clone());
 
-                        if let Some(restore) =
-                            self.pending_grid_refresh_restores.remove(&request_id)
-                        {
-                            self.switch_grid_workspace(Some(restore.table_name.clone()));
-                            self.search_text = restore.search_text;
-                            self.search_column = restore.search_column;
-                            self.grid_state.cursor =
-                                clamp_grid_cursor_for_result(restore.cursor, &res);
-                            self.grid_state.scroll_to_row = Some(self.grid_state.cursor.0);
-                            self.grid_state.scroll_to_col = Some(self.grid_state.cursor.1);
-                            self.grid_state.focused = true;
-                            self.set_focus_area(ui::FocusArea::DataGrid);
-                        }
-                    } else {
-                        self.pending_grid_refresh_restores.remove(&request_id);
                     }
                 } else {
-                    self.pending_grid_refresh_restores.remove(&request_id);
                     tracing::debug!(tab_id = %tab_id, "查询回包对应的标签页已不存在");
                 }
 
@@ -735,7 +695,6 @@ impl DbManagerApp {
                     if is_drop_table {
                         self.pending_drop_requests.remove(&request_id);
                     }
-                    self.pending_grid_refresh_restores.remove(&request_id);
                     tracing::debug!(
                         tab_id = %tab_id,
                         request_id,
@@ -752,7 +711,6 @@ impl DbManagerApp {
                     if is_drop_table {
                         self.pending_drop_requests.remove(&request_id);
                     }
-                    self.pending_grid_refresh_restores.remove(&request_id);
                     self.refresh_executing_flag();
                     ctx.request_repaint();
                     return;
@@ -797,7 +755,6 @@ impl DbManagerApp {
                         }
                     }
                 }
-                self.pending_grid_refresh_restores.remove(&request_id);
 
                 if is_drop_table {
                     self.pending_drop_requests.remove(&request_id);
@@ -807,46 +764,6 @@ impl DbManagerApp {
         self.refresh_executing_flag();
         ctx.request_repaint();
     }
-
-    fn handle_grid_save_done(
-        &mut self,
-        ctx: &egui::Context,
-        request_id: u64,
-        result: Result<crate::database::ImportExecutionReport, String>,
-        elapsed_ms: u64,
-    ) {
-        let Some(context) = self.pending_grid_save_requests.remove(&request_id) else {
-            tracing::debug!(request_id, "忽略未知的表格保存回包");
-            return;
-        };
-        self.refresh_executing_flag();
-
-        match result {
-            Ok(report) => {
-                if report.failed == 0 {
-                    self.apply_successful_grid_save_state(&context);
-                    self.notifications.success(format!(
-                        "表格保存完成：成功 {} / {} 条 ({}ms)",
-                        report.succeeded, report.total, elapsed_ms
-                    ));
-                    self.refresh_table_after_grid_save(ctx, context);
-                    return;
-                }
-
-                let detail = report.first_error.as_deref().unwrap_or("部分 SQL 执行失败");
-                self.notifications.error(format!(
-                    "表格保存失败：成功 {}，失败 {}，总计 {} 条 ({}ms)。首个错误: {}",
-                    report.succeeded, report.failed, report.total, elapsed_ms, detail
-                ));
-            }
-            Err(error) => {
-                self.notifications.error(format!("表格保存失败: {}", error));
-            }
-        }
-
-        ctx.request_repaint();
-    }
-
     /// 处理导入完成消息
     fn handle_import_done(
         &mut self,
@@ -1093,11 +1010,10 @@ mod tests {
     use super::{
         ErDiagramReadyKind, apply_default_er_diagram_layout, apply_ready_state_er_diagram_layout,
         clamp_grid_cursor_for_result, collect_er_relationships_from_foreign_keys,
-        er_diagram_ready_message, grid_save_context_matches_current, is_cancelled_query_error,
+        er_diagram_ready_message, is_cancelled_query_error,
         resolve_er_diagram_ready_state, select_ready_state_er_layout_strategy,
         should_drop_query_error_as_stale, should_record_active_query_time,
     };
-    use crate::app::{GridSaveContext, GridWorkspaceId};
     use crate::database::ForeignKeyInfo;
     use crate::database::QueryResult;
     use crate::ui::{ERLayoutStrategy, ERTable, RelationType, Relationship, RelationshipOrigin};
@@ -1142,47 +1058,6 @@ mod tests {
             clamp_grid_cursor_for_result((4, 2), &QueryResult::default()),
             (0, 0)
         );
-    }
-
-    #[test]
-    fn grid_save_context_matches_current_requires_matching_workspace_and_tab() {
-        let workspace = GridWorkspaceId {
-            tab_id: "tab-a".to_string(),
-            connection_name: "local".to_string(),
-            database_name: Some("main".to_string()),
-            table_name: "users".to_string(),
-        };
-        let context = GridSaveContext {
-            workspace_id: workspace.clone(),
-            table_name: "users".to_string(),
-            tab_id: "tab-a".to_string(),
-            cursor: (2, 1),
-            search_text: String::new(),
-            search_column: None,
-        };
-
-        assert!(grid_save_context_matches_current(
-            Some(&workspace),
-            Some("tab-a"),
-            &context
-        ));
-        assert!(!grid_save_context_matches_current(
-            Some(&workspace),
-            Some("tab-b"),
-            &context
-        ));
-
-        let other_workspace = GridWorkspaceId {
-            tab_id: "tab-b".to_string(),
-            connection_name: "local".to_string(),
-            database_name: Some("main".to_string()),
-            table_name: "orders".to_string(),
-        };
-        assert!(!grid_save_context_matches_current(
-            Some(&other_workspace),
-            Some("tab-a"),
-            &context
-        ));
     }
 
     #[test]

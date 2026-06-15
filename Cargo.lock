@@ -1802,7 +1802,6 @@ dependencies = [
  "hostname",
  "image",
  "keyring",
- "lazy_static",
  "mysql_async",
  "native-tls",
  "parking_lot",

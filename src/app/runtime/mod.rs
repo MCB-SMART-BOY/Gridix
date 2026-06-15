@@ -10,5 +10,4 @@ pub(in crate::app) mod metadata;
 pub(in crate::app) mod request_lifecycle;
 
 pub(in crate::app) use super::DbManagerApp;
-pub(in crate::app) use super::GridSaveContext;
 pub(in crate::app) use message::Message;

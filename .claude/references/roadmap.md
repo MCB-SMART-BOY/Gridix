@@ -7,28 +7,28 @@
 - [x] tokio-postgres 0.7→0.7.18 (MEDIUM vuln fixed)
 - [ ] Monitor `rsa` crate — 1 remaining MEDIUM vuln (no fix available, transitive via russh)
 - [ ] Watch `mysql_async` for `lru` unsound fix
-- [ ] Consider replacing `syntect` if it remains unmaintained (uses yaml-rust, bincode)
+- [x] Consider replacing `syntect` — replaced with custom tokenizer, dependency removed
 
 ### CI hardening
-- [ ] Add `cargo audit` to CI quality gate
-- [ ] Add `rust-toolchain.toml` to pin toolchain version
-- [ ] Add quality checks (fmt+clippy+test) to release workflow before build
-- [ ] Add PostgreSQL service container for integration tests in CI
-- [ ] Add `cargo-tarpaulin` for code coverage reporting
+- [x] Add `cargo audit` to CI quality gate
+- [x] Add `rust-toolchain.toml` to pin toolchain version
+- [x] Add quality checks (fmt+clippy+test) to release workflow before build
+- [x] Add PostgreSQL service container for integration tests in CI
+- [x] Add `cargo-tarpaulin` for code coverage reporting
 
 ### Test infrastructure
-- [ ] Create `tests/common/mod.rs` for shared test fixtures
+- [x] Create `tests/common/mod.rs` for shared test fixtures
 - [ ] Add `proptest` or `quickcheck` for property-based testing of SQL parser/formatter
-- [ ] Deduplicate identical test files (ddl_tests.rs = ddl_dialog_tests.rs)
+- [x] Deduplicate identical test files (ddl_tests.rs = ddl_dialog_tests.rs)
 - [ ] Add unit tests for `database/pool.rs` (currently zero coverage)
 - [ ] Add unit tests for `database/ssh_tunnel.rs` (config only, no connectivity tests)
 
 ## Medium-term (v7.0.0)
 
 ### Architecture
-- [ ] Resolve `DatabaseDriver` trait — either implement it across backends or delete it
+- [x] Delete `DatabaseDriver` trait — removed as dead code
 - [ ] Unify `self.sql` dual-source — make tab the sole authority
-- [ ] Complete `app/state/mod.rs` refactoring or remove dead code
+- [x] Remove `app/state/mod.rs` dead code
 - [ ] Extract `GridWorkspaceStore` patterns into a reusable workspace management layer
 
 ### Features

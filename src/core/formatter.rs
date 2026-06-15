@@ -129,7 +129,7 @@ pub fn format_sql(sql: &str) -> String {
             if i + kw_len <= chars.len() {
                 let slice = &chars[i..i + kw_len];
                 let matches_kw = slice.iter().zip(kw_chars.iter())
-                    .all(|(a, b)| a.to_ascii_uppercase() == b.to_ascii_uppercase());
+                    .all(|(a, b)| a.eq_ignore_ascii_case(b));
 
                 if matches_kw {
                     // 确保是完整的关键字（后面是空格或结束，不是字母数字）

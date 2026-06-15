@@ -19,7 +19,7 @@ mod surfaces;
 mod workflow;
 
 use eframe::egui;
-use parking_lot::Mutex;
+use std::sync::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -34,16 +34,6 @@ use crate::ui::{self, DdlDialogState, ExportConfig, KeyBindingsDialogState, Quer
 use action::command_palette::CommandPaletteState;
 use dialogs::host::DialogId;
 use runtime::message::Message;
-
-#[derive(Debug, Clone)]
-pub(in crate::app) struct GridSaveContext {
-    workspace_id: GridWorkspaceId,
-    table_name: String,
-    tab_id: String,
-    cursor: (usize, usize),
-    search_text: String,
-    search_column: Option<String>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(in crate::app) struct GridWorkspaceId {
@@ -95,12 +85,6 @@ impl GridWorkspaceStore {
             workspace_id.connection_name != connection_name
                 || workspace_id.database_name.as_deref() != Some(database_name)
         });
-    }
-
-    fn clear_save_state(&mut self, workspace_id: &GridWorkspaceId) {
-        if let Some(state) = self.states.get_mut(workspace_id) {
-            state.clear_save_state();
-        }
     }
 }
 
@@ -164,8 +148,6 @@ pub struct DbManagerApp {
     next_connect_request_id: u64,
     /// 查询请求自增序列（用于丢弃过期回包）
     next_query_request_id: u64,
-    /// 表格保存请求自增序列（用于跟踪批量保存与刷新）
-    next_grid_save_request_id: u64,
     /// 元数据请求自增序列（触发器/存储过程）
     next_metadata_request_id: u64,
     /// 各连接最新连接请求 ID
@@ -184,11 +166,6 @@ pub struct DbManagerApp {
     pending_query_cancellers: HashMap<u64, Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>>,
     /// 显式用户取消的查询请求 ID（用于让取消回包通过 stale gate）
     user_cancelled_query_requests: HashSet<u64>,
-    /// 进行中的表格保存请求上下文
-    pending_grid_save_requests: HashMap<u64, GridSaveContext>,
-    /// 表格刷新完成后需要恢复的视图上下文
-    pending_grid_refresh_restores: HashMap<u64, GridSaveContext>,
-
     // ==================== 配置和历史 ====================
     /// 应用程序配置（主题、UI 缩放等）
     app_config: AppConfig,
@@ -403,7 +380,6 @@ impl DbManagerApp {
             import_executing: false,
             next_connect_request_id: 0,
             next_query_request_id: 0,
-            next_grid_save_request_id: 0,
             next_metadata_request_id: 0,
             pending_connect_requests: HashMap::new(),
             pending_database_requests: HashMap::new(),
@@ -413,8 +389,6 @@ impl DbManagerApp {
             pending_query_connections: HashMap::new(),
             pending_query_cancellers: HashMap::new(),
             user_cancelled_query_requests: HashSet::new(),
-            pending_grid_save_requests: HashMap::new(),
-            pending_grid_refresh_restores: HashMap::new(),
             app_config,
             query_history,
             command_history: Vec::new(),
@@ -826,48 +800,5 @@ mod tests {
 
         assert!(store.load(&keep).is_some());
         assert!(store.load(&drop).is_none());
-    }
-
-    #[test]
-    fn grid_workspace_store_clear_save_state_only_mutates_target_workspace() {
-        let mut store = GridWorkspaceStore::default();
-        let target_id = workspace("tab-a", "local", Some("main"), "users");
-        let other_id = workspace("tab-b", "local", Some("main"), "users");
-
-        let mut target = DataGridState::new();
-        target.modified_cells.insert((0, 0), "alice".to_string());
-        target
-            .pending_sql
-            .push("UPDATE users SET name='alice'".to_string());
-        target.pending_save = true;
-        target.show_save_confirm = true;
-
-        let mut other = DataGridState::new();
-        other.modified_cells.insert((1, 0), "bob".to_string());
-        other
-            .pending_sql
-            .push("UPDATE users SET name='bob'".to_string());
-        other.pending_save = true;
-        other.show_save_confirm = true;
-
-        store.save(target_id.clone(), &target);
-        store.save(other_id.clone(), &other);
-
-        store.clear_save_state(&target_id);
-
-        let cleared = store
-            .load(&target_id)
-            .expect("target workspace should exist");
-        let untouched = store.load(&other_id).expect("other workspace should exist");
-
-        assert!(!cleared.has_changes());
-        assert!(cleared.pending_sql.is_empty());
-        assert!(!cleared.pending_save);
-        assert!(!cleared.show_save_confirm);
-
-        assert!(untouched.has_changes());
-        assert_eq!(untouched.pending_sql.len(), 1);
-        assert!(untouched.pending_save);
-        assert!(untouched.show_save_confirm);
     }
 }

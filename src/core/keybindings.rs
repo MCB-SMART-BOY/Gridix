@@ -1578,7 +1578,7 @@ impl KeyBindings {
                     .any(|command| command.id == path_key.as_str())
             })
             .collect();
-        extra_local_entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+        extra_local_entries.sort_by_key(|(left, _)| *left);
         for (path_key, bindings) in extra_local_entries {
             Self::insert_nested_local_binding(
                 &mut root,
@@ -1588,7 +1588,7 @@ impl KeyBindings {
         }
 
         let mut sequence_entries: Vec<_> = self.local_sequences.iter().collect();
-        sequence_entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+        sequence_entries.sort_by_key(|(left, _)| *left);
         for (path_key, sequences) in sequence_entries {
             Self::insert_nested_local_binding(
                 &mut root,
