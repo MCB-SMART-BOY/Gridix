@@ -12,7 +12,7 @@ paths:
 
 - External integration: `tests/*.rs` — use `use gridix::*;`, no `#[cfg(test)]` wrapper
 - Inline unit: `#[cfg(test)] mod tests { use super::*; ... }` in source files
-- 56 source files have inline tests, 13 external test files
+- Shared test utilities: `tests/common/mod.rs` provides `begin_key_pass()` and `focus_text_input()`
 
 ## Patterns
 
@@ -25,12 +25,22 @@ fn test_something() {
 }
 ```
 
+**Session test** (new — no egui Context needed):
+```rust
+#[test]
+fn test_session_execute() {
+    let mut session = Session::new_with_test_runtime();
+    session.connect("test".to_string());
+    let effects = session.poll_messages();
+    assert!(effects.connections.len() > 0);
+}
+```
+
 **egui component** (for widget behavior — uses real egui Context, no GPU needed):
 ```rust
 #[test]
 fn test_widget() {
     let ctx = egui::Context::default();
-    // Simulate keypress: inject events before begin_pass
     ctx.begin_pass(egui::RawInput {
         events: vec![egui::Event::Key {
             key: egui::Key::Enter,
@@ -41,16 +51,12 @@ fn test_widget() {
         }],
         ..Default::default()
     });
-    // Render widget inside an Area to give it a stable id
     egui::Area::new("test".into()).show(&ctx, |ui| {
         widget.ui(ui);
     });
-    // Assert on widget state after rendering
     assert!(widget.some_property);
 }
 ```
-
-Reference: see `src/ui/dialogs/common.rs` and `src/app/surfaces/render.rs` inline tests for real examples.
 
 **Async** (for DB operations):
 ```rust
@@ -65,14 +71,23 @@ async fn test_query() {
 
 - Always run `cargo test` after writing tests — don't assume they pass
 - If testing egui keyboard behavior, use `egui::Event::Key` with `Key::Character` or `Key::Named`
-- For input routing tests, reference the ~115 tests in `input_router.rs` as patterns
 - MySQL integration tests must be `#[ignore]`d — they need external DB
-- Shared test utilities: `tests/common/mod.rs` provides `begin_key_pass()` and `focus_text_input()`. Use `mod common;` in external test files.
+- Session tests should not require `egui::Context`
+- Data layer tests should not require `Session`
+
+## Layer-specific testing
+
+| Layer | Test type | Example |
+|-------|-----------|---------|
+| `core/` | Pure unit tests | `#[test] fn test_format_sql()` |
+| `data/` | Async integration (SQLite in-memory) | `#[tokio::test] async fn test_connect()` |
+| `session/` | Unit with mock runtime | `#[test] fn test_poll_messages()` |
+| `state/` | Pure unit tests | `#[test] fn test_apply_effects()` |
+| `ui/` | egui Context tests | `#[test] fn test_dialog_rendering()` |
 
 ## Known gaps
 
 - No tests for PostgreSQL/MySQL driver implementations (connection, query, types, errors)
-- No tests for connection pool (`database/pool.rs`)
+- No tests for connection pool (`data/pool.rs`)
 - No tests for SSH tunnel establishment
-- No tests for clipboard or file system operations
 - No benchmarks
