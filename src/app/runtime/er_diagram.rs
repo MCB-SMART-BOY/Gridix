@@ -86,10 +86,10 @@ impl DbManagerApp {
 
                 // 异步加载每个表的列信息
                 for table_name in &load.tables {
-                    let tx = self.tx.clone();
+                    let tx = self.session.tx.clone();
                     let config_clone = load.config.clone();
                     let table_clone = table_name.clone();
-                    self.runtime.spawn(async move {
+                    self.session.runtime.spawn(async move {
                         let result =
                             crate::database::get_table_columns(&config_clone, &table_clone).await;
                         let _ = tx.send(Message::ERTableColumnsFetched(
@@ -100,9 +100,9 @@ impl DbManagerApp {
                 }
 
                 // 异步加载外键关系
-                let tx = self.tx.clone();
+                let tx = self.session.tx.clone();
                 let config = load.config.clone();
-                self.runtime.spawn(async move {
+                self.session.runtime.spawn(async move {
                     let result = crate::database::get_foreign_keys(&config).await;
                     let _ = tx.send(Message::ForeignKeysFetched(
                         result.map_err(|e| e.to_string()),

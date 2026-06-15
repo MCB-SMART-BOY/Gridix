@@ -15,14 +15,14 @@ impl DbManagerApp {
             let config = conn.config.clone();
             let database = conn.selected_database.clone();
             let request_id = self.next_metadata_request_id();
-            let tx = self.tx.clone();
+            let tx = self.session.tx.clone();
 
             self.sidebar_panel_state.loading_triggers = true;
             self.sidebar_panel_state.clear_triggers();
             self.pending_triggers_request =
                 Some((active_name.clone(), database.clone(), request_id));
 
-            self.runtime.spawn(async move {
+            self.session.runtime.spawn(async move {
                 use tokio::time::{Duration, timeout};
 
                 let timeout_secs = constants::database::CONNECTION_TIMEOUT_SECS;
@@ -50,14 +50,14 @@ impl DbManagerApp {
             let config = conn.config.clone();
             let database = conn.selected_database.clone();
             let request_id = self.next_metadata_request_id();
-            let tx = self.tx.clone();
+            let tx = self.session.tx.clone();
 
             self.sidebar_panel_state.loading_routines = true;
             self.sidebar_panel_state.clear_routines();
             self.pending_routines_request =
                 Some((active_name.clone(), database.clone(), request_id));
 
-            self.runtime.spawn(async move {
+            self.session.runtime.spawn(async move {
                 use tokio::time::{Duration, timeout};
 
                 let timeout_secs = constants::database::CONNECTION_TIMEOUT_SECS;

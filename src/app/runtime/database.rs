@@ -96,7 +96,7 @@ impl DbManagerApp {
     pub(in crate::app) fn connect(&mut self, name: String) {
         if let Some(conn) = self.manager.connections.get(&name) {
             let config = conn.config.clone();
-            let tx = self.tx.clone();
+            let tx = self.session.tx.clone();
             let request_id = self.next_connect_request_id();
 
             self.manager.active = Some(name.clone());
@@ -113,7 +113,7 @@ impl DbManagerApp {
 
             tracing::info!(connection = %name, db_type = ?config.db_type, "开始连接数据库");
 
-            self.runtime.spawn(async move {
+            self.session.runtime.spawn(async move {
                 use tokio::time::{Duration, timeout};
                 // 连接超时
                 let timeout_secs = constants::database::CONNECTION_TIMEOUT_SECS;
@@ -163,7 +163,7 @@ impl DbManagerApp {
             return;
         };
         let config = conn.config.clone();
-        let tx = self.tx.clone();
+        let tx = self.session.tx.clone();
         let request_id = self.next_connect_request_id();
 
         self.pending_database_requests
@@ -176,7 +176,7 @@ impl DbManagerApp {
         self.sidebar_panel_state.clear_routines();
         self.refresh_connecting_flag();
 
-        self.runtime.spawn(async move {
+        self.session.runtime.spawn(async move {
             use tokio::time::{Duration, timeout};
             let timeout_secs = constants::database::CONNECTION_TIMEOUT_SECS;
             let db_name = database.clone();
@@ -212,7 +212,7 @@ impl DbManagerApp {
         // 清理 SSH 隧道和连接池
         if let Some(conn) = self.manager.connections.get(&name) {
             let config = conn.config.clone();
-            let handle = self.runtime.handle().clone();
+            let handle = self.session.runtime.handle().clone();
 
             // 停止关联的 SSH 隧道
             if config.ssh_config.enabled {
@@ -300,12 +300,12 @@ impl DbManagerApp {
         }
 
         let config = conn.config.clone();
-        let tx = self.tx.clone();
+        let tx = self.session.tx.clone();
         let connection_name = connection_name.to_string();
         let database_name = database.to_string();
         let remove_active_pool = conn.selected_database.as_deref() == Some(database);
 
-        self.runtime.spawn(async move {
+        self.session.runtime.spawn(async move {
             let result = drop_database(&config, &database_name)
                 .await
                 .map_err(|e| e.to_string());
@@ -346,11 +346,11 @@ impl DbManagerApp {
             }
         };
         let config = conn.config.clone();
-        let tx = self.tx.clone();
+        let tx = self.session.tx.clone();
         let table_name = table.to_string();
         let sql = format!("DROP TABLE {};", quoted_table);
 
-        self.runtime.spawn(async move {
+        self.session.runtime.spawn(async move {
             let result = execute_query(&config, &sql)
                 .await
                 .map(|_| ())
@@ -384,7 +384,7 @@ impl DbManagerApp {
         };
 
         let config = conn.config.clone();
-        let tx = self.tx.clone();
+        let tx = self.session.tx.clone();
 
         tracing::info!(connection = %active_name, sql_length = sql.len(), "开始执行查询");
 
@@ -429,7 +429,7 @@ impl DbManagerApp {
         let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
         let cancel_sender = Arc::new(Mutex::new(Some(cancel_tx)));
         let timeout_cancel_sender = Arc::clone(&cancel_sender);
-        let query_task = self.runtime.spawn(async move {
+        let query_task = self.session.runtime.spawn(async move {
             use tokio::time::{Duration, sleep, timeout};
             let start = Instant::now();
             let timeout_secs = constants::database::QUERY_TIMEOUT_SECS;
@@ -498,9 +498,9 @@ impl DbManagerApp {
 
         let config = conn.config.clone();
         let table = table_name.to_string();
-        let tx = self.tx.clone();
+        let tx = self.session.tx.clone();
 
-        self.runtime.spawn(async move {
+        self.session.runtime.spawn(async move {
             let pk_result = get_primary_key_column(&config, &table).await;
             let pk_column = pk_result.ok().flatten();
             if tx

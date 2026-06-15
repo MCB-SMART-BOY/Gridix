@@ -101,12 +101,12 @@ impl DbManagerApp {
         let use_transaction = self.import_state.sql_config.use_transaction;
         let stop_on_error = self.import_state.sql_config.stop_on_error;
 
-        let tx = self.tx.clone();
+        let tx = self.session.tx.clone();
         self.import_executing = true;
         self.refresh_executing_flag();
         self.last_query_time_ms = None;
 
-        self.runtime.spawn(async move {
+        self.session.runtime.spawn(async move {
             let start = std::time::Instant::now();
             let result =
                 execute_import_batch(&config, valid_statements, use_transaction, stop_on_error)

@@ -132,12 +132,8 @@ pub struct DbManagerApp {
     session: crate::session::Session,
 
     // ==================== 异步通信 ====================
-    /// 消息发送端，用于从异步任务发送结果到 UI
-    tx: Sender<Message>,
     /// 消息接收端，UI 线程轮询获取异步结果
     rx: Receiver<Message>,
-    /// Tokio 异步运行时
-    runtime: tokio::runtime::Runtime,
     /// 是否正在建立连接
     connecting: bool,
     /// 是否正在执行查询
@@ -397,9 +393,7 @@ impl DbManagerApp {
             result: None,
             tab_manager: QueryTabManager::new(),
             session,
-            tx,
             rx,
-            runtime,
             connecting: false,
             executing: false,
             import_executing: false,
@@ -689,7 +683,7 @@ impl eframe::App for DbManagerApp {
         self.pending_query_cancellers.clear();
 
         // 清理连接池，确保所有数据库连接正确关闭
-        self.runtime.block_on(async {
+        self.session.runtime.block_on(async {
             crate::database::ssh_tunnel::SSH_TUNNEL_MANAGER
                 .stop_all()
                 .await;
