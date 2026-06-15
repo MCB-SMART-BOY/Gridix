@@ -11,7 +11,7 @@ use crate::core::{NotificationManager, ProgressManager};
 use crate::database::QueryResult;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::Sender;
 
 // ============================================================================
 // Session — 数据库会话管理
