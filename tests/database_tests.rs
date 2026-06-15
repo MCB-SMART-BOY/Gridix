@@ -146,3 +146,72 @@ fn test_ssh_pool_key_is_stable_after_runtime_host_rewrite() {
     changed_ssh_password.ssh_config.ssh_password = "other-ssh-secret".to_string();
     assert_ne!(base.pool_key(), changed_ssh_password.pool_key());
 }
+
+// ============================================================================
+// 数据库类型测试
+// ============================================================================
+
+#[test]
+fn test_database_type_display_names() {
+    assert_eq!(DatabaseType::SQLite.display_name(), "SQLite");
+    assert_eq!(DatabaseType::PostgreSQL.display_name(), "PostgreSQL");
+    assert_eq!(DatabaseType::MySQL.display_name(), "MySQL");
+}
+
+#[test]
+fn test_database_type_default_is_sqlite() {
+    assert_eq!(DatabaseType::default(), DatabaseType::SQLite);
+}
+
+// ============================================================================
+// ConnectionConfig 验证测试
+// ============================================================================
+
+#[test]
+fn test_connection_config_sqlite_defaults_to_local_file() {
+    let config = ConnectionConfig::default();
+    assert_eq!(config.db_type, DatabaseType::SQLite);
+    assert!(config.database.is_empty()); // SQLite defaults to in-memory
+}
+
+#[test]
+fn test_connection_config_ssl_mode_defaults() {
+    let config = ConnectionConfig::default();
+    assert_eq!(config.postgres_ssl_mode, PostgresSslMode::Prefer);
+    assert_eq!(config.mysql_ssl_mode, MySqlSslMode::Preferred);
+}
+
+#[test]
+fn test_pool_key_is_deterministic() {
+    let config = ConnectionConfig {
+        db_type: DatabaseType::PostgreSQL,
+        host: "db.example.com".to_string(),
+        port: 5432,
+        username: "user".to_string(),
+        password: "secret".to_string(),
+        database: "app".to_string(),
+        ..Default::default()
+    };
+    let key1 = config.pool_key();
+    let key2 = config.pool_key();
+    assert_eq!(key1, key2);
+}
+
+#[test]
+fn test_pool_key_includes_ssl_mode() {
+    let mut config = ConnectionConfig {
+        db_type: DatabaseType::PostgreSQL,
+        host: "localhost".to_string(),
+        port: 5432,
+        username: "user".to_string(),
+        password: "secret".to_string(),
+        database: "app".to_string(),
+        postgres_ssl_mode: PostgresSslMode::Disable,
+        ..Default::default()
+    };
+
+    let key_no_ssl = config.pool_key();
+    config.postgres_ssl_mode = PostgresSslMode::Require;
+    let key_require_ssl = config.pool_key();
+    assert_ne!(key_no_ssl, key_require_ssl);
+}

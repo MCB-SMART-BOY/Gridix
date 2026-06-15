@@ -225,13 +225,28 @@ impl Handler for SshClientHandler {
         let server_public_key = server_public_key.clone();
 
         async move {
+            // 计算服务器公钥 SHA-256 指纹用于错误提示
+            let fp = {
+                use base64::Engine;
+                let key_str = server_public_key.to_string();
+                let hash = ring::digest::digest(&ring::digest::SHA256, key_str.as_bytes());
+                format!(
+                    "SHA256:{}",
+                    base64::engine::general_purpose::STANDARD.encode(hash.as_ref())
+                )
+            };
+
             match russh::keys::check_known_hosts(&host, port, &server_public_key) {
                 Ok(true) => Ok(true),
                 Ok(false) => {
                     tracing::error!(
                         host = %host,
                         port,
-                        "SSH 主机密钥不匹配 — known_hosts 中已有不同密钥，可能是服务器重装或中间人攻击"
+                        fingerprint = %fp,
+                        "SSH 主机密钥不匹配：known_hosts 中已有不同密钥。\
+                         可能是服务器重装或中间人攻击。\
+                         如果确认服务器已重装，请运行: ssh-keygen -R [{}]:{}",
+                        host, port,
                     );
                     Ok(false)
                 }
@@ -239,9 +254,11 @@ impl Handler for SshClientHandler {
                     tracing::error!(
                         host = %host,
                         port,
+                        fingerprint = %fp,
                         error = %e,
-                        "SSH 主机密钥不在 known_hosts 中 — 请先通过 ssh <user>@{} 手动连接以信任主机密钥",
-                        host
+                        "SSH 主机密钥不在 known_hosts 中。\
+                         请先通过 ssh <user>@{} 手动连接以信任主机密钥",
+                        host,
                     );
                     Ok(false)
                 }

@@ -347,3 +347,48 @@ fn test_highlight_with_numbers() {
     assert!(job.text.contains("123"));
     assert!(job.text.contains("45.67"));
 }
+
+// ============================================================================
+// DbError 测试
+// ============================================================================
+
+#[test]
+fn test_db_error_connection_display() {
+    let err = gridix::database::DbError::Connection("连接超时".to_string());
+    assert!(err.to_string().contains("连接超时"));
+    assert!(err.to_string().contains("连接错误"));
+}
+
+#[test]
+fn test_db_error_query_display() {
+    let err = gridix::database::DbError::Query("syntax error near FROM".to_string());
+    assert!(err.to_string().contains("syntax error"));
+    assert!(err.to_string().contains("查询错误"));
+}
+
+// ============================================================================
+// Formatter 边界测试
+// ============================================================================
+
+#[test]
+fn test_formatter_handles_empty_input() {
+    let formatted = format_sql("");
+    assert!(formatted.is_empty());
+}
+
+#[test]
+fn test_formatter_preserves_keyword_case() {
+    let sql = "select * from users where id = 1";
+    let formatted = format_sql(sql);
+    assert!(formatted.contains("SELECT"));
+    assert!(formatted.contains("FROM"));
+    assert!(formatted.contains("WHERE"));
+}
+
+#[test]
+fn test_formatter_handles_multiple_joins() {
+    let sql = "select * from users join orders on users.id = orders.user_id left join products on orders.product_id = products.id";
+    let formatted = format_sql(sql);
+    assert!(formatted.contains("JOIN"));
+    assert!(formatted.contains("ON"));
+}

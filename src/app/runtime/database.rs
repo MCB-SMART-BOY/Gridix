@@ -217,19 +217,14 @@ impl DbManagerApp {
             // 停止关联的 SSH 隧道
             if config.ssh_config.enabled {
                 let tunnel_name = config.ssh_config.tunnel_name();
-                let handle_clone = handle.clone();
-                std::thread::spawn(move || {
-                    handle_clone.block_on(async {
-                        SSH_TUNNEL_MANAGER.stop(&tunnel_name).await;
-                    });
+                handle.spawn(async move {
+                    SSH_TUNNEL_MANAGER.stop(&tunnel_name).await;
                 });
             }
 
             // 清理连接池
-            std::thread::spawn(move || {
-                handle.block_on(async {
-                    crate::database::POOL_MANAGER.remove_pool(&config).await;
-                });
+            handle.spawn(async move {
+                crate::database::POOL_MANAGER.remove_pool(&config).await;
             });
         }
 
