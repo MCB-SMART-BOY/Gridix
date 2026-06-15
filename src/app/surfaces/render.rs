@@ -354,7 +354,7 @@ impl DbManagerApp {
             })
             .inner;
         if let Some(id) = cancel_task_id {
-            self.progress.cancel(id);
+            self.session.progress.cancel(id);
         }
         if self.focus_area == ui::FocusArea::Toolbar {
             ui::Toolbar::handle_keyboard(ui, &mut self.toolbar_index, &mut toolbar_actions);
