@@ -3,6 +3,7 @@
 //! 管理数据库连接生命周期、查询执行、异步消息分发和 Tab 状态。
 //! 依赖 data/ layer，被 state/ 和 ui/ 层使用。
 
+pub mod message;
 pub mod tab;
 
 use crate::database::ConnectionManager;
@@ -28,8 +29,8 @@ pub struct Session {
     pub tab_manager: tab::QueryTabManager,
 
     // ── 异步基础设施 ──
-    pub tx: Sender<crate::app::runtime::message::Message>,
-    pub rx: Receiver<crate::app::runtime::message::Message>,
+    pub tx: Sender<message::Message>,
+    pub rx: Receiver<message::Message>,
     pub runtime: tokio::runtime::Runtime,
 
     // ── 执行状态 ──
@@ -61,8 +62,8 @@ impl Session {
     /// 使用给定的运行时和通道创建新的 Session
     pub fn new(
         runtime: tokio::runtime::Runtime,
-        tx: Sender<crate::app::runtime::message::Message>,
-        rx: Receiver<crate::app::runtime::message::Message>,
+        tx: Sender<message::Message>,
+        rx: Receiver<message::Message>,
     ) -> Self {
         Self {
             manager: ConnectionManager::default(),
