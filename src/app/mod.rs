@@ -355,13 +355,11 @@ impl DbManagerApp {
         let session = crate::session::Session::new(runtime, tx.clone());
 
         ui::sync_runtime_local_shortcuts(&keybindings);
-        let _theme_manager = ThemeManager::new(app_config.theme_preset);
-        let _highlight_colors = HighlightColors::from_theme(&theme_manager.colors);
         self.state.highlight_colors = HighlightColors::from_theme(&self.state.theme_manager.colors);
         let query_history = app_config.query_history.clone();
 
         // 应用主题
-        theme_manager.apply(&cc.egui_ctx);
+        self.state.theme_manager.apply(&cc.egui_ctx);
 
         // 获取基础 DPI 缩放并应用用户缩放设置
         let base_pixels_per_point = cc.egui_ctx.pixels_per_point();
@@ -431,8 +429,6 @@ impl DbManagerApp {
             pending_delete_target: None,
             pending_drop_requests: HashMap::new(),
             pending_filter_input_focus: None,
-            theme_manager,
-            highlight_colors,
             last_query_time_ms: None,
             autocomplete: AutoComplete::new(),
             show_autocomplete: false,
@@ -457,8 +453,6 @@ impl DbManagerApp {
             help_state: ui::HelpState::default(),
             show_about: false,
             active_dialog_owner: None,
-            ui_scale,
-            base_pixels_per_point,
             ddl_dialog_state: DdlDialogState::default(),
             create_db_dialog_state: ui::CreateDbDialogState::new(),
             create_user_dialog_state: ui::CreateUserDialogState::new(),
