@@ -14,7 +14,7 @@
 mod action;
 mod dialogs;
 mod input;
-mod runtime;
+pub(crate) mod runtime;
 mod surfaces;
 mod workflow;
 

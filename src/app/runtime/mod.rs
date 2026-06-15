@@ -2,12 +2,12 @@
 //!
 //! 负责数据库请求、异步消息、元数据加载和请求生命周期。
 
-pub(in crate::app) mod database;
-pub(in crate::app) mod er_diagram;
-pub(in crate::app) mod handler;
-pub(in crate::app) mod message;
-pub(in crate::app) mod metadata;
-pub(in crate::app) mod request_lifecycle;
+pub(crate) mod database;
+pub(crate) mod er_diagram;
+pub(crate) mod handler;
+pub(crate) mod message;
+pub(crate) mod metadata;
+pub(crate) mod request_lifecycle;
 
-pub(in crate::app) use super::DbManagerApp;
-pub(in crate::app) use message::Message;
+pub(crate) use super::DbManagerApp;
+pub(crate) use message::Message;
