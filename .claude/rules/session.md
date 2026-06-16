@@ -42,7 +42,8 @@ pub struct Session {
 
 ## FrameEffects
 
-`poll_messages()` processes async results internally (tab state, history, autocomplete updates) and emits structured effects:
+Defined in `session/frame_effects.rs`. `FrameEffects` 类型已实现；
+`poll_messages()` 和 `State::apply_frame_effects()` 将在 handler 迁移后实现。
 
 ```rust
 pub struct FrameEffects {
@@ -54,7 +55,8 @@ pub struct FrameEffects {
 }
 ```
 
-State's `apply_frame_effects()` consumes these effects and updates UI state. Session handlers never directly mutate State — all communication flows through `FrameEffects`.
+当前 `handle_messages()` 仍在 `DbManagerApp` 上直接修改 State 和 Session。
+目标是让 Session handler 返回 `FrameEffects`，由 State 统一应用。
 
 ## Message enum
 

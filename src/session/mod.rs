@@ -3,6 +3,7 @@
 //! 管理数据库连接生命周期、查询执行、异步消息分发和 Tab 状态。
 //! 依赖 data/ layer，被 state/ 和 ui/ 层使用。
 
+pub mod frame_effects;
 pub mod message;
 pub mod tab;
 
@@ -17,10 +18,10 @@ use std::sync::mpsc::Sender;
 // Session — 数据库会话管理
 // ============================================================================
 
-/// 会话状态，聚合所有 DB 连接、查询生命周期和 Tab 状态。
+/// 会话状态，聚合 DB 连接、异步基础设施、请求追踪和 Tab 状态。
 ///
-/// 这是 Layer 2 的核心结构体，从 `DbManagerApp` 中提取。
-/// 未来将由独立的 `poll_messages()` 方法驱动，返回 `FrameEffects`。
+/// Layer 2 核心结构体。`FrameEffects` 类型已定义；
+/// `poll_messages()` 将在 handler 迁移后实现。
 pub struct Session {
     // ── 连接管理 ──
     pub manager: ConnectionManager,
