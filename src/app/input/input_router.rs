@@ -420,7 +420,7 @@ impl InputContextSnapshot {
             return FocusScope::Grid(self.grid_scope());
         }
 
-        if self.show_er_diagram && self.focus_area == ui::FocusArea::ErDiagram {
+        if self.state.show_er_diagram && self.focus_area == ui::FocusArea::ErDiagram {
             return FocusScope::ErDiagram(if self.er_diagram_viewport_mode {
                 ErDiagramFocusScope::Viewport
             } else {
@@ -562,7 +562,7 @@ impl InputContextSnapshot {
         if input.key_pressed(egui::Key::Escape)
             && self.can_dispatch_global_shortcut()
             && !self.is_text_entry_scope()
-            && (self.show_help || self.show_history_panel || self.show_er_diagram)
+            && (self.show_help || self.show_history_panel || self.state.show_er_diagram)
         {
             if matches!(self.focus_scope(), FocusScope::ErDiagram(_)) {
                 return None;
@@ -714,7 +714,7 @@ impl InputContextSnapshot {
             }
             Action::FocusErDiagram => (self.can_dispatch_global_shortcut()
                 && self.is_workspace_command_mode()
-                && self.show_er_diagram)
+                && self.state.show_er_diagram)
                 .then_some(ResolvedInputAction::HandledApp(AppAction::FocusErDiagram)),
             Action::ToggleDarkMode => (self.can_dispatch_global_shortcut()
                 && self.is_workspace_command_mode())
@@ -779,7 +779,7 @@ impl DbManagerApp {
         }
 
         if area == ui::FocusArea::ErDiagram {
-            self.er_diagram_state
+            self.state.er_diagram_state
                 .ensure_selection(self.selected_table.as_deref());
         }
     }
@@ -868,8 +868,8 @@ impl DbManagerApp {
             show_create_user_dialog: self.create_user_dialog_state.show,
             show_keybindings_dialog: self.keybindings_dialog_state.show,
             show_command_palette: self.command_palette_state.open,
-            show_er_diagram: self.show_er_diagram,
-            er_diagram_viewport_mode: self.er_diagram_state.is_viewport_mode(),
+            show_er_diagram: self.state.show_er_diagram,
+            er_diagram_viewport_mode: self.state.er_diagram_state.is_viewport_mode(),
             keybindings_recording: self.keybindings_dialog_state.is_recording(),
         }
     }
@@ -910,35 +910,35 @@ impl DbManagerApp {
             }
             RouterLocalAction::ErDiagram(action) => match action {
                 ErDiagramLocalAction::PrevTable => {
-                    self.er_diagram_state.select_prev_table();
+                    self.state.er_diagram_state.select_prev_table();
                 }
                 ErDiagramLocalAction::NextTable => {
-                    self.er_diagram_state.select_next_table();
+                    self.state.er_diagram_state.select_next_table();
                 }
                 ErDiagramLocalAction::PrevRelatedTable => {
-                    self.er_diagram_state.select_prev_related_table();
+                    self.state.er_diagram_state.select_prev_related_table();
                 }
                 ErDiagramLocalAction::NextRelatedTable => {
-                    self.er_diagram_state.select_next_related_table();
+                    self.state.er_diagram_state.select_next_related_table();
                 }
                 ErDiagramLocalAction::GeometryLeft => {
-                    self.er_diagram_state
+                    self.state.er_diagram_state
                         .select_geometric_neighbor(ui::GeometricDirection::Left);
                 }
                 ErDiagramLocalAction::GeometryDown => {
-                    self.er_diagram_state
+                    self.state.er_diagram_state
                         .select_geometric_neighbor(ui::GeometricDirection::Down);
                 }
                 ErDiagramLocalAction::GeometryUp => {
-                    self.er_diagram_state
+                    self.state.er_diagram_state
                         .select_geometric_neighbor(ui::GeometricDirection::Up);
                 }
                 ErDiagramLocalAction::GeometryRight => {
-                    self.er_diagram_state
+                    self.state.er_diagram_state
                         .select_geometric_neighbor(ui::GeometricDirection::Right);
                 }
                 ErDiagramLocalAction::OpenSelectedTable => {
-                    self.er_diagram_state
+                    self.state.er_diagram_state
                         .ensure_selection(self.selected_table.as_deref());
                     if let Some(table_name) = self
                         .er_diagram_state
@@ -957,10 +957,10 @@ impl DbManagerApp {
                     self.set_er_diagram_visible(false);
                 }
                 ErDiagramLocalAction::ToggleViewportMode => {
-                    self.er_diagram_state.toggle_interaction_mode();
+                    self.state.er_diagram_state.toggle_interaction_mode();
                 }
                 ErDiagramLocalAction::ExitViewportMode => {
-                    self.er_diagram_state.exit_viewport_mode();
+                    self.state.er_diagram_state.exit_viewport_mode();
                 }
             },
             RouterLocalAction::CloseWorkspaceOverlay => {
@@ -968,7 +968,7 @@ impl DbManagerApp {
                     self.close_dialog(DialogId::Help);
                 } else if self.is_dialog_visible(DialogId::History) {
                     self.close_dialog(DialogId::History);
-                } else if self.show_er_diagram {
+                } else if self.state.show_er_diagram {
                     self.set_er_diagram_visible_with_notice(
                         false,
                         ErDiagramVisibilityNotice::Silent,
@@ -1137,7 +1137,7 @@ impl DbManagerApp {
         visible: bool,
         notice: ErDiagramVisibilityNotice,
     ) {
-        if self.show_er_diagram == visible {
+        if self.state.show_er_diagram == visible {
             return;
         }
 
@@ -1149,10 +1149,10 @@ impl DbManagerApp {
             self.show_sql_editor,
         );
 
-        self.show_er_diagram = visible;
-        if self.show_er_diagram {
+        self.state.show_er_diagram = visible;
+        if self.state.show_er_diagram {
             self.load_er_diagram_data();
-            self.er_diagram_state.request_fit_to_view();
+            self.state.er_diagram_state.request_fit_to_view();
         }
 
         if let Some(message) = resolve_er_diagram_visibility_notice(visible, notice) {
@@ -1169,7 +1169,7 @@ impl DbManagerApp {
     }
 
     pub(crate) fn toggle_er_diagram_visibility(&mut self) {
-        self.set_er_diagram_visible(!self.show_er_diagram);
+        self.set_er_diagram_visible(!self.state.show_er_diagram);
     }
 
     pub(in crate::app) fn open_new_query_tab(&mut self) {

@@ -233,7 +233,7 @@ impl ActionContext {
         } else {
             "编辑器关"
         };
-        let er_diagram = if self.show_er_diagram {
+        let er_diagram = if self.state.show_er_diagram {
             "ER 开"
         } else {
             "ER 关"
@@ -1080,7 +1080,7 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::FocusErDiagram => {
-                if let Some(area) = resolve_focus_er_diagram_target(self.show_er_diagram) {
+                if let Some(area) = resolve_focus_er_diagram_target(self.state.show_er_diagram) {
                     self.set_focus_area(area);
                 }
                 Vec::new()

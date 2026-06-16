@@ -34,7 +34,7 @@ impl DbManagerApp {
         // 焦点循环顺序: Sidebar -> DataGrid -> ErDiagram -> SqlEditor -> Sidebar
         let areas = focus_cycle_areas(
             self.show_sidebar,
-            self.show_er_diagram,
+            self.state.show_er_diagram,
             self.show_sql_editor,
         );
 

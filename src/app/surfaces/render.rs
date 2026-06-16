@@ -421,7 +421,7 @@ impl DbManagerApp {
         let theme_preset = self.state.theme_manager.current;
         let er_is_focused = self.focus_area == ui::FocusArea::ErDiagram
             && !self.has_modal_dialog_open();
-        let er_response = self.er_diagram_state.show(ui, &theme_preset, er_is_focused);
+        let er_response = self.state.er_diagram_state.show(ui, &theme_preset, er_is_focused);
         for action in collect_er_diagram_surface_actions(&er_response) {
             match action {
                 ErDiagramSurfaceAction::FocusDiagram => {
@@ -432,18 +432,18 @@ impl DbManagerApp {
                 }
                 ErDiagramSurfaceAction::Relayout => {
                     let summary = ui::analyze_er_graph(
-                        &self.er_diagram_state.tables,
-                        &self.er_diagram_state.relationships,
+                        &self.state.er_diagram_state.tables,
+                        &self.state.er_diagram_state.relationships,
                     );
                     ui::apply_er_layout_strategy(
-                        &mut self.er_diagram_state.tables,
-                        &self.er_diagram_state.relationships,
+                        &mut self.state.er_diagram_state.tables,
+                        &self.state.er_diagram_state.relationships,
                         summary.strategy,
                     );
                 }
                 ErDiagramSurfaceAction::FitView => {
                     let available_size = ui.available_size();
-                    self.er_diagram_state.fit_to_view(available_size);
+                    self.state.er_diagram_state.fit_to_view(available_size);
                 }
             }
         }

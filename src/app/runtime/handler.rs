@@ -38,7 +38,7 @@ fn is_cancelled_query_error(err: &str) -> bool {
         || lower.contains("query execution was interrupted")
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // utility — tested but not called in production (future grid cursor restore)
 fn clamp_grid_cursor_for_result(
     cursor: (usize, usize),
     result: &crate::data::QueryResult,
@@ -179,23 +179,23 @@ fn apply_ready_state_er_diagram_layout(state: &mut ui::ERDiagramState) {
 
 impl DbManagerApp {
     fn finalize_er_diagram_load_if_ready(&mut self) {
-        if self.er_diagram_state.loading || self.er_diagram_state.tables.is_empty() {
+        if self.state.er_diagram_state.loading || self.state.er_diagram_state.tables.is_empty() {
             return;
         }
 
-        let inferred_relationships = if self.er_diagram_state.relationships.is_empty() {
+        let inferred_relationships = if self.state.er_diagram_state.relationships.is_empty() {
             self.infer_relationships_from_columns()
         } else {
             Vec::new()
         };
-        let explicit_relationships = std::mem::take(&mut self.er_diagram_state.relationships);
+        let explicit_relationships = std::mem::take(&mut self.state.er_diagram_state.relationships);
         let (relationships, ready_kind) =
             resolve_er_diagram_ready_state(explicit_relationships, inferred_relationships);
-        self.er_diagram_state.relationships = relationships;
-        apply_ready_state_er_diagram_layout(&mut self.er_diagram_state);
+        self.state.er_diagram_state.relationships = relationships;
+        apply_ready_state_er_diagram_layout(&mut self.state.er_diagram_state);
 
         self.session.notifications.info(er_diagram_ready_message(
-            self.er_diagram_state.tables.len(),
+            self.state.er_diagram_state.tables.len(),
             ready_kind,
         ));
     }
@@ -939,17 +939,17 @@ impl DbManagerApp {
         match result {
             Ok(fks) => {
                 let foreign_key_columns = collect_er_foreign_key_columns(&fks);
-                self.er_diagram_state
+                self.state.er_diagram_state
                     .set_foreign_key_columns(foreign_key_columns);
 
                 let relationships = collect_er_relationships_from_foreign_keys(fks);
                 let rel_count = relationships.len();
-                self.er_diagram_state.relationships = relationships;
+                self.state.er_diagram_state.relationships = relationships;
                 tracing::debug!(relationship_count = rel_count, "ER 图外键关系已返回");
                 self.finalize_er_diagram_load_if_ready();
             }
             Err(e) => {
-                self.er_diagram_state.mark_foreign_keys_resolved();
+                self.state.er_diagram_state.mark_foreign_keys_resolved();
                 self.session.notifications.error(format!("加载外键关系失败: {}", e));
                 self.finalize_er_diagram_load_if_ready();
             }
@@ -980,7 +980,7 @@ impl DbManagerApp {
                     })
                     .collect();
 
-                let display_mode = self.er_diagram_state.card_display_mode();
+                let display_mode = self.state.er_diagram_state.card_display_mode();
                 if let Some(er_table) = self
                     .er_diagram_state
                     .tables
@@ -997,7 +997,7 @@ impl DbManagerApp {
                     .warning(format!("获取表 {} 结构失败: {}", table_name, e));
             }
         }
-        self.er_diagram_state
+        self.state.er_diagram_state
             .mark_table_request_resolved(&table_name);
         self.finalize_er_diagram_load_if_ready();
         ctx.request_repaint();

@@ -4,17 +4,16 @@
 //! 更多字段将在后续提交中逐步迁移。
 
 use crate::core::{HighlightColors, ThemeManager};
+use crate::ui::ERDiagramState;
 
 /// UI 状态（逐步从 DbManagerApp 提取中）
-///
-/// 当前已迁移：主题、缩放、高亮颜色。
-/// 其余字段仍在 DbManagerApp 上直接维护，
-/// 将在完成渲染层解耦后迁移。
 pub struct UiState {
     pub theme_manager: ThemeManager,
     pub highlight_colors: HighlightColors,
     pub ui_scale: f32,
     pub base_pixels_per_point: f32,
+    pub show_er_diagram: bool,
+    pub er_diagram_state: ERDiagramState,
 }
 
 impl Default for UiState {
@@ -26,6 +25,8 @@ impl Default for UiState {
             highlight_colors,
             ui_scale: 1.0,
             base_pixels_per_point: 1.0,
+            show_er_diagram: false,
+            er_diagram_state: ERDiagramState::default(),
         }
     }
 }

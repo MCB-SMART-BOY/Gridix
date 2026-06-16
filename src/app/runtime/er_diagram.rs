@@ -49,31 +49,31 @@ impl DbManagerApp {
     pub fn load_er_diagram_data(&mut self) {
         match plan_er_diagram_load(self.session.manager.get_active()) {
             ErDiagramLoadPlan::NoActiveConnection => {
-                self.er_diagram_state.clear();
+                self.state.er_diagram_state.clear();
                 self.session.notifications.warning("请先连接数据库");
-                self.er_diagram_state.loading = false;
+                self.state.er_diagram_state.loading = false;
             }
             ErDiagramLoadPlan::EmptyTables { db_name } => {
-                self.er_diagram_state.clear();
+                self.state.er_diagram_state.clear();
                 self.session.notifications
                     .warning(format!("数据库 {} 没有表，请先选择数据库", db_name));
-                self.er_diagram_state.loading = false;
+                self.state.er_diagram_state.loading = false;
             }
             ErDiagramLoadPlan::Load(load) => {
-                let layout_snapshot = self.er_diagram_state.capture_layout_snapshot();
-                self.er_diagram_state
+                let layout_snapshot = self.state.er_diagram_state.capture_layout_snapshot();
+                self.state.er_diagram_state
                     .set_pending_layout_restore(layout_snapshot);
-                self.er_diagram_state.begin_loading(&load.tables);
+                self.state.er_diagram_state.begin_loading(&load.tables);
 
                 // 创建 ER 表结构
                 for table_name in &load.tables {
                     let er_table = ui::ERTable::new(table_name.clone());
-                    self.er_diagram_state.tables.push(er_table);
+                    self.state.er_diagram_state.tables.push(er_table);
                 }
 
                 // 加载中的骨架仍先走稳定网格；最终完成态布局由 finalize 统一决定。
                 ui::grid_layout(
-                    &mut self.er_diagram_state.tables,
+                    &mut self.state.er_diagram_state.tables,
                     4,
                     eframe::egui::Vec2::new(60.0, 50.0),
                 );
@@ -111,7 +111,7 @@ impl DbManagerApp {
             }
         }
 
-        self.er_diagram_state.needs_layout = false;
+        self.state.er_diagram_state.needs_layout = false;
     }
 
     /// 基于列名推断表之间的关系
@@ -130,7 +130,7 @@ impl DbManagerApp {
             .map(|t| t.name.as_str())
             .collect();
 
-        for table in &self.er_diagram_state.tables {
+        for table in &self.state.er_diagram_state.tables {
             for col in &table.columns {
                 // 跳过主键列
                 if col.is_primary_key {

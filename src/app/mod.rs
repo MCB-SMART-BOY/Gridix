@@ -222,7 +222,6 @@ pub struct DbManagerApp {
     /// 命令面板状态
     command_palette_state: CommandPaletteState,
     /// 是否显示 ER 图面板
-    show_er_diagram: bool,
     /// ER 图状态
     er_diagram_state: ui::ERDiagramState,
     /// SQL 编辑器高度（用于可调整大小）
@@ -409,8 +408,6 @@ impl DbManagerApp {
             toolbar_create_menu_state: ui::ToolbarMenuDialogState::default(),
             toolbar_theme_dialog_state: ui::ToolbarThemeDialogState::default(),
             command_palette_state: CommandPaletteState::default(),
-            show_er_diagram: false,
-            er_diagram_state: ui::ERDiagramState::new(),
             sql_editor_height: 200.0, // 默认 SQL 编辑器高度
             pending_toggle_dark_mode: false,
             config_dirty: false,
@@ -431,7 +428,7 @@ impl DbManagerApp {
     }
 
     pub(crate) fn show_er_diagram(&self) -> bool {
-        self.show_er_diagram
+        self.state.show_er_diagram
     }
 
     pub(crate) fn show_sql_editor(&self) -> bool {

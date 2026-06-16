@@ -232,7 +232,7 @@ impl DbManagerApp {
                 selected_table: self.selected_table.clone(),
                 has_result: self.result.is_some(),
                 show_sql_editor: self.show_sql_editor,
-                show_er_diagram: self.show_er_diagram,
+                show_er_diagram: self.state.show_er_diagram,
                 onboarding_environment_checked: onboarding.environment_checked,
                 onboarding_connection_created: onboarding.connection_created,
                 onboarding_database_initialized: onboarding.database_initialized,
