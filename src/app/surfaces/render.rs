@@ -348,7 +348,7 @@ impl DbManagerApp {
                     self.state.ui_scale,
                     &self.session.progress,
                     is_toolbar_focused,
-                    self.toolbar_index,
+                    self.state.toolbar_index,
                 );
                 if ui.ui_contains_pointer() && ui.input(|i| i.pointer.primary_clicked()) {
                     self.set_focus_area(ui::FocusArea::Toolbar);
@@ -360,7 +360,7 @@ impl DbManagerApp {
             self.session.progress.cancel(id);
         }
         if self.state.focus_area == ui::FocusArea::Toolbar {
-            ui::Toolbar::handle_keyboard(ui, &mut self.toolbar_index, &mut toolbar_actions);
+            ui::Toolbar::handle_keyboard(ui, &mut self.state.toolbar_index, &mut toolbar_actions);
         }
         self.handle_toolbar_actions(ui.ctx(), toolbar_actions);
 
@@ -395,8 +395,8 @@ impl DbManagerApp {
                 let table_name = self.selected_table.as_deref();
                 let (grid_actions, _) = ui::DataGrid::show_editable(
                     ui, result,
-                    &self.search_text, &self.search_column,
-                    &mut self.selected_row, &mut self.selected_cell,
+                    &self.state.search_text, &self.state.search_column,
+                    &mut self.state.selected_row, &mut self.state.selected_cell,
                     &mut self.state.grid_state, table_name, &self.keybindings,
                 );
                 if grid_actions.open_filter_panel {
@@ -925,7 +925,7 @@ impl DbManagerApp {
         };
         let Some(default_col) = result
             .columns
-            .get(self.selected_cell.map(|(_, col)| col).unwrap_or(0))
+            .get(self.state.selected_cell.map(|(_, col)| col).unwrap_or(0))
             .cloned()
             .or_else(|| result.columns.first().cloned())
         else {

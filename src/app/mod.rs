@@ -117,13 +117,9 @@ pub struct DbManagerApp {
 
     // ==================== 搜索和选择 ====================
     /// 表格搜索文本
-    search_text: String,
     /// 搜索限定的列名
-    search_column: Option<String>,
     /// 当前选中的行索引
-    selected_row: Option<usize>,
     /// 当前选中的单元格 (行, 列)
-    selected_cell: Option<(usize, usize)>,
     /// 数据表格状态（筛选、排序、编辑等）
     /// 按表实例隔离的表格工作区状态
     grid_workspaces: GridWorkspaceStore,
@@ -164,7 +160,6 @@ pub struct DbManagerApp {
     /// 全局焦点区域（侧边栏/SQL 编辑器/数据表格）
     /// 最近一个非 ER 的 workspace 主区域（仅记录 Sidebar / DataGrid / SqlEditor）
     /// 工具栏当前选中项索引（用于键盘导航）
-    toolbar_index: usize,
     /// 侧边栏当前焦点子区域（连接/数据库/表）
     /// 侧边栏面板状态（上下分割、触发器列表、选中索引等）
     /// 侧边栏宽度
@@ -177,7 +172,6 @@ pub struct DbManagerApp {
     welcome_setup_action_index: usize,
     /// 是否显示帮助面板
     /// 帮助面板滚动位置
-    help_scroll_offset: f32,
     /// 帮助面板分类与学习主题状态
     /// 是否显示关于对话框
     /// 当前显式 dialog owner（输入/渲染优先走这里，再兼容回退到可见性采样）
@@ -235,8 +229,8 @@ impl DbManagerApp {
 
     /// Clear search from both mirror and active tab
     pub(crate) fn clear_search(&mut self) {
-        self.search_text.clear();
-        self.search_column = None;
+        self.state.search_text.clear();
+        self.state.search_column = None;
         if let Some(tab) = self.session.tab_manager.get_active_mut() {
             tab.search_text.clear();
             tab.search_column = None;
@@ -330,10 +324,6 @@ impl DbManagerApp {
                 s
             },
             app_config,
-            search_text: String::new(),
-            search_column: None,
-            selected_row: None,
-            selected_cell: None,
             grid_workspaces: GridWorkspaceStore::default(),
             active_grid_workspace_enabled: false,
             export_status: None,
@@ -341,12 +331,10 @@ impl DbManagerApp {
             pending_drop_requests: HashMap::new(),
             pending_filter_input_focus: None,
             dock_state: ui::dock_tabs::default_layout(),
-            toolbar_index: 0,
             sidebar_width: 280.0, // 默认侧边栏宽度
             welcome_status: ui::WelcomeStatusSummary::default(),
             welcome_setup_target: DatabaseType::SQLite,
             welcome_setup_action_index: 0,
-            help_scroll_offset: 0.0,
             active_dialog_owner: None,
             ddl_dialog_state: DdlDialogState::default(),
             create_db_dialog_state: ui::CreateDbDialogState::new(),
@@ -445,8 +433,8 @@ impl DbManagerApp {
     pub(in crate::app) fn sync_active_surface_binding_to_tab(&mut self) {
         if let Some(tab) = self.session.tab_manager.get_active_mut() {
             tab.selected_table = self.selected_table.clone();
-            tab.search_text = self.search_text.clone();
-            tab.search_column = self.search_column.clone();
+            tab.search_text = self.state.search_text.clone();
+            tab.search_column = self.state.search_column.clone();
             tab.uses_grid_workspace = self.active_grid_workspace_enabled;
         }
     }

@@ -243,7 +243,7 @@ impl DbManagerApp {
             results.help_action = ui::HelpDialog::show_with_scroll(
                 ctx,
                 &mut self.state.show_help,
-                &mut self.help_scroll_offset,
+                &mut self.state.help_scroll_offset,
                 &mut self.state.help_state,
                 &help_context,
             );

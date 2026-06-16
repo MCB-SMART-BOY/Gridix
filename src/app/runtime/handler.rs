@@ -628,8 +628,8 @@ impl DbManagerApp {
                             self.session.last_query_time_ms = Some(elapsed_ms);
                         }
                         self.session.notifications.success(&msg);
-                        self.selected_row = None;
-                        self.selected_cell = None;
+                        self.state.selected_row = None;
+                        self.state.selected_cell = None;
                         self.clear_search();
 
                         // 根据 SQL 类型设置光标位置
