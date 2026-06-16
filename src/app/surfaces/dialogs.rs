@@ -219,7 +219,7 @@ impl DbManagerApp {
                 &self.session.query_history,
                 &mut results.history_selected_sql,
                 &mut results.clear_history,
-                &mut self.history_panel_state,
+                &mut self.state.history_panel_state,
             );
         }
 
@@ -244,7 +244,7 @@ impl DbManagerApp {
                 ctx,
                 &mut self.state.show_help,
                 &mut self.help_scroll_offset,
-                &mut self.help_state,
+                &mut self.state.help_state,
                 &help_context,
             );
         }
@@ -257,7 +257,7 @@ impl DbManagerApp {
         // 快捷键设置对话框
         if active_dialog == Some(DialogId::Keybindings) {
             results.updated_keybindings =
-                KeyBindingsDialog::show(ctx, &mut self.keybindings_dialog_state);
+                KeyBindingsDialog::show(ctx, &mut self.state.keybindings_dialog_state);
         }
 
         if active_dialog == Some(DialogId::ToolbarActionsMenu) {
@@ -294,7 +294,7 @@ impl DbManagerApp {
 
             if let Some(item) = ui::ToolbarMenuDialog::show(
                 ctx,
-                &mut self.toolbar_actions_menu_state,
+                &mut self.state.toolbar_actions_menu_state,
                 "操作菜单",
                 "保留顶部按钮作为 trigger，把真正的选择与确认放到显式 overlay owner 里。",
                 "打开",
@@ -331,7 +331,7 @@ impl DbManagerApp {
 
             if let Some(item) = ui::ToolbarMenuDialog::show(
                 ctx,
-                &mut self.toolbar_create_menu_state,
+                &mut self.state.toolbar_create_menu_state,
                 "新建菜单",
                 "让新建动作进入固定 footer 的选择对话框，而不是继续停留在 toolbar 内部 popup。",
                 "打开",
@@ -344,7 +344,7 @@ impl DbManagerApp {
         if active_dialog == Some(DialogId::ToolbarThemeMenu) {
             results.theme_preset = ui::ToolbarThemeDialog::show(
                 ctx,
-                &mut self.toolbar_theme_dialog_state,
+                &mut self.state.toolbar_theme_dialog_state,
                 self.state.theme_manager.current,
                 self.app_config.is_dark_mode,
             );

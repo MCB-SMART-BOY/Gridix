@@ -1062,7 +1062,7 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::OpenKeybindingsDialog => {
-                self.keybindings_dialog_state
+                self.state.keybindings_dialog_state
                     .open_with_legacy(&self.keybindings, &self.app_config.keybindings);
                 self.mark_dialog_owner(DialogId::Keybindings);
                 Vec::new()

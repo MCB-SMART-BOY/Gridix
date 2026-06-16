@@ -5,7 +5,9 @@
 
 use crate::core::{HighlightColors, ThemeManager};
 use crate::ui::{EditorMode, ERDiagramState, ExportConfig, FocusArea, ImportState, SidebarSection};
-use crate::ui::{CreateDbDialogState, CreateUserDialogState, DdlDialogState};
+use crate::ui::{CreateDbDialogState, CreateUserDialogState, DdlDialogState, HelpState};
+use crate::ui::{HistoryPanelState, KeyBindingsDialogState};
+use crate::ui::{ToolbarMenuDialogState, ToolbarThemeDialogState};
 
 /// UI 状态（逐步从 DbManagerApp 提取中）
 pub struct UiState {
@@ -36,6 +38,12 @@ pub struct UiState {
     pub import_state: ImportState,
     pub ddl_dialog_state: DdlDialogState,
     pub create_db_dialog_state: CreateDbDialogState,
+    pub history_panel_state: HistoryPanelState,
+    pub keybindings_dialog_state: KeyBindingsDialogState,
+    pub toolbar_actions_menu_state: ToolbarMenuDialogState,
+    pub toolbar_create_menu_state: ToolbarMenuDialogState,
+    pub toolbar_theme_dialog_state: ToolbarThemeDialogState,
+    pub help_state: HelpState,
     pub create_user_dialog_state: CreateUserDialogState,
     pub show_welcome_setup_dialog: bool,
     pub show_er_diagram: bool,
@@ -74,6 +82,12 @@ impl Default for UiState {
             import_state: ImportState::default(),
             ddl_dialog_state: DdlDialogState::default(),
             create_db_dialog_state: CreateDbDialogState::default(),
+            history_panel_state: HistoryPanelState::default(),
+            keybindings_dialog_state: KeyBindingsDialogState::default(),
+            toolbar_actions_menu_state: ToolbarMenuDialogState::default(),
+            toolbar_create_menu_state: ToolbarMenuDialogState::default(),
+            toolbar_theme_dialog_state: ToolbarThemeDialogState::default(),
+            help_state: HelpState::default(),
             create_user_dialog_state: CreateUserDialogState::default(),
             show_welcome_setup_dialog: false,
             show_er_diagram: false,

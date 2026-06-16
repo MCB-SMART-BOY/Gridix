@@ -114,10 +114,10 @@ impl DbManagerApp {
             DialogId::Ddl => self.state.ddl_dialog_state.show,
             DialogId::CreateDatabase => self.state.create_db_dialog_state.show,
             DialogId::CreateUser => self.state.create_user_dialog_state.show,
-            DialogId::Keybindings => self.keybindings_dialog_state.show,
-            DialogId::ToolbarActionsMenu => self.toolbar_actions_menu_state.show,
-            DialogId::ToolbarCreateMenu => self.toolbar_create_menu_state.show,
-            DialogId::ToolbarThemeMenu => self.toolbar_theme_dialog_state.show,
+            DialogId::Keybindings => self.state.keybindings_dialog_state.show,
+            DialogId::ToolbarActionsMenu => self.state.toolbar_actions_menu_state.show,
+            DialogId::ToolbarCreateMenu => self.state.toolbar_create_menu_state.show,
+            DialogId::ToolbarThemeMenu => self.state.toolbar_theme_dialog_state.show,
             DialogId::CommandPalette => self.command_palette_state.open,
         }
     }
@@ -135,10 +135,10 @@ impl DbManagerApp {
             ddl: self.state.ddl_dialog_state.show,
             create_database: self.state.create_db_dialog_state.show,
             create_user: self.state.create_user_dialog_state.show,
-            keybindings: self.keybindings_dialog_state.show,
-            toolbar_actions_menu: self.toolbar_actions_menu_state.show,
-            toolbar_create_menu: self.toolbar_create_menu_state.show,
-            toolbar_theme_menu: self.toolbar_theme_dialog_state.show,
+            keybindings: self.state.keybindings_dialog_state.show,
+            toolbar_actions_menu: self.state.toolbar_actions_menu_state.show,
+            toolbar_create_menu: self.state.toolbar_create_menu_state.show,
+            toolbar_theme_menu: self.state.toolbar_theme_dialog_state.show,
             command_palette: self.command_palette_state.open,
         }
     }
@@ -171,10 +171,10 @@ impl DbManagerApp {
             DialogId::Ddl => self.state.ddl_dialog_state.show = true,
             DialogId::CreateDatabase => self.state.create_db_dialog_state.show = true,
             DialogId::CreateUser => self.state.create_user_dialog_state.show = true,
-            DialogId::Keybindings => self.keybindings_dialog_state.show = true,
-            DialogId::ToolbarActionsMenu => self.toolbar_actions_menu_state.open(),
-            DialogId::ToolbarCreateMenu => self.toolbar_create_menu_state.open(),
-            DialogId::ToolbarThemeMenu => self.toolbar_theme_dialog_state.open(),
+            DialogId::Keybindings => self.state.keybindings_dialog_state.show = true,
+            DialogId::ToolbarActionsMenu => self.state.toolbar_actions_menu_state.open(),
+            DialogId::ToolbarCreateMenu => self.state.toolbar_create_menu_state.open(),
+            DialogId::ToolbarThemeMenu => self.state.toolbar_theme_dialog_state.open(),
             DialogId::CommandPalette => self.command_palette_state.open(),
         }
 
@@ -194,10 +194,10 @@ impl DbManagerApp {
             DialogId::Ddl => self.state.ddl_dialog_state.close(),
             DialogId::CreateDatabase => self.state.create_db_dialog_state.close(),
             DialogId::CreateUser => self.state.create_user_dialog_state.close(),
-            DialogId::Keybindings => self.keybindings_dialog_state.close(),
-            DialogId::ToolbarActionsMenu => self.toolbar_actions_menu_state.close(),
-            DialogId::ToolbarCreateMenu => self.toolbar_create_menu_state.close(),
-            DialogId::ToolbarThemeMenu => self.toolbar_theme_dialog_state.close(),
+            DialogId::Keybindings => self.state.keybindings_dialog_state.close(),
+            DialogId::ToolbarActionsMenu => self.state.toolbar_actions_menu_state.close(),
+            DialogId::ToolbarCreateMenu => self.state.toolbar_create_menu_state.close(),
+            DialogId::ToolbarThemeMenu => self.state.toolbar_theme_dialog_state.close(),
             DialogId::CommandPalette => self.command_palette_state.close(),
         }
 

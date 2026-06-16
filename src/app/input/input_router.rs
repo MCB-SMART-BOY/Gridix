@@ -866,11 +866,11 @@ impl DbManagerApp {
             show_ddl_dialog: self.state.ddl_dialog_state.show,
             show_create_db_dialog: self.state.create_db_dialog_state.show,
             show_create_user_dialog: self.state.create_user_dialog_state.show,
-            show_keybindings_dialog: self.keybindings_dialog_state.show,
+            show_keybindings_dialog: self.state.keybindings_dialog_state.show,
             show_command_palette: self.command_palette_state.open,
             show_er_diagram: self.state.show_er_diagram,
             er_diagram_viewport_mode: self.state.er_diagram_state.is_viewport_mode(),
-            keybindings_recording: self.keybindings_dialog_state.is_recording(),
+            keybindings_recording: self.state.keybindings_dialog_state.is_recording(),
         }
     }
 
@@ -988,7 +988,7 @@ impl DbManagerApp {
             },
             RouterLocalAction::KeybindingsRecordingInput => {
                 let _ =
-                    ctx.input(|input| self.keybindings_dialog_state.consume_recording_input(input));
+                    ctx.input(|input| self.state.keybindings_dialog_state.consume_recording_input(input));
             }
         }
     }

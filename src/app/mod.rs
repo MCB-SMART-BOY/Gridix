@@ -140,7 +140,6 @@ pub struct DbManagerApp {
     /// 导入状态（文件、预览、配置）
     /// 是否显示历史面板
     /// 历史面板状态
-    history_panel_state: ui::HistoryPanelState,
     /// 是否显示删除确认对话框
     /// 待删除目标（连接 / 数据库 / 表）
     pending_delete_target: Option<ui::SidebarDeleteTarget>,
@@ -182,7 +181,6 @@ pub struct DbManagerApp {
     /// 帮助面板滚动位置
     help_scroll_offset: f32,
     /// 帮助面板分类与学习主题状态
-    help_state: ui::HelpState,
     /// 是否显示关于对话框
     /// 当前显式 dialog owner（输入/渲染优先走这里，再兼容回退到可见性采样）
     active_dialog_owner: Option<DialogId>,
@@ -192,13 +190,9 @@ pub struct DbManagerApp {
     /// 快捷键绑定
     keybindings: KeyBindings,
     /// 快捷键设置对话框状态
-    keybindings_dialog_state: KeyBindingsDialogState,
     /// 顶部工具栏“操作”菜单状态
-    toolbar_actions_menu_state: ui::ToolbarMenuDialogState,
     /// 顶部工具栏“新建”菜单状态
-    toolbar_create_menu_state: ui::ToolbarMenuDialogState,
     /// 顶部工具栏“主题”菜单状态
-    toolbar_theme_dialog_state: ui::ToolbarThemeDialogState,
     /// 命令面板状态
     command_palette_state: CommandPaletteState,
     /// 是否显示 ER 图面板
@@ -346,7 +340,6 @@ impl DbManagerApp {
             grid_workspaces: GridWorkspaceStore::default(),
             active_grid_workspace_enabled: false,
             export_status: None,
-            history_panel_state: ui::HistoryPanelState::default(),
             pending_delete_target: None,
             pending_drop_requests: HashMap::new(),
             pending_filter_input_focus: None,
@@ -358,16 +351,11 @@ impl DbManagerApp {
             welcome_setup_target: DatabaseType::SQLite,
             welcome_setup_action_index: 0,
             help_scroll_offset: 0.0,
-            help_state: ui::HelpState::default(),
             active_dialog_owner: None,
             ddl_dialog_state: DdlDialogState::default(),
             create_db_dialog_state: ui::CreateDbDialogState::new(),
             create_user_dialog_state: ui::CreateUserDialogState::new(),
             keybindings,
-            keybindings_dialog_state: KeyBindingsDialogState::default(),
-            toolbar_actions_menu_state: ui::ToolbarMenuDialogState::default(),
-            toolbar_create_menu_state: ui::ToolbarMenuDialogState::default(),
-            toolbar_theme_dialog_state: ui::ToolbarThemeDialogState::default(),
             command_palette_state: CommandPaletteState::default(),
             pending_toggle_dark_mode: false,
             config_dirty: false,
