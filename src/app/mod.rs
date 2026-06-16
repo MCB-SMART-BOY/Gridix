@@ -22,14 +22,13 @@ use eframe::egui;
 use std::sync::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, channel};
 
 use crate::core::{
-    AppConfig, AutoComplete, HighlightColors, KeyBindings, NotificationManager, ProgressManager,
-    QueryHistory, ThemeManager, constants,
+    AppConfig, AutoComplete, HighlightColors, KeyBindings, QueryHistory, ThemeManager, constants,
 };
-use crate::database::{ConnectionConfig, ConnectionManager, DatabaseType, QueryResult};
-use crate::ui::{self, DdlDialogState, ExportConfig, KeyBindingsDialogState, QueryTabManager};
+use crate::database::{ConnectionConfig, DatabaseType, QueryResult};
+use crate::ui::{self, DdlDialogState, ExportConfig, KeyBindingsDialogState};
 
 use action::command_palette::CommandPaletteState;
 use dialogs::host::DialogId;

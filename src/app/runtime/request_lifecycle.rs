@@ -8,10 +8,6 @@ use std::sync::Arc;
 use super::DbManagerApp;
 
 impl DbManagerApp {
-    #[allow(dead_code)] // 预留给显式“取消当前查询”动作路径
-    pub(in crate::app) fn cancel_query_request(&mut self, request_id: u64) {
-        self.cancel_query_request_with_visibility(request_id, true);
-    }
 
     pub(in crate::app) fn cancel_query_request_silently(&mut self, request_id: u64) {
         self.cancel_query_request_with_visibility(request_id, false);
@@ -57,47 +53,6 @@ impl DbManagerApp {
             tab.modified = !tab.sql.trim().is_empty();
             tab.update_title();
         }
-    }
-
-    /// 根据导入状态和 Tab 执行状态刷新全局 executing 标记
-    pub(in crate::app) fn refresh_executing_flag(&mut self) {
-        let query_executing = self.session.tab_manager.tabs.iter().any(|t| t.executing);
-        self.session.executing = self.session.import_executing || query_executing;
-    }
-
-    /// 生成新的连接请求 ID
-    pub(in crate::app) fn next_connect_request_id(&mut self) -> u64 {
-        Self::next_nonzero_request_id(&mut self.session.next_connect_request_id)
-    }
-
-    /// 生成新的元数据请求 ID
-    pub(in crate::app) fn next_metadata_request_id(&mut self) -> u64 {
-        Self::next_nonzero_request_id(&mut self.session.next_metadata_request_id)
-    }
-
-    /// 根据当前活动连接的 pending 请求刷新 connecting 标记
-    pub(in crate::app) fn refresh_connecting_flag(&mut self) {
-        let has_pending = self.session.manager.active.as_ref().is_some_and(|active_name| {
-            self.session.pending_connect_requests.contains_key(active_name)
-                || self.session.pending_database_requests.contains_key(active_name)
-        });
-        self.session.connecting = has_pending;
-    }
-
-    /// 记录进行中的查询任务
-    pub(in crate::app) fn track_query_task(
-        &mut self,
-        request_id: u64,
-        conn_name: String,
-        handle: tokio::task::JoinHandle<()>,
-        cancel_sender: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
-    ) {
-        if let Some(prev_handle) = self.session.pending_query_tasks.insert(request_id, handle) {
-            prev_handle.abort();
-        }
-        self.session.pending_query_connections.insert(request_id, conn_name);
-        self.session.pending_query_cancellers
-            .insert(request_id, cancel_sender);
     }
 
     /// 查询完成后清理任务跟踪
@@ -159,13 +114,5 @@ impl DbManagerApp {
                 tab.executing = false;
             }
         }
-    }
-
-    fn next_nonzero_request_id(counter: &mut u64) -> u64 {
-        *counter = counter.wrapping_add(1);
-        if *counter == 0 {
-            *counter = 1;
-        }
-        *counter
     }
 }
