@@ -12,7 +12,7 @@
 //! - `workflow`: 导入导出、帮助和欢迎页用户流程
 
 mod action;
-mod dialogs;
+pub(crate) mod dialogs;
 mod input;
 pub(crate) mod runtime;
 mod surfaces;
@@ -102,7 +102,7 @@ pub struct DbManagerApp {
     /// 会话状态 — 聚合 DB 连接、异步基础设施、请求追踪（渐进迁移中）
     session: crate::session::Session,
     /// UI 状态 — 聚合渲染状态（渐进迁移中）
-    state: crate::state::UiState,
+    pub state: crate::state::UiState,
 
     // ==================== 连接对话框 ====================
 

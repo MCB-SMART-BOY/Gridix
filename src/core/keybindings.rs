@@ -1032,6 +1032,7 @@ pub struct KeyBindings {
     diagnostics: Vec<KeymapDiagnostic>,
 }
 
+impl Default for KeyBindings {
     fn default() -> Self {
         let mut bindings = HashMap::new();
 
@@ -1062,6 +1063,7 @@ pub struct KeyBindings {
             diagnostics: Vec::new(),
         }
     }
+}
 
 impl KeyBindings {
     const KNOWN_ACTION_SCOPE_PATHS: &[&'static str] = &[
