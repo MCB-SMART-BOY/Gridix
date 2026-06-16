@@ -63,7 +63,7 @@ impl DbManagerApp {
         let plan = match plan_import_transfer(path, &session) {
             Ok(plan) => plan,
             Err(error) => {
-                self.notifications
+                self.session.notifications
                     .error(format!("导入计划生成失败: {}", error));
                 return;
             }

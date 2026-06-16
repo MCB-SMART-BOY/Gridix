@@ -55,7 +55,7 @@ impl DbManagerApp {
             }
             ErDiagramLoadPlan::EmptyTables { db_name } => {
                 self.er_diagram_state.clear();
-                self.notifications
+                self.session.notifications
                     .warning(format!("数据库 {} 没有表，请先选择数据库", db_name));
                 self.er_diagram_state.loading = false;
             }

@@ -41,7 +41,7 @@ impl DbManagerApp {
         self.save_current_history();
 
         self.app_config.connections = self
-            .manager
+            .session.manager
             .connections
             .values()
             .map(|c| c.config.clone())

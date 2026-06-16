@@ -38,7 +38,7 @@ impl DbManagerApp {
             self.editing_connection_name = Some(name.to_string());
             self.open_dialog(DialogId::Connection);
         } else {
-            self.notifications
+            self.session.notifications
                 .warning(format!("连接 '{}' 不存在", name));
         }
     }
@@ -55,7 +55,7 @@ impl DbManagerApp {
             None => self.session.manager.connections.contains_key(&name),
         };
         if has_name_conflict {
-            self.notifications
+            self.session.notifications
                 .error(format!("连接名 '{}' 已存在，请使用其他名称", name));
             self.new_config = config;
             self.open_dialog(DialogId::Connection);
@@ -79,7 +79,7 @@ impl DbManagerApp {
                 }
             }
 
-            self.notifications
+            self.session.notifications
                 .success(format!("连接 '{}' 已更新", name));
         }
 
@@ -259,7 +259,7 @@ impl DbManagerApp {
     pub(in crate::app) fn delete_connection(&mut self, name: &str) {
         let was_active = self.session.manager.active.as_deref() == Some(name);
         if let Some(password_ref) = self
-            .manager
+            .session.manager
             .connections
             .get(name)
             .and_then(|connection| connection.config.password_ref.clone())
@@ -294,7 +294,7 @@ impl DbManagerApp {
             return;
         };
         if matches!(conn.config.db_type, crate::data::DatabaseType::SQLite) {
-            self.notifications
+            self.session.notifications
                 .warning("SQLite 不支持独立删除数据库；请删除连接或数据库文件");
             return;
         }
@@ -481,7 +481,7 @@ impl DbManagerApp {
                 tracing::warn!("无法发送查询结果：接收端已关闭");
             }
         });
-        self.track_query_task(request_id, task_conn_name, query_task, cancel_sender);
+        self.session.track_query_task(request_id, task_conn_name, query_task, cancel_sender);
 
         Some(request_id)
     }

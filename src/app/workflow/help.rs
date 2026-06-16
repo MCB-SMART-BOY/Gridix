@@ -147,7 +147,7 @@ impl DbManagerApp {
 
         if reset {
             if self
-                .manager
+                .session.manager
                 .connections
                 .contains_key(LEARNING_CONNECTION_NAME)
             {

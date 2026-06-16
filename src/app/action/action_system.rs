@@ -171,9 +171,9 @@ pub(in crate::app) struct ActionContext {
 impl ActionContext {
     fn from_app(app: &DbManagerApp) -> Self {
         Self {
-            has_any_connection: !app.manager.connections.is_empty(),
-            has_active_connection: app.manager.active.is_some(),
-            active_db_type: app.manager.get_active().map(|conn| conn.config.db_type),
+            has_any_connection: !app.session.manager.connections.is_empty(),
+            has_active_connection: app.session.manager.active.is_some(),
+            active_db_type: app.session.manager.get_active().map(|conn| conn.config.db_type),
             has_result: app.result.is_some(),
             result_has_rows: app
                 .result
@@ -183,7 +183,7 @@ impl ActionContext {
             has_sql: !app.active_sql().trim().is_empty(),
             has_search_text: !app.search_text.trim().is_empty(),
             grid_has_changes: app.grid_state.has_changes(),
-            query_tab_count: app.tab_manager.tabs.len(),
+            query_tab_count: app.session.tab_manager.tabs.len(),
             focus_area: app.focus_area,
             show_sidebar: app.show_sidebar,
             show_sql_editor: app.show_sql_editor,
@@ -1096,7 +1096,7 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::RefreshActiveConnection => self
-                .manager
+                .session.manager
                 .active
                 .clone()
                 .map(AppEffect::Connect)
@@ -1137,7 +1137,7 @@ impl DbManagerApp {
                 self.close_active_query_tab();
                 Vec::new()
             }
-            AppAction::RunCurrentSql => vec![AppEffect::ExecuteSql(self.active_sql().clone())],
+            AppAction::RunCurrentSql => vec![AppEffect::ExecuteSql(self.active_sql().to_string())],
             AppAction::ClearCommandLine => {
                 self.set_active_sql(String::new());
                 self.session.notifications.dismiss_all();

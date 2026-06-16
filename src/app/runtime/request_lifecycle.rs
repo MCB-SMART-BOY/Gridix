@@ -2,8 +2,6 @@
 //!
 //! 负责请求 ID、执行状态、取消信号与 pending 任务清理。
 
-use std::sync::Mutex;
-use std::sync::Arc;
 
 use super::DbManagerApp;
 
@@ -65,7 +63,7 @@ impl DbManagerApp {
     /// 取消指定查询请求
     fn cancel_query_request_with_visibility(&mut self, request_id: u64, user_visible: bool) {
         let cancel_sent = self
-            .pending_query_cancellers
+            .session.pending_query_cancellers
             .remove(&request_id)
             .is_some_and(|sender| {
                 sender
@@ -91,7 +89,7 @@ impl DbManagerApp {
     /// 取消某个连接关联的所有查询请求
     pub(in crate::app) fn cancel_queries_for_connection(&mut self, conn_name: &str) {
         let request_ids: Vec<u64> = self
-            .pending_query_connections
+            .session.pending_query_connections
             .iter()
             .filter_map(|(request_id, request_conn)| {
                 if request_conn == conn_name {

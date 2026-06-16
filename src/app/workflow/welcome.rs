@@ -147,7 +147,7 @@ impl DbManagerApp {
             ui::WelcomeOnboardingStep::CreateUser => {
                 let db_type = self.onboarding_target_db_type();
                 if matches!(db_type, DatabaseType::SQLite) {
-                    self.notifications
+                    self.session.notifications
                         .info("SQLite 无需创建用户，此步骤自动跳过");
                     self.mark_onboarding_user_created();
                     return;
@@ -195,7 +195,7 @@ impl DbManagerApp {
 
     fn run_onboarding_first_query(&mut self) {
         if self.session.manager.active.is_none() {
-            self.notifications
+            self.session.notifications
                 .warning("请先创建并连接数据库，再执行首条查询");
             self.open_connection_dialog_for(self.onboarding_target_db_type());
             return;
@@ -548,7 +548,7 @@ impl DbManagerApp {
         if self.session.manager.connections.contains_key(&candidate) {
             let mut idx = 2usize;
             while self
-                .manager
+                .session.manager
                 .connections
                 .contains_key(&format!("{} {}", candidate, idx))
             {

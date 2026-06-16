@@ -96,7 +96,7 @@ impl DbManagerApp {
                 self.app_config.connection_dialog_show_advanced =
                     self.connection_dialog_show_advanced;
                 if let Err(e) = self.app_config.save() {
-                    self.notifications
+                    self.session.notifications
                         .error(format!("保存连接对话框模式失败: {}", e));
                 }
             }
@@ -156,7 +156,7 @@ impl DbManagerApp {
                 .clone()
                 .unwrap_or_else(|| "result".to_string());
             let export_db_type = self
-                .manager
+                .session.manager
                 .get_active()
                 .map(|connection| connection.config.db_type)
                 .unwrap_or(crate::data::DatabaseType::SQLite);
@@ -407,12 +407,12 @@ impl DbManagerApp {
                     .initialize_sqlite_database(&path)
                 {
                     Ok(created_path) => {
-                        self.notifications
+                        self.session.notifications
                             .success(format!("SQLite 数据库已初始化: {}", created_path.display()));
                         self.mark_onboarding_database_initialized();
                     }
                     Err(error) => {
-                        self.notifications
+                        self.session.notifications
                             .error(format!("SQLite 初始化失败: {}", error));
                     }
                 },
@@ -534,10 +534,10 @@ mod tests {
         connection.connected = true;
         connection.selected_database = Some("main".to_string());
         connection.tables = tables.iter().map(|name| (*name).to_string()).collect();
-        app.manager
+        app.session.manager
             .connections
             .insert("demo".to_string(), connection);
-        app.manager.active = Some("demo".to_string());
+        app.session.manager.active = Some("demo".to_string());
     }
 
     #[test]

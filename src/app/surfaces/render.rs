@@ -306,7 +306,7 @@ impl DbManagerApp {
         }
 
         // 渲染通知 toast
-        ui::NotificationToast::show(&ctx, &self.notifications);
+        ui::NotificationToast::show(&ctx, &self.session.notifications);
 
         // 持续刷新（有活动任务或有通知时需要刷新）
         if self.session.connecting || self.session.executing || !self.session.notifications.is_empty() {
@@ -323,7 +323,7 @@ impl DbManagerApp {
             .scope(|ui| {
                 let connections: Vec<String> = self.session.manager.connections.keys().cloned().collect();
                 let (databases, selected_database, tables) = self
-                    .manager
+                    .session.manager
                     .get_active()
                     .map(|c| (c.databases.clone(), c.selected_database.clone(), c.tables.clone()))
                     .unwrap_or_default();
@@ -346,7 +346,7 @@ impl DbManagerApp {
                     &tables,
                     selected_table.as_deref(),
                     self.state.ui_scale,
-                    &self.progress,
+                    &self.session.progress,
                     is_toolbar_focused,
                     self.toolbar_index,
                 );
@@ -516,7 +516,7 @@ impl DbManagerApp {
         }
         // 在获取 &mut sql 之前提取不可变值
         let active_tab_message = self
-            .tab_manager
+            .session.tab_manager
             .tabs
             .get(self.session.tab_manager.active_index)
             .and_then(|tab| tab.last_message.as_deref())
@@ -569,7 +569,7 @@ impl DbManagerApp {
             let explain_sql = if self.is_mysql() {
                 format!("EXPLAIN FORMAT=TRADITIONAL {}", sql)
             } else if self
-                .manager
+                .session.manager
                 .get_active()
                 .map(|c| c.config.db_type == crate::data::DatabaseType::PostgreSQL)
                 .unwrap_or(false)
@@ -874,7 +874,7 @@ impl DbManagerApp {
     fn refresh_sidebar_section(&mut self) {
         let active_name = self.session.manager.active.clone();
         let (db_type, selected_database) = self
-            .manager
+            .session.manager
             .get_active()
             .map(|conn| (conn.config.db_type, conn.selected_database.clone()))
             .unwrap_or((crate::data::DatabaseType::SQLite, None));
@@ -919,7 +919,7 @@ impl DbManagerApp {
 
     fn insert_sidebar_filter(&mut self, mode: ui::SidebarFilterInsertMode) {
         let Some(result) = &self.result else {
-            self.notifications
+            self.session.notifications
                 .warning("当前结果集为空，无法添加筛选条件");
             return;
         };
@@ -1047,7 +1047,7 @@ impl DbManagerApp {
         let quoted_new = match ui::quote_identifier("new_table_name", use_backticks) {
             Ok(name) => name,
             Err(e) => {
-                self.notifications
+                self.session.notifications
                     .error(format!("目标表名模板生成失败: {}", e));
                 return;
             }
@@ -1064,7 +1064,7 @@ impl DbManagerApp {
         self.set_active_sql(rename_sql);
         self.show_sql_editor = true;
         self.set_focus_area(ui::FocusArea::SqlEditor);
-        self.notifications
+        self.session.notifications
             .info("已生成重命名 SQL，请修改目标表名后执行");
     }
 
@@ -1089,7 +1089,7 @@ impl DbManagerApp {
             let closing_tab_id = self.session.tab_manager.tabs.get(idx).map(|tab| tab.id.clone());
             if self.session.tab_manager.tabs.len() > 1
                 && let Some(request_id) = self
-                    .tab_manager
+                    .session.tab_manager
                     .tabs
                     .get(idx)
                     .and_then(|tab| tab.pending_request_id)
@@ -1105,7 +1105,7 @@ impl DbManagerApp {
         if tab_actions.close_others {
             let active_index = self.session.tab_manager.active_index;
             let request_ids: Vec<u64> = self
-                .tab_manager
+                .session.tab_manager
                 .tabs
                 .iter()
                 .enumerate()
@@ -1118,7 +1118,7 @@ impl DbManagerApp {
                 })
                 .collect();
             let closing_tab_ids: Vec<String> = self
-                .tab_manager
+                .session.tab_manager
                 .tabs
                 .iter()
                 .enumerate()
@@ -1142,7 +1142,7 @@ impl DbManagerApp {
         if tab_actions.close_right {
             let active_index = self.session.tab_manager.active_index;
             let request_ids: Vec<u64> = self
-                .tab_manager
+                .session.tab_manager
                 .tabs
                 .iter()
                 .enumerate()
@@ -1155,7 +1155,7 @@ impl DbManagerApp {
                 })
                 .collect();
             let closing_tab_ids: Vec<String> = self
-                .tab_manager
+                .session.tab_manager
                 .tabs
                 .iter()
                 .enumerate()
@@ -1240,10 +1240,10 @@ mod tests {
         connection.connected = true;
         connection.selected_database = Some("main".to_string());
         connection.tables = tables.iter().map(|name| (*name).to_string()).collect();
-        app.manager
+        app.session.manager
             .connections
             .insert("demo".to_string(), connection);
-        app.manager.active = Some("demo".to_string());
+        app.session.manager.active = Some("demo".to_string());
     }
 
     #[test]

@@ -1098,7 +1098,7 @@ impl DbManagerApp {
 
     pub(in crate::app) fn open_create_table_dialog(&mut self) {
         let db_type = self
-            .manager
+            .session.manager
             .get_active()
             .map(|c| c.config.db_type)
             .unwrap_or_default();
@@ -1108,7 +1108,7 @@ impl DbManagerApp {
 
     pub(in crate::app) fn open_create_database_dialog(&mut self) {
         let db_type = self
-            .manager
+            .session.manager
             .get_active()
             .map(|c| c.config.db_type)
             .unwrap_or_default();
@@ -1194,7 +1194,7 @@ impl DbManagerApp {
         let closing_tab_id = self.session.tab_manager.get_active().map(|tab| tab.id.clone());
         if self.session.tab_manager.tabs.len() > 1
             && let Some(request_id) = self
-                .tab_manager
+                .session.tab_manager
                 .get_active()
                 .and_then(|tab| tab.pending_request_id)
         {

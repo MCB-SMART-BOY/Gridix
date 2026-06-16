@@ -9,7 +9,7 @@ use super::export::{
     import_csv_to_sql, import_json_to_sql, preview_csv, preview_export, preview_json,
     render_export_content_for_transfer,
 };
-use crate::data::QueryResult;
+use crate::types::QueryResult;
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -980,7 +980,7 @@ fn matches_token(chars: &[char], idx: usize, token: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::QueryResult;
+    use crate::types::QueryResult;
     use tempfile::NamedTempFile;
 
     #[test]

@@ -265,7 +265,7 @@ impl DbManagerApp {
         result: Result<Vec<String>, String>,
     ) {
         let is_latest = self
-            .pending_connect_requests
+            .session.pending_connect_requests
             .get(&name)
             .is_some_and(|id| *id == request_id);
         if !is_latest {
@@ -321,7 +321,7 @@ impl DbManagerApp {
         result: Result<Vec<String>, String>,
     ) {
         let is_latest = self
-            .pending_connect_requests
+            .session.pending_connect_requests
             .get(&name)
             .is_some_and(|id| *id == request_id);
         if !is_latest {
@@ -466,11 +466,11 @@ impl DbManagerApp {
                     }
                 }
 
-                self.notifications
+                self.session.notifications
                     .success(format!("数据库 '{}' 已删除", db_name));
             }
             Err(error) => {
-                self.notifications
+                self.session.notifications
                     .error(format!("删除数据库 '{}' 失败: {}", db_name, error));
             }
         }
@@ -506,11 +506,11 @@ impl DbManagerApp {
                     self.set_focus_area(ui::FocusArea::Sidebar);
                 }
 
-                self.notifications
+                self.session.notifications
                     .success(format!("表 '{}' 已删除", table_name));
             }
             Err(error) => {
-                self.notifications
+                self.session.notifications
                     .error(format!("删除表 '{}' 失败: {}", table_name, error));
             }
         }
@@ -549,7 +549,7 @@ impl DbManagerApp {
         let is_drop_table = sql_hints.is_drop_table;
 
         let db_type = self
-            .manager
+            .session.manager
             .connections
             .get(&conn_name)
             .map(|c| c.config.db_type.display_name().to_string())
@@ -994,7 +994,7 @@ impl DbManagerApp {
                 }
             }
             Err(e) => {
-                self.notifications
+                self.session.notifications
                     .warning(format!("获取表 {} 结构失败: {}", table_name, e));
             }
         }

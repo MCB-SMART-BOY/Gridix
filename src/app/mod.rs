@@ -242,7 +242,7 @@ pub struct DbManagerApp {
 impl DbManagerApp {
     /// 获取当前活动 Tab 的 SQL（只读）
     pub(crate) fn active_sql(&self) -> &str {
-        self.tab_manager
+        self.session.tab_manager
             .get_active()
             .map(|t| t.sql.as_str())
             .unwrap_or("")
@@ -456,7 +456,7 @@ impl DbManagerApp {
         let tab_id = self.session.tab_manager.get_active()?.id.clone();
         let connection_name = self.session.manager.active.clone()?;
         let database_name = self
-            .manager
+            .session.manager
             .get_active()
             .and_then(|connection| connection.selected_database.clone());
         Some(GridWorkspaceId {
@@ -535,7 +535,7 @@ impl DbManagerApp {
             return;
         };
         let database_name = self
-            .manager
+            .session.manager
             .get_active()
             .and_then(|connection| connection.selected_database.clone());
         self.grid_workspaces
@@ -574,7 +574,7 @@ impl DbManagerApp {
             if let Some(path) = file_dialog.save_file() {
                 // 使用导出模块执行导出
                 let db_type = self
-                    .manager
+                    .session.manager
                     .get_active()
                     .map(|connection| connection.config.db_type)
                     .unwrap_or(crate::data::DatabaseType::SQLite);

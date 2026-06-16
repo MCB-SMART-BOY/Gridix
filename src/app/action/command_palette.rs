@@ -331,10 +331,10 @@ mod tests {
         connection.connected = true;
         connection.selected_database = Some("main".to_string());
         connection.tables = tables.iter().map(|name| (*name).to_string()).collect();
-        app.manager
+        app.session.manager
             .connections
             .insert("demo".to_string(), connection);
-        app.manager.active = Some("demo".to_string());
+        app.session.manager.active = Some("demo".to_string());
     }
 
     #[test]

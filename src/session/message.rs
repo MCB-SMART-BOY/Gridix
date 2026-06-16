@@ -1,7 +1,7 @@
 //! 异步消息类型定义（Layer 2）
 //!
 //! 定义异步任务完成后发送给 UI 线程的消息类型。
-//! 所有变体都携带 `request_id: u64` 用于丢弃过期回包。
+//! 部分变体携带 `request_id` 用于丢弃过期回包（6/12 有，6/12 通过其他方式保护）。
 
 use crate::data::{
     ColumnInfo, ForeignKeyInfo, ImportExecutionReport, QueryResult, RoutineInfo, TriggerInfo,
