@@ -1033,7 +1033,36 @@ pub struct KeyBindings {
 }
 
     #[path = "keybindings_defaults.rs"]
-    fn default() -> Self;
+    fn default() -> Self {
+        let mut bindings = HashMap::new();
+
+        // 全局操作
+        bindings.insert(Action::NewConnection, KeyBinding::ctrl(KeyCode::N));
+        bindings.insert(Action::CommandPalette, KeyBinding::ctrl(KeyCode::P));
+        bindings.insert(Action::ToggleSidebar, KeyBinding::ctrl(KeyCode::B));
+        bindings.insert(Action::ToggleDarkMode, KeyBinding::ctrl(KeyCode::D));
+        bindings.insert(Action::ToggleEditor, KeyBinding::ctrl(KeyCode::J));
+        bindings.insert(Action::ToggleErDiagram, KeyBinding::ctrl(KeyCode::R));
+        bindings.insert(Action::ShowHelp, KeyBinding::key_only(KeyCode::F1));
+        bindings.insert(Action::ShowHistory, KeyBinding::ctrl(KeyCode::H));
+        bindings.insert(Action::Export, KeyBinding::ctrl(KeyCode::E));
+        bindings.insert(Action::Import, KeyBinding::ctrl(KeyCode::I));
+        bindings.insert(Action::Refresh, KeyBinding::key_only(KeyCode::F5));
+        bindings.insert(Action::NewTab, KeyBinding::ctrl(KeyCode::T));
+        bindings.insert(Action::CloseTab, KeyBinding::ctrl(KeyCode::W));
+        bindings.insert(Action::Save, KeyBinding::ctrl(KeyCode::S));
+        bindings.insert(Action::GotoLine, KeyBinding::ctrl(KeyCode::G));
+        bindings.insert(Action::ZoomIn, KeyBinding::ctrl(KeyCode::Plus));
+        bindings.insert(Action::ZoomOut, KeyBinding::ctrl(KeyCode::Minus));
+        bindings.insert(Action::ZoomReset, KeyBinding::ctrl(KeyCode::Num0));
+
+        Self {
+            bindings,
+            local_bindings: HashMap::new(),
+            local_sequences: HashMap::new(),
+            diagnostics: Vec::new(),
+        }
+    }
 
 impl KeyBindings {
     const KNOWN_ACTION_SCOPE_PATHS: &[&'static str] = &[

@@ -34,8 +34,8 @@ impl DbManagerApp {
     /// 打开连接编辑对话框（预填当前配置）
     pub(in crate::app) fn open_connection_editor(&mut self, name: &str) {
         if let Some(conn) = self.session.manager.connections.get(name) {
-            self.new_config = conn.config.clone();
-            self.editing_connection_name = Some(name.to_string());
+            self.state.new_config = conn.config.clone();
+            self.state.editing_connection_name = Some(name.to_string());
             self.open_dialog(DialogId::Connection);
         } else {
             self.session.notifications
@@ -45,11 +45,11 @@ impl DbManagerApp {
 
     /// 保存连接对话框结果（新建或编辑）
     pub(in crate::app) fn save_connection_from_dialog(&mut self) {
-        let config = std::mem::take(&mut self.new_config);
+        let config = std::mem::take(&mut self.state.new_config);
         let saved_db_type = config.db_type;
         let name = config.name.clone();
 
-        let editing_name = self.editing_connection_name.clone();
+        let editing_name = self.state.editing_connection_name.clone();
         let has_name_conflict = match editing_name.as_deref() {
             Some(old_name) => old_name != name && self.session.manager.connections.contains_key(&name),
             None => self.session.manager.connections.contains_key(&name),
@@ -57,12 +57,12 @@ impl DbManagerApp {
         if has_name_conflict {
             self.session.notifications
                 .error(format!("连接名 '{}' 已存在，请使用其他名称", name));
-            self.new_config = config;
+            self.state.new_config = config;
             self.open_dialog(DialogId::Connection);
             return;
         }
 
-        if let Some(old_name) = self.editing_connection_name.take() {
+        if let Some(old_name) = self.state.editing_connection_name.take() {
             if self.session.manager.connections.contains_key(&old_name) {
                 self.disconnect(old_name.clone());
                 self.session.manager.connections.remove(&old_name);
@@ -239,7 +239,7 @@ impl DbManagerApp {
         if self.session.pending_routines_request.as_ref().is_some_and(|(cn, _, _)| cn == &name) {
             self.session.pending_routines_request = None;
         }
-        self.pending_drop_requests
+        self.state.pending_drop_requests
             .retain(|_, (conn_name, _)| conn_name != &name);
         self.remove_grid_workspaces_for_connection(&name);
         if self.session.manager.active.as_deref() == Some(&name) {

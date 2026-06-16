@@ -126,8 +126,8 @@ impl DbManagerApp {
         self.handle_dialog_results(&ctx, dialog_results);
 
         if was_connection_dialog_open && !self.state.show_connection_dialog && !save_connection {
-            self.editing_connection_name = None;
-            self.new_config = ConnectionConfig::default();
+            self.state.editing_connection_name = None;
+            self.state.new_config = ConnectionConfig::default();
         }
 
         // ===== 中心面板 =====
@@ -189,7 +189,7 @@ impl DbManagerApp {
                                 let (actions, filter_changed) = ui::Sidebar::show_in_ui(
                                     ui,
                                     &mut self.session.manager,
-                                    &mut self.selected_table,
+                                    &mut self.state.selected_table,
                                     &mut self.state.show_connection_dialog,
                                     is_sidebar_focused,
                                     self.state.sidebar_section,
@@ -198,7 +198,7 @@ impl DbManagerApp {
                                     &self.keybindings,
                                     &mut self.state.grid_state.filters,
                                     &columns,
-                                    &mut self.pending_filter_input_focus,
+                                    &mut self.state.pending_filter_input_focus,
                                 );
                                 sidebar_actions = actions;
 
@@ -328,13 +328,13 @@ impl DbManagerApp {
                     .map(|c| (c.databases.clone(), c.selected_database.clone(), c.tables.clone()))
                     .unwrap_or_default();
                 let active_connection = self.session.manager.active.clone();
-                let selected_table = self.selected_table.clone();
+                let selected_table = self.state.selected_table.clone();
 
                 let cid = ui::Toolbar::show_with_focus(
                     ui,
                     &self.state.theme_manager,
                     &self.keybindings,
-                    self.result.is_some(),
+                    self.state.result.is_some(),
                     self.state.show_sidebar,
                     self.state.show_sql_editor,
                     self.app_config.is_dark_mode,
@@ -384,15 +384,15 @@ impl DbManagerApp {
         let active_query_error = self.session.tab_manager.get_active()
             .and_then(|tab| tab.last_error.clone());
         let workspace_surface = classify_workspace_surface(
-            self.result.as_ref(),
+            self.state.result.as_ref(),
             active_query_error.as_deref(),
         );
 
         if workspace_surface == WorkspaceSurface::TabularResult {
-            if let Some(result) = &self.result {
+            if let Some(result) = &self.state.result {
                 self.state.grid_state.focused = self.state.focus_area == ui::FocusArea::DataGrid
                     && !self.has_modal_dialog_open();
-                let table_name = self.selected_table.as_deref();
+                let table_name = self.state.selected_table.as_deref();
                 let (grid_actions, _) = ui::DataGrid::show_editable(
                     ui, result,
                     &self.state.search_text, &self.state.search_column,
@@ -408,7 +408,7 @@ impl DbManagerApp {
             Self::render_query_error_surface(ui, active_query_error.as_deref().unwrap_or("查询失败"));
         } else {
             // Welcome surface — show when no table is selected and no result exists
-            let action = ui::Welcome::show(ui, self.welcome_status, &self.keybindings);
+            let action = ui::Welcome::show(ui, self.state.welcome_status, &self.keybindings);
             if let Some(action) = action {
                 let ctx = ui.ctx().clone();
                 self.handle_welcome_action(&ctx, action);
@@ -807,7 +807,7 @@ impl DbManagerApp {
 
         // 删除请求
         if let Some(target) = actions.delete {
-            self.pending_delete_target = Some(target);
+            self.state.pending_delete_target = Some(target);
             self.open_dialog(DialogId::DeleteConfirm);
         }
 
@@ -918,7 +918,7 @@ impl DbManagerApp {
     }
 
     fn insert_sidebar_filter(&mut self, mode: ui::SidebarFilterInsertMode) {
-        let Some(result) = &self.result else {
+        let Some(result) = &self.state.result else {
             self.session.notifications
                 .warning("当前结果集为空，无法添加筛选条件");
             return;
@@ -956,7 +956,7 @@ impl DbManagerApp {
         self.state.sidebar_section = ui::SidebarSection::Filters;
         self.set_focus_area(ui::FocusArea::Sidebar);
         self.state.sidebar_panel_state.workflow.filter_workspace = ui::SidebarFilterWorkspaceMode::Input;
-        self.pending_filter_input_focus = Some(insert_index);
+        self.state.pending_filter_input_focus = Some(insert_index);
     }
 
     /// 侧边栏清空筛选条件
@@ -967,7 +967,7 @@ impl DbManagerApp {
         self.state.grid_state.filters.clear();
         self.state.sidebar_panel_state.selection.filters = 0;
         self.state.sidebar_panel_state.exit_filter_input();
-        self.pending_filter_input_focus = None;
+        self.state.pending_filter_input_focus = None;
         self.state.grid_state.filter_cache.invalidate();
     }
 
@@ -981,7 +981,7 @@ impl DbManagerApp {
 
     /// 循环切换筛选列
     fn cycle_sidebar_filter_column(&mut self, index: usize, forward: bool) {
-        let Some(columns) = self.result.as_ref().map(|r| r.columns.clone()) else {
+        let Some(columns) = self.state.result.as_ref().map(|r| r.columns.clone()) else {
             return;
         };
         if columns.is_empty() {
@@ -1020,7 +1020,7 @@ impl DbManagerApp {
         }
         filter.enabled = true;
         self.state.sidebar_panel_state.selection.filters = index;
-        self.pending_filter_input_focus = Some(index);
+        self.state.pending_filter_input_focus = Some(index);
         self.state.sidebar_panel_state.workflow.filter_workspace = ui::SidebarFilterWorkspaceMode::Input;
         self.state.show_sidebar = true;
         self.state.sidebar_panel_state.show_filters = true;

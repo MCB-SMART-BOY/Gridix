@@ -144,7 +144,7 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn mark_dialog_owner(&mut self, id: DialogId) {
-        self.active_dialog_owner = Some(id);
+        self.state.active_dialog_owner = Some(id);
     }
 
     pub(in crate::app) fn reconcile_active_dialog_owner(&mut self) {
@@ -155,7 +155,7 @@ impl DbManagerApp {
             return;
         }
 
-        self.active_dialog_owner = self.dialog_host_snapshot().active_dialog();
+        self.state.active_dialog_owner = self.dialog_host_snapshot().active_dialog();
     }
 
     pub(in crate::app) fn open_dialog(&mut self, id: DialogId) {
@@ -178,7 +178,7 @@ impl DbManagerApp {
             DialogId::CommandPalette => self.command_palette_state.open(),
         }
 
-        self.active_dialog_owner = Some(id);
+        self.state.active_dialog_owner = Some(id);
     }
 
     pub(in crate::app) fn close_dialog(&mut self, id: DialogId) {
@@ -201,8 +201,8 @@ impl DbManagerApp {
             DialogId::CommandPalette => self.command_palette_state.close(),
         }
 
-        if self.active_dialog_owner == Some(id) {
-            self.active_dialog_owner = None;
+        if self.state.active_dialog_owner == Some(id) {
+            self.state.active_dialog_owner = None;
         }
         self.reconcile_active_dialog_owner();
     }
@@ -216,7 +216,7 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn active_dialog_id(&self) -> Option<DialogId> {
-        self.active_dialog_owner
+        self.state.active_dialog_owner
             .filter(|id| self.is_dialog_visible(*id))
             .or_else(|| self.dialog_host_snapshot().active_dialog())
     }

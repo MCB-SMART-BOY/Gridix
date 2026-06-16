@@ -213,7 +213,7 @@ impl ActionContext {
         } else {
             "无连接"
         };
-        let table = self.selected_table.as_deref().unwrap_or("无表");
+        let table = self.state.selected_table.as_deref().unwrap_or("无表");
         let focus = match self.state.focus_area {
             FocusArea::Toolbar => "工具栏",
             FocusArea::QueryTabs => "标签页",
@@ -1011,13 +1011,13 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::OpenConnectionDialog => {
-                self.new_config = crate::data::ConnectionConfig::default();
-                self.editing_connection_name = None;
+                self.state.new_config = crate::data::ConnectionConfig::default();
+                self.state.editing_connection_name = None;
                 self.open_dialog(DialogId::Connection);
                 Vec::new()
             }
             AppAction::OpenConnectionDialogFor(db_type) => {
-                self.welcome_setup_target = db_type;
+                self.state.welcome_setup_target = db_type;
                 self.open_connection_dialog_for(db_type);
                 Vec::new()
             }
@@ -1191,10 +1191,10 @@ impl DbManagerApp {
             }
             AppAction::QuerySelectedTable => self.selected_table_query_effects(true, true, true),
             AppAction::ShowSelectedTableSchema => {
-                let Some(table) = self.selected_table.clone() else {
+                let Some(table) = self.state.selected_table.clone() else {
                     return Vec::new();
                 };
-                self.selected_table = Some(table.clone());
+                self.state.selected_table = Some(table.clone());
                 let Some(conn) = self.session.manager.get_active() else {
                     return Vec::new();
                 };
@@ -1223,7 +1223,7 @@ impl DbManagerApp {
             }
             AppAction::RecheckEnvironment => vec![AppEffect::RefreshWelcomeEnvironment],
             AppAction::OpenLearningSample => {
-                self.welcome_setup_target = DatabaseType::SQLite;
+                self.state.welcome_setup_target = DatabaseType::SQLite;
                 vec![AppEffect::EnsureLearningSample {
                     reset: false,
                     notify: true,
@@ -1232,7 +1232,7 @@ impl DbManagerApp {
                 }]
             }
             AppAction::EnsureLearningSample { reset, notify } => {
-                self.welcome_setup_target = DatabaseType::SQLite;
+                self.state.welcome_setup_target = DatabaseType::SQLite;
                 vec![AppEffect::EnsureLearningSample {
                     reset,
                     notify,
@@ -1253,7 +1253,7 @@ impl DbManagerApp {
         clear_sql: bool,
         fetch_primary_key: bool,
     ) -> Vec<AppEffect> {
-        let Some(table) = self.selected_table.clone() else {
+        let Some(table) = self.state.selected_table.clone() else {
             return Vec::new();
         };
         self.switch_grid_workspace(Some(table.clone()));
@@ -1325,7 +1325,7 @@ impl DbManagerApp {
                             self.mark_onboarding_database_initialized();
                         }
                         if show_setup {
-                            self.open_welcome_setup_dialog(self.welcome_setup_target);
+                            self.open_welcome_setup_dialog(self.state.welcome_setup_target);
                         }
                     }
                     Err(error) => {

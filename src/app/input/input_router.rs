@@ -780,7 +780,7 @@ impl DbManagerApp {
 
         if area == ui::FocusArea::ErDiagram {
             self.state.er_diagram_state
-                .ensure_selection(self.selected_table.as_deref());
+                .ensure_selection(self.state.selected_table.as_deref());
         }
     }
 
@@ -939,13 +939,13 @@ impl DbManagerApp {
                 }
                 ErDiagramLocalAction::OpenSelectedTable => {
                     self.state.er_diagram_state
-                        .ensure_selection(self.selected_table.as_deref());
+                        .ensure_selection(self.state.selected_table.as_deref());
                     if let Some(table_name) = self
                         .er_diagram_state
                         .selected_table_name()
                         .map(str::to_owned)
                     {
-                        self.selected_table = Some(table_name);
+                        self.state.selected_table = Some(table_name);
                         self.dispatch_app_action(ctx, AppAction::QuerySelectedTable);
                         self.set_focus_area(ui::FocusArea::DataGrid);
                     }
@@ -1086,9 +1086,9 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn open_export_dialog(&mut self) {
-        if self.result.is_some() {
+        if self.state.result.is_some() {
             self.open_dialog(DialogId::Export);
-            self.export_status = None;
+            self.state.export_status = None;
         }
     }
 

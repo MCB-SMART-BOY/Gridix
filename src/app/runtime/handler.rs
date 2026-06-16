@@ -453,7 +453,7 @@ impl DbManagerApp {
                     if dropped_selected_database {
                         self.switch_grid_workspace(None);
                         self.clear_result();
-                        self.selected_table = None;
+                        self.state.selected_table = None;
                         self.clear_search();
                         self.session.autocomplete.clear();
                         self.state.sidebar_panel_state.clear_triggers();
@@ -497,10 +497,10 @@ impl DbManagerApp {
                 }
 
                 self.remove_grid_workspace_for_table(&table_name);
-                if is_active && self.selected_table.as_deref() == Some(table_name.as_str()) {
+                if is_active && self.state.selected_table.as_deref() == Some(table_name.as_str()) {
                     self.switch_grid_workspace(None);
                     self.clear_result();
-                    self.selected_table = None;
+                    self.state.selected_table = None;
                     self.state.sidebar_section = ui::SidebarSection::Tables;
                     self.set_focus_area(ui::FocusArea::Sidebar);
                 }
@@ -587,7 +587,7 @@ impl DbManagerApp {
 
                 if is_stale_for_existing_tab {
                     if is_drop_table {
-                        self.pending_drop_requests.remove(&request_id);
+                        self.state.pending_drop_requests.remove(&request_id);
                     }
                     tracing::debug!(
                         tab_id = %tab_id,
@@ -646,14 +646,14 @@ impl DbManagerApp {
                         }
 
                         // 更新自动补全
-                        if let Some(table) = &self.selected_table
+                        if let Some(table) = &self.state.selected_table
                             && !res.columns.is_empty()
                         {
                             self.session.autocomplete
                                 .set_columns(table.clone(), res.columns.clone());
                         }
 
-                        self.result = Some(res.clone());
+                        self.state.result = Some(res.clone());
 
                     }
                 } else {
@@ -662,7 +662,7 @@ impl DbManagerApp {
 
                 if is_drop_table
                     && let Some((drop_conn_name, dropped_table)) =
-                        self.pending_drop_requests.remove(&request_id)
+                        self.state.pending_drop_requests.remove(&request_id)
                 {
                     let is_current_active =
                         self.session.manager.active.as_deref() == Some(drop_conn_name.as_str());
@@ -674,7 +674,7 @@ impl DbManagerApp {
                         }
                     }
 
-                    if is_current_active && self.selected_table.as_deref() == Some(&dropped_table) {
+                    if is_current_active && self.state.selected_table.as_deref() == Some(&dropped_table) {
                         self.switch_grid_workspace(None);
                         self.remove_grid_workspace_for_table(&dropped_table);
                         self.clear_result();
@@ -692,7 +692,7 @@ impl DbManagerApp {
                     was_user_cancelled,
                 ) {
                     if is_drop_table {
-                        self.pending_drop_requests.remove(&request_id);
+                        self.state.pending_drop_requests.remove(&request_id);
                     }
                     tracing::debug!(
                         tab_id = %tab_id,
@@ -708,7 +708,7 @@ impl DbManagerApp {
                 if target_tab_index.is_none() {
                     tracing::debug!(tab_id = %tab_id, "查询错误回包对应的标签页已不存在");
                     if is_drop_table {
-                        self.pending_drop_requests.remove(&request_id);
+                        self.state.pending_drop_requests.remove(&request_id);
                     }
                     self.session.refresh_executing_flag();
                     ctx.request_repaint();
@@ -756,7 +756,7 @@ impl DbManagerApp {
                 }
 
                 if is_drop_table {
-                    self.pending_drop_requests.remove(&request_id);
+                    self.state.pending_drop_requests.remove(&request_id);
                 }
             }
         }
@@ -803,9 +803,9 @@ impl DbManagerApp {
         table_name: String,
         pk_column: Option<String>,
     ) {
-        if self.selected_table.as_deref() == Some(&table_name) {
+        if self.state.selected_table.as_deref() == Some(&table_name) {
             if let Some(pk_name) = pk_column {
-                if let Some(result) = &self.result
+                if let Some(result) = &self.state.result
                     && let Some(idx) = result.columns.iter().position(|c| c == &pk_name)
                 {
                     self.state.grid_state.primary_key_column = Some(idx);

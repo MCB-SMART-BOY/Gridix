@@ -47,7 +47,7 @@ enum WelcomeSetupKeyAction {
 impl DbManagerApp {
     /// 刷新欢迎页数据库环境检测状态
     pub(in crate::app) fn refresh_welcome_environment_status(&mut self) {
-        self.welcome_status = ui::WelcomeStatusSummary {
+        self.state.welcome_status = ui::WelcomeStatusSummary {
             sqlite: ui::WelcomeServiceState::BuiltIn,
             postgres: Self::detect_postgres_status(),
             mysql: Self::detect_mysql_status(),
@@ -170,20 +170,20 @@ impl DbManagerApp {
 
     fn recommended_onboarding_db_type(&self) -> DatabaseType {
         if matches!(
-            self.welcome_setup_target,
+            self.state.welcome_setup_target,
             DatabaseType::PostgreSQL | DatabaseType::MySQL
         ) {
-            return self.welcome_setup_target;
+            return self.state.welcome_setup_target;
         }
 
-        match self.welcome_status.postgres {
+        match self.state.welcome_status.postgres {
             ui::WelcomeServiceState::Running | ui::WelcomeServiceState::InstalledNotRunning => {
                 return DatabaseType::PostgreSQL;
             }
             ui::WelcomeServiceState::BuiltIn | ui::WelcomeServiceState::NotDetected => {}
         }
 
-        match self.welcome_status.mysql {
+        match self.state.welcome_status.mysql {
             ui::WelcomeServiceState::Running | ui::WelcomeServiceState::InstalledNotRunning => {
                 return DatabaseType::MySQL;
             }
@@ -210,8 +210,8 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn open_welcome_setup_dialog(&mut self, db_type: DatabaseType) {
-        self.welcome_setup_target = db_type;
-        self.welcome_setup_action_index =
+        self.state.welcome_setup_target = db_type;
+        self.state.welcome_setup_action_index =
             Self::default_welcome_setup_action_index(db_type, self.welcome_onboarding_status());
         self.open_dialog(DialogId::WelcomeSetup);
     }
@@ -381,15 +381,15 @@ impl DbManagerApp {
             return;
         }
 
-        let db_type = self.welcome_setup_target;
-        let status = self.welcome_status.state_for(db_type);
+        let db_type = self.state.welcome_setup_target;
+        let status = self.state.welcome_status.state_for(db_type);
         let mut keep_open = self.state.show_welcome_setup_dialog;
         let mut close_now = false;
         let content_rect = ctx.input(|input| input.content_rect());
         let style = DialogStyle::LARGE;
         let actions = Self::welcome_setup_actions(db_type);
         if !actions.is_empty() {
-            self.welcome_setup_action_index = self
+            self.state.welcome_setup_action_index = self
                 .welcome_setup_action_index
                 .min(actions.len().saturating_sub(1));
         }
@@ -400,25 +400,25 @@ impl DbManagerApp {
                     close_now = true;
                 }
                 WelcomeSetupKeyAction::ConfirmSelected => {
-                    if let Some(action) = actions.get(self.welcome_setup_action_index).copied() {
+                    if let Some(action) = actions.get(self.state.welcome_setup_action_index).copied() {
                         close_now = self.run_welcome_setup_action(ctx, action, db_type);
                     }
                 }
                 WelcomeSetupKeyAction::FocusNext => {
                     if !actions.is_empty() {
-                        self.welcome_setup_action_index =
-                            (self.welcome_setup_action_index + 1) % actions.len();
+                        self.state.welcome_setup_action_index =
+                            (self.state.welcome_setup_action_index + 1) % actions.len();
                     }
                 }
                 WelcomeSetupKeyAction::FocusPrev => {
                     if !actions.is_empty() {
-                        self.welcome_setup_action_index =
-                            (self.welcome_setup_action_index + actions.len() - 1) % actions.len();
+                        self.state.welcome_setup_action_index =
+                            (self.state.welcome_setup_action_index + actions.len() - 1) % actions.len();
                     }
                 }
                 WelcomeSetupKeyAction::Trigger(action) => {
                     if let Some(index) = actions.iter().position(|candidate| *candidate == action) {
-                        self.welcome_setup_action_index = index;
+                        self.state.welcome_setup_action_index = index;
                         close_now = self.run_welcome_setup_action(ctx, action, db_type);
                     }
                 }
@@ -499,12 +499,12 @@ impl DbManagerApp {
             ui.add_space(12.0);
             ui.horizontal_wrapped(|ui| {
                 for (index, action) in actions.iter().copied().enumerate() {
-                    let selected = index == self.welcome_setup_action_index;
+                    let selected = index == self.state.welcome_setup_action_index;
                     if ui
                         .add(Self::welcome_setup_action_button(ui, action, selected))
                         .clicked()
                     {
-                        self.welcome_setup_action_index = index;
+                        self.state.welcome_setup_action_index = index;
                         close_now = self.run_welcome_setup_action(ctx, action, db_type);
                     }
                 }
@@ -557,8 +557,8 @@ impl DbManagerApp {
             config.name = format!("{} {}", candidate, idx);
         }
 
-        self.new_config = config;
-        self.editing_connection_name = None;
+        self.state.new_config = config;
+        self.state.editing_connection_name = None;
         self.open_dialog(DialogId::Connection);
     }
 

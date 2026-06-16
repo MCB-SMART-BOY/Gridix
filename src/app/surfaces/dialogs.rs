@@ -88,9 +88,9 @@ impl DbManagerApp {
                 ctx,
                 &mut self.state.show_connection_dialog,
                 &mut self.state.connection_dialog_show_advanced,
-                &mut self.new_config,
+                &mut self.state.new_config,
                 &mut results.save_connection,
-                self.editing_connection_name.is_some(),
+                self.state.editing_connection_name.is_some(),
             );
             if old_show_advanced != self.state.connection_dialog_show_advanced {
                 self.app_config.connection_dialog_show_advanced =
@@ -105,7 +105,7 @@ impl DbManagerApp {
         // 删除确认对话框
         if active_dialog == Some(DialogId::DeleteConfirm) {
             let mut confirm_delete = false;
-            let (delete_title, delete_msg) = match self.pending_delete_target.as_ref() {
+            let (delete_title, delete_msg) = match self.state.pending_delete_target.as_ref() {
                 Some(ui::SidebarDeleteTarget::Connection(connection)) => (
                     "删除连接",
                     format!(
@@ -165,10 +165,10 @@ impl DbManagerApp {
                 &mut self.state.show_export_dialog,
                 &mut self.state.export_config,
                 &table_name,
-                self.result.as_ref(),
+                self.state.result.as_ref(),
                 export_db_type,
                 &mut results.export_action,
-                &self.export_status,
+                &self.state.export_status,
             );
         }
 
@@ -229,8 +229,8 @@ impl DbManagerApp {
             let help_context = ui::HelpContext {
                 keybindings: self.keybindings.clone(),
                 active_connection_name: self.session.manager.active.clone(),
-                selected_table: self.selected_table.clone(),
-                has_result: self.result.is_some(),
+                selected_table: self.state.selected_table.clone(),
+                has_result: self.state.result.is_some(),
                 show_sql_editor: self.state.show_sql_editor,
                 show_er_diagram: self.state.show_er_diagram,
                 onboarding_environment_checked: onboarding.environment_checked,
@@ -481,7 +481,7 @@ impl DbManagerApp {
 
     pub(in crate::app) fn confirm_pending_delete(&mut self) {
         self.close_dialog(DialogId::DeleteConfirm);
-        if let Some(target) = self.pending_delete_target.take() {
+        if let Some(target) = self.state.pending_delete_target.take() {
             match target {
                 ui::SidebarDeleteTarget::Connection(connection) => {
                     self.delete_connection(&connection);

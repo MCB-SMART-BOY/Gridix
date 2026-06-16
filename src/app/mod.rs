@@ -105,12 +105,8 @@ pub struct DbManagerApp {
     state: crate::state::UiState,
 
     // ==================== 连接对话框 ====================
-    new_config: ConnectionConfig,
-    editing_connection_name: Option<String>,
 
     // ==================== 查询状态 ====================
-    selected_table: Option<String>,
-    result: Option<QueryResult>,
 
     // ==================== 配置和历史 ====================
     app_config: AppConfig,
@@ -130,32 +126,24 @@ pub struct DbManagerApp {
     /// 是否显示导出对话框
     /// 导出配置
     /// 导出操作结果
-    export_status: Option<Result<String, String>>,
     /// 是否显示导入对话框
     /// 导入状态（文件、预览、配置）
     /// 是否显示历史面板
     /// 历史面板状态
     /// 是否显示删除确认对话框
     /// 待删除目标（连接 / 数据库 / 表）
-    pending_delete_target: Option<ui::SidebarDeleteTarget>,
     /// 待处理的表删除（request_id -> (连接名, 表名)）
-    pending_drop_requests: HashMap<u64, (String, String)>,
     /// 侧边栏请求聚焦的筛选输入框索引
-    pending_filter_input_focus: Option<usize>,
 
     // ==================== 自动补全 ====================
-    show_autocomplete: bool,
     /// 当前选中的补全项索引
-    selected_completion: usize,
     /// SQL 编辑器模式 (Normal/Insert)
 
     // ==================== UI 显示状态 ====================
     /// egui_dock 布局状态（管理主工作区的面板布局）
     dock_state: egui_dock::DockState<ui::dock_tabs::DockTab>,
     /// SQL 编辑器是否展开显示
-    show_sql_editor: bool,
     /// SQL 编辑器是否需要获取焦点
-    focus_sql_editor: bool,
     /// 侧边栏是否显示
     /// 全局焦点区域（侧边栏/SQL 编辑器/数据表格）
     /// 最近一个非 ER 的 workspace 主区域（仅记录 Sidebar / DataGrid / SqlEditor）
@@ -164,18 +152,14 @@ pub struct DbManagerApp {
     /// 侧边栏面板状态（上下分割、触发器列表、选中索引等）
     /// 侧边栏宽度
     /// 欢迎页数据库环境检测状态
-    welcome_status: ui::WelcomeStatusSummary,
     /// 是否显示欢迎页安装/初始化引导
     /// 当前引导目标数据库
-    welcome_setup_target: DatabaseType,
     /// 欢迎页安装/初始化引导当前选中的动作索引
-    welcome_setup_action_index: usize,
     /// 是否显示帮助面板
     /// 帮助面板滚动位置
     /// 帮助面板分类与学习主题状态
     /// 是否显示关于对话框
     /// 当前显式 dialog owner（输入/渲染优先走这里，再兼容回退到可见性采样）
-    active_dialog_owner: Option<DialogId>,
     /// DDL 对话框状态（新建表等）
     /// 新建数据库对话框状态
     /// 新建用户对话框状态
@@ -221,7 +205,7 @@ impl DbManagerApp {
     }
     /// Clear result from both mirror and active tab
     pub(crate) fn clear_result(&mut self) {
-        self.result = None;
+        self.state.result = None;
         if let Some(tab) = self.session.tab_manager.get_active_mut() {
             tab.result = None;
         }
@@ -310,10 +294,6 @@ impl DbManagerApp {
 
         let mut app = Self {
             connection_dialog_show_advanced: app_config.connection_dialog_show_advanced,
-            new_config: ConnectionConfig::default(),
-            editing_connection_name: None,
-            selected_table: None,
-            result: None,
             session,
             state: {
                 let mut s = crate::state::UiState::default();
@@ -326,16 +306,8 @@ impl DbManagerApp {
             app_config,
             grid_workspaces: GridWorkspaceStore::default(),
             active_grid_workspace_enabled: false,
-            export_status: None,
-            pending_delete_target: None,
-            pending_drop_requests: HashMap::new(),
-            pending_filter_input_focus: None,
             dock_state: ui::dock_tabs::default_layout(),
             sidebar_width: 280.0, // 默认侧边栏宽度
-            welcome_status: ui::WelcomeStatusSummary::default(),
-            welcome_setup_target: DatabaseType::SQLite,
-            welcome_setup_action_index: 0,
-            active_dialog_owner: None,
             ddl_dialog_state: DdlDialogState::default(),
             create_db_dialog_state: ui::CreateDbDialogState::new(),
             create_user_dialog_state: ui::CreateUserDialogState::new(),
@@ -415,7 +387,7 @@ impl DbManagerApp {
         if !self.active_grid_workspace_enabled {
             return None;
         }
-        let table_name = self.selected_table.as_deref()?;
+        let table_name = self.state.selected_table.as_deref()?;
         self.grid_workspace_id_for_table(table_name)
     }
 
@@ -432,7 +404,7 @@ impl DbManagerApp {
 
     pub(in crate::app) fn sync_active_surface_binding_to_tab(&mut self) {
         if let Some(tab) = self.session.tab_manager.get_active_mut() {
-            tab.selected_table = self.selected_table.clone();
+            tab.selected_table = self.state.selected_table.clone();
             tab.search_text = self.state.search_text.clone();
             tab.search_column = self.state.search_column.clone();
             tab.uses_grid_workspace = self.active_grid_workspace_enabled;
@@ -449,8 +421,8 @@ impl DbManagerApp {
 
     pub(in crate::app) fn switch_grid_workspace(&mut self, next_table: Option<String>) {
         self.persist_active_grid_workspace();
-        self.selected_table = next_table;
-        self.active_grid_workspace_enabled = self.selected_table.is_some();
+        self.state.selected_table = next_table;
+        self.active_grid_workspace_enabled = self.state.selected_table.is_some();
         self.restore_grid_surface_from_active_tab();
         self.sync_active_surface_binding_to_tab();
     }
@@ -460,7 +432,7 @@ impl DbManagerApp {
         selected_table: Option<String>,
     ) {
         self.persist_active_grid_workspace();
-        self.selected_table = selected_table;
+        self.state.selected_table = selected_table;
         self.active_grid_workspace_enabled = false;
         self.restore_grid_surface_from_active_tab();
         self.sync_active_surface_binding_to_tab();
@@ -507,7 +479,7 @@ impl DbManagerApp {
             .clone()
             .unwrap_or_else(|| "query_result".to_string());
 
-        if let Some(result) = &self.result {
+        if let Some(result) = &self.state.result {
             let filter_name = format!("{} 文件", config.format.display_name());
             let filter_ext = config.format.extension();
 
@@ -522,7 +494,7 @@ impl DbManagerApp {
                     .get_active()
                     .map(|connection| connection.config.db_type)
                     .unwrap_or(crate::data::DatabaseType::SQLite);
-                self.export_status = Some(workflow::export::execute_export(
+                self.state.export_status = Some(workflow::export::execute_export(
                     result,
                     &table_name,
                     &path,

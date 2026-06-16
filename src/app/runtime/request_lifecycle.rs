@@ -20,15 +20,15 @@ impl DbManagerApp {
     /// 从当前活动 Tab 同步 SQL 和结果到主视图
     pub(crate) fn sync_from_active_tab(&mut self) {
         if let Some(tab) = self.session.tab_manager.get_active() {
-            self.result = tab.result.clone();
+            self.state.result = tab.result.clone();
             self.session.last_query_time_ms = tab.query_time_ms;
-            self.selected_table = tab.selected_table.clone();
+            self.state.selected_table = tab.selected_table.clone();
             self.state.search_text = tab.search_text.clone();
             self.state.search_column = tab.search_column.clone();
             self.active_grid_workspace_enabled = tab.uses_grid_workspace;
         } else {
             self.session.last_query_time_ms = None;
-            self.selected_table = None;
+            self.state.selected_table = None;
             self.clear_search();
             self.state.search_column = None;
             self.active_grid_workspace_enabled = false;
@@ -81,7 +81,7 @@ impl DbManagerApp {
             handle.abort();
         }
         self.session.pending_query_connections.remove(&request_id);
-        self.pending_drop_requests.remove(&request_id);
+        self.state.pending_drop_requests.remove(&request_id);
         self.clear_tab_pending_request(request_id);
         self.session.refresh_executing_flag();
     }
