@@ -276,7 +276,7 @@ impl DbManagerApp {
             );
             return;
         }
-        self.pending_connect_requests.remove(&name);
+        self.session.pending_connect_requests.remove(&name);
         self.session.refresh_connecting_flag();
 
         let is_active = self.session.manager.active.as_deref() == Some(name.as_str());
@@ -332,7 +332,7 @@ impl DbManagerApp {
             );
             return;
         }
-        self.pending_connect_requests.remove(&name);
+        self.session.pending_connect_requests.remove(&name);
         self.session.refresh_connecting_flag();
 
         let is_active = self.session.manager.active.as_deref() == Some(name.as_str());
@@ -375,7 +375,7 @@ impl DbManagerApp {
         request_id: u64,
         result: Result<Vec<String>, String>,
     ) {
-        let is_latest = self.pending_database_requests.get(&conn_name).is_some_and(
+        let is_latest = self.session.pending_database_requests.get(&conn_name).is_some_and(
             |(pending_db, pending_id)| pending_db == &db_name && *pending_id == request_id,
         );
         if !is_latest {
@@ -387,7 +387,7 @@ impl DbManagerApp {
             );
             return;
         }
-        self.pending_database_requests.remove(&conn_name);
+        self.session.pending_database_requests.remove(&conn_name);
         self.session.refresh_connecting_flag();
 
         let is_active = self.session.manager.active.as_deref() == Some(conn_name.as_str());
@@ -531,7 +531,7 @@ impl DbManagerApp {
         } = payload;
 
         self.finalize_query_task(request_id);
-        let was_user_cancelled = self.user_cancelled_query_requests.remove(&request_id);
+        let was_user_cancelled = self.session.user_cancelled_query_requests.remove(&request_id);
 
         let target_tab_index = self.session.tab_manager.tabs.iter().position(|t| t.id == tab_id);
         let is_stale_for_existing_tab = target_tab_index
@@ -843,7 +843,7 @@ impl DbManagerApp {
         request_id: u64,
         result: Result<Vec<crate::database::TriggerInfo>, String>,
     ) {
-        let is_latest = self.pending_triggers_request.as_ref().is_some_and(
+        let is_latest = self.session.pending_triggers_request.as_ref().is_some_and(
             |(pending_conn, pending_db, pending_id)| {
                 pending_conn == &conn_name && pending_db == &db_name && *pending_id == request_id
             },
@@ -857,7 +857,7 @@ impl DbManagerApp {
             );
             return;
         }
-        self.pending_triggers_request = None;
+        self.session.pending_triggers_request = None;
 
         if !self.metadata_context_matches_current(&conn_name, &db_name) {
             tracing::debug!(
@@ -890,7 +890,7 @@ impl DbManagerApp {
         request_id: u64,
         result: Result<Vec<crate::database::RoutineInfo>, String>,
     ) {
-        let is_latest = self.pending_routines_request.as_ref().is_some_and(
+        let is_latest = self.session.pending_routines_request.as_ref().is_some_and(
             |(pending_conn, pending_db, pending_id)| {
                 pending_conn == &conn_name && pending_db == &db_name && *pending_id == request_id
             },
@@ -904,7 +904,7 @@ impl DbManagerApp {
             );
             return;
         }
-        self.pending_routines_request = None;
+        self.session.pending_routines_request = None;
 
         if !self.metadata_context_matches_current(&conn_name, &db_name) {
             tracing::debug!(

@@ -67,19 +67,19 @@ impl DbManagerApp {
 
     /// 生成新的连接请求 ID
     pub(in crate::app) fn next_connect_request_id(&mut self) -> u64 {
-        Self::next_nonzero_request_id(&mut self.next_connect_request_id)
+        Self::next_nonzero_request_id(&mut self.session.next_connect_request_id)
     }
 
     /// 生成新的元数据请求 ID
     pub(in crate::app) fn next_metadata_request_id(&mut self) -> u64 {
-        Self::next_nonzero_request_id(&mut self.next_metadata_request_id)
+        Self::next_nonzero_request_id(&mut self.session.next_metadata_request_id)
     }
 
     /// 根据当前活动连接的 pending 请求刷新 connecting 标记
     pub(in crate::app) fn refresh_connecting_flag(&mut self) {
         let has_pending = self.session.manager.active.as_ref().is_some_and(|active_name| {
-            self.pending_connect_requests.contains_key(active_name)
-                || self.pending_database_requests.contains_key(active_name)
+            self.session.pending_connect_requests.contains_key(active_name)
+                || self.session.pending_database_requests.contains_key(active_name)
         });
         self.session.connecting = has_pending;
     }
@@ -92,19 +92,19 @@ impl DbManagerApp {
         handle: tokio::task::JoinHandle<()>,
         cancel_sender: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     ) {
-        if let Some(prev_handle) = self.pending_query_tasks.insert(request_id, handle) {
+        if let Some(prev_handle) = self.session.pending_query_tasks.insert(request_id, handle) {
             prev_handle.abort();
         }
-        self.pending_query_connections.insert(request_id, conn_name);
-        self.pending_query_cancellers
+        self.session.pending_query_connections.insert(request_id, conn_name);
+        self.session.pending_query_cancellers
             .insert(request_id, cancel_sender);
     }
 
     /// 查询完成后清理任务跟踪
     pub(in crate::app) fn finalize_query_task(&mut self, request_id: u64) {
-        self.pending_query_tasks.remove(&request_id);
-        self.pending_query_connections.remove(&request_id);
-        self.pending_query_cancellers.remove(&request_id);
+        self.session.pending_query_tasks.remove(&request_id);
+        self.session.pending_query_connections.remove(&request_id);
+        self.session.pending_query_cancellers.remove(&request_id);
     }
 
     /// 取消指定查询请求
@@ -120,14 +120,14 @@ impl DbManagerApp {
                     .is_some_and(|cancel| cancel.send(()).is_ok())
             });
         if cancel_sent && user_visible {
-            self.user_cancelled_query_requests.insert(request_id);
+            self.session.user_cancelled_query_requests.insert(request_id);
         } else {
-            self.user_cancelled_query_requests.remove(&request_id);
+            self.session.user_cancelled_query_requests.remove(&request_id);
         }
-        if !cancel_sent && let Some(handle) = self.pending_query_tasks.remove(&request_id) {
+        if !cancel_sent && let Some(handle) = self.session.pending_query_tasks.remove(&request_id) {
             handle.abort();
         }
-        self.pending_query_connections.remove(&request_id);
+        self.session.pending_query_connections.remove(&request_id);
         self.pending_drop_requests.remove(&request_id);
         self.clear_tab_pending_request(request_id);
         self.session.refresh_executing_flag();

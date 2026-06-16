@@ -100,11 +100,11 @@ impl DbManagerApp {
             let request_id = self.session.next_connect_request_id();
 
             self.session.manager.active = Some(name.clone());
-            self.pending_connect_requests
+            self.session.pending_connect_requests
                 .insert(name.clone(), request_id);
-            self.pending_database_requests.remove(&name);
-            self.pending_triggers_request = None;
-            self.pending_routines_request = None;
+            self.session.pending_database_requests.remove(&name);
+            self.session.pending_triggers_request = None;
+            self.session.pending_routines_request = None;
             self.sidebar_panel_state.loading_triggers = false;
             self.sidebar_panel_state.loading_routines = false;
             self.sidebar_panel_state.clear_triggers();
@@ -166,10 +166,10 @@ impl DbManagerApp {
         let tx = self.session.tx.clone();
         let request_id = self.session.next_connect_request_id();
 
-        self.pending_database_requests
+        self.session.pending_database_requests
             .insert(active_name.clone(), (database.clone(), request_id));
-        self.pending_triggers_request = None;
-        self.pending_routines_request = None;
+        self.session.pending_triggers_request = None;
+        self.session.pending_routines_request = None;
         self.sidebar_panel_state.loading_triggers = false;
         self.sidebar_panel_state.loading_routines = false;
         self.sidebar_panel_state.clear_triggers();
@@ -230,14 +230,14 @@ impl DbManagerApp {
 
         self.session.manager.disconnect(&name);
         self.cancel_queries_for_connection(&name);
-        self.pending_connect_requests.remove(&name);
-        self.pending_database_requests.remove(&name);
+        self.session.pending_connect_requests.remove(&name);
+        self.session.pending_database_requests.remove(&name);
         // Only clear metadata requests belonging to the disconnecting connection
-        if self.pending_triggers_request.as_ref().is_some_and(|(cn, _, _)| cn == &name) {
-            self.pending_triggers_request = None;
+        if self.session.pending_triggers_request.as_ref().is_some_and(|(cn, _, _)| cn == &name) {
+            self.session.pending_triggers_request = None;
         }
-        if self.pending_routines_request.as_ref().is_some_and(|(cn, _, _)| cn == &name) {
-            self.pending_routines_request = None;
+        if self.session.pending_routines_request.as_ref().is_some_and(|(cn, _, _)| cn == &name) {
+            self.session.pending_routines_request = None;
         }
         self.pending_drop_requests
             .retain(|_, (conn_name, _)| conn_name != &name);
@@ -404,11 +404,11 @@ impl DbManagerApp {
         self.session.executing = true;
         self.result = None;
         self.last_query_time_ms = None;
-        self.next_query_request_id = self.next_query_request_id.wrapping_add(1);
-        if self.next_query_request_id == 0 {
-            self.next_query_request_id = 1;
+        self.session.next_query_request_id = self.session.next_query_request_id.wrapping_add(1);
+        if self.session.next_query_request_id == 0 {
+            self.session.next_query_request_id = 1;
         }
-        let request_id = self.next_query_request_id;
+        let request_id = self.session.next_query_request_id;
         let mut target_tab_id = String::new();
 
         // 同步 SQL 到当前 Tab 并设置执行状态

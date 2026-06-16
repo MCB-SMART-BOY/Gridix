@@ -138,27 +138,16 @@ pub struct DbManagerApp {
     /// 是否正在执行查询
     /// 是否正在执行导入
     /// 连接请求自增序列（用于丢弃过期连接/选库回包）
-    next_connect_request_id: u64,
     /// 查询请求自增序列（用于丢弃过期回包）
-    next_query_request_id: u64,
     /// 元数据请求自增序列（触发器/存储过程）
-    next_metadata_request_id: u64,
     /// 各连接最新连接请求 ID
-    pending_connect_requests: HashMap<String, u64>,
     /// 各连接最新数据库切换请求 (database, request_id)
-    pending_database_requests: HashMap<String, (String, u64)>,
     /// 触发器请求上下文 (连接名, 数据库名, 请求ID)
-    pending_triggers_request: Option<(String, Option<String>, u64)>,
     /// 存储过程请求上下文 (连接名, 数据库名, 请求ID)
-    pending_routines_request: Option<(String, Option<String>, u64)>,
     /// 进行中的查询任务句柄
-    pending_query_tasks: HashMap<u64, tokio::task::JoinHandle<()>>,
     /// 查询请求与连接映射（用于按连接取消）
-    pending_query_connections: HashMap<u64, String>,
     /// 查询取消信号发送器
-    pending_query_cancellers: HashMap<u64, Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>>,
     /// 显式用户取消的查询请求 ID（用于让取消回包通过 stale gate）
-    user_cancelled_query_requests: HashSet<u64>,
     // ==================== 配置和历史 ====================
     /// 应用程序配置（主题、UI 缩放等）
     app_config: AppConfig,
@@ -385,17 +374,6 @@ impl DbManagerApp {
                 s
             },
             rx,
-            next_connect_request_id: 0,
-            next_query_request_id: 0,
-            next_metadata_request_id: 0,
-            pending_connect_requests: HashMap::new(),
-            pending_database_requests: HashMap::new(),
-            pending_triggers_request: None,
-            pending_routines_request: None,
-            pending_query_tasks: HashMap::new(),
-            pending_query_connections: HashMap::new(),
-            pending_query_cancellers: HashMap::new(),
-            user_cancelled_query_requests: HashSet::new(),
             app_config,
             query_history,
             command_history: Vec::new(),
@@ -658,11 +636,11 @@ impl eframe::App for DbManagerApp {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.save_config();
-        for (_, handle) in self.pending_query_tasks.drain() {
+        for (_, handle) in self.session.pending_query_tasks.drain() {
             handle.abort();
         }
-        self.pending_query_connections.clear();
-        self.pending_query_cancellers.clear();
+        self.session.pending_query_connections.clear();
+        self.session.pending_query_cancellers.clear();
 
         // 清理连接池，确保所有数据库连接正确关闭
         self.session.runtime.block_on(async {

@@ -19,7 +19,7 @@ impl DbManagerApp {
 
             self.sidebar_panel_state.loading_triggers = true;
             self.sidebar_panel_state.clear_triggers();
-            self.pending_triggers_request =
+            self.session.pending_triggers_request =
                 Some((active_name.clone(), database.clone(), request_id));
 
             self.session.runtime.spawn(async move {
@@ -54,7 +54,7 @@ impl DbManagerApp {
 
             self.sidebar_panel_state.loading_routines = true;
             self.sidebar_panel_state.clear_routines();
-            self.pending_routines_request =
+            self.session.pending_routines_request =
                 Some((active_name.clone(), database.clone(), request_id));
 
             self.session.runtime.spawn(async move {
