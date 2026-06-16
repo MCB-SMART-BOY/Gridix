@@ -219,6 +219,7 @@ fn persist_connection_passwords(connections: &mut [ConnectionConfig]) -> Result<
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            version: default_config_version(),
             connections: Vec::new(),
             theme_preset: ThemePreset::default(),
             light_theme: default_light_theme(),

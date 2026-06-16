@@ -4,6 +4,6 @@
 //! application-level modal invariant: at most one dialog is allowed to receive
 //! keyboard input in a frame.
 
-pub(in crate::app) mod host;
+pub(crate) mod host;
 
 pub(in crate::app) use super::DbManagerApp;

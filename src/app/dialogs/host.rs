@@ -8,7 +8,7 @@ use super::DbManagerApp;
 
 /// Stable dialog identity used by app-level routing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(in crate::app) enum DialogId {
+pub(crate) enum DialogId {
     Connection,
     Export,
     Import,

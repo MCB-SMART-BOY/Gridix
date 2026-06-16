@@ -25,7 +25,7 @@ use std::sync::mpsc::channel;
 use crate::core::{
     AppConfig, HighlightColors, KeyBindings, ThemeManager, constants,
 };
-use crate::ui::{self, ExportConfig, QueryTabManager};
+use crate::ui::{self, DdlDialogState, ExportConfig, QueryTabManager};
 
 use action::command_palette::CommandPaletteState;
 

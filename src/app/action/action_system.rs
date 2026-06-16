@@ -174,7 +174,7 @@ impl ActionContext {
             has_any_connection: !app.session.manager.connections.is_empty(),
             has_active_connection: app.session.manager.active.is_some(),
             active_db_type: app.session.manager.get_active().map(|conn| conn.config.db_type),
-            has_result: app.result.is_some(),
+            has_result: app.state.result.is_some(),
             result_has_rows: app
                 .result
                 .as_ref()
