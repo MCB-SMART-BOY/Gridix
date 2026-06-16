@@ -410,7 +410,7 @@ impl DbManagerApp {
                     self.load_triggers();
                     self.load_routines();
                     self.switch_grid_workspace(None);
-                    self.result = None;
+                    self.clear_result();
                 }
             }
             Err(e) => {
@@ -452,10 +452,9 @@ impl DbManagerApp {
                         .reset_for_database_change();
                     if dropped_selected_database {
                         self.switch_grid_workspace(None);
-                        self.result = None;
+                        self.clear_result();
                         self.selected_table = None;
-                        self.search_text.clear();
-                        self.search_column = None;
+                        self.clear_search();
                         self.session.autocomplete.clear();
                         self.sidebar_panel_state.clear_triggers();
                         self.sidebar_panel_state.clear_routines();
@@ -500,7 +499,7 @@ impl DbManagerApp {
                 self.remove_grid_workspace_for_table(&table_name);
                 if is_active && self.selected_table.as_deref() == Some(table_name.as_str()) {
                     self.switch_grid_workspace(None);
-                    self.result = None;
+                    self.clear_result();
                     self.selected_table = None;
                     self.sidebar_section = ui::SidebarSection::Tables;
                     self.set_focus_area(ui::FocusArea::Sidebar);
@@ -631,7 +630,7 @@ impl DbManagerApp {
                         self.session.notifications.success(&msg);
                         self.selected_row = None;
                         self.selected_cell = None;
-                        self.search_text.clear();
+                        self.clear_search();
 
                         // 根据 SQL 类型设置光标位置
                         if is_update_or_delete {
@@ -678,7 +677,7 @@ impl DbManagerApp {
                     if is_current_active && self.selected_table.as_deref() == Some(&dropped_table) {
                         self.switch_grid_workspace(None);
                         self.remove_grid_workspace_for_table(&dropped_table);
-                        self.result = None;
+                        self.clear_result();
                     }
                 }
             }
@@ -751,7 +750,7 @@ impl DbManagerApp {
                             self.session.last_query_time_ms = Some(elapsed_ms);
                         }
                         if !is_cancelled {
-                            self.result = None;
+                            self.clear_result();
                         }
                     }
                 }

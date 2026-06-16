@@ -29,7 +29,7 @@ impl DbManagerApp {
         } else {
             self.session.last_query_time_ms = None;
             self.selected_table = None;
-            self.search_text.clear();
+            self.clear_search();
             self.search_column = None;
             self.active_grid_workspace_enabled = false;
         }

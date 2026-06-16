@@ -245,7 +245,7 @@ impl DbManagerApp {
         if self.session.manager.active.as_deref() == Some(&name) {
             self.session.manager.active = None;
             self.switch_grid_workspace(None);
-            self.result = None;
+            self.clear_result();
             self.session.autocomplete.clear();
             self.sidebar_panel_state.clear_triggers();
             self.sidebar_panel_state.clear_routines();
@@ -276,7 +276,7 @@ impl DbManagerApp {
         if was_active {
             self.session.manager.active = None;
             self.switch_grid_workspace(None);
-            self.result = None;
+            self.clear_result();
             self.session.command_history.clear();
             self.session.current_history_connection = None;
         }
@@ -402,7 +402,7 @@ impl DbManagerApp {
         self.session.history_index = None;
 
         self.session.executing = true;
-        self.result = None;
+        self.clear_result();
         self.session.last_query_time_ms = None;
         let request_id = self.session.next_query_request_id();
         let mut target_tab_id = String::new();

@@ -1144,7 +1144,7 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::ClearSearch => {
-                self.search_text.clear();
+                self.clear_search();
                 Vec::new()
             }
             AppAction::AddFilter => {

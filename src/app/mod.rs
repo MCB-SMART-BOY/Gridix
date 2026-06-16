@@ -257,6 +257,24 @@ impl DbManagerApp {
             tab.sql = sql;
         }
     }
+    /// Clear result from both mirror and active tab
+    pub(crate) fn clear_result(&mut self) {
+        self.result = None;
+        if let Some(tab) = self.session.tab_manager.get_active_mut() {
+            tab.result = None;
+        }
+    }
+
+    /// Clear search from both mirror and active tab
+    pub(crate) fn clear_search(&mut self) {
+        self.clear_search();
+        self.search_column = None;
+        if let Some(tab) = self.session.tab_manager.get_active_mut() {
+            tab.search_text.clear();
+            tab.search_column = None;
+        }
+    }
+
     // ── Config save throttling ──
 
     /// Mark config as dirty — batch save on next tick

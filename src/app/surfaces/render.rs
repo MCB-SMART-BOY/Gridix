@@ -651,7 +651,7 @@ impl DbManagerApp {
         {
             self.connect(conn_name);
             self.switch_grid_workspace(None);
-            self.result = None;
+            self.clear_result();
             self.session.autocomplete.clear();
             self.sidebar_panel_state.clear_triggers();
             self.sidebar_panel_state.clear_routines();
