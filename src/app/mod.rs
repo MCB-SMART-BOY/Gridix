@@ -28,7 +28,7 @@ use crate::core::{
     AppConfig, HighlightColors, KeyBindings, ThemeManager, constants,
 };
 use crate::data::{ConnectionConfig, DatabaseType, QueryResult};
-use crate::ui::{self, DdlDialogState, ExportConfig, KeyBindingsDialogState};
+use crate::ui::{self, DdlDialogState, ExportConfig, KeyBindingsDialogState, QueryTabManager};
 
 use action::command_palette::CommandPaletteState;
 use dialogs::host::DialogId;
@@ -408,11 +408,11 @@ impl DbManagerApp {
     // ==================== egui_dock 集成访问器 ====================
 
     pub(crate) fn tab_manager(&self) -> &QueryTabManager {
-        &self.tab_manager
+        &self.session.tab_manager
     }
 
     pub(crate) fn tab_manager_mut(&mut self) -> &mut QueryTabManager {
-        &mut self.tab_manager
+        &mut self.session.tab_manager
     }
 
     pub(crate) fn show_er_diagram(&self) -> bool {

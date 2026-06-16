@@ -17,7 +17,7 @@
 //! ## 模块结构
 //!
 //! - `core`: 核心功能（配置、主题、导出、语法高亮等）
-//! - `database`: 数据库连接和查询
+//! - `data`: 数据库连接和查询
 //! - `ui`: 用户界面组件
 //! - `prelude`: 常用类型预导入
 
@@ -59,7 +59,7 @@ pub use core::{
 };
 
 /// 数据库模块的便捷访问
-pub use database::{
+pub use data::{
     Connection,
     ConnectionConfig,
     // 连接管理
