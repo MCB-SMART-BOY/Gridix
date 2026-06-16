@@ -120,12 +120,12 @@ impl DbManagerApp {
         self.tick_config_save();
 
         // ===== 对话框 =====
-        let was_connection_dialog_open = self.show_connection_dialog;
+        let was_connection_dialog_open = self.state.show_connection_dialog;
         let dialog_results = self.render_dialogs(&ctx);
         let save_connection = dialog_results.save_connection;
         self.handle_dialog_results(&ctx, dialog_results);
 
-        if was_connection_dialog_open && !self.show_connection_dialog && !save_connection {
+        if was_connection_dialog_open && !self.state.show_connection_dialog && !save_connection {
             self.editing_connection_name = None;
             self.new_config = ConnectionConfig::default();
         }
@@ -190,7 +190,7 @@ impl DbManagerApp {
                                     ui,
                                     &mut self.session.manager,
                                     &mut self.selected_table,
-                                    &mut self.show_connection_dialog,
+                                    &mut self.state.show_connection_dialog,
                                     is_sidebar_focused,
                                     self.state.sidebar_section,
                                     &mut self.sidebar_panel_state,

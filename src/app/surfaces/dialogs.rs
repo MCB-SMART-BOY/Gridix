@@ -83,18 +83,18 @@ impl DbManagerApp {
 
         // 连接对话框
         if active_dialog == Some(DialogId::Connection) {
-            let old_show_advanced = self.connection_dialog_show_advanced;
+            let old_show_advanced = self.state.connection_dialog_show_advanced;
             ui::ConnectionDialog::show(
                 ctx,
-                &mut self.show_connection_dialog,
-                &mut self.connection_dialog_show_advanced,
+                &mut self.state.show_connection_dialog,
+                &mut self.state.connection_dialog_show_advanced,
                 &mut self.new_config,
                 &mut results.save_connection,
                 self.editing_connection_name.is_some(),
             );
-            if old_show_advanced != self.connection_dialog_show_advanced {
+            if old_show_advanced != self.state.connection_dialog_show_advanced {
                 self.app_config.connection_dialog_show_advanced =
-                    self.connection_dialog_show_advanced;
+                    self.state.connection_dialog_show_advanced;
                 if let Err(e) = self.app_config.save() {
                     self.session.notifications
                         .error(format!("保存连接对话框模式失败: {}", e));
@@ -137,7 +137,7 @@ impl DbManagerApp {
             };
             ui::ConfirmDialog::show(
                 ctx,
-                &mut self.show_delete_confirm,
+                &mut self.state.show_delete_confirm,
                 delete_title,
                 &delete_msg,
                 "删除",
@@ -162,7 +162,7 @@ impl DbManagerApp {
                 .unwrap_or(crate::data::DatabaseType::SQLite);
             ui::ExportDialog::show(
                 ctx,
-                &mut self.show_export_dialog,
+                &mut self.state.show_export_dialog,
                 &mut self.export_config,
                 &table_name,
                 self.result.as_ref(),
@@ -177,7 +177,7 @@ impl DbManagerApp {
             let is_mysql = self.is_mysql();
             results.import_action = ui::ImportDialog::show(
                 ctx,
-                &mut self.show_import_dialog,
+                &mut self.state.show_import_dialog,
                 &mut self.import_state,
                 is_mysql,
             );
@@ -215,7 +215,7 @@ impl DbManagerApp {
         if active_dialog == Some(DialogId::History) {
             ui::HistoryPanel::show(
                 ctx,
-                &mut self.show_history_panel,
+                &mut self.state.show_history_panel,
                 &self.session.query_history,
                 &mut results.history_selected_sql,
                 &mut results.clear_history,
@@ -242,7 +242,7 @@ impl DbManagerApp {
             };
             results.help_action = ui::HelpDialog::show_with_scroll(
                 ctx,
-                &mut self.show_help,
+                &mut self.state.show_help,
                 &mut self.help_scroll_offset,
                 &mut self.help_state,
                 &help_context,
@@ -251,7 +251,7 @@ impl DbManagerApp {
 
         // 关于对话框
         if active_dialog == Some(DialogId::About) {
-            ui::AboutDialog::show(ctx, &mut self.show_about);
+            ui::AboutDialog::show(ctx, &mut self.state.show_about);
         }
 
         // 快捷键设置对话框

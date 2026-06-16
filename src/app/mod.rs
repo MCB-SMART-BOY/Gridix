@@ -105,8 +105,6 @@ pub struct DbManagerApp {
     state: crate::state::UiState,
 
     // ==================== 连接对话框 ====================
-    show_connection_dialog: bool,
-    connection_dialog_show_advanced: bool,
     new_config: ConnectionConfig,
     editing_connection_name: Option<String>,
 
@@ -135,21 +133,17 @@ pub struct DbManagerApp {
 
     // ==================== 对话框状态 ====================
     /// 是否显示导出对话框
-    show_export_dialog: bool,
     /// 导出配置
     export_config: ExportConfig,
     /// 导出操作结果
     export_status: Option<Result<String, String>>,
     /// 是否显示导入对话框
-    show_import_dialog: bool,
     /// 导入状态（文件、预览、配置）
     import_state: ui::ImportState,
     /// 是否显示历史面板
-    show_history_panel: bool,
     /// 历史面板状态
     history_panel_state: ui::HistoryPanelState,
     /// 是否显示删除确认对话框
-    show_delete_confirm: bool,
     /// 待删除目标（连接 / 数据库 / 表）
     pending_delete_target: Option<ui::SidebarDeleteTarget>,
     /// 待处理的表删除（request_id -> (连接名, 表名)）
@@ -182,19 +176,16 @@ pub struct DbManagerApp {
     /// 欢迎页数据库环境检测状态
     welcome_status: ui::WelcomeStatusSummary,
     /// 是否显示欢迎页安装/初始化引导
-    show_welcome_setup_dialog: bool,
     /// 当前引导目标数据库
     welcome_setup_target: DatabaseType,
     /// 欢迎页安装/初始化引导当前选中的动作索引
     welcome_setup_action_index: usize,
     /// 是否显示帮助面板
-    show_help: bool,
     /// 帮助面板滚动位置
     help_scroll_offset: f32,
     /// 帮助面板分类与学习主题状态
     help_state: ui::HelpState,
     /// 是否显示关于对话框
-    show_about: bool,
     /// 当前显式 dialog owner（输入/渲染优先走这里，再兼容回退到可见性采样）
     active_dialog_owner: Option<DialogId>,
     /// DDL 对话框状态（新建表等）
@@ -337,7 +328,6 @@ impl DbManagerApp {
         sidebar_panel_state.workflow.edge_transfer = app_config.sidebar.edge_transfer;
 
         let mut app = Self {
-            show_connection_dialog: false,
             connection_dialog_show_advanced: app_config.connection_dialog_show_advanced,
             new_config: ConnectionConfig::default(),
             editing_connection_name: None,
@@ -360,14 +350,10 @@ impl DbManagerApp {
             grid_state: ui::DataGridState::new(),
             grid_workspaces: GridWorkspaceStore::default(),
             active_grid_workspace_enabled: false,
-            show_export_dialog: false,
             export_config: ExportConfig::default(),
             export_status: None,
-            show_import_dialog: false,
             import_state: ui::ImportState::new(),
-            show_history_panel: false,
             history_panel_state: ui::HistoryPanelState::default(),
-            show_delete_confirm: false,
             pending_delete_target: None,
             pending_drop_requests: HashMap::new(),
             pending_filter_input_focus: None,
@@ -376,13 +362,10 @@ impl DbManagerApp {
             sidebar_panel_state,
             sidebar_width: 280.0, // 默认侧边栏宽度
             welcome_status: ui::WelcomeStatusSummary::default(),
-            show_welcome_setup_dialog: false,
             welcome_setup_target: DatabaseType::SQLite,
             welcome_setup_action_index: 0,
-            show_help: false,
             help_scroll_offset: 0.0,
             help_state: ui::HelpState::default(),
-            show_about: false,
             active_dialog_owner: None,
             ddl_dialog_state: DdlDialogState::default(),
             create_db_dialog_state: ui::CreateDbDialogState::new(),

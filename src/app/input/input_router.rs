@@ -562,7 +562,7 @@ impl InputContextSnapshot {
         if input.key_pressed(egui::Key::Escape)
             && self.can_dispatch_global_shortcut()
             && !self.is_text_entry_scope()
-            && (self.show_help || self.show_history_panel || self.state.show_er_diagram)
+            && (self.state.show_help || self.state.show_history_panel || self.state.show_er_diagram)
         {
             if matches!(self.focus_scope(), FocusScope::ErDiagram(_)) {
                 return None;
@@ -855,14 +855,14 @@ impl DbManagerApp {
             filter_input_has_focus: self.sidebar_panel_state.filter_input_has_focus,
             grid_mode: self.grid_state.mode,
             grid_editing_cell: self.grid_state.editing_cell.is_some(),
-            show_connection_dialog: self.show_connection_dialog,
-            show_export_dialog: self.show_export_dialog,
-            show_import_dialog: self.show_import_dialog,
-            show_delete_confirm: self.show_delete_confirm,
-            show_help: self.show_help,
-            show_about: self.show_about,
-            show_welcome_setup_dialog: self.show_welcome_setup_dialog,
-            show_history_panel: self.show_history_panel,
+            show_connection_dialog: self.state.show_connection_dialog,
+            show_export_dialog: self.state.show_export_dialog,
+            show_import_dialog: self.state.show_import_dialog,
+            show_delete_confirm: self.state.show_delete_confirm,
+            show_help: self.state.show_help,
+            show_about: self.state.show_about,
+            show_welcome_setup_dialog: self.state.show_welcome_setup_dialog,
+            show_history_panel: self.state.show_history_panel,
             show_ddl_dialog: self.ddl_dialog_state.show,
             show_create_db_dialog: self.create_db_dialog_state.show,
             show_create_user_dialog: self.create_user_dialog_state.show,
@@ -1129,7 +1129,7 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn toggle_history_panel(&mut self) {
-        self.set_history_panel_visible(!self.show_history_panel);
+        self.set_history_panel_visible(!self.state.show_history_panel);
     }
 
     pub(in crate::app) fn set_er_diagram_visible_with_notice(

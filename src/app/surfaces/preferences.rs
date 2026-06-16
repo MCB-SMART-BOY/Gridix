@@ -47,7 +47,7 @@ impl DbManagerApp {
             .map(|c| c.config.clone())
             .collect();
         self.app_config.query_history = self.session.query_history.clone();
-        self.app_config.connection_dialog_show_advanced = self.connection_dialog_show_advanced;
+        self.app_config.connection_dialog_show_advanced = self.state.connection_dialog_show_advanced;
         let _ = self.app_config.save();
 
         for saved_config in &self.app_config.connections {

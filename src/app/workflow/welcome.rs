@@ -377,13 +377,13 @@ impl DbManagerApp {
 
     /// 渲染欢迎页安装/初始化引导弹窗
     pub(in crate::app) fn show_welcome_setup_dialog_window(&mut self, ctx: &egui::Context) {
-        if !self.show_welcome_setup_dialog {
+        if !self.state.show_welcome_setup_dialog {
             return;
         }
 
         let db_type = self.welcome_setup_target;
         let status = self.welcome_status.state_for(db_type);
-        let mut keep_open = self.show_welcome_setup_dialog;
+        let mut keep_open = self.state.show_welcome_setup_dialog;
         let mut close_now = false;
         let content_rect = ctx.input(|input| input.content_rect());
         let style = DialogStyle::LARGE;
