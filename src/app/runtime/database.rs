@@ -246,7 +246,7 @@ impl DbManagerApp {
             self.session.manager.active = None;
             self.switch_grid_workspace(None);
             self.result = None;
-            self.autocomplete.clear();
+            self.session.autocomplete.clear();
             self.sidebar_panel_state.clear_triggers();
             self.sidebar_panel_state.clear_routines();
             self.sidebar_panel_state.loading_triggers = false;
@@ -277,7 +277,7 @@ impl DbManagerApp {
             self.session.manager.active = None;
             self.switch_grid_workspace(None);
             self.result = None;
-            self.command_history.clear();
+            self.session.command_history.clear();
             self.current_history_connection = None;
         }
         self.save_config();
@@ -389,17 +389,17 @@ impl DbManagerApp {
         tracing::info!(connection = %active_name, sql_length = sql.len(), "开始执行查询");
 
         // 添加到命令历史
-        if self.command_history.first() != Some(&sql) {
-            self.command_history.insert(0, sql.clone());
+        if self.session.command_history.first() != Some(&sql) {
+            self.session.command_history.insert(0, sql.clone());
             // 限制每个连接最多保存历史记录
-            if self.command_history.len() > constants::history::MAX_COMMAND_HISTORY_PER_CONNECTION {
-                self.command_history.pop();
+            if self.session.command_history.len() > constants::history::MAX_COMMAND_HISTORY_PER_CONNECTION {
+                self.session.command_history.pop();
             }
             // 保存历史记录到配置文件
             self.save_current_history();
             let _ = self.app_config.save();
         }
-        self.history_index = None;
+        self.session.history_index = None;
 
         self.session.executing = true;
         self.result = None;
@@ -528,7 +528,7 @@ impl DbManagerApp {
                 config.db_type.display_name()
             ));
         }
-        self.autocomplete.clear();
+        self.session.autocomplete.clear();
         if let Some(conn) = self.session.manager.connections.get_mut(name) {
             conn.set_error(error);
         }

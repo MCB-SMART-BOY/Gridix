@@ -22,10 +22,10 @@ use eframe::egui;
 use std::sync::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::channel;
 
 use crate::core::{
-    AppConfig, AutoComplete, HighlightColors, KeyBindings, QueryHistory, ThemeManager, constants,
+    AppConfig, HighlightColors, KeyBindings, QueryHistory, ThemeManager, constants,
 };
 use crate::data::{ConnectionConfig, DatabaseType, QueryResult};
 use crate::ui::{self, DdlDialogState, ExportConfig, KeyBindingsDialogState};
@@ -116,20 +116,9 @@ pub struct DbManagerApp {
     selected_table: Option<String>,
     result: Option<QueryResult>,
 
-    // ==================== 异步通信 ====================
-    /// 消息接收端，UI 线程轮询获取异步结果
-    rx: Receiver<Message>,
-
     // ==================== 配置和历史 ====================
-    /// 应用程序配置（主题、UI 缩放等）
     app_config: AppConfig,
-    /// 查询历史记录（用于历史面板）
     query_history: QueryHistory,
-    /// 当前连接的命令历史（用于 ↑/↓ 导航）
-    command_history: Vec<String>,
-    /// 命令历史导航索引
-    history_index: Option<usize>,
-    /// 当前历史记录对应的连接名（用于切换连接时保存/恢复）
     current_history_connection: Option<String>,
 
     // ==================== 搜索和选择 ====================
@@ -177,9 +166,6 @@ pub struct DbManagerApp {
     last_query_time_ms: Option<u64>,
 
     // ==================== 自动补全 ====================
-    /// 自动补全引擎
-    autocomplete: AutoComplete,
-    /// 是否显示自动补全列表
     show_autocomplete: bool,
     /// 当前选中的补全项索引
     selected_completion: usize,
@@ -302,7 +288,7 @@ impl DbManagerApp {
             .expect("无法创建 tokio 运行时，系统资源可能不足");
 
         // 创建 Session（Layer 2 聚合结构体）
-        let mut session = crate::session::Session::new(runtime, tx.clone());
+        let mut session = crate::session::Session::new(runtime, tx.clone(), rx);
 
         ui::sync_runtime_local_shortcuts(&keybindings);
 
@@ -343,11 +329,8 @@ impl DbManagerApp {
                 s.base_pixels_per_point = base_pixels_per_point;
                 s
             },
-            rx,
             app_config,
             query_history,
-            command_history: Vec::new(),
-            history_index: None,
             current_history_connection: None,
             search_text: String::new(),
             search_column: None,
@@ -368,7 +351,6 @@ impl DbManagerApp {
             pending_drop_requests: HashMap::new(),
             pending_filter_input_focus: None,
             last_query_time_ms: None,
-            autocomplete: AutoComplete::new(),
             show_autocomplete: false,
             selected_completion: 0,
             editor_mode: ui::EditorMode::Normal,

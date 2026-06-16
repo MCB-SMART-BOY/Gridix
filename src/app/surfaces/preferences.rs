@@ -62,7 +62,7 @@ impl DbManagerApp {
         if let Some(conn_name) = &self.current_history_connection {
             self.app_config
                 .command_history
-                .insert(conn_name.clone(), self.command_history.clone());
+                .insert(conn_name.clone(), self.session.command_history.clone());
         }
     }
 
@@ -72,13 +72,13 @@ impl DbManagerApp {
         self.save_current_history();
 
         // 加载新连接的历史
-        self.command_history = self
+        self.session.command_history = self
             .app_config
             .command_history
             .get(conn_name)
             .cloned()
             .unwrap_or_default();
         self.current_history_connection = Some(conn_name.to_string());
-        self.history_index = None;
+        self.session.history_index = None;
     }
 }

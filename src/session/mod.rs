@@ -7,12 +7,11 @@ pub mod frame_effects;
 pub mod message;
 pub mod tab;
 
-use crate::data::ConnectionManager;
-use crate::core::{NotificationManager, ProgressManager};
-use crate::data::QueryResult;
+use crate::core::{AutoComplete, NotificationManager, ProgressManager};
+use crate::data::{ConnectionManager, QueryResult};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender};
 
 // ============================================================================
 // Session — 数据库会话管理
@@ -31,6 +30,7 @@ pub struct Session {
 
     // ── 异步基础设施 ──
     pub tx: Sender<message::Message>,
+    pub rx: Receiver<message::Message>,
     pub runtime: tokio::runtime::Runtime,
 
     // ── 执行状态 ──
@@ -53,6 +53,13 @@ pub struct Session {
     pub pending_query_cancellers: HashMap<u64, Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>>,
     pub user_cancelled_query_requests: HashSet<u64>,
 
+    // ── 自动补全 ──
+    pub autocomplete: AutoComplete,
+
+    // ── 命令历史 ──
+    pub command_history: Vec<String>,
+    pub history_index: Option<usize>,
+
     // ── 通知 ──
     pub notifications: NotificationManager,
     pub progress: ProgressManager,
@@ -63,11 +70,13 @@ impl Session {
     pub fn new(
         runtime: tokio::runtime::Runtime,
         tx: Sender<message::Message>,
+        rx: Receiver<message::Message>,
     ) -> Self {
         Self {
             manager: ConnectionManager::default(),
             tab_manager: tab::QueryTabManager::new(),
             tx,
+            rx,
             runtime,
             connecting: false,
             executing: false,
@@ -83,6 +92,9 @@ impl Session {
             pending_query_connections: HashMap::new(),
             pending_query_cancellers: HashMap::new(),
             user_cancelled_query_requests: HashSet::new(),
+            autocomplete: AutoComplete::new(),
+            command_history: Vec::new(),
+            history_index: None,
             notifications: NotificationManager::default(),
             progress: ProgressManager::default(),
         }

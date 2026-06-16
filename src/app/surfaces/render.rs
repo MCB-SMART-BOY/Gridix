@@ -533,13 +533,13 @@ impl DbManagerApp {
                 sql_editor_actions = ui::SqlEditor::show(
                     ui,
                     tab_sql,
-                    &self.command_history,
-                    &mut self.history_index,
+                    &self.session.command_history,
+                    &mut self.session.history_index,
                     self.session.executing,
                     &latest_msg,
                     &self.state.highlight_colors,
                     self.last_query_time_ms,
-                    &self.autocomplete,
+                    &self.session.autocomplete,
                     &mut self.show_autocomplete,
                     &mut self.selected_completion,
                     &mut request_editor_widget_focus,
@@ -649,7 +649,7 @@ impl DbManagerApp {
             self.connect(conn_name);
             self.switch_grid_workspace(None);
             self.result = None;
-            self.autocomplete.clear();
+            self.session.autocomplete.clear();
             self.sidebar_panel_state.clear_triggers();
             self.sidebar_panel_state.clear_routines();
             self.sidebar_panel_state.loading_triggers = false;

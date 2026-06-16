@@ -204,7 +204,7 @@ impl DbManagerApp {
     ///
     /// 轮询消息通道，处理数据库连接、查询结果、ER图数据等异步任务的返回结果。
     pub fn handle_messages(&mut self, ctx: &egui::Context) {
-        while let Ok(msg) = self.rx.try_recv() {
+        while let Ok(msg) = self.session.rx.try_recv() {
             match msg {
                 Message::ConnectedWithTables(name, request_id, result) => {
                     self.handle_connected_with_tables(ctx, name, request_id, result);
@@ -293,7 +293,7 @@ impl DbManagerApp {
                         tables.len()
                     ));
                     self.load_history_for_connection(&name);
-                    self.autocomplete.set_tables(tables);
+                    self.session.autocomplete.set_tables(tables);
                     self.sidebar_panel_state
                         .selection
                         .reset_for_connection_change();
@@ -349,7 +349,7 @@ impl DbManagerApp {
                         databases.len()
                     ));
                     self.load_history_for_connection(&name);
-                    self.autocomplete.clear();
+                    self.session.autocomplete.clear();
                     self.sidebar_panel_state
                         .selection
                         .reset_for_connection_change();
@@ -403,7 +403,7 @@ impl DbManagerApp {
                         db_name,
                         tables.len()
                     ));
-                    self.autocomplete.set_tables(tables);
+                    self.session.autocomplete.set_tables(tables);
                     self.sidebar_panel_state
                         .selection
                         .reset_for_database_change();
@@ -456,7 +456,7 @@ impl DbManagerApp {
                         self.selected_table = None;
                         self.search_text.clear();
                         self.search_column = None;
-                        self.autocomplete.clear();
+                        self.session.autocomplete.clear();
                         self.sidebar_panel_state.clear_triggers();
                         self.sidebar_panel_state.clear_routines();
                         self.sidebar_panel_state.loading_triggers = false;
@@ -493,7 +493,7 @@ impl DbManagerApp {
                 if let Some(conn) = self.session.manager.connections.get_mut(&conn_name) {
                     conn.tables.retain(|table| table != &table_name);
                     if is_active {
-                        self.autocomplete.set_tables(conn.tables.clone());
+                        self.session.autocomplete.set_tables(conn.tables.clone());
                     }
                 }
 
@@ -650,7 +650,7 @@ impl DbManagerApp {
                         if let Some(table) = &self.selected_table
                             && !res.columns.is_empty()
                         {
-                            self.autocomplete
+                            self.session.autocomplete
                                 .set_columns(table.clone(), res.columns.clone());
                         }
 
@@ -671,7 +671,7 @@ impl DbManagerApp {
                     if let Some(conn) = self.session.manager.connections.get_mut(&drop_conn_name) {
                         conn.tables.retain(|t| t != &dropped_table);
                         if is_current_active {
-                            self.autocomplete.set_tables(conn.tables.clone());
+                            self.session.autocomplete.set_tables(conn.tables.clone());
                         }
                     }
 
