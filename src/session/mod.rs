@@ -66,6 +66,9 @@ pub struct Session {
     pub command_history: Vec<String>,
     pub history_index: Option<usize>,
 
+    /// 当前帧是否需要重绘（由 handler 设置，不在 handler 中直接调用 ctx）
+    pub needs_repaint: bool,
+
     // ── 通知 ──
     pub notifications: NotificationManager,
     pub progress: ProgressManager,
@@ -105,6 +108,7 @@ impl Session {
             autocomplete: AutoComplete::new(),
             command_history: Vec::new(),
             history_index: None,
+            needs_repaint: false,
             notifications: NotificationManager::default(),
             progress: ProgressManager::default(),
         }
