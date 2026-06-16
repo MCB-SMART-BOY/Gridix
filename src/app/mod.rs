@@ -25,11 +25,9 @@ use std::sync::mpsc::channel;
 use crate::core::{
     AppConfig, HighlightColors, KeyBindings, ThemeManager, constants,
 };
-use crate::data::{ConnectionConfig, DatabaseType, QueryResult};
-use crate::ui::{self, DdlDialogState, ExportConfig, KeyBindingsDialogState, QueryTabManager};
+use crate::ui::{self, ExportConfig, QueryTabManager};
 
 use action::command_palette::CommandPaletteState;
-use dialogs::host::DialogId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(in crate::app) struct GridWorkspaceId {

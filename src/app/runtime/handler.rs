@@ -263,7 +263,7 @@ impl DbManagerApp {
     /// 处理 SQLite 连接完成消息
     fn handle_connected_with_tables(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         name: String,
         request_id: u64,
         result: Result<Vec<String>, String>,
@@ -319,7 +319,7 @@ impl DbManagerApp {
     /// 处理 MySQL/PostgreSQL 连接完成消息
     fn handle_connected_with_databases(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         name: String,
         request_id: u64,
         result: Result<Vec<String>, String>,
@@ -373,7 +373,7 @@ impl DbManagerApp {
     /// 处理数据库选择完成消息
     fn handle_database_selected(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         conn_name: String,
         db_name: String,
         request_id: u64,
@@ -429,7 +429,7 @@ impl DbManagerApp {
     /// 处理数据库删除完成消息
     fn handle_database_dropped(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         conn_name: String,
         db_name: String,
         result: Result<(), String>,
@@ -484,7 +484,7 @@ impl DbManagerApp {
     /// 处理表删除完成消息
     fn handle_table_dropped(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         conn_name: String,
         table_name: String,
         result: Result<(), String>,
@@ -522,7 +522,7 @@ impl DbManagerApp {
     }
 
     /// 处理查询完成消息
-    fn handle_query_done(&mut self, ctx: &egui::Context, payload: QueryDonePayload) {
+    fn handle_query_done(&mut self, _ctx: &egui::Context, payload: QueryDonePayload) {
         use crate::core::constants;
         let QueryDonePayload {
             sql,
@@ -770,7 +770,7 @@ impl DbManagerApp {
     /// 处理导入完成消息
     fn handle_import_done(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         result: Result<crate::data::ImportExecutionReport, String>,
         elapsed_ms: u64,
     ) {
@@ -803,7 +803,7 @@ impl DbManagerApp {
     /// 处理主键获取完成消息
     fn handle_primary_key_fetched(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         table_name: String,
         pk_column: Option<String>,
     ) {
@@ -840,7 +840,7 @@ impl DbManagerApp {
     /// 处理触发器获取完成消息
     fn handle_triggers_fetched(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         conn_name: String,
         db_name: Option<String>,
         request_id: u64,
@@ -887,7 +887,7 @@ impl DbManagerApp {
     /// 处理存储过程/函数获取完成消息
     fn handle_routines_fetched(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         conn_name: String,
         db_name: Option<String>,
         request_id: u64,
@@ -937,7 +937,7 @@ impl DbManagerApp {
     /// 处理外键获取完成消息
     fn handle_foreign_keys_fetched(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         result: Result<Vec<crate::data::ForeignKeyInfo>, String>,
     ) {
         match result {
@@ -964,7 +964,7 @@ impl DbManagerApp {
     /// 处理 ER 表列信息获取完成消息
     fn handle_er_table_columns_fetched(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         table_name: String,
         result: Result<Vec<crate::data::ColumnInfo>, String>,
     ) {
