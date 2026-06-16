@@ -113,7 +113,7 @@ src/
 
 ## Architecture
 
-**4-layer unidirectional dependency (in progress):**
+**6-layer unidirectional dependency:**
 ```
 src/types.rs    (Layer -1) ← shared by all layers
      ↑
@@ -130,21 +130,22 @@ src/app/ + ui/  (Layer 4)  ← eframe App impl, rendering, input routing
 
 **Refactoring phases completed:**
 - ✅ Phase A: `src/types.rs` — shared types (DatabaseType, SslModes, QueryResult)
-- ✅ Phase B: `src/session/` — Session struct, QueryTab data, Message enum
-- ✅ Phase C: `src/state/` — UiState struct (25 fields)
+- ✅ Phase B: `src/session/` — Session (30 fields), QueryTab, Message, FrameEffects
+- ✅ Phase C: `src/state/` — UiState (25 fields), theme/scale migrated
 - ✅ Phase D: `self.sql` dual-source eliminated — single source = `tab_manager.active_tab().sql`
 
 **Remaining:**
-- ⬜ Wire `Session` + `UiState` into `DbManagerApp` (gradually, field by field)
-- ⬜ Migrate `app/runtime/` methods to `session/` (connect, execute, disconnect, handler)
-- ⬜ `database/` → `data/` rename (low priority, backward-compatible)
+- ⬜ Session field encapsulation (all pub fields) (gradually, field by field)
+- ⬜ Complete UiState migration (20+ duplicate fields) (connect, execute, disconnect, handler)
+- ✅ `database/` → `data/` renamed (low priority, backward-compatible)
+⬜ Wire FrameEffects → poll_messages() → apply_frame_effects()
 - ⬜ Split oversized files (keybindings_dialog, input_router, keybindings)
 
 **Key architectural decisions:**
 - **No trait for DB backends.** `match db_type` is the correct pattern for three backends with fundamentally different execution models.
 - **One truth source per data.** `QueryTab.sql` is the sole authority; `self.sql` field eliminated.
 - **No process separation.** The serialization tax on QueryResult is too high.
-- **Backward compatibility.** All re-exports preserved during module migrations.
+- **Session as data owner.** All async infrastructure lives in Session.
 
 **Runtime:** UI thread (egui frames) + Tokio multi-thread (async DB). Communication via `std::sync::mpsc::channel`.
 

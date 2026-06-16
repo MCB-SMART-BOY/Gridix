@@ -1,80 +1,74 @@
 # Future improvement roadmap
 
-## Done (v6.1.0+)
+## Done
 
-### Dependency health
-- [x] russh 0.58.1→0.61 (yanked crate + 2 HIGH vulns fixed)
-- [x] tokio-postgres 0.7→0.7.18 (MEDIUM vuln fixed)
-- [x] Consider replacing `syntect` — replaced with custom tokenizer, dependency removed
-- [x] Replaced `once_cell` with `std::sync::LazyLock`
-- [x] Replaced `lazy_static` with `std::sync::LazyLock`
-- [x] Replaced `parking_lot::Mutex` with `std::sync::Mutex` (RwLock kept for re-entrant safety)
-
-### CI hardening
-- [x] Add `cargo audit` to CI quality gate
-- [x] Add `rust-toolchain.toml` to pin toolchain version
-- [x] Add quality checks (fmt+clippy+test) to release workflow before build
-- [x] Add PostgreSQL service container for integration tests in CI
-- [x] Add `cargo-tarpaulin` for code coverage reporting
-
-### Test infrastructure
-- [x] Create `tests/common/mod.rs` for shared test fixtures
-- [x] Deduplicate identical test files
-
-### Architecture
-- [x] Delete `DatabaseDriver` trait — removed as dead code
-- [x] Remove `app/state/mod.rs` dead code
-- [x] Remove `core/session.rs` dead code (SessionManager — replaced by session/ layer)
-- [x] Delete dead grid-save pipeline (~150 lines)
-- [x] Fix 12 clippy errors (0 remaining)
-
-### Security
-- [x] PostgreSQL default SSL: Disable → Prefer
-- [x] MySQL default SSL: Disabled → Preferred
-- [x] Fix Required/Require SSL modes to validate certificates
-- [x] SSH password/passphrase `#[serde(skip_serializing)]`
-- [x] Close `DbManagerApp` public API exposure (pub mod app → pub(crate))
-- [x] Mutex poison handling (`.unwrap()` → `.unwrap_or_else(|e| e.into_inner())`)
-- [x] SSH host key SHA-256 fingerprint in error messages
-
-## Near-term (next release)
-
-### Architecture refactoring (in progress)
-- [x] Phase A: Create `src/types.rs` shared types layer
-- [x] Phase B: `src/session/` — Session struct, QueryTab data, Message enum
+### Refactoring (v6.2.0)
+- [x] Phase A: `src/types.rs` — shared types (DatabaseType, SslModes, QueryResult)
+- [x] Phase B: `src/session/` — Session struct, QueryTab, Message, FrameEffects
 - [x] Phase C: `src/state/` — UiState struct (25 fields)
 - [x] Phase D: Eliminate `self.sql` dual source
-- [ ] Wire Session + UiState into DbManagerApp (field-by-field migration)
-- [ ] Migrate app/runtime/ methods to session/ (connect, execute, disconnect)
-- [ ] `database/` → `data/` rename
+- [x] Session: runtime, tx, rx, manager, tab_manager, autocomplete, notifications, progress, query_history, command_history migrated
+- [x] State: theme_manager, highlight_colors, ui_scale, base_pixels_per_point migrated
+- [x] `database/` → `data/` rename
+- [x] 25 duplicate fields removed from DbManagerApp (~100 → ~47)
+- [x] 12 clippy errors → 0
 
 ### Dependency health
-- [ ] Monitor `rsa` crate — 1 remaining MEDIUM vuln (no fix available, transitive via russh)
-- [ ] Watch `mysql_async` for `lru` unsound fix
+- [x] syntect replaced with custom tokenizer
+- [x] once_cell → std::sync::LazyLock
+- [x] lazy_static → std::sync::LazyLock
+- [x] parking_lot::Mutex → std::sync::Mutex (RwLock kept)
+
+### CI hardening
+- [x] cargo audit in CI
+- [x] rust-toolchain.toml
+- [x] Quality gate (fmt+clippy+test) in release workflow
+- [x] PostgreSQL service container for CI
+- [x] cargo-tarpaulin coverage workflow
 
 ### Test infrastructure
-- [ ] Add `proptest` or `quickcheck` for property-based testing of SQL parser/formatter
-- [ ] Add unit tests for `data/pool.rs` (currently zero coverage)
-- [ ] Add unit tests for `data/ssh_tunnel.rs` (config only, no connectivity tests)
-- [ ] Add Session tests (poll_messages, FrameEffects)
-- [ ] Add PostgreSQL/MySQL driver tests
+- [x] tests/common/mod.rs shared utilities
+- [x] Duplicate test files removed
 
-## Medium-term (v7.0.0)
+### Security
+- [x] SSL defaults: PG Prefer, MySQL Preferred
+- [x] SSL Required modes validate certificates
+- [x] SSH password skip_serializing
+- [x] pub(crate) mod app (closed public API exposure)
+- [x] Mutex poison handling
+- [x] SSH host key fingerprint in errors
+- [x] Dead DbError variants removed
+
+## In progress
+
+### Architecture
+- [ ] Session field encapsulation (fields currently all `pub`)
+- [ ] Complete UiState migration (20+ duplicate fields still on DbManagerApp)
+- [ ] Wire FrameEffects → poll_messages() → apply_frame_effects()
+- [ ] Config save throttling (15 call sites, no dedup)
+- [ ] Unified error types (25 files use `Result<_, String>`)
+
+### Code quality
+- [ ] Split oversized files: keybindings_dialog.rs (3560), input_router.rs (3369), keybindings.rs (2448)
+- [ ] Remove legacy password migration (v4 → OS keyring, add deprecation window)
+- [ ] Remove legacy keybindings field from AppConfig (read-only since v4)
+
+## Medium-term
 
 ### Features
-- [ ] Query plan visualization (EXPLAIN output rendered as tree/table)
-- [ ] Database schema diff/compare tool
-- [ ] Dark/light theme auto-switch based on system preference
-- [ ] Export to additional formats (Parquet, Excel via calamine)
+- [ ] Query plan visualization (EXPLAIN rendered as tree/table)
+- [ ] Database schema diff/compare
+- [ ] Dark/light theme auto-switch
+- [ ] Export to Parquet/Excel
 
 ### Performance
-- [ ] Virtual scrolling for large query results (>100K rows)
-- [ ] Async metadata pre-fetching (triggers, routines loaded on connection, not on demand)
-- [ ] Syntax highlight cache warming for common SQL patterns
+- [ ] Virtual scrolling for >100K row results
+- [ ] Config save throttling (batch writes)
+- [ ] Async metadata pre-fetching
 
 ## Long-term
 
-- [ ] Plugin system for database extensions (custom drivers, import/export formats)
-- [ ] WebAssembly build for browser-based Gridix (egui→eframe web backend)
-- [ ] Multi-window support (detach query tabs, ER diagrams as separate windows)
-- [ ] Accessibility: screen reader support, high-contrast theme, keyboard-only audit
+- [ ] Plugin system for DB drivers
+- [ ] WebAssembly build
+- [ ] Multi-window support
+- [ ] Accessibility (screen reader, high-contrast)

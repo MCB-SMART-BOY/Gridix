@@ -15,78 +15,76 @@ paths:
 data/ (Layer 1) → Session (Layer 2) → FrameEffects → State (Layer 3) → ui/ (Layer 4)
 ```
 
-## Session struct
+**Note:** `FrameEffects` types are defined in `session/frame_effects.rs` but not yet wired into the message processing pipeline. `handle_messages()` still lives on `DbManagerApp`.
+
+## Session struct (30 fields)
 
 ```rust
 pub struct Session {
-    manager: ConnectionManager,
-    runtime: tokio::runtime::Runtime,
-    tx: Sender<Message>,
-    rx: Receiver<Message>,
-    tab_manager: QueryTabManager,
-    request_ids: RequestIdCounter,
-    pending: PendingRequests,
-    config: SessionConfig,
+    // Connection
+    pub manager: ConnectionManager,
+    // Tab management
+    pub tab_manager: QueryTabManager,
+    // Async infrastructure
+    pub tx: Sender<Message>,
+    pub rx: Receiver<Message>,
+    pub runtime: tokio::runtime::Runtime,
+    // Execution state
+    pub connecting: bool, pub executing: bool, pub import_executing: bool,
+    // Request IDs
+    pub next_connect_request_id: u64, pub next_query_request_id: u64,
+    pub next_metadata_request_id: u64,
+    // Request tracking (pending maps, query tasks, cancellers)
+    // History
+    pub query_history: QueryHistory,
+    pub last_query_time_ms: Option<u64>,
+    pub current_history_connection: Option<String>,
+    // Command history
+    pub command_history: Vec<String>, pub history_index: Option<usize>,
+    // Autocomplete
+    pub autocomplete: AutoComplete,
+    // Notifications
+    pub notifications: NotificationManager, pub progress: ProgressManager,
 }
 ```
 
-## Core methods
+**⚠️ All fields are `pub` — there is no encapsulation.** Any code can bypass methods and directly mutate internal state. Fix: make fields `pub(crate)`, expose operations through methods.
 
-- `connect(name)` — spawns async connect task, tracks request_id
-- `disconnect(name)` — clears SSH tunnels, removes pool entries, cancels queries
-- `execute(sql)` — spawns async query task, returns request_id
-- `cancel(request_id)` — sends cancel signal via backend-specific mechanism
-- `poll_messages()` → `FrameEffects` — drains mpsc channel, dispatches to handlers, returns effects
-- `ensure_active_tab()` — creates tab if none exists, returns `&mut QueryTab`
-- `active_sql()` / `set_active_sql(sql)` — read/write editor SQL through tab manager
+## Core methods (implemented)
 
-## FrameEffects
+- `next_connect_request_id()` / `next_metadata_request_id()` — ID generation
+- `refresh_connecting_flag()` / `refresh_executing_flag()` — state refresh
+- `track_query_task()` — task registration
+- `active_sql()` / `set_active_sql()` — SQL editor access
+- `ensure_active_tab()` — tab lifecycle
 
-Defined in `session/frame_effects.rs`. `FrameEffects` 类型已实现；
-`poll_messages()` 和 `State::apply_frame_effects()` 将在 handler 迁移后实现。
+## FrameEffects (defined, not wired)
 
-```rust
-pub struct FrameEffects {
-    pub queries: Vec<QueryResultEffect>,
-    pub connections: Vec<ConnectionEffect>,
-    pub metadata: Vec<MetadataEffect>,
-    pub notifications: Vec<(NotifyLevel, String)>,
-    pub repaint: bool,
-}
-```
+`session/frame_effects.rs` defines: `FrameEffects`, `QueryResultEffect`, `ConnectionEffect`, `MetadataEffect`, `NotifyLevel`.
 
-当前 `handle_messages()` 仍在 `DbManagerApp` 上直接修改 State 和 Session。
-目标是让 Session handler 返回 `FrameEffects`，由 State 统一应用。
+These types exist for future Session → State communication. Currently `handle_messages()` on `DbManagerApp` directly mutates both Session and State.
 
 ## Message enum
 
-13 variants, all carry `request_id: u64`:
-- `ConnectedWithTables`, `ConnectedWithDatabases`
-- `DatabaseSelected`, `DatabaseDropped`, `TableDropped`
-- `QueryDone`
-- `ImportDone`
-- `PrimaryKeyFetched`
-- `TriggersFetched`, `RoutinesFetched`
-- `ForeignKeysFetched`
-- `ERTableColumnsFetched`
+13 variants in `session/message.rs`, all carry `request_id: u64`. Re-exported from `app/runtime/message.rs` for backward compatibility.
 
 ## Request lifecycle
 
-- `RequestIdCounter` generates monotonic IDs per category (connect, query, metadata)
-- `PendingRequests` tracks in-flight operations with `HashMap<u64, JoinHandle/Task>`
-- Stale response guard: handler compares message request_id against latest pending for that connection/tab
-- Cancel: sends cancel signal, brief grace period, force-abort JoinHandle if needed
+- `RequestIdCounter` → Session fields `next_*_request_id`
+- `PendingRequests` → Session fields `pending_*`
+- Stale response guard: handler compares request_id against latest pending
+- Cancel: backend-specific (InterruptHandle/CancelToken/KILL QUERY)
 
 ## Tab management
 
-- `QueryTab` is pure data (id, title, sql, result, executing, modified, error, timing) — no UI dependency
-- `QueryTabManager` holds `Vec<QueryTab>` + `active_index`, provides create/close/switch operations
-- Tab rendering (tab bar widget) lives in `ui/components/query_tab_bar.rs`, reads from Session
-- `self.sql` is eliminated — always accessed via `session.active_sql()` from the active tab
+- `QueryTab` is pure data (id, title, sql, result, executing, modified, error, timing)
+- `QueryTabManager` holds `Vec<QueryTab>` + `active_index`
+- Tab rendering (tab bar widget) lives in `ui/components/query_tabs.rs`
+- `self.sql` is eliminated — always accessed via `session.active_sql()`
 
 ## Invariants
 
-- `poll_messages()` is called once per frame, before rendering
-- Session internal state (autocomplete, history, request tracking) is invisible to State
-- SSH tunnels are stopped via `tokio::runtime::Handle::spawn()`, not `std::thread::spawn()`
-- All `Mutex::lock()` calls use `unwrap_or_else(|e| e.into_inner())` to handle poison
+- `handle_messages()` is called once per frame, before rendering
+- `self.sql` is eliminated — single source = tab_manager
+- SSH tunnels are stopped via `tokio::runtime::Handle::spawn()`
+- All `Mutex::lock()` calls use `unwrap_or_else(|e| e.into_inner())`
