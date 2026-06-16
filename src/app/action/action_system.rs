@@ -194,7 +194,7 @@ impl ActionContext {
     }
 
     fn scope_bonus(&self, scope: CommandScope) -> usize {
-        match (scope, self.focus_area) {
+        match (scope, self.state.focus_area) {
             (CommandScope::Sidebar, FocusArea::Sidebar) => 18,
             (CommandScope::Grid, FocusArea::DataGrid) => 18,
             (CommandScope::Editor, FocusArea::SqlEditor) => 18,
@@ -214,7 +214,7 @@ impl ActionContext {
             "无连接"
         };
         let table = self.selected_table.as_deref().unwrap_or("无表");
-        let focus = match self.focus_area {
+        let focus = match self.state.focus_area {
             FocusArea::Toolbar => "工具栏",
             FocusArea::QueryTabs => "标签页",
             FocusArea::Sidebar => "侧边栏",
@@ -1293,7 +1293,7 @@ impl DbManagerApp {
     fn open_filter_workspace(&mut self) {
         self.state.show_sidebar = true;
         self.sidebar_panel_state.show_filters = true;
-        self.sidebar_section = ui::SidebarSection::Filters;
+        self.state.sidebar_section = ui::SidebarSection::Filters;
         self.set_focus_area(FocusArea::Sidebar);
     }
 
@@ -1338,7 +1338,7 @@ impl DbManagerApp {
 
     fn ensure_sidebar_workspace_visible(&mut self) {
         self.state.show_sidebar = true;
-        match self.sidebar_section {
+        match self.state.sidebar_section {
             ui::SidebarSection::Connections
             | ui::SidebarSection::Databases
             | ui::SidebarSection::Tables => {
@@ -1361,7 +1361,7 @@ impl DbManagerApp {
             && !self.sidebar_panel_state.show_routines
         {
             self.sidebar_panel_state.show_connections = true;
-            self.sidebar_section = ui::SidebarSection::Connections;
+            self.state.sidebar_section = ui::SidebarSection::Connections;
         }
     }
 }

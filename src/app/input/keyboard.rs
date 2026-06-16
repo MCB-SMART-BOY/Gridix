@@ -44,7 +44,7 @@ impl DbManagerApp {
 
         let current_idx = areas
             .iter()
-            .position(|&a| a == self.focus_area)
+            .position(|&a| a == self.state.focus_area)
             .unwrap_or(0);
         let next_idx = if reverse {
             if current_idx == 0 {

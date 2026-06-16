@@ -372,7 +372,7 @@ impl InputContextSnapshot {
     }
 
     fn sidebar_scope(self) -> SidebarFocusScope {
-        match self.sidebar_section {
+        match self.state.sidebar_section {
             ui::SidebarSection::Connections => SidebarFocusScope::Connections,
             ui::SidebarSection::Databases => SidebarFocusScope::Databases,
             ui::SidebarSection::Tables => SidebarFocusScope::Tables,
@@ -403,24 +403,24 @@ impl InputContextSnapshot {
             return FocusScope::Dialog(dialog_scope);
         }
 
-        if self.focus_area == ui::FocusArea::Sidebar {
+        if self.state.focus_area == ui::FocusArea::Sidebar {
             return FocusScope::Sidebar(self.sidebar_scope());
         }
 
         let editor_has_priority =
-            self.show_sql_editor && self.focus_area == ui::FocusArea::SqlEditor;
+            self.show_sql_editor && self.state.focus_area == ui::FocusArea::SqlEditor;
         if editor_has_priority {
-            return FocusScope::Editor(match self.editor_mode {
+            return FocusScope::Editor(match self.state.editor_mode {
                 EditorMode::Insert => EditorFocusScope::Insert,
                 EditorMode::Normal => EditorFocusScope::Normal,
             });
         }
 
-        if self.focus_area == ui::FocusArea::DataGrid {
+        if self.state.focus_area == ui::FocusArea::DataGrid {
             return FocusScope::Grid(self.grid_scope());
         }
 
-        if self.state.show_er_diagram && self.focus_area == ui::FocusArea::ErDiagram {
+        if self.state.show_er_diagram && self.state.focus_area == ui::FocusArea::ErDiagram {
             return FocusScope::ErDiagram(if self.er_diagram_viewport_mode {
                 ErDiagramFocusScope::Viewport
             } else {
@@ -432,7 +432,7 @@ impl InputContextSnapshot {
             return FocusScope::Global;
         }
 
-        match self.focus_area {
+        match self.state.focus_area {
             ui::FocusArea::Toolbar => FocusScope::Toolbar,
             ui::FocusArea::QueryTabs => FocusScope::QueryTabs,
             ui::FocusArea::Sidebar => FocusScope::Sidebar(self.sidebar_scope()),
@@ -755,10 +755,10 @@ impl InputContextSnapshot {
 impl DbManagerApp {
     pub(in crate::app) fn set_focus_area(&mut self, area: ui::FocusArea) {
         if let Some(workspace_area) = tracked_er_return_focus_area(area) {
-            self.last_non_er_workspace_focus = workspace_area;
+            self.state.last_non_er_workspace_focus = workspace_area;
         }
 
-        self.focus_area = area;
+        self.state.focus_area = area;
         match area {
             ui::FocusArea::DataGrid => {
                 self.grid_state.focused = true;
@@ -786,7 +786,7 @@ impl DbManagerApp {
 
     fn resolve_er_return_focus_area(&self) -> ui::FocusArea {
         resolve_er_return_focus_area(
-            self.last_non_er_workspace_focus,
+            self.state.last_non_er_workspace_focus,
             self.state.show_sidebar,
             self.show_sql_editor,
         )
@@ -849,9 +849,9 @@ impl DbManagerApp {
             show_autocomplete: self.show_autocomplete,
             show_sql_editor: self.show_sql_editor,
             focus_sql_editor: self.focus_sql_editor,
-            focus_area: self.focus_area,
-            editor_mode: self.editor_mode,
-            sidebar_section: self.sidebar_section,
+            focus_area: self.state.focus_area,
+            editor_mode: self.state.editor_mode,
+            sidebar_section: self.state.sidebar_section,
             filter_input_has_focus: self.sidebar_panel_state.filter_input_has_focus,
             grid_mode: self.grid_state.mode,
             grid_editing_cell: self.grid_state.editing_cell.is_some(),
@@ -1012,7 +1012,7 @@ impl DbManagerApp {
             ui::SidebarSection::Routines => self.sidebar_panel_state.show_routines,
         };
 
-        if is_toggle_panel && self.state.show_sidebar && self.sidebar_section == section && panel_visible
+        if is_toggle_panel && self.state.show_sidebar && self.state.sidebar_section == section && panel_visible
         {
             match section {
                 ui::SidebarSection::Connections => {
@@ -1030,7 +1030,7 @@ impl DbManagerApp {
                 _ => {}
             }
 
-            if self.focus_area == ui::FocusArea::Sidebar {
+            if self.state.focus_area == ui::FocusArea::Sidebar {
                 self.set_focus_area(ui::FocusArea::DataGrid);
             }
             return;
@@ -1038,7 +1038,7 @@ impl DbManagerApp {
 
         self.state.show_sidebar = true;
         self.set_focus_area(ui::FocusArea::Sidebar);
-        self.sidebar_section = section;
+        self.state.sidebar_section = section;
 
         match section {
             ui::SidebarSection::Connections
@@ -1060,8 +1060,8 @@ impl DbManagerApp {
 
     pub(in crate::app) fn set_sidebar_visible(&mut self, visible: bool) {
         self.state.show_sidebar = visible;
-        let next_focus = focus_after_sidebar_visibility_change(self.focus_area, visible);
-        if next_focus != self.focus_area {
+        let next_focus = focus_after_sidebar_visibility_change(self.state.focus_area, visible);
+        if next_focus != self.state.focus_area {
             self.set_focus_area(next_focus);
         }
     }
@@ -1074,7 +1074,7 @@ impl DbManagerApp {
         self.show_sql_editor = visible;
         if visible {
             self.set_focus_area(ui::FocusArea::SqlEditor);
-        } else if self.focus_area == ui::FocusArea::SqlEditor {
+        } else if self.state.focus_area == ui::FocusArea::SqlEditor {
             self.set_focus_area(ui::FocusArea::DataGrid);
         } else {
             self.focus_sql_editor = false;
@@ -1143,8 +1143,8 @@ impl DbManagerApp {
 
         let restored_focus = focus_after_er_visibility_change(
             visible,
-            self.focus_area,
-            self.last_non_er_workspace_focus,
+            self.state.focus_area,
+            self.state.last_non_er_workspace_focus,
             self.state.show_sidebar,
             self.show_sql_editor,
         );

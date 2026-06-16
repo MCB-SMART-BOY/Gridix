@@ -162,7 +162,6 @@ pub struct DbManagerApp {
     /// 当前选中的补全项索引
     selected_completion: usize,
     /// SQL 编辑器模式 (Normal/Insert)
-    editor_mode: ui::EditorMode,
 
     // ==================== UI 显示状态 ====================
     /// egui_dock 布局状态（管理主工作区的面板布局）
@@ -173,13 +172,10 @@ pub struct DbManagerApp {
     focus_sql_editor: bool,
     /// 侧边栏是否显示
     /// 全局焦点区域（侧边栏/SQL 编辑器/数据表格）
-    focus_area: ui::FocusArea,
     /// 最近一个非 ER 的 workspace 主区域（仅记录 Sidebar / DataGrid / SqlEditor）
-    last_non_er_workspace_focus: ui::FocusArea,
     /// 工具栏当前选中项索引（用于键盘导航）
     toolbar_index: usize,
     /// 侧边栏当前焦点子区域（连接/数据库/表）
-    sidebar_section: ui::SidebarSection,
     /// 侧边栏面板状态（上下分割、触发器列表、选中索引等）
     sidebar_panel_state: ui::SidebarPanelState,
     /// 侧边栏宽度
@@ -377,14 +373,10 @@ impl DbManagerApp {
             pending_filter_input_focus: None,
             show_autocomplete: false,
             selected_completion: 0,
-            editor_mode: ui::EditorMode::Normal,
             dock_state: ui::dock_tabs::default_layout(),
             show_sql_editor: false,
             focus_sql_editor: false,
-            focus_area: ui::FocusArea::DataGrid,
-            last_non_er_workspace_focus: ui::FocusArea::DataGrid,
             toolbar_index: 0,
-            sidebar_section: ui::SidebarSection::Connections,
             sidebar_panel_state,
             sidebar_width: 280.0, // 默认侧边栏宽度
             welcome_status: ui::WelcomeStatusSummary::default(),
@@ -492,7 +484,7 @@ impl DbManagerApp {
     }
 
     fn sync_active_grid_focus(&mut self) {
-        self.grid_state.focused = self.focus_area == ui::FocusArea::DataGrid;
+        self.grid_state.focused = self.state.focus_area == ui::FocusArea::DataGrid;
     }
 
     pub(in crate::app) fn sync_active_surface_binding_to_tab(&mut self) {

@@ -66,7 +66,7 @@ impl DbManagerApp {
 
                 self.state.show_sidebar = true;
                 self.sidebar_panel_state.show_connections = true;
-                self.sidebar_section = ui::SidebarSection::Tables;
+                self.state.sidebar_section = ui::SidebarSection::Tables;
                 self.show_sql_editor = true;
                 self.set_focus_area(ui::FocusArea::DataGrid);
                 self.set_active_sql(sql.clone());
@@ -111,7 +111,7 @@ impl DbManagerApp {
 
                 self.state.show_sidebar = true;
                 self.sidebar_panel_state.show_connections = true;
-                self.sidebar_section = ui::SidebarSection::Tables;
+                self.state.sidebar_section = ui::SidebarSection::Tables;
                 self.set_er_diagram_visible_with_notice(
                     true,
                     ErDiagramVisibilityNotice::Custom("学习示例库的 ER 图已打开"),
@@ -205,7 +205,7 @@ impl DbManagerApp {
         self.session.notifications.success(success_message);
         self.state.show_sidebar = true;
         self.sidebar_panel_state.show_connections = true;
-        self.sidebar_section = ui::SidebarSection::Tables;
+        self.state.sidebar_section = ui::SidebarSection::Tables;
         self.show_sql_editor = true;
         self.set_focus_area(ui::FocusArea::DataGrid);
         self.set_active_sql(format!(

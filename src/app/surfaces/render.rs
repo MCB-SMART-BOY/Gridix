@@ -176,7 +176,7 @@ impl DbManagerApp {
                                 ui.set_min_size(egui::vec2(sidebar_width, available_height));
 
                                 // 只有在没有对话框打开时，侧边栏才响应键盘
-                                let is_sidebar_focused = self.focus_area == ui::FocusArea::Sidebar
+                                let is_sidebar_focused = self.state.focus_area == ui::FocusArea::Sidebar
                                     && !self.has_modal_dialog_open();
 
                                 // 获取当前查询结果的列信息
@@ -192,7 +192,7 @@ impl DbManagerApp {
                                     &mut self.selected_table,
                                     &mut self.show_connection_dialog,
                                     is_sidebar_focused,
-                                    self.sidebar_section,
+                                    self.state.sidebar_section,
                                     &mut self.sidebar_panel_state,
                                     sidebar_width,
                                     &self.keybindings,
@@ -317,7 +317,7 @@ impl DbManagerApp {
     /// 渲染工作区内容（工具栏 + Tab栏 + 数据表格/欢迎页），供 egui_dock TabViewer 调用
     pub(crate) fn render_workspace_content(&mut self, ui: &mut egui::Ui) {
         // 工具栏
-        let is_toolbar_focused = self.focus_area == ui::FocusArea::Toolbar;
+        let is_toolbar_focused = self.state.focus_area == ui::FocusArea::Toolbar;
         let mut toolbar_actions = ui::ToolbarActions::default();
         let cancel_task_id = ui
             .scope(|ui| {
@@ -359,7 +359,7 @@ impl DbManagerApp {
         if let Some(id) = cancel_task_id {
             self.session.progress.cancel(id);
         }
-        if self.focus_area == ui::FocusArea::Toolbar {
+        if self.state.focus_area == ui::FocusArea::Toolbar {
             ui::Toolbar::handle_keyboard(ui, &mut self.toolbar_index, &mut toolbar_actions);
         }
         self.handle_toolbar_actions(ui.ctx(), toolbar_actions);
@@ -368,7 +368,7 @@ impl DbManagerApp {
 
         // Tab 栏 — dock tabs 提供原生标签UI，此处仅保留键盘快捷键处理
         let mut tab_actions = ui::TabBarActions::default();
-        if self.focus_area == ui::FocusArea::QueryTabs {
+        if self.state.focus_area == ui::FocusArea::QueryTabs {
             ui::QueryTabBar::handle_keyboard(
                 ui,
                 self.session.tab_manager.tabs.len(),
@@ -390,7 +390,7 @@ impl DbManagerApp {
 
         if workspace_surface == WorkspaceSurface::TabularResult {
             if let Some(result) = &self.result {
-                self.grid_state.focused = self.focus_area == ui::FocusArea::DataGrid
+                self.grid_state.focused = self.state.focus_area == ui::FocusArea::DataGrid
                     && !self.has_modal_dialog_open();
                 let table_name = self.selected_table.as_deref();
                 let (grid_actions, _) = ui::DataGrid::show_editable(
@@ -419,7 +419,7 @@ impl DbManagerApp {
     /// 渲染 ER 关系图，供 egui_dock TabViewer 调用
     pub(crate) fn render_er_diagram_in_ui(&mut self, ui: &mut egui::Ui) {
         let theme_preset = self.state.theme_manager.current;
-        let er_is_focused = self.focus_area == ui::FocusArea::ErDiagram
+        let er_is_focused = self.state.focus_area == ui::FocusArea::ErDiagram
             && !self.has_modal_dialog_open();
         let er_response = self.state.er_diagram_state.show(ui, &theme_preset, er_is_focused);
         for action in collect_er_diagram_surface_actions(&er_response) {
@@ -463,7 +463,7 @@ impl DbManagerApp {
 
         // 只有在没有对话框打开时，SQL 编辑器才响应快捷键
         let is_editor_focused =
-            self.focus_area == ui::FocusArea::SqlEditor && !self.has_modal_dialog_open();
+            self.state.focus_area == ui::FocusArea::SqlEditor && !self.has_modal_dialog_open();
 
         // 计算编辑器高度（使用 sql_editor_height 字段或默认值）
         let editor_height = clamped_sql_editor_height(self.sql_editor_height, available_height);
@@ -532,7 +532,7 @@ impl DbManagerApp {
                     self.session.notifications.latest_message(),
                 );
                 let mut request_editor_widget_focus =
-                    is_editor_focused && self.editor_mode == ui::EditorMode::Insert;
+                    is_editor_focused && self.state.editor_mode == ui::EditorMode::Insert;
                 sql_editor_actions = ui::SqlEditor::show(
                     ui,
                     tab_sql,
@@ -547,7 +547,7 @@ impl DbManagerApp {
                     &mut self.selected_completion,
                     &mut request_editor_widget_focus,
                     is_editor_focused,
-                    &mut self.editor_mode,
+                    &mut self.state.editor_mode,
                 );
             },
         );
@@ -764,14 +764,14 @@ impl DbManagerApp {
 
         // 层级导航
         if let Some(new_section) = actions.section_change {
-            self.sidebar_section = new_section;
+            self.state.sidebar_section = new_section;
         }
 
         // 连接操作
         if let Some(name) = actions.connect {
             self.connect(name);
             // 连接后自动切换到数据库列表
-            self.sidebar_section = ui::SidebarSection::Databases;
+            self.state.sidebar_section = ui::SidebarSection::Databases;
         }
 
         if let Some(name) = actions.disconnect {
@@ -879,7 +879,7 @@ impl DbManagerApp {
             .map(|conn| (conn.config.db_type, conn.selected_database.clone()))
             .unwrap_or((crate::data::DatabaseType::SQLite, None));
 
-        match self.sidebar_section {
+        match self.state.sidebar_section {
             ui::SidebarSection::Connections | ui::SidebarSection::Databases => {
                 if let Some(name) = active_name {
                     self.connect(name);
@@ -953,7 +953,7 @@ impl DbManagerApp {
 
         self.state.show_sidebar = true;
         self.sidebar_panel_state.show_filters = true;
-        self.sidebar_section = ui::SidebarSection::Filters;
+        self.state.sidebar_section = ui::SidebarSection::Filters;
         self.set_focus_area(ui::FocusArea::Sidebar);
         self.sidebar_panel_state.workflow.filter_workspace = ui::SidebarFilterWorkspaceMode::Input;
         self.pending_filter_input_focus = Some(insert_index);
@@ -1024,7 +1024,7 @@ impl DbManagerApp {
         self.sidebar_panel_state.workflow.filter_workspace = ui::SidebarFilterWorkspaceMode::Input;
         self.state.show_sidebar = true;
         self.sidebar_panel_state.show_filters = true;
-        self.sidebar_section = ui::SidebarSection::Filters;
+        self.state.sidebar_section = ui::SidebarSection::Filters;
         self.set_focus_area(ui::FocusArea::Sidebar);
     }
 

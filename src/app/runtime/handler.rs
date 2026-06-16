@@ -460,7 +460,7 @@ impl DbManagerApp {
                         self.sidebar_panel_state.clear_routines();
                         self.sidebar_panel_state.loading_triggers = false;
                         self.sidebar_panel_state.loading_routines = false;
-                        self.sidebar_section = ui::SidebarSection::Databases;
+                        self.state.sidebar_section = ui::SidebarSection::Databases;
                         self.set_focus_area(ui::FocusArea::Sidebar);
                     }
                 }
@@ -501,7 +501,7 @@ impl DbManagerApp {
                     self.switch_grid_workspace(None);
                     self.clear_result();
                     self.selected_table = None;
-                    self.sidebar_section = ui::SidebarSection::Tables;
+                    self.state.sidebar_section = ui::SidebarSection::Tables;
                     self.set_focus_area(ui::FocusArea::Sidebar);
                 }
 
@@ -641,7 +641,7 @@ impl DbManagerApp {
                             self.grid_state.scroll_to_row = Some(last_row);
                         }
 
-                        if self.focus_area == ui::FocusArea::DataGrid {
+                        if self.state.focus_area == ui::FocusArea::DataGrid {
                             self.grid_state.focused = true;
                         }
 
