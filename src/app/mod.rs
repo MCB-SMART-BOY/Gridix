@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::sync::mpsc::channel;
 
 use crate::core::{
-    AppConfig, HighlightColors, KeyBindings, QueryHistory, ThemeManager, constants,
+    AppConfig, HighlightColors, KeyBindings, ThemeManager, constants,
 };
 use crate::data::{ConnectionConfig, DatabaseType, QueryResult};
 use crate::ui::{self, DdlDialogState, ExportConfig, KeyBindingsDialogState};
@@ -96,9 +96,10 @@ impl GridWorkspaceStore {
 ///
 /// # 剩余字段（待迁移）
 ///
-/// 对话框状态、Grid 状态、搜索/选择、配置/历史、ER 图、自动补全
+/// 对话框状态、Grid 状态、搜索/选择、ER 图、UI 显示
 ///
 /// 目标：4 字段 { session, state, config, keybindings }
+/// 当前：~47 字段（已迁移 ~53）
 pub struct DbManagerApp {
     // ==================== 核心聚合 ====================
     /// 会话状态 — 聚合 DB 连接、异步基础设施、请求追踪（渐进迁移中）
@@ -118,8 +119,6 @@ pub struct DbManagerApp {
 
     // ==================== 配置和历史 ====================
     app_config: AppConfig,
-    query_history: QueryHistory,
-    current_history_connection: Option<String>,
 
     // ==================== 搜索和选择 ====================
     /// 表格搜索文本
@@ -160,10 +159,6 @@ pub struct DbManagerApp {
     pending_drop_requests: HashMap<u64, (String, String)>,
     /// 侧边栏请求聚焦的筛选输入框索引
     pending_filter_input_focus: Option<usize>,
-
-    // ==================== 主题和外观 ====================
-    /// 上次查询耗时（毫秒）
-    last_query_time_ms: Option<u64>,
 
     // ==================== 自动补全 ====================
     show_autocomplete: bool,
@@ -288,14 +283,14 @@ impl DbManagerApp {
             .expect("无法创建 tokio 运行时，系统资源可能不足");
 
         // 创建 Session（Layer 2 聚合结构体）
-        let mut session = crate::session::Session::new(runtime, tx.clone(), rx);
+        let query_history = app_config.query_history.clone();
+        let mut session = crate::session::Session::new(runtime, tx.clone(), rx, query_history);
 
         ui::sync_runtime_local_shortcuts(&keybindings);
 
         // 主题和外观
         let mut theme_manager = ThemeManager::new(app_config.theme_preset);
         let highlight_colors = HighlightColors::from_theme(&theme_manager.colors);
-        let query_history = app_config.query_history.clone();
         theme_manager.apply(&cc.egui_ctx);
 
         let base_pixels_per_point = cc.egui_ctx.pixels_per_point();
@@ -330,8 +325,6 @@ impl DbManagerApp {
                 s
             },
             app_config,
-            query_history,
-            current_history_connection: None,
             search_text: String::new(),
             search_column: None,
             selected_row: None,
@@ -350,7 +343,6 @@ impl DbManagerApp {
             pending_delete_target: None,
             pending_drop_requests: HashMap::new(),
             pending_filter_input_focus: None,
-            last_query_time_ms: None,
             show_autocomplete: false,
             selected_completion: 0,
             editor_mode: ui::EditorMode::Normal,

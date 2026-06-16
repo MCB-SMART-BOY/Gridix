@@ -7,7 +7,7 @@ pub mod frame_effects;
 pub mod message;
 pub mod tab;
 
-use crate::core::{AutoComplete, NotificationManager, ProgressManager};
+use crate::core::{AutoComplete, NotificationManager, ProgressManager, QueryHistory};
 use crate::data::{ConnectionManager, QueryResult};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -56,6 +56,11 @@ pub struct Session {
     // ── 自动补全 ──
     pub autocomplete: AutoComplete,
 
+    // ── 查询历史 ──
+    pub query_history: QueryHistory,
+    pub last_query_time_ms: Option<u64>,
+    pub current_history_connection: Option<String>,
+
     // ── 命令历史 ──
     pub command_history: Vec<String>,
     pub history_index: Option<usize>,
@@ -71,6 +76,7 @@ impl Session {
         runtime: tokio::runtime::Runtime,
         tx: Sender<message::Message>,
         rx: Receiver<message::Message>,
+        query_history: QueryHistory,
     ) -> Self {
         Self {
             manager: ConnectionManager::default(),
@@ -92,6 +98,9 @@ impl Session {
             pending_query_connections: HashMap::new(),
             pending_query_cancellers: HashMap::new(),
             user_cancelled_query_requests: HashSet::new(),
+            query_history,
+            last_query_time_ms: None,
+            current_history_connection: None,
             autocomplete: AutoComplete::new(),
             command_history: Vec::new(),
             history_index: None,

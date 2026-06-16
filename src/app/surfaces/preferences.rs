@@ -46,7 +46,7 @@ impl DbManagerApp {
             .values()
             .map(|c| c.config.clone())
             .collect();
-        self.app_config.query_history = self.query_history.clone();
+        self.app_config.query_history = self.session.query_history.clone();
         self.app_config.connection_dialog_show_advanced = self.connection_dialog_show_advanced;
         let _ = self.app_config.save();
 
@@ -59,7 +59,7 @@ impl DbManagerApp {
 
     /// 保存当前连接的历史记录到配置
     pub(in crate::app) fn save_current_history(&mut self) {
-        if let Some(conn_name) = &self.current_history_connection {
+        if let Some(conn_name) = &self.session.current_history_connection {
             self.app_config
                 .command_history
                 .insert(conn_name.clone(), self.session.command_history.clone());
@@ -78,7 +78,7 @@ impl DbManagerApp {
             .get(conn_name)
             .cloned()
             .unwrap_or_default();
-        self.current_history_connection = Some(conn_name.to_string());
+        self.session.current_history_connection = Some(conn_name.to_string());
         self.session.history_index = None;
     }
 }

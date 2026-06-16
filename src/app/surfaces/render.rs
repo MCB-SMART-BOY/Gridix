@@ -538,7 +538,7 @@ impl DbManagerApp {
                     self.session.executing,
                     &latest_msg,
                     &self.state.highlight_colors,
-                    self.last_query_time_ms,
+                    self.session.last_query_time_ms,
                     &self.session.autocomplete,
                     &mut self.show_autocomplete,
                     &mut self.selected_completion,
@@ -594,7 +594,7 @@ impl DbManagerApp {
                 tab.update_title();
             }
             self.session.notifications.dismiss_all();
-            self.last_query_time_ms = None;
+            self.session.last_query_time_ms = None;
         }
 
         // 焦点转移到表格

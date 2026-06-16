@@ -74,8 +74,8 @@ impl DbManagerApp {
                         .command_history
                         .insert(name.clone(), history);
                 }
-                if self.current_history_connection.as_deref() == Some(&old_name) {
-                    self.current_history_connection = Some(name.clone());
+                if self.session.current_history_connection.as_deref() == Some(&old_name) {
+                    self.session.current_history_connection = Some(name.clone());
                 }
             }
 
@@ -278,7 +278,7 @@ impl DbManagerApp {
             self.switch_grid_workspace(None);
             self.result = None;
             self.session.command_history.clear();
-            self.current_history_connection = None;
+            self.session.current_history_connection = None;
         }
         self.save_config();
     }
@@ -403,7 +403,7 @@ impl DbManagerApp {
 
         self.session.executing = true;
         self.result = None;
-        self.last_query_time_ms = None;
+        self.session.last_query_time_ms = None;
         self.session.next_query_request_id = self.session.next_query_request_id.wrapping_add(1);
         if self.session.next_query_request_id == 0 {
             self.session.next_query_request_id = 1;

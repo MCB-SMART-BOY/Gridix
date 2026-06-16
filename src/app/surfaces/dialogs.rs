@@ -216,7 +216,7 @@ impl DbManagerApp {
             ui::HistoryPanel::show(
                 ctx,
                 &mut self.show_history_panel,
-                &self.query_history,
+                &self.session.query_history,
                 &mut results.history_selected_sql,
                 &mut results.clear_history,
                 &mut self.history_panel_state,
@@ -445,7 +445,7 @@ impl DbManagerApp {
         }
 
         if results.clear_history {
-            self.query_history.clear();
+            self.session.query_history.clear();
             self.app_config.query_history.clear();
             let _ = self.app_config.save();
         }

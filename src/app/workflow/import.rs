@@ -104,7 +104,7 @@ impl DbManagerApp {
         let tx = self.session.tx.clone();
         self.session.import_executing = true;
         self.session.refresh_executing_flag();
-        self.last_query_time_ms = None;
+        self.session.last_query_time_ms = None;
 
         self.session.runtime.spawn(async move {
             let start = std::time::Instant::now();

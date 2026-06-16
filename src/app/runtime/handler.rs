@@ -575,7 +575,7 @@ impl DbManagerApp {
                     res.original_row_count = Some(original_rows);
                 }
 
-                self.query_history.add(
+                self.session.query_history.add(
                     sql,
                     db_type,
                     true,
@@ -626,7 +626,7 @@ impl DbManagerApp {
 
                     if is_active_tab {
                         if should_update_active_query_time {
-                            self.last_query_time_ms = Some(elapsed_ms);
+                            self.session.last_query_time_ms = Some(elapsed_ms);
                         }
                         self.session.notifications.success(&msg);
                         self.selected_row = None;
@@ -685,7 +685,7 @@ impl DbManagerApp {
             Err(e) => {
                 let is_cancelled = is_cancelled_query_error(&e);
                 if !is_cancelled {
-                    self.query_history.add(sql, db_type, false, None);
+                    self.session.query_history.add(sql, db_type, false, None);
                 }
                 if should_drop_query_error_as_stale(
                     is_stale_for_existing_tab,
@@ -748,7 +748,7 @@ impl DbManagerApp {
                     }
                     if is_active_tab {
                         if should_update_active_query_time {
-                            self.last_query_time_ms = Some(elapsed_ms);
+                            self.session.last_query_time_ms = Some(elapsed_ms);
                         }
                         if !is_cancelled {
                             self.result = None;
