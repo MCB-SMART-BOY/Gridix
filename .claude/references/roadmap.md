@@ -1,74 +1,71 @@
-# Future improvement roadmap
+# Gridix 优化路线图
 
-## Done
+## 已完成（v6.2.0）
 
-### Refactoring (v6.2.0)
-- [x] Phase A: `src/types.rs` — shared types (DatabaseType, SslModes, QueryResult)
-- [x] Phase B: `src/session/` — Session struct, QueryTab, Message, FrameEffects
-- [x] Phase C: `src/state/` — UiState struct (25 fields)
-- [x] Phase D: Eliminate `self.sql` dual source
-- [x] Session: runtime, tx, rx, manager, tab_manager, autocomplete, notifications, progress, query_history, command_history migrated
-- [x] State: theme_manager, highlight_colors, ui_scale, base_pixels_per_point migrated
-- [x] `database/` → `data/` rename
-- [x] 25 duplicate fields removed from DbManagerApp (~100 → ~47)
-- [x] 12 clippy errors → 0
+### 架构重构
+- [x] 6 层单向依赖：types → core → data → session → state → ui
+- [x] `src/types.rs` — Layer -1 共享类型
+- [x] `src/session/` — Session(30字段) + QueryTab + Message + FrameEffects类型
+- [x] `src/state/` — UiState(37字段)
+- [x] `self.sql` 双源 → 单一来源
+- [x] `database/` → `data/` 重命名
+- [x] DbManagerApp: ~100 → ~14 字段 (86 已迁移)
 
-### Dependency health
-- [x] syntect replaced with custom tokenizer
-- [x] once_cell → std::sync::LazyLock
-- [x] lazy_static → std::sync::LazyLock
-- [x] parking_lot::Mutex → std::sync::Mutex (RwLock kept)
+### 安全
+- [x] SSL Required 模式验证证书
+- [x] PG 默认 SSL: Disable→Prefer, MySQL: Disabled→Preferred
+- [x] SSH 密码 `#[serde(skip_serializing)]`
+- [x] `pub mod app` → `pub(crate) mod app`
+- [x] Mutex poison 处理
 
-### CI hardening
-- [x] cargo audit in CI
-- [x] rust-toolchain.toml
-- [x] Quality gate (fmt+clippy+test) in release workflow
-- [x] PostgreSQL service container for CI
-- [x] cargo-tarpaulin coverage workflow
+### 代码质量
+- [x] 11 clippy 错误 → 0
+- [x] ~800 行死代码清理
+- [x] syntect + once_cell + lazy_static 移除
+- [x] parking_lot::Mutex → std::sync::Mutex
+- [x] config save 节流（5秒 debounce）
+- [x] 3 个维度审计 + 修复
 
-### Test infrastructure
-- [x] tests/common/mod.rs shared utilities
-- [x] Duplicate test files removed
+### 基础设施
+- [x] PostgreSQL CI 集成测试容器
+- [x] cargo-tarpaulin 覆盖率 workflow
+- [x] release.yml 质量门
+- [x] tests/common/mod.rs 共享测试工具
+- [x] 4 个重复测试文件删除
 
-### Security
-- [x] SSL defaults: PG Prefer, MySQL Preferred
-- [x] SSL Required modes validate certificates
-- [x] SSH password skip_serializing
-- [x] pub(crate) mod app (closed public API exposure)
-- [x] Mutex poison handling
-- [x] SSH host key fingerprint in errors
-- [x] Dead DbError variants removed
+## 短期（v6.3.0）
 
-## In progress
+### Session 完善
+- [ ] Session 字段封装（pub → pub(crate)，仅暴露方法）
+- [ ] 完成 UiState 迁移（剩余 ~10 字段 → 目标 4 字段）
+- [ ] FrameEffects 最小接入（先做 1 个处理器：ImportDone）
 
-### Architecture
-- [ ] Session field encapsulation (fields currently all `pub`)
-- [ ] Complete UiState migration (20+ duplicate fields still on DbManagerApp)
-- [ ] Wire FrameEffects → poll_messages() → apply_frame_effects()
-- [ ] Config save throttling (15 call sites, no dedup)
-- [ ] Unified error types (25 files use `Result<_, String>`)
+### 代码组织
+- [ ] keybindings.rs 拆分为模块（2448 → <1000行 × 3）
+- [ ] input_router.rs 拆分（3369 → 子模块）
+- [ ] keybindings_dialog.rs 拆分（3560 → 子模块）
 
-### Code quality
-- [ ] Split oversized files: keybindings_dialog.rs (3560), input_router.rs (3369), keybindings.rs (2448)
-- [ ] Remove legacy password migration (v4 → OS keyring, add deprecation window)
-- [ ] Remove legacy keybindings field from AppConfig (read-only since v4)
+### 质量
+- [ ] data/query/sqlite.rs 基础测试（内存数据库，零依赖）
+- [ ] AppError 替换跨模块边界的 `Result<_, String>`
+- [ ] 配置文件添加 version 字段
 
-## Medium-term
+## 中期（v7.0.0）
 
-### Features
-- [ ] Query plan visualization (EXPLAIN rendered as tree/table)
-- [ ] Database schema diff/compare
-- [ ] Dark/light theme auto-switch
-- [ ] Export to Parquet/Excel
+### 功能
+- [ ] 查询计划可视化（EXPLAIN 树形/表格）
+- [ ] Schema diff/对比工具
+- [ ] 系统主题自动切换
+- [ ] 大结果集虚拟滚动（>100K 行）
 
-### Performance
-- [ ] Virtual scrolling for >100K row results
-- [ ] Config save throttling (batch writes)
-- [ ] Async metadata pre-fetching
+### 工程
+- [ ] Session::poll_messages() → FrameEffects 完整实现
+- [ ] 数据层驱动测试全覆盖
+- [ ] 性能基准测试
 
-## Long-term
+## 长期
 
-- [ ] Plugin system for DB drivers
-- [ ] WebAssembly build
-- [ ] Multi-window support
-- [ ] Accessibility (screen reader, high-contrast)
+- [ ] 插件系统
+- [ ] WebAssembly 构建
+- [ ] 多窗口支持
+- [ ] 无障碍支持
