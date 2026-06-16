@@ -549,7 +549,7 @@ mod tests {
         app.confirm_pending_delete();
 
         assert!(app.pending_delete_target.is_none());
-        assert!(!app.show_delete_confirm);
+        assert!(!app.state.show_delete_confirm);
         assert_eq!(app.active_dialog_id(), None);
         assert_eq!(app.session.notifications.latest_message(), Some("目标连接已失效"));
     }
@@ -563,7 +563,7 @@ mod tests {
         app.confirm_pending_delete();
 
         assert!(app.pending_delete_target.is_none());
-        assert!(!app.show_delete_confirm);
+        assert!(!app.state.show_delete_confirm);
         assert_eq!(app.active_dialog_id(), None);
         assert_eq!(app.session.notifications.latest_message(), Some("目标连接已失效"));
     }
@@ -588,9 +588,9 @@ mod tests {
             },
         );
 
-        assert!(app.show_er_diagram);
-        assert_eq!(app.focus_area, FocusArea::ErDiagram);
-        assert!(!app.grid_state.focused);
+        assert!(app.state.show_er_diagram);
+        assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
+        assert!(!app.state.grid_state.focused);
         assert_eq!(
             app.er_diagram_state.selected_table_name(),
             Some("customers")

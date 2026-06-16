@@ -1360,7 +1360,7 @@ mod tests {
         app.handle_sidebar_actions(&ctx, actions);
 
         assert_eq!(app.pending_delete_target, Some(target));
-        assert!(app.show_delete_confirm);
+        assert!(app.state.show_delete_confirm);
         assert_eq!(app.active_dialog_id(), Some(DialogId::DeleteConfirm));
     }
 
@@ -1375,8 +1375,8 @@ mod tests {
         ));
         app.selected_table = Some("customers".to_string());
         app.set_focus_area(FocusArea::DataGrid);
-        app.grid_state.cursor = (0, 0);
-        app.grid_state.focused = true;
+        app.state.grid_state.cursor = (0, 0);
+        app.state.grid_state.focused = true;
 
         run_frame_with_event(
             &mut app,
@@ -1390,9 +1390,9 @@ mod tests {
             },
         );
 
-        assert!(app.show_er_diagram);
-        assert_eq!(app.focus_area, FocusArea::ErDiagram);
-        assert!(!app.grid_state.focused);
+        assert!(app.state.show_er_diagram);
+        assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
+        assert!(!app.state.grid_state.focused);
         assert_eq!(
             app.er_diagram_state.selected_table_name(),
             Some("customers")
@@ -1410,9 +1410,9 @@ mod tests {
             },
         );
 
-        assert_eq!(app.focus_area, FocusArea::ErDiagram);
-        assert!(!app.grid_state.focused);
-        assert_eq!(app.grid_state.cursor, (0, 0));
+        assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
+        assert!(!app.state.grid_state.focused);
+        assert_eq!(app.state.grid_state.cursor, (0, 0));
         assert_eq!(app.er_diagram_state.selected_table_name(), Some("orders"));
     }
 
@@ -1434,9 +1434,9 @@ mod tests {
         };
         app.handle_toolbar_actions(&ctx, actions);
 
-        assert!(app.show_er_diagram);
-        assert_eq!(app.focus_area, FocusArea::ErDiagram);
-        assert!(!app.grid_state.focused);
+        assert!(app.state.show_er_diagram);
+        assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
+        assert!(!app.state.grid_state.focused);
         assert_eq!(
             app.er_diagram_state.selected_table_name(),
             Some("customers")
@@ -1448,7 +1448,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = DbManagerApp::new_for_test();
         prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
-        app.show_er_diagram = true;
+        app.state.show_er_diagram = true;
         app.set_focus_area(FocusArea::ErDiagram);
 
         run_frame_with_event(

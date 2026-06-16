@@ -413,9 +413,9 @@ mod tests {
         let _ = ctx.end_pass();
 
         assert!(!app.command_palette_state.open);
-        assert!(app.show_er_diagram);
-        assert_eq!(app.focus_area, FocusArea::ErDiagram);
-        assert!(!app.grid_state.focused);
+        assert!(app.state.show_er_diagram);
+        assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
+        assert!(!app.state.grid_state.focused);
         assert_eq!(
             app.er_diagram_state.selected_table_name(),
             Some("customers")

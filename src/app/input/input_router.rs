@@ -3073,8 +3073,8 @@ mod tests {
         let mut app = test_app();
         let mut toolbar_actions = ToolbarActions::default();
 
-        app.show_er_diagram = true;
-        app.focus_area = FocusArea::ErDiagram;
+        app.state.show_er_diagram = true;
+        app.state.focus_area = FocusArea::ErDiagram;
         app.selected_table = Some("main_workspace_table".to_string());
         app.er_diagram_state.tables = vec![
             er_table("customers", 0.0, 0.0),
@@ -3288,21 +3288,21 @@ mod tests {
     fn toggle_er_diagram_close_restores_tracked_sidebar_focus_from_viewport_mode() {
         let ctx = egui::Context::default();
         let mut app = test_app();
-        app.show_sidebar = true;
-        app.show_er_diagram = true;
+        app.state.show_sidebar = true;
+        app.state.show_er_diagram = true;
 
         app.set_focus_area(FocusArea::Sidebar);
         app.dispatch_app_action(&ctx, AppAction::FocusErDiagram);
         app.er_diagram_state.toggle_interaction_mode();
 
-        assert_eq!(app.focus_area, FocusArea::ErDiagram);
+        assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
         assert!(app.er_diagram_state.is_viewport_mode());
-        assert_eq!(app.last_non_er_workspace_focus, FocusArea::Sidebar);
+        assert_eq!(app.state.last_non_er_workspace_focus, FocusArea::Sidebar);
 
         app.dispatch_app_action(&ctx, AppAction::ToggleErDiagram);
 
-        assert!(!app.show_er_diagram);
-        assert_eq!(app.focus_area, FocusArea::Sidebar);
+        assert!(!app.state.show_er_diagram);
+        assert_eq!(app.state.focus_area, FocusArea::Sidebar);
         assert_eq!(
             app.capture_input_context(&ctx).focus_scope(),
             FocusScope::Sidebar(SidebarFocusScope::Connections)
@@ -3313,22 +3313,22 @@ mod tests {
     fn toggle_er_diagram_close_falls_back_to_data_grid_when_tracked_focus_is_hidden() {
         let ctx = egui::Context::default();
         let mut app = test_app();
-        app.show_sidebar = true;
-        app.show_er_diagram = true;
+        app.state.show_sidebar = true;
+        app.state.show_er_diagram = true;
 
         app.set_focus_area(FocusArea::Sidebar);
-        app.show_sidebar = false;
+        app.state.show_sidebar = false;
         app.dispatch_app_action(&ctx, AppAction::FocusErDiagram);
         app.er_diagram_state.toggle_interaction_mode();
 
-        assert_eq!(app.focus_area, FocusArea::ErDiagram);
+        assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
         assert!(app.er_diagram_state.is_viewport_mode());
-        assert_eq!(app.last_non_er_workspace_focus, FocusArea::Sidebar);
+        assert_eq!(app.state.last_non_er_workspace_focus, FocusArea::Sidebar);
 
         app.dispatch_app_action(&ctx, AppAction::ToggleErDiagram);
 
-        assert!(!app.show_er_diagram);
-        assert_eq!(app.focus_area, FocusArea::DataGrid);
+        assert!(!app.state.show_er_diagram);
+        assert_eq!(app.state.focus_area, FocusArea::DataGrid);
         assert_eq!(
             app.capture_input_context(&ctx).focus_scope(),
             FocusScope::Grid(GridFocusScope::Normal)
@@ -3339,16 +3339,16 @@ mod tests {
     fn toggle_er_diagram_open_focuses_er_and_preserves_return_focus() {
         let ctx = egui::Context::default();
         let mut app = test_app();
-        app.show_sidebar = true;
+        app.state.show_sidebar = true;
 
         app.set_focus_area(FocusArea::Sidebar);
-        assert_eq!(app.last_non_er_workspace_focus, FocusArea::Sidebar);
+        assert_eq!(app.state.last_non_er_workspace_focus, FocusArea::Sidebar);
 
         app.dispatch_app_action(&ctx, AppAction::ToggleErDiagram);
 
-        assert!(app.show_er_diagram);
-        assert_eq!(app.focus_area, FocusArea::ErDiagram);
-        assert_eq!(app.last_non_er_workspace_focus, FocusArea::Sidebar);
+        assert!(app.state.show_er_diagram);
+        assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
+        assert_eq!(app.state.last_non_er_workspace_focus, FocusArea::Sidebar);
         assert_eq!(
             app.capture_input_context(&ctx).focus_scope(),
             FocusScope::ErDiagram(ErDiagramFocusScope::Navigation)
@@ -3358,12 +3358,12 @@ mod tests {
     #[test]
     fn opening_er_requests_fit_to_view_after_loading_starts() {
         let mut app = test_app();
-        assert!(!app.show_er_diagram);
+        assert!(!app.state.show_er_diagram);
         assert!(!app.er_diagram_state.has_pending_fit_to_view());
 
         app.set_er_diagram_visible(true);
 
-        assert!(app.show_er_diagram);
+        assert!(app.state.show_er_diagram);
         assert!(app.er_diagram_state.has_pending_fit_to_view());
     }
 }

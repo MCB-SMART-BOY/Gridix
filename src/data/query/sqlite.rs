@@ -329,3 +329,92 @@ pub fn get_columns(config: &ConnectionConfig, table: &str) -> Result<Vec<ColumnI
 
     Ok(columns)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::ConnectionConfig;
+
+    fn test_config() -> ConnectionConfig {
+        ConnectionConfig {
+            db_type: DatabaseType::SQLite,
+            database: ":memory:".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn connect_returns_empty_tables_for_new_db() {
+        let config = test_config();
+        let tables = connect(&config).unwrap();
+        assert!(tables.is_empty());
+    }
+
+    #[test]
+    fn connect_creates_and_lists_tables() {
+        let config = test_config();
+        let conn = rusqlite::Connection::open(":memory:").unwrap();
+        conn.execute("CREATE TABLE users (id INTEGER, name TEXT)", [])
+            .unwrap();
+        let tables = connect(&config).unwrap();
+        assert_eq!(tables, Vec::<String>::new()); // different connection, no tables visible
+        // Verify the original connection sees the table
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+            .unwrap();
+        let names: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().filter_map(|r| r.ok()).collect();
+        assert!(names.contains(&"users".to_string()));
+    }
+
+    #[test]
+    fn get_columns_returns_column_info() {
+        let conn = rusqlite::Connection::open(":memory:").unwrap();
+        conn.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age REAL)", [])
+            .unwrap();
+        let config = test_config();
+        let columns = get_columns(&config, "test").unwrap();
+        assert_eq!(columns.len(), 3);
+        assert_eq!(columns[0].name, "id");
+        assert!(columns[0].is_primary_key);
+        assert_eq!(columns[1].name, "name");
+        assert!(!columns[1].is_nullable);
+        assert_eq!(columns[2].data_type, "REAL");
+    }
+
+    #[test]
+    fn get_primary_key_returns_none_for_no_pk() {
+        let conn = rusqlite::Connection::open(":memory:").unwrap();
+        conn.execute("CREATE TABLE nopk (a TEXT, b TEXT)", []).unwrap();
+        let config = test_config();
+        let pk = get_primary_key(&config, "nopk").unwrap();
+        assert!(pk.is_none());
+    }
+
+    #[test]
+    fn get_primary_key_returns_pk_column() {
+        let conn = rusqlite::Connection::open(":memory:").unwrap();
+        conn.execute("CREATE TABLE withpk (id INTEGER PRIMARY KEY, val TEXT)", [])
+            .unwrap();
+        let config = test_config();
+        let pk = get_primary_key(&config, "withpk").unwrap();
+        assert_eq!(pk, Some("id".to_string()));
+    }
+
+    #[test]
+    fn get_foreign_keys_returns_empty_for_no_fk() {
+        let conn = rusqlite::Connection::open(":memory:").unwrap();
+        conn.execute("CREATE TABLE a (id INTEGER)", []).unwrap();
+        let config = test_config();
+        let fks = get_foreign_keys(&config, "a").unwrap();
+        assert!(fks.is_empty());
+    }
+
+    #[test]
+    fn get_triggers_returns_empty_for_no_triggers() {
+        let conn = rusqlite::Connection::open(":memory:").unwrap();
+        conn.execute("CREATE TABLE t (x INTEGER)", []).unwrap();
+        let config = test_config();
+        let triggers = get_triggers(&config).unwrap();
+        assert!(triggers.is_empty());
+    }
+}

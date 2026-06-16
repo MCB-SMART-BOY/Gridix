@@ -181,14 +181,14 @@ impl ActionContext {
                 .is_some_and(|result| !result.rows.is_empty()),
             selected_table: app.selected_table.clone(),
             has_sql: !app.active_sql().trim().is_empty(),
-            has_search_text: !app.search_text.trim().is_empty(),
-            grid_has_changes: app.grid_state.has_changes(),
+            has_search_text: !app.state.search_text.trim().is_empty(),
+            grid_has_changes: app.state.grid_state.has_changes(),
             query_tab_count: app.session.tab_manager.tabs.len(),
-            focus_area: app.focus_area,
-            show_sidebar: app.show_sidebar,
+            focus_area: app.state.focus_area,
+            show_sidebar: app.state.show_sidebar,
             show_sql_editor: app.show_sql_editor,
-            show_er_diagram: app.show_er_diagram,
-            can_confirm_pending_delete: app.show_delete_confirm
+            show_er_diagram: app.state.show_er_diagram,
+            can_confirm_pending_delete: app.state.show_delete_confirm
                 && app.pending_delete_target.is_some(),
         }
     }

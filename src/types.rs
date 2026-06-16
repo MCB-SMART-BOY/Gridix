@@ -218,3 +218,52 @@ impl QueryResult {
             .unwrap_or(false)
     }
 }
+
+// ============================================================================
+// 应用错误类型
+// ============================================================================
+
+/// 错误类别 — 用于跨模块边界按类型匹配
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorKind {
+    Timeout,
+    Connection,
+    Query,
+    Import,
+    Io,
+    Other,
+}
+
+/// 应用错误 — 跨层错误传递
+#[derive(Debug, Clone)]
+pub struct AppError {
+    pub kind: ErrorKind,
+    pub message: String,
+}
+
+impl AppError {
+    pub fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
+
+    pub fn timeout(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Timeout, message)
+    }
+
+    pub fn connection(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Connection, message)
+    }
+
+    pub fn query(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Query, message)
+    }
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
