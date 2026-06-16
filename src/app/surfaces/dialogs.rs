@@ -163,7 +163,7 @@ impl DbManagerApp {
             ui::ExportDialog::show(
                 ctx,
                 &mut self.state.show_export_dialog,
-                &mut self.export_config,
+                &mut self.state.export_config,
                 &table_name,
                 self.result.as_ref(),
                 export_db_type,
@@ -178,19 +178,19 @@ impl DbManagerApp {
             results.import_action = ui::ImportDialog::show(
                 ctx,
                 &mut self.state.show_import_dialog,
-                &mut self.import_state,
+                &mut self.state.import_state,
                 is_mysql,
             );
         }
 
         // DDL 对话框（创建表）
         if active_dialog == Some(DialogId::Ddl) {
-            results.ddl_sql = ui::DdlDialog::show_create_table(ctx, &mut self.ddl_dialog_state);
+            results.ddl_sql = ui::DdlDialog::show_create_table(ctx, &mut self.state.ddl_dialog_state);
         }
 
         // 新建数据库对话框
         if active_dialog == Some(DialogId::CreateDatabase) {
-            let create_db_result = ui::CreateDbDialog::show(ctx, &mut self.create_db_dialog_state);
+            let create_db_result = ui::CreateDbDialog::show(ctx, &mut self.state.create_db_dialog_state);
             match create_db_result {
                 ui::CreateDbDialogResult::Create(request) => {
                     results.create_database_request = Some(request);
@@ -202,7 +202,7 @@ impl DbManagerApp {
         // 新建用户对话框
         if active_dialog == Some(DialogId::CreateUser) {
             let create_user_result =
-                ui::CreateUserDialog::show(ctx, &mut self.create_user_dialog_state);
+                ui::CreateUserDialog::show(ctx, &mut self.state.create_user_dialog_state);
             match create_user_result {
                 ui::CreateUserDialogResult::Create(statements) => {
                     results.create_user_sql = Some(statements);
@@ -369,7 +369,7 @@ impl DbManagerApp {
         match results.import_action {
             ui::ImportAction::SelectFile => {
                 self.select_import_file();
-                if self.import_state.file_path.is_some() {
+                if self.state.import_state.file_path.is_some() {
                     self.refresh_import_preview();
                 }
             }
@@ -384,11 +384,11 @@ impl DbManagerApp {
                 self.state.show_sql_editor = true;
                 self.set_focus_area(ui::FocusArea::SqlEditor);
                 self.close_dialog(DialogId::Import);
-                self.import_state.clear();
+                self.state.import_state.clear();
                 self.session.notifications.success("SQL 已复制到编辑器");
             }
             ui::ImportAction::Close => {
-                self.import_state.clear();
+                self.state.import_state.clear();
             }
             ui::ImportAction::None => {}
         }

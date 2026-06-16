@@ -134,12 +134,10 @@ pub struct DbManagerApp {
     // ==================== 对话框状态 ====================
     /// 是否显示导出对话框
     /// 导出配置
-    export_config: ExportConfig,
     /// 导出操作结果
     export_status: Option<Result<String, String>>,
     /// 是否显示导入对话框
     /// 导入状态（文件、预览、配置）
-    import_state: ui::ImportState,
     /// 是否显示历史面板
     /// 历史面板状态
     history_panel_state: ui::HistoryPanelState,
@@ -189,11 +187,8 @@ pub struct DbManagerApp {
     /// 当前显式 dialog owner（输入/渲染优先走这里，再兼容回退到可见性采样）
     active_dialog_owner: Option<DialogId>,
     /// DDL 对话框状态（新建表等）
-    ddl_dialog_state: DdlDialogState,
     /// 新建数据库对话框状态
-    create_db_dialog_state: ui::CreateDbDialogState,
     /// 新建用户对话框状态
-    create_user_dialog_state: ui::CreateUserDialogState,
     /// 快捷键绑定
     keybindings: KeyBindings,
     /// 快捷键设置对话框状态
@@ -350,9 +345,7 @@ impl DbManagerApp {
             grid_state: ui::DataGridState::new(),
             grid_workspaces: GridWorkspaceStore::default(),
             active_grid_workspace_enabled: false,
-            export_config: ExportConfig::default(),
             export_status: None,
-            import_state: ui::ImportState::new(),
             history_panel_state: ui::HistoryPanelState::default(),
             pending_delete_target: None,
             pending_drop_requests: HashMap::new(),

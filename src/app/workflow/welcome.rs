@@ -142,7 +142,7 @@ impl DbManagerApp {
             }
             ui::WelcomeOnboardingStep::InitializeDatabase => {
                 let db_type = self.onboarding_target_db_type();
-                self.create_db_dialog_state.open(db_type);
+                self.state.create_db_dialog_state.open(db_type);
             }
             ui::WelcomeOnboardingStep::CreateUser => {
                 let db_type = self.onboarding_target_db_type();
@@ -153,7 +153,7 @@ impl DbManagerApp {
                     return;
                 }
                 let databases = self.pick_databases_for_user_dialog(db_type);
-                self.create_user_dialog_state.open(db_type, databases);
+                self.state.create_user_dialog_state.open(db_type, databases);
             }
             ui::WelcomeOnboardingStep::RunFirstQuery => {
                 self.run_onboarding_first_query();
@@ -310,12 +310,12 @@ impl DbManagerApp {
                 true
             }
             WelcomeSetupAction::InitializeDatabase => {
-                self.create_db_dialog_state.open(db_type);
+                self.state.create_db_dialog_state.open(db_type);
                 true
             }
             WelcomeSetupAction::CreateUser => {
                 let databases = self.pick_databases_for_user_dialog(db_type);
-                self.create_user_dialog_state.open(db_type, databases);
+                self.state.create_user_dialog_state.open(db_type, databases);
                 true
             }
             WelcomeSetupAction::RunFirstQuery => {

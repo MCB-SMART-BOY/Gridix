@@ -863,9 +863,9 @@ impl DbManagerApp {
             show_about: self.state.show_about,
             show_welcome_setup_dialog: self.state.show_welcome_setup_dialog,
             show_history_panel: self.state.show_history_panel,
-            show_ddl_dialog: self.ddl_dialog_state.show,
-            show_create_db_dialog: self.create_db_dialog_state.show,
-            show_create_user_dialog: self.create_user_dialog_state.show,
+            show_ddl_dialog: self.state.ddl_dialog_state.show,
+            show_create_db_dialog: self.state.create_db_dialog_state.show,
+            show_create_user_dialog: self.state.create_user_dialog_state.show,
             show_keybindings_dialog: self.keybindings_dialog_state.show,
             show_command_palette: self.command_palette_state.open,
             show_er_diagram: self.state.show_er_diagram,
@@ -1102,7 +1102,7 @@ impl DbManagerApp {
             .get_active()
             .map(|c| c.config.db_type)
             .unwrap_or_default();
-        self.ddl_dialog_state.open_create_table(db_type);
+        self.state.ddl_dialog_state.open_create_table(db_type);
         self.mark_dialog_owner(DialogId::Ddl);
     }
 
@@ -1112,7 +1112,7 @@ impl DbManagerApp {
             .get_active()
             .map(|c| c.config.db_type)
             .unwrap_or_default();
-        self.create_db_dialog_state.open(db_type);
+        self.state.create_db_dialog_state.open(db_type);
         self.mark_dialog_owner(DialogId::CreateDatabase);
     }
 

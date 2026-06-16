@@ -4,7 +4,8 @@
 //! 更多字段将在后续提交中逐步迁移。
 
 use crate::core::{HighlightColors, ThemeManager};
-use crate::ui::{EditorMode, ERDiagramState, FocusArea, SidebarSection};
+use crate::ui::{EditorMode, ERDiagramState, ExportConfig, FocusArea, ImportState, SidebarSection};
+use crate::ui::{CreateDbDialogState, CreateUserDialogState, DdlDialogState};
 
 /// UI 状态（逐步从 DbManagerApp 提取中）
 pub struct UiState {
@@ -31,6 +32,11 @@ pub struct UiState {
     pub show_history_panel: bool,
     pub show_help: bool,
     pub show_about: bool,
+    pub export_config: ExportConfig,
+    pub import_state: ImportState,
+    pub ddl_dialog_state: DdlDialogState,
+    pub create_db_dialog_state: CreateDbDialogState,
+    pub create_user_dialog_state: CreateUserDialogState,
     pub show_welcome_setup_dialog: bool,
     pub show_er_diagram: bool,
     pub er_diagram_state: ERDiagramState,
@@ -64,6 +70,11 @@ impl Default for UiState {
             show_history_panel: false,
             show_help: false,
             show_about: false,
+            export_config: ExportConfig::default(),
+            import_state: ImportState::default(),
+            ddl_dialog_state: DdlDialogState::default(),
+            create_db_dialog_state: CreateDbDialogState::default(),
+            create_user_dialog_state: CreateUserDialogState::default(),
             show_welcome_setup_dialog: false,
             show_er_diagram: false,
             er_diagram_state: ERDiagramState::default(),

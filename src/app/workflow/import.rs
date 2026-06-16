@@ -13,7 +13,7 @@ impl DbManagerApp {
     /// 打开导入对话框
     pub(in crate::app) fn handle_import(&mut self) {
         self.open_dialog(DialogId::Import);
-        self.import_state.clear();
+        self.state.import_state.clear();
     }
 
     /// 选择导入文件
@@ -26,39 +26,39 @@ impl DbManagerApp {
             .add_filter("所有文件", &["*"]);
 
         if let Some(path) = file_dialog.pick_file() {
-            self.import_state.set_file(path);
+            self.state.import_state.set_file(path);
         }
     }
 
     /// 刷新导入预览
     pub(in crate::app) fn refresh_import_preview(&mut self) {
-        let Some(ref path) = self.import_state.file_path else {
+        let Some(ref path) = self.state.import_state.file_path else {
             return;
         };
-        let session = self.import_state.to_transfer_session(self.is_mysql());
+        let session = self.state.import_state.to_transfer_session(self.is_mysql());
 
-        self.import_state.loading = true;
-        self.import_state.error = None;
-        self.import_state.preview = None;
+        self.state.import_state.loading = true;
+        self.state.import_state.error = None;
+        self.state.import_state.preview = None;
 
         match preview_import_transfer(path, &session) {
             Ok(preview) => {
-                self.import_state.preview = Some(ui::ImportPreview::from_transfer_preview(preview));
+                self.state.import_state.preview = Some(ui::ImportPreview::from_transfer_preview(preview));
             }
             Err(error) => {
-                self.import_state.error = Some(error);
+                self.state.import_state.error = Some(error);
             }
         }
 
-        self.import_state.loading = false;
+        self.state.import_state.loading = false;
     }
 
     /// 执行导入（直接执行 SQL）
     pub(in crate::app) fn execute_import(&mut self) {
-        let Some(ref path) = self.import_state.file_path else {
+        let Some(ref path) = self.state.import_state.file_path else {
             return;
         };
-        let session = self.import_state.to_transfer_session(self.is_mysql());
+        let session = self.state.import_state.to_transfer_session(self.is_mysql());
 
         let plan = match plan_import_transfer(path, &session) {
             Ok(plan) => plan,
@@ -98,8 +98,8 @@ impl DbManagerApp {
 
         self.close_dialog(DialogId::Import);
 
-        let use_transaction = self.import_state.sql_config.use_transaction;
-        let stop_on_error = self.import_state.sql_config.stop_on_error;
+        let use_transaction = self.state.import_state.sql_config.use_transaction;
+        let stop_on_error = self.state.import_state.sql_config.stop_on_error;
 
         let tx = self.session.tx.clone();
         self.session.import_executing = true;
@@ -126,6 +126,6 @@ impl DbManagerApp {
             if stop_on_error { "是" } else { "否" },
         ));
 
-        self.import_state.clear();
+        self.state.import_state.clear();
     }
 }
