@@ -173,9 +173,7 @@ pub struct DbManagerApp {
     command_palette_state: CommandPaletteState,
     /// 是否显示 ER 图面板
     /// ER 图状态
-    er_diagram_state: ui::ERDiagramState,
     /// SQL 编辑器高度（用于可调整大小）
-    sql_editor_height: f32,
     /// 待执行的切换日/夜模式操作（由键盘快捷键设置）
     pending_toggle_dark_mode: bool,
     /// Config save throttling
