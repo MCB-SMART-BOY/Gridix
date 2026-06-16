@@ -19,9 +19,7 @@ mod surfaces;
 mod workflow;
 
 use eframe::egui;
-use std::sync::Mutex;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::collections::HashMap;
 use std::sync::mpsc::channel;
 
 use crate::core::{
@@ -32,7 +30,6 @@ use crate::ui::{self, DdlDialogState, ExportConfig, KeyBindingsDialogState, Quer
 
 use action::command_palette::CommandPaletteState;
 use dialogs::host::DialogId;
-use runtime::message::Message;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(in crate::app) struct GridWorkspaceId {
@@ -267,7 +264,7 @@ impl DbManagerApp {
 
     /// Clear search from both mirror and active tab
     pub(crate) fn clear_search(&mut self) {
-        self.clear_search();
+        self.search_text.clear();
         self.search_column = None;
         if let Some(tab) = self.session.tab_manager.get_active_mut() {
             tab.search_text.clear();
@@ -327,7 +324,7 @@ impl DbManagerApp {
         ui::sync_runtime_local_shortcuts(&keybindings);
 
         // 主题和外观
-        let mut theme_manager = ThemeManager::new(app_config.theme_preset);
+        let theme_manager = ThemeManager::new(app_config.theme_preset);
         let highlight_colors = HighlightColors::from_theme(&theme_manager.colors);
         theme_manager.apply(&cc.egui_ctx);
 
