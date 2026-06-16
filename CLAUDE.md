@@ -71,15 +71,15 @@ src/
 │   ├── error.rs         # DbError (2 variants: Connection, Query)
 │   └── query/           # mod.rs orchestrator + sqlite.rs (sync), postgres.rs, mysql.rs (async)
 ├── session/             # Layer 2: connection lifecycle + tab management + async dispatch
-│   ├── mod.rs           # Session struct (20 fields): runtime, mpsc, manager, tab_manager, request tracking
+│   ├── mod.rs           # Session struct (~30 fields): runtime, mpsc, manager, tab_manager, request tracking
 │   ├── message.rs       # Message enum (13 variants, ALL carry request_id: u64)
 │   └── tab.rs           # QueryTab (pure data), QueryTabManager (tabs + active index)
 │       (pending: migrate app/runtime/{database,handler,lifecycle,metadata,er_diagram}.rs)
 ├── state/               # Layer 3: UI state — no DB logic
-│   └── mod.rs           # UiState struct (25 fields): focus, sidebar, editor, dialogs, ER, grid, theme
+│   └── mod.rs           # UiState struct (~60 fields): focus, sidebar, editor, dialogs, ER, grid, theme
 │       (pending: split into focus/sidebar/editor/dialogs/grid/er_diagram submodules)
 ├── app/                 # Transitional: DbManagerApp — being decomposed into Session + UiState
-│   ├── mod.rs           # DbManagerApp (~85 fields remaining, target: 4)
+│   ├── mod.rs           # DbManagerApp (~11 fields, target reached: ~11)
 │   ├── action/          # AppAction (44 variants) → AppEffect, command palette, CommandDescriptor registry
 │   ├── dialogs/host.rs  # DialogId (17 variants), active_dialog_owner
 │   ├── input/           # Keyboard routing (8-stage dispatch pipeline)

@@ -6,53 +6,35 @@ paths:
 
 # Gridix UI/egui rules
 
-**Code is the source of truth.** Verify claims against `src/ui/` and `src/state/` before relying on them. Update this file when you change UI code.
-
-## Layer architecture
+## Architecture (final state)
 
 ```
-src/state/  (Layer 3) — UiState struct, all rendering state
-     ↑
-src/ui/     (Layer 4) — DbManagerApp (~47 fields), rendering, input routing
-     ↑
-src/app/    (Layer 4) — input routing, surfaces, workflow, runtime
+src/state/ (Layer 3) — UiState (~60 fields)
+src/ui/    (Layer 4) — DbManagerApp (~11 fields), rendering, input routing
+src/app/   (Layer 4) — input routing, surfaces, workflow, runtime
 ```
 
-State owns the data; UI reads State and mutates it. Session is read-only during rendering.
-
-## DbManagerApp (~47 fields)
-
+**DbManagerApp (~11 fields):**
 ```rust
 pub struct DbManagerApp {
-    session: Session,      // All DB + async state
-    state: UiState,        // Theme + scale (partially migrated)
-    // ~45 remaining fields: dialogs, grid, search, config, ER, dock, keybindings
+    session: Session,       // All DB + async state (~30 fields)
+    state: UiState,         // All UI rendering state (~60 fields)
+    app_config: AppConfig,  // Persisted configuration
+    keybindings: KeyBindings, // Keyboard shortcuts
+    // +7 cross-layer fields: dock_state, grid_workspaces, command_palette, etc.
 }
 ```
 
-**Migration status:** ~53 fields migrated to Session/State, ~47 remain. Target: 4 fields.
+**Migration: ~90 fields moved from DbManagerApp to Session/UiState.** Target achieved.
 
 ## egui_dock layout
 
-The main workspace uses `egui_dock::DockArea` (v0.19):
-- `src/ui/dock_tabs.rs` — `DockTab` enum, `WorkspaceViewer`, `sync_all()`
-- `sync_all()` copies tab state from `self.session.tab_manager` to dock tree
-- Tab close → calls session methods
-
-## Framework
-
-- eframe 0.34.1 + egui 0.34.1. glow backend. X11 + Wayland.
-- All widgets use immediate-mode egui
-- State stored in structs with `#[derive(Default)]`, rendered via `ui(&mut self, ui: &mut egui::Ui)` methods
+`src/ui/dock_tabs.rs` — DockTab, WorkspaceViewer, sync_all(). `sync_all()` reads from `self.session.tab_manager`.
 
 ## Dialog shells
 
-4 contracts in `ui/components/dialogs/common.rs`:
-- **Blocking Modal**: confirm dialogs (delete, discard)
-- **Form Dialog Shell**: connection, export, import, DDL, create DB/user
-- **Workspace Dialog Shell**: command palette, help, keybindings, history
-- **Utility Overlay**: toolbar menus, theme chooser
+4 contracts in `ui/components/dialogs/common.rs`: Blocking Modal, Form Dialog Shell, Workspace Dialog Shell, Utility Overlay.
 
 ## Borrow checker pattern
 
-During rendering, Session is accessed as `&self.session` for reading. State accessed as `&mut self.state`. **Never take `&mut self.session` during rendering** — all Session mutations happen before or after the render pass.
+During rendering: `&self.session` (read-only) + `&mut self.state` (UI mutations). Disjoint fields — guaranteed safe by Rust.
