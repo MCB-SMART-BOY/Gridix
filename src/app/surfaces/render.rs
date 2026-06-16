@@ -140,7 +140,7 @@ impl DbManagerApp {
             .show_inside(root_ui, |ui| {
                 // 准备连接列表（侧边栏使用）
                 let mut connections: Vec<String> =
-                    self.manager.connections.keys().cloned().collect();
+                    self.session.manager.connections.keys().cloned().collect();
                 connections.sort_unstable();
 
                 // 使用 horizontal 布局：侧边栏 + 分割条 + 主内容区
@@ -185,7 +185,7 @@ impl DbManagerApp {
 
                                 let (actions, filter_changed) = ui::Sidebar::show_in_ui(
                                     ui,
-                                    &mut self.manager,
+                                    &mut self.session.manager,
                                     &mut self.selected_table,
                                     &mut self.show_connection_dialog,
                                     is_sidebar_focused,
@@ -318,13 +318,13 @@ impl DbManagerApp {
         let mut toolbar_actions = ui::ToolbarActions::default();
         let cancel_task_id = ui
             .scope(|ui| {
-                let connections: Vec<String> = self.manager.connections.keys().cloned().collect();
+                let connections: Vec<String> = self.session.manager.connections.keys().cloned().collect();
                 let (databases, selected_database, tables) = self
                     .manager
                     .get_active()
                     .map(|c| (c.databases.clone(), c.selected_database.clone(), c.tables.clone()))
                     .unwrap_or_default();
-                let active_connection = self.manager.active.clone();
+                let active_connection = self.session.manager.active.clone();
                 let selected_table = self.selected_table.clone();
 
                 let cid = ui::Toolbar::show_with_focus(
@@ -644,7 +644,7 @@ impl DbManagerApp {
 
         // 连接切换
         if let Some(conn_name) = actions.switch_connection
-            && self.manager.active.as_deref() != Some(&conn_name)
+            && self.session.manager.active.as_deref() != Some(&conn_name)
         {
             self.connect(conn_name);
             self.switch_grid_workspace(None);
@@ -726,7 +726,7 @@ impl DbManagerApp {
 
     /// 处理创建用户操作
     pub(in crate::app) fn handle_create_user_action(&mut self) {
-        if let Some(conn) = self.manager.get_active() {
+        if let Some(conn) = self.session.manager.get_active() {
             let db_type = conn.config.db_type;
             if matches!(db_type, crate::database::DatabaseType::SQLite) {
                 self.session.notifications.warning("SQLite 不支持用户管理");
@@ -869,7 +869,7 @@ impl DbManagerApp {
 
     /// 刷新当前侧边栏区域数据
     fn refresh_sidebar_section(&mut self) {
-        let active_name = self.manager.active.clone();
+        let active_name = self.session.manager.active.clone();
         let (db_type, selected_database) = self
             .manager
             .get_active()
@@ -1027,7 +1027,7 @@ impl DbManagerApp {
 
     /// 为表重命名生成 SQL 模板
     fn prepare_table_rename_sql(&mut self, table: &str) {
-        let Some(conn) = self.manager.get_active() else {
+        let Some(conn) = self.session.manager.get_active() else {
             self.session.notifications.warning("请先连接数据库");
             return;
         };

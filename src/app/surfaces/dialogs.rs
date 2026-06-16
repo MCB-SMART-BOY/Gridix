@@ -228,7 +228,7 @@ impl DbManagerApp {
             let onboarding = self.welcome_onboarding_status();
             let help_context = ui::HelpContext {
                 keybindings: self.keybindings.clone(),
-                active_connection_name: self.manager.active.clone(),
+                active_connection_name: self.session.manager.active.clone(),
                 selected_table: self.selected_table.clone(),
                 has_result: self.result.is_some(),
                 show_sql_editor: self.show_sql_editor,

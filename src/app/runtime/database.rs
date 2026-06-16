@@ -33,7 +33,7 @@ fn prepare_tab_for_query_execution(tab: &mut crate::ui::QueryTab, sql: &str, req
 impl DbManagerApp {
     /// 打开连接编辑对话框（预填当前配置）
     pub(in crate::app) fn open_connection_editor(&mut self, name: &str) {
-        if let Some(conn) = self.manager.connections.get(name) {
+        if let Some(conn) = self.session.manager.connections.get(name) {
             self.new_config = conn.config.clone();
             self.editing_connection_name = Some(name.to_string());
             self.open_dialog(DialogId::Connection);
@@ -51,8 +51,8 @@ impl DbManagerApp {
 
         let editing_name = self.editing_connection_name.clone();
         let has_name_conflict = match editing_name.as_deref() {
-            Some(old_name) => old_name != name && self.manager.connections.contains_key(&name),
-            None => self.manager.connections.contains_key(&name),
+            Some(old_name) => old_name != name && self.session.manager.connections.contains_key(&name),
+            None => self.session.manager.connections.contains_key(&name),
         };
         if has_name_conflict {
             self.notifications
@@ -63,9 +63,9 @@ impl DbManagerApp {
         }
 
         if let Some(old_name) = self.editing_connection_name.take() {
-            if self.manager.connections.contains_key(&old_name) {
+            if self.session.manager.connections.contains_key(&old_name) {
                 self.disconnect(old_name.clone());
-                self.manager.connections.remove(&old_name);
+                self.session.manager.connections.remove(&old_name);
             }
 
             if old_name != name {
@@ -83,7 +83,7 @@ impl DbManagerApp {
                 .success(format!("连接 '{}' 已更新", name));
         }
 
-        self.manager.add(config);
+        self.session.manager.add(config);
         self.mark_onboarding_connection_created();
         if !self.welcome_onboarding_status().is_complete() {
             self.open_welcome_setup_dialog(saved_db_type);
@@ -94,12 +94,12 @@ impl DbManagerApp {
 
     /// 连接到数据库
     pub(in crate::app) fn connect(&mut self, name: String) {
-        if let Some(conn) = self.manager.connections.get(&name) {
+        if let Some(conn) = self.session.manager.connections.get(&name) {
             let config = conn.config.clone();
             let tx = self.session.tx.clone();
             let request_id = self.session.next_connect_request_id();
 
-            self.manager.active = Some(name.clone());
+            self.session.manager.active = Some(name.clone());
             self.pending_connect_requests
                 .insert(name.clone(), request_id);
             self.pending_database_requests.remove(&name);
@@ -156,10 +156,10 @@ impl DbManagerApp {
 
     /// 选择数据库（MySQL/PostgreSQL）
     pub(in crate::app) fn select_database(&mut self, database: String) {
-        let Some(active_name) = self.manager.active.clone() else {
+        let Some(active_name) = self.session.manager.active.clone() else {
             return;
         };
-        let Some(conn) = self.manager.connections.get(&active_name) else {
+        let Some(conn) = self.session.manager.connections.get(&active_name) else {
             return;
         };
         let config = conn.config.clone();
@@ -210,7 +210,7 @@ impl DbManagerApp {
     /// 断开数据库连接
     pub(in crate::app) fn disconnect(&mut self, name: String) {
         // 清理 SSH 隧道和连接池
-        if let Some(conn) = self.manager.connections.get(&name) {
+        if let Some(conn) = self.session.manager.connections.get(&name) {
             let config = conn.config.clone();
             let handle = self.session.runtime.handle().clone();
 
@@ -228,7 +228,7 @@ impl DbManagerApp {
             });
         }
 
-        self.manager.disconnect(&name);
+        self.session.manager.disconnect(&name);
         self.cancel_queries_for_connection(&name);
         self.pending_connect_requests.remove(&name);
         self.pending_database_requests.remove(&name);
@@ -242,8 +242,8 @@ impl DbManagerApp {
         self.pending_drop_requests
             .retain(|_, (conn_name, _)| conn_name != &name);
         self.remove_grid_workspaces_for_connection(&name);
-        if self.manager.active.as_deref() == Some(&name) {
-            self.manager.active = None;
+        if self.session.manager.active.as_deref() == Some(&name) {
+            self.session.manager.active = None;
             self.switch_grid_workspace(None);
             self.result = None;
             self.autocomplete.clear();
@@ -257,7 +257,7 @@ impl DbManagerApp {
 
     /// 删除连接配置
     pub(in crate::app) fn delete_connection(&mut self, name: &str) {
-        let was_active = self.manager.active.as_deref() == Some(name);
+        let was_active = self.session.manager.active.as_deref() == Some(name);
         if let Some(password_ref) = self
             .manager
             .connections
@@ -266,15 +266,15 @@ impl DbManagerApp {
         {
             let _ = crate::database::delete_password_secret(&password_ref);
         }
-        if self.manager.connections.contains_key(name) {
+        if self.session.manager.connections.contains_key(name) {
             self.disconnect(name.to_string());
-            self.manager.connections.remove(name);
+            self.session.manager.connections.remove(name);
         }
         // 删除该连接的历史记录
         self.app_config.command_history.remove(name);
         // 如果删除的是当前连接，清空当前状态
         if was_active {
-            self.manager.active = None;
+            self.session.manager.active = None;
             self.switch_grid_workspace(None);
             self.result = None;
             self.command_history.clear();
@@ -285,7 +285,7 @@ impl DbManagerApp {
 
     /// 删除数据库（执行 DROP DATABASE）。
     pub(in crate::app) fn delete_database(&mut self, connection_name: &str, database: &str) {
-        let Some(conn) = self.manager.connections.get(connection_name) else {
+        let Some(conn) = self.session.manager.connections.get(connection_name) else {
             self.session.notifications.warning("目标连接已失效");
             return;
         };
@@ -327,7 +327,7 @@ impl DbManagerApp {
 
     /// 删除表（执行 DROP TABLE）
     pub(in crate::app) fn delete_table(&mut self, connection_name: &str, table: &str) {
-        let Some(conn) = self.manager.connections.get(connection_name) else {
+        let Some(conn) = self.session.manager.connections.get(connection_name) else {
             self.session.notifications.warning("目标连接已失效");
             return;
         };
@@ -372,12 +372,12 @@ impl DbManagerApp {
         }
 
         // 提前检查连接状态
-        let Some(active_name) = self.manager.active.clone() else {
+        let Some(active_name) = self.session.manager.active.clone() else {
             tracing::warn!("尝试执行查询但未连接数据库");
             self.session.notifications.warning("请先连接数据库");
             return None;
         };
-        let Some(conn) = self.manager.connections.get(&active_name) else {
+        let Some(conn) = self.session.manager.connections.get(&active_name) else {
             tracing::warn!(connection = %active_name, "连接配置不存在");
             self.session.notifications.warning("请先连接数据库");
             return None;
@@ -492,7 +492,7 @@ impl DbManagerApp {
 
     /// 异步获取表的主键列
     pub(in crate::app) fn fetch_primary_key(&self, table_name: &str) {
-        let Some(conn) = self.manager.get_active() else {
+        let Some(conn) = self.session.manager.get_active() else {
             return;
         };
 
@@ -514,7 +514,7 @@ impl DbManagerApp {
 
     /// 处理连接错误的通用逻辑
     pub(in crate::app) fn handle_connection_error(&mut self, name: &str, error: String) {
-        let conn_config = self.manager.connections.get(name).map(|c| c.config.clone());
+        let conn_config = self.session.manager.connections.get(name).map(|c| c.config.clone());
         let friendly = conn_config
             .as_ref()
             .map(|cfg| Self::friendly_connection_error(cfg, &error))
@@ -529,7 +529,7 @@ impl DbManagerApp {
             ));
         }
         self.autocomplete.clear();
-        if let Some(conn) = self.manager.connections.get_mut(name) {
+        if let Some(conn) = self.session.manager.connections.get_mut(name) {
             conn.set_error(error);
         }
     }

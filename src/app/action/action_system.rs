@@ -1195,7 +1195,7 @@ impl DbManagerApp {
                     return Vec::new();
                 };
                 self.selected_table = Some(table.clone());
-                let Some(conn) = self.manager.get_active() else {
+                let Some(conn) = self.session.manager.get_active() else {
                     return Vec::new();
                 };
                 let schema_sql = match conn.config.db_type {

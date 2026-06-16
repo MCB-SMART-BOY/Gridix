@@ -47,7 +47,7 @@ impl DbManagerApp {
     ///
     /// 从当前连接获取所有表信息，异步加载每个表的列结构和外键关系。
     pub fn load_er_diagram_data(&mut self) {
-        match plan_er_diagram_load(self.manager.get_active()) {
+        match plan_er_diagram_load(self.session.manager.get_active()) {
             ErDiagramLoadPlan::NoActiveConnection => {
                 self.er_diagram_state.clear();
                 self.session.notifications.warning("请先连接数据库");

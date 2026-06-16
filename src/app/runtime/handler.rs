@@ -279,10 +279,10 @@ impl DbManagerApp {
         self.pending_connect_requests.remove(&name);
         self.session.refresh_connecting_flag();
 
-        let is_active = self.manager.active.as_deref() == Some(name.as_str());
+        let is_active = self.session.manager.active.as_deref() == Some(name.as_str());
         match result {
             Ok(tables) => {
-                if let Some(conn) = self.manager.connections.get_mut(&name) {
+                if let Some(conn) = self.session.manager.connections.get_mut(&name) {
                     conn.set_connected(tables.clone());
                 }
 
@@ -304,7 +304,7 @@ impl DbManagerApp {
             Err(e) => {
                 if is_active {
                     self.handle_connection_error(&name, e);
-                } else if let Some(conn) = self.manager.connections.get_mut(&name) {
+                } else if let Some(conn) = self.session.manager.connections.get_mut(&name) {
                     conn.set_error(e);
                 }
             }
@@ -335,10 +335,10 @@ impl DbManagerApp {
         self.pending_connect_requests.remove(&name);
         self.session.refresh_connecting_flag();
 
-        let is_active = self.manager.active.as_deref() == Some(name.as_str());
+        let is_active = self.session.manager.active.as_deref() == Some(name.as_str());
         match result {
             Ok(databases) => {
-                if let Some(conn) = self.manager.connections.get_mut(&name) {
+                if let Some(conn) = self.session.manager.connections.get_mut(&name) {
                     conn.set_connected_with_databases(databases.clone());
                 }
 
@@ -358,7 +358,7 @@ impl DbManagerApp {
             Err(e) => {
                 if is_active {
                     self.handle_connection_error(&name, e);
-                } else if let Some(conn) = self.manager.connections.get_mut(&name) {
+                } else if let Some(conn) = self.session.manager.connections.get_mut(&name) {
                     conn.set_error(e);
                 }
             }
@@ -390,10 +390,10 @@ impl DbManagerApp {
         self.pending_database_requests.remove(&conn_name);
         self.session.refresh_connecting_flag();
 
-        let is_active = self.manager.active.as_deref() == Some(conn_name.as_str());
+        let is_active = self.session.manager.active.as_deref() == Some(conn_name.as_str());
         match result {
             Ok(tables) => {
-                if let Some(conn) = self.manager.connections.get_mut(&conn_name) {
+                if let Some(conn) = self.session.manager.connections.get_mut(&conn_name) {
                     conn.set_database(db_name.clone(), tables.clone());
                 }
 
@@ -430,12 +430,12 @@ impl DbManagerApp {
         db_name: String,
         result: Result<(), String>,
     ) {
-        let is_active = self.manager.active.as_deref() == Some(conn_name.as_str());
+        let is_active = self.session.manager.active.as_deref() == Some(conn_name.as_str());
 
         match result {
             Ok(()) => {
                 let mut dropped_selected_database = false;
-                if let Some(conn) = self.manager.connections.get_mut(&conn_name) {
+                if let Some(conn) = self.session.manager.connections.get_mut(&conn_name) {
                     conn.databases.retain(|database| database != &db_name);
                     if conn.selected_database.as_deref() == Some(db_name.as_str()) {
                         conn.selected_database = None;
@@ -486,11 +486,11 @@ impl DbManagerApp {
         table_name: String,
         result: Result<(), String>,
     ) {
-        let is_active = self.manager.active.as_deref() == Some(conn_name.as_str());
+        let is_active = self.session.manager.active.as_deref() == Some(conn_name.as_str());
 
         match result {
             Ok(()) => {
-                if let Some(conn) = self.manager.connections.get_mut(&conn_name) {
+                if let Some(conn) = self.session.manager.connections.get_mut(&conn_name) {
                     conn.tables.retain(|table| table != &table_name);
                     if is_active {
                         self.autocomplete.set_tables(conn.tables.clone());
@@ -666,9 +666,9 @@ impl DbManagerApp {
                         self.pending_drop_requests.remove(&request_id)
                 {
                     let is_current_active =
-                        self.manager.active.as_deref() == Some(drop_conn_name.as_str());
+                        self.session.manager.active.as_deref() == Some(drop_conn_name.as_str());
 
-                    if let Some(conn) = self.manager.connections.get_mut(&drop_conn_name) {
+                    if let Some(conn) = self.session.manager.connections.get_mut(&drop_conn_name) {
                         conn.tables.retain(|t| t != &dropped_table);
                         if is_current_active {
                             self.autocomplete.set_tables(conn.tables.clone());
@@ -820,11 +820,11 @@ impl DbManagerApp {
 
     /// 检查异步元数据回包是否仍对应当前连接上下文
     fn metadata_context_matches_current(&self, conn_name: &str, db_name: &Option<String>) -> bool {
-        if self.manager.active.as_deref() != Some(conn_name) {
+        if self.session.manager.active.as_deref() != Some(conn_name) {
             return false;
         }
 
-        let Some(conn) = self.manager.connections.get(conn_name) else {
+        let Some(conn) = self.session.manager.connections.get(conn_name) else {
             return false;
         };
 

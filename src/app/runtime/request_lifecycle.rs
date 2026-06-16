@@ -77,7 +77,7 @@ impl DbManagerApp {
 
     /// 根据当前活动连接的 pending 请求刷新 connecting 标记
     pub(in crate::app) fn refresh_connecting_flag(&mut self) {
-        let has_pending = self.manager.active.as_ref().is_some_and(|active_name| {
+        let has_pending = self.session.manager.active.as_ref().is_some_and(|active_name| {
             self.pending_connect_requests.contains_key(active_name)
                 || self.pending_database_requests.contains_key(active_name)
         });

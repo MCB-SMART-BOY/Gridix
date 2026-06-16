@@ -86,11 +86,11 @@ impl DbManagerApp {
             return;
         }
 
-        let Some(active_name) = self.manager.active.clone() else {
+        let Some(active_name) = self.session.manager.active.clone() else {
             self.session.notifications.warning("请先连接数据库");
             return;
         };
-        let Some(conn) = self.manager.connections.get(&active_name) else {
+        let Some(conn) = self.session.manager.connections.get(&active_name) else {
             self.session.notifications.warning("请先连接数据库");
             return;
         };

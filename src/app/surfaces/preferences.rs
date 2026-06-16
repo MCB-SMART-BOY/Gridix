@@ -20,7 +20,7 @@ impl DbManagerApp {
 
     /// 检查当前连接是否是 MySQL（用于选择 SQL 引号类型）
     pub(in crate::app) fn is_mysql(&self) -> bool {
-        self.manager
+        self.session.manager
             .get_active()
             .map(|c| matches!(c.config.db_type, crate::database::DatabaseType::MySQL))
             .unwrap_or(false)
@@ -51,7 +51,7 @@ impl DbManagerApp {
         let _ = self.app_config.save();
 
         for saved_config in &self.app_config.connections {
-            if let Some(connection) = self.manager.connections.get_mut(&saved_config.name) {
+            if let Some(connection) = self.session.manager.connections.get_mut(&saved_config.name) {
                 connection.config.password_ref = saved_config.password_ref.clone();
             }
         }

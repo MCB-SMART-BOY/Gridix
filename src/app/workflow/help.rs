@@ -152,7 +152,7 @@ impl DbManagerApp {
                 .contains_key(LEARNING_CONNECTION_NAME)
             {
                 self.disconnect(LEARNING_CONNECTION_NAME.to_string());
-                self.manager.connections.remove(LEARNING_CONNECTION_NAME);
+                self.session.manager.connections.remove(LEARNING_CONNECTION_NAME);
             }
 
             if path.exists() {
@@ -170,7 +170,7 @@ impl DbManagerApp {
         let mut config = ConnectionConfig::new(LEARNING_CONNECTION_NAME, DatabaseType::SQLite);
         config.database = path.to_string_lossy().into_owned();
 
-        self.manager.add(config);
+        self.session.manager.add(config);
         self.save_config();
         self.connect(LEARNING_CONNECTION_NAME.to_string());
 

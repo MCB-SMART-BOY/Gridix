@@ -9,8 +9,8 @@ use super::{DbManagerApp, Message};
 impl DbManagerApp {
     /// 加载当前数据库的触发器
     pub(in crate::app) fn load_triggers(&mut self) {
-        if let Some(active_name) = self.manager.active.clone()
-            && let Some(conn) = self.manager.connections.get(&active_name)
+        if let Some(active_name) = self.session.manager.active.clone()
+            && let Some(conn) = self.session.manager.connections.get(&active_name)
         {
             let config = conn.config.clone();
             let database = conn.selected_database.clone();
@@ -44,8 +44,8 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn load_routines(&mut self) {
-        if let Some(active_name) = self.manager.active.clone()
-            && let Some(conn) = self.manager.connections.get(&active_name)
+        if let Some(active_name) = self.session.manager.active.clone()
+            && let Some(conn) = self.session.manager.connections.get(&active_name)
         {
             let config = conn.config.clone();
             let database = conn.selected_database.clone();

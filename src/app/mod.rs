@@ -111,7 +111,6 @@ impl GridWorkspaceStore {
 pub struct DbManagerApp {
     // ==================== 连接管理 ====================
     /// 数据库连接管理器，维护所有连接配置和状态
-    manager: ConnectionManager,
     /// 是否显示新建/编辑连接对话框
     show_connection_dialog: bool,
     /// 连接对话框是否展开高级配置
@@ -344,7 +343,7 @@ impl DbManagerApp {
             .expect("无法创建 tokio 运行时，系统资源可能不足");
 
         // 创建 Session（Layer 2 聚合结构体）
-        let session = crate::session::Session::new(runtime, tx.clone());
+        let mut session = crate::session::Session::new(runtime, tx.clone());
 
         ui::sync_runtime_local_shortcuts(&keybindings);
 
@@ -362,16 +361,14 @@ impl DbManagerApp {
             .set_pixels_per_point(base_pixels_per_point * ui_scale);
 
         // 从配置恢复连接
-        let mut manager = ConnectionManager::default();
         for config in &app_config.connections {
-            manager.add(config.clone());
+            session.manager.add(config.clone());
         }
 
         let mut sidebar_panel_state = ui::SidebarPanelState::default();
         sidebar_panel_state.workflow.edge_transfer = app_config.sidebar.edge_transfer;
 
         let mut app = Self {
-            manager,
             show_connection_dialog: false,
             connection_dialog_show_advanced: app_config.connection_dialog_show_advanced,
             new_config: ConnectionConfig::default(),
@@ -513,7 +510,7 @@ impl DbManagerApp {
         table_name: &str,
     ) -> Option<GridWorkspaceId> {
         let tab_id = self.session.tab_manager.get_active()?.id.clone();
-        let connection_name = self.manager.active.clone()?;
+        let connection_name = self.session.manager.active.clone()?;
         let database_name = self
             .manager
             .get_active()
@@ -590,7 +587,7 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn remove_grid_workspace_for_table(&mut self, table_name: &str) {
-        let Some(connection_name) = self.manager.active.clone() else {
+        let Some(connection_name) = self.session.manager.active.clone() else {
             return;
         };
         let database_name = self
@@ -602,7 +599,7 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn remove_grid_workspaces_for_database(&mut self, database_name: &str) {
-        let Some(connection_name) = self.manager.active.clone() else {
+        let Some(connection_name) = self.session.manager.active.clone() else {
             return;
         };
         self.grid_workspaces

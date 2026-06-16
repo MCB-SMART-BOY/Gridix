@@ -79,7 +79,7 @@ impl DbManagerApp {
 
     pub(in crate::app) fn welcome_onboarding_status(&self) -> ui::WelcomeOnboardingStatus {
         let connection_created =
-            self.app_config.onboarding.connection_created || !self.manager.connections.is_empty();
+            self.app_config.onboarding.connection_created || !self.session.manager.connections.is_empty();
         let require_user_step = !matches!(self.onboarding_target_db_type(), DatabaseType::SQLite);
         ui::WelcomeOnboardingStatus {
             environment_checked: self.app_config.onboarding.environment_checked,
@@ -162,7 +162,7 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn onboarding_target_db_type(&self) -> DatabaseType {
-        if let Some(conn) = self.manager.get_active() {
+        if let Some(conn) = self.session.manager.get_active() {
             return conn.config.db_type;
         }
         self.recommended_onboarding_db_type()
@@ -194,7 +194,7 @@ impl DbManagerApp {
     }
 
     fn run_onboarding_first_query(&mut self) {
-        if self.manager.active.is_none() {
+        if self.session.manager.active.is_none() {
             self.notifications
                 .warning("请先创建并连接数据库，再执行首条查询");
             self.open_connection_dialog_for(self.onboarding_target_db_type());
@@ -545,7 +545,7 @@ impl DbManagerApp {
         };
 
         let candidate = config.name.clone();
-        if self.manager.connections.contains_key(&candidate) {
+        if self.session.manager.connections.contains_key(&candidate) {
             let mut idx = 2usize;
             while self
                 .manager
@@ -606,14 +606,14 @@ impl DbManagerApp {
     }
 
     fn pick_databases_for_user_dialog(&self, db_type: DatabaseType) -> Vec<String> {
-        if let Some(conn) = self.manager.get_active()
+        if let Some(conn) = self.session.manager.get_active()
             && conn.config.db_type == db_type
             && !conn.databases.is_empty()
         {
             return conn.databases.clone();
         }
 
-        for conn in self.manager.connections.values() {
+        for conn in self.session.manager.connections.values() {
             if conn.config.db_type == db_type && !conn.databases.is_empty() {
                 return conn.databases.clone();
             }
