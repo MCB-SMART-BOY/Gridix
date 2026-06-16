@@ -14,7 +14,7 @@ struct QueryDonePayload {
     conn_name: String,
     tab_id: String,
     request_id: u64,
-    result: Result<crate::database::QueryResult, String>,
+    result: Result<crate::data::QueryResult, String>,
     elapsed_ms: u64,
 }
 
@@ -41,7 +41,7 @@ fn is_cancelled_query_error(err: &str) -> bool {
 #[allow(dead_code)]
 fn clamp_grid_cursor_for_result(
     cursor: (usize, usize),
-    result: &crate::database::QueryResult,
+    result: &crate::data::QueryResult,
 ) -> (usize, usize) {
     if result.rows.is_empty() || result.columns.is_empty() {
         return (0, 0);
@@ -71,7 +71,7 @@ fn should_record_active_query_time(
 }
 
 fn collect_er_foreign_key_columns(
-    fks: &[crate::database::ForeignKeyInfo],
+    fks: &[crate::data::ForeignKeyInfo],
 ) -> HashSet<(String, String)> {
     fks.iter()
         .map(|fk| (fk.from_table.clone(), fk.from_column.clone()))
@@ -79,7 +79,7 @@ fn collect_er_foreign_key_columns(
 }
 
 fn collect_er_relationships_from_foreign_keys(
-    fks: Vec<crate::database::ForeignKeyInfo>,
+    fks: Vec<crate::data::ForeignKeyInfo>,
 ) -> Vec<ui::Relationship> {
     fks.into_iter()
         .map(|fk| ui::Relationship {
@@ -543,7 +543,7 @@ impl DbManagerApp {
             is_stale_for_existing_tab,
         );
 
-        let sql_hints = crate::database::analyze_sql_for_ui(&sql);
+        let sql_hints = crate::data::analyze_sql_for_ui(&sql);
         let is_update_or_delete = sql_hints.is_update_or_delete;
         let is_insert = sql_hints.is_insert;
         let is_drop_table = sql_hints.is_drop_table;
@@ -768,7 +768,7 @@ impl DbManagerApp {
     fn handle_import_done(
         &mut self,
         ctx: &egui::Context,
-        result: Result<crate::database::ImportExecutionReport, String>,
+        result: Result<crate::data::ImportExecutionReport, String>,
         elapsed_ms: u64,
     ) {
         self.session.import_executing = false;
@@ -829,7 +829,7 @@ impl DbManagerApp {
         };
 
         match conn.config.db_type {
-            crate::database::DatabaseType::SQLite => true,
+            crate::data::DatabaseType::SQLite => true,
             _ => conn.selected_database == *db_name,
         }
     }
@@ -841,7 +841,7 @@ impl DbManagerApp {
         conn_name: String,
         db_name: Option<String>,
         request_id: u64,
-        result: Result<Vec<crate::database::TriggerInfo>, String>,
+        result: Result<Vec<crate::data::TriggerInfo>, String>,
     ) {
         let is_latest = self.session.pending_triggers_request.as_ref().is_some_and(
             |(pending_conn, pending_db, pending_id)| {
@@ -888,7 +888,7 @@ impl DbManagerApp {
         conn_name: String,
         db_name: Option<String>,
         request_id: u64,
-        result: Result<Vec<crate::database::RoutineInfo>, String>,
+        result: Result<Vec<crate::data::RoutineInfo>, String>,
     ) {
         let is_latest = self.session.pending_routines_request.as_ref().is_some_and(
             |(pending_conn, pending_db, pending_id)| {
@@ -935,7 +935,7 @@ impl DbManagerApp {
     fn handle_foreign_keys_fetched(
         &mut self,
         ctx: &egui::Context,
-        result: Result<Vec<crate::database::ForeignKeyInfo>, String>,
+        result: Result<Vec<crate::data::ForeignKeyInfo>, String>,
     ) {
         match result {
             Ok(fks) => {
@@ -963,7 +963,7 @@ impl DbManagerApp {
         &mut self,
         ctx: &egui::Context,
         table_name: String,
-        result: Result<Vec<crate::database::ColumnInfo>, String>,
+        result: Result<Vec<crate::data::ColumnInfo>, String>,
     ) {
         match result {
             Ok(columns) => {
@@ -1014,8 +1014,8 @@ mod tests {
         resolve_er_diagram_ready_state, select_ready_state_er_layout_strategy,
         should_drop_query_error_as_stale, should_record_active_query_time,
     };
-    use crate::database::ForeignKeyInfo;
-    use crate::database::QueryResult;
+    use crate::data::ForeignKeyInfo;
+    use crate::data::QueryResult;
     use crate::ui::{ERLayoutStrategy, ERTable, RelationType, Relationship, RelationshipOrigin};
 
     #[test]

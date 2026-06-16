@@ -1,7 +1,7 @@
 //! 触发器面板渲染
 
 use super::SidebarPanelState;
-use crate::database::TriggerInfo;
+use crate::data::TriggerInfo;
 use crate::ui::SidebarSection;
 use crate::ui::styles::{GRAY, MARGIN_SM, MUTED, SPACING_LG, SPACING_SM, SUCCESS, theme_text};
 use egui::{self, Color32, CornerRadius, RichText, Vec2};

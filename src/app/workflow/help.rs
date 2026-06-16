@@ -11,7 +11,7 @@ use rusqlite::{Connection as SqliteConn, OptionalExtension, Transaction, params}
 
 use crate::app::input::input_router::ErDiagramVisibilityNotice;
 use crate::core::AppConfig;
-use crate::database::{ConnectionConfig, DatabaseType};
+use crate::data::{ConnectionConfig, DatabaseType};
 use crate::ui;
 
 use super::DbManagerApp;

@@ -3,7 +3,7 @@
 //! 提供筛选状态栏的 UI 渲染功能。
 
 use super::condition::ColumnFilter;
-use crate::database::QueryResult;
+use crate::data::QueryResult;
 use crate::ui::styles::GRAY;
 use crate::ui::{LocalShortcut, local_shortcut_tooltip};
 use egui::{self, Color32, RichText};

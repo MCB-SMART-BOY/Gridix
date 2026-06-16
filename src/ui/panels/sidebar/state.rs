@@ -1,6 +1,6 @@
 //! 侧边栏状态定义
 
-use crate::database::{RoutineInfo, TriggerInfo};
+use crate::data::{RoutineInfo, TriggerInfo};
 use crate::ui::SidebarSection;
 
 /// 侧边栏各区域的选中索引

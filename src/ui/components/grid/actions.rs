@@ -1,7 +1,7 @@
 //! 表格操作和 SQL 生成
 
 use super::state::DataGridState;
-use crate::database::QueryResult;
+use crate::data::QueryResult;
 
 /// 焦点转移方向
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,13 +129,13 @@ pub fn generate_save_sql(
     state: &mut DataGridState,
     table_name: &str,
     actions: &mut DataGridActions,
-    db_type: Option<crate::database::DatabaseType>,
+    db_type: Option<crate::data::DatabaseType>,
 ) {
     // Determine quoting style: backticks for MySQL, double-quotes for PG/SQLite.
     // SQLite supports both; PostgreSQL requires double-quotes; MySQL requires backticks.
     let use_backticks = matches!(
         db_type,
-        Some(crate::database::DatabaseType::MySQL)
+        Some(crate::data::DatabaseType::MySQL)
     );
 
     // 验证并引用表名
@@ -282,7 +282,7 @@ pub fn cancel_pending_sql(state: &mut DataGridState) {
 #[cfg(test)]
 mod tests {
     use super::{DataGridActions, cancel_pending_sql, confirm_pending_sql, generate_save_sql};
-    use crate::database::QueryResult;
+    use crate::data::QueryResult;
     use crate::ui::DataGridState;
 
     fn sample_result() -> QueryResult {

@@ -3,7 +3,7 @@
 //! 提供应用层的导出入口，并将 UI 导出配置适配为统一传输管线。
 
 use crate::core::{plan_export_transfer, write_transfer_plan};
-use crate::database::{DatabaseType, QueryResult};
+use crate::data::{DatabaseType, QueryResult};
 use crate::ui::ExportConfig;
 use std::path::Path;
 

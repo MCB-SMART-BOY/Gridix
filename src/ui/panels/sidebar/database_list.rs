@@ -1,7 +1,7 @@
 //! 数据库列表渲染
 
 use super::{ConnectionList, SidebarActions, SidebarSelectionState, TableList};
-use crate::database::ConnectionManager;
+use crate::data::ConnectionManager;
 use crate::ui::SidebarSection;
 use crate::ui::styles::{MUTED, SPACING_LG};
 use egui::{self, Color32, CornerRadius, RichText};

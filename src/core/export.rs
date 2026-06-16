@@ -2,7 +2,7 @@
 //!
 //! 支持 CSV、TSV、SQL、JSON 格式的数据导入导出。
 
-use crate::database::{DatabaseType, QueryResult};
+use crate::data::{DatabaseType, QueryResult};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fs::File;
@@ -1237,7 +1237,7 @@ pub fn import_sql_file(path: &Path) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::QueryResult;
+    use crate::data::QueryResult;
     use std::fs;
     use tempfile::NamedTempFile;
 

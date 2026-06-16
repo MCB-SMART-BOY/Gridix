@@ -5,7 +5,7 @@ use super::{
     is_query_statement, query_result_with_null_flags,
 };
 use crate::core::constants;
-use crate::database::{ConnectionConfig, DatabaseType, DbError, QueryResult};
+use crate::data::{ConnectionConfig, DatabaseType, DbError, QueryResult};
 use rusqlite::{Connection as SqliteConn, InterruptHandle, types::ValueRef};
 
 /// 连接 SQLite 并获取表列表

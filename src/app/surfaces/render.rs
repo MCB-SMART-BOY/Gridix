@@ -6,7 +6,7 @@ use eframe::egui;
 
 use crate::app::dialogs::host::DialogId;
 use crate::core::{constants, format_sql};
-use crate::database::{ConnectionConfig, QueryResult};
+use crate::data::{ConnectionConfig, QueryResult};
 use crate::ui::{self, SqlEditorActions, TabBarActions, ToolbarActions};
 
 use super::DbManagerApp;
@@ -568,7 +568,7 @@ impl DbManagerApp {
             } else if self
                 .manager
                 .get_active()
-                .map(|c| c.config.db_type == crate::database::DatabaseType::PostgreSQL)
+                .map(|c| c.config.db_type == crate::data::DatabaseType::PostgreSQL)
                 .unwrap_or(false)
             {
                 format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) {}", sql)
@@ -728,7 +728,7 @@ impl DbManagerApp {
     pub(in crate::app) fn handle_create_user_action(&mut self) {
         if let Some(conn) = self.session.manager.get_active() {
             let db_type = conn.config.db_type;
-            if matches!(db_type, crate::database::DatabaseType::SQLite) {
+            if matches!(db_type, crate::data::DatabaseType::SQLite) {
                 self.session.notifications.warning("SQLite 不支持用户管理");
             } else {
                 let databases = conn.databases.clone();
@@ -874,7 +874,7 @@ impl DbManagerApp {
             .manager
             .get_active()
             .map(|conn| (conn.config.db_type, conn.selected_database.clone()))
-            .unwrap_or((crate::database::DatabaseType::SQLite, None));
+            .unwrap_or((crate::data::DatabaseType::SQLite, None));
 
         match self.sidebar_section {
             ui::SidebarSection::Connections | ui::SidebarSection::Databases => {
@@ -885,15 +885,15 @@ impl DbManagerApp {
                 }
             }
             ui::SidebarSection::Tables => match db_type {
-                crate::database::DatabaseType::SQLite => {
+                crate::data::DatabaseType::SQLite => {
                     if let Some(name) = active_name {
                         self.connect(name);
                     } else {
                         self.session.notifications.info("当前没有活动连接可刷新");
                     }
                 }
-                crate::database::DatabaseType::PostgreSQL
-                | crate::database::DatabaseType::MySQL => {
+                crate::data::DatabaseType::PostgreSQL
+                | crate::data::DatabaseType::MySQL => {
                     if let Some(db) = selected_database {
                         self.select_database(db);
                     } else {
@@ -1033,7 +1033,7 @@ impl DbManagerApp {
         };
 
         let db_type = conn.config.db_type;
-        let use_backticks = matches!(db_type, crate::database::DatabaseType::MySQL);
+        let use_backticks = matches!(db_type, crate::data::DatabaseType::MySQL);
         let quoted_old = match ui::quote_identifier(table, use_backticks) {
             Ok(name) => name,
             Err(e) => {
@@ -1051,10 +1051,10 @@ impl DbManagerApp {
         };
 
         let rename_sql = match db_type {
-            crate::database::DatabaseType::MySQL => {
+            crate::data::DatabaseType::MySQL => {
                 format!("RENAME TABLE {} TO {};", quoted_old, quoted_new)
             }
-            crate::database::DatabaseType::PostgreSQL | crate::database::DatabaseType::SQLite => {
+            crate::data::DatabaseType::PostgreSQL | crate::data::DatabaseType::SQLite => {
                 format!("ALTER TABLE {} RENAME TO {};", quoted_old, quoted_new)
             }
         };
@@ -1210,7 +1210,7 @@ mod tests {
     };
     use crate::app::DbManagerApp;
     use crate::app::dialogs::host::DialogId;
-    use crate::database::{Connection, ConnectionConfig, DatabaseType, QueryResult};
+    use crate::data::{Connection, ConnectionConfig, DatabaseType, QueryResult};
     use crate::ui::{
         ERDiagramResponse, FocusArea, SidebarActions, SidebarDeleteTarget, ToolbarActions,
     };

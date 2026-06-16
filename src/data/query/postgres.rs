@@ -5,7 +5,7 @@ use super::{
     empty_result, exec_result, is_query_statement, query_result_with_null_flags,
 };
 use crate::core::constants;
-use crate::database::{
+use crate::data::{
     ConnectionConfig, DatabaseType, DbError, POOL_MANAGER, PostgresSslMode, QueryResult,
 };
 use futures_util::StreamExt;

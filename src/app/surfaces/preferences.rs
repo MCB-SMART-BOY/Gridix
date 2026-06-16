@@ -22,7 +22,7 @@ impl DbManagerApp {
     pub(in crate::app) fn is_mysql(&self) -> bool {
         self.session.manager
             .get_active()
-            .map(|c| matches!(c.config.db_type, crate::database::DatabaseType::MySQL))
+            .map(|c| matches!(c.config.db_type, crate::data::DatabaseType::MySQL))
             .unwrap_or(false)
     }
 

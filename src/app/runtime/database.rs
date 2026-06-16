@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use crate::app::dialogs::host::DialogId;
 use crate::core::constants;
-use crate::database::{
+use crate::data::{
     ConnectResult, ConnectionConfig, DatabaseType, connect_database, drop_database,
     execute_query, execute_query_cancellable, get_primary_key_column,
     get_tables_for_database, ssh_tunnel::SSH_TUNNEL_MANAGER,
@@ -135,7 +135,7 @@ impl DbManagerApp {
                     Err(_) => {
                         // 提供更详细的超时错误信息
                         let host_info = match &config.db_type {
-                            crate::database::DatabaseType::SQLite => {
+                            crate::data::DatabaseType::SQLite => {
                                 format!("文件: {}", if config.database.is_empty() { "未指定" } else { &config.database })
                             }
                             _ => format!("{}:{}", config.host, config.port),
@@ -224,7 +224,7 @@ impl DbManagerApp {
 
             // 清理连接池
             handle.spawn(async move {
-                crate::database::POOL_MANAGER.remove_pool(&config).await;
+                crate::data::POOL_MANAGER.remove_pool(&config).await;
             });
         }
 
@@ -264,7 +264,7 @@ impl DbManagerApp {
             .get(name)
             .and_then(|connection| connection.config.password_ref.clone())
         {
-            let _ = crate::database::delete_password_secret(&password_ref);
+            let _ = crate::data::delete_password_secret(&password_ref);
         }
         if self.session.manager.connections.contains_key(name) {
             self.disconnect(name.to_string());
@@ -293,7 +293,7 @@ impl DbManagerApp {
             self.session.notifications.warning("请先连接数据库");
             return;
         };
-        if matches!(conn.config.db_type, crate::database::DatabaseType::SQLite) {
+        if matches!(conn.config.db_type, crate::data::DatabaseType::SQLite) {
             self.notifications
                 .warning("SQLite 不支持独立删除数据库；请删除连接或数据库文件");
             return;
@@ -310,7 +310,7 @@ impl DbManagerApp {
                 .await
                 .map_err(|e| e.to_string());
             if result.is_ok() && remove_active_pool {
-                crate::database::POOL_MANAGER.remove_pool(&config).await;
+                crate::data::POOL_MANAGER.remove_pool(&config).await;
             }
             if tx
                 .send(Message::DatabaseDropped(
@@ -337,7 +337,7 @@ impl DbManagerApp {
         }
         let target_connection = conn.config.name.clone();
 
-        let use_backticks = matches!(conn.config.db_type, crate::database::DatabaseType::MySQL);
+        let use_backticks = matches!(conn.config.db_type, crate::data::DatabaseType::MySQL);
         let quoted_table = match ui::quote_identifier(table, use_backticks) {
             Ok(name) => name,
             Err(e) => {
@@ -602,7 +602,7 @@ impl DbManagerApp {
 #[cfg(test)]
 mod tests {
     use super::prepare_tab_for_query_execution;
-    use crate::database::QueryResult;
+    use crate::data::QueryResult;
     use crate::ui::QueryTab;
 
     #[test]

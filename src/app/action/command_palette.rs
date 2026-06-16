@@ -297,7 +297,7 @@ mod tests {
         command_palette_widths, consume_palette_key_action, search_commands,
     };
     use crate::app::dialogs::host::DialogId;
-    use crate::database::{Connection, ConnectionConfig, DatabaseType, QueryResult};
+    use crate::data::{Connection, ConnectionConfig, DatabaseType, QueryResult};
     use crate::ui::FocusArea;
     use eframe::egui::{Area, Context, Event, Id, Key, Modifiers, RawInput};
 

@@ -7,7 +7,7 @@ use super::common::{
     DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow, FormDialogShell,
     FormFieldId,
 };
-use crate::database::DatabaseType;
+use crate::data::DatabaseType;
 use crate::ui::{LocalShortcut, local_shortcut_text};
 use egui::{self, Color32, RichText, TextEdit};
 

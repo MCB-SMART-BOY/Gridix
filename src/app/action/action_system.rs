@@ -6,7 +6,7 @@ use eframe::egui;
 
 use crate::app::dialogs::host::DialogId;
 use crate::core::{Action as ShortcutAction, constants};
-use crate::database::DatabaseType;
+use crate::data::DatabaseType;
 use crate::ui::{self, FocusArea};
 
 use super::DbManagerApp;
@@ -1011,7 +1011,7 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::OpenConnectionDialog => {
-                self.new_config = crate::database::ConnectionConfig::default();
+                self.new_config = crate::data::ConnectionConfig::default();
                 self.editing_connection_name = None;
                 self.open_dialog(DialogId::Connection);
                 Vec::new()

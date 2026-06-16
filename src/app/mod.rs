@@ -27,7 +27,7 @@ use std::sync::mpsc::{Receiver, channel};
 use crate::core::{
     AppConfig, AutoComplete, HighlightColors, KeyBindings, QueryHistory, ThemeManager, constants,
 };
-use crate::database::{ConnectionConfig, DatabaseType, QueryResult};
+use crate::data::{ConnectionConfig, DatabaseType, QueryResult};
 use crate::ui::{self, DdlDialogState, ExportConfig, KeyBindingsDialogState};
 
 use action::command_palette::CommandPaletteState;
@@ -108,35 +108,25 @@ impl GridWorkspaceStore {
 /// - 配置历史：应用配置和查询历史
 /// - UI 状态：对话框、面板的显示状态
 pub struct DbManagerApp {
-    // ==================== 连接管理 ====================
-    /// 数据库连接管理器，维护所有连接配置和状态
-    /// 是否显示新建/编辑连接对话框
-    show_connection_dialog: bool,
-    /// 连接对话框是否展开高级配置
-    connection_dialog_show_advanced: bool,
-    /// 当前编辑的连接配置（用于新建/编辑对话框）
-    new_config: ConnectionConfig,
-    /// 当前正在编辑的连接名（None 表示新建模式）
-    editing_connection_name: Option<String>,
-
-    // ==================== 查询状态 ====================
-    /// 当前选中的表名
-    selected_table: Option<String>,
-    /// 当前查询结果
-    result: Option<QueryResult>,
-    /// 多 Tab 查询管理器，支持多个独立查询
+    // ==================== 核心聚合 ====================
     /// 会话状态 — 聚合 DB 连接、异步基础设施、请求追踪（渐进迁移中）
     session: crate::session::Session,
     /// UI 状态 — 聚合渲染状态（渐进迁移中）
     state: crate::state::UiState,
 
+    // ==================== 连接对话框 ====================
+    show_connection_dialog: bool,
+    connection_dialog_show_advanced: bool,
+    new_config: ConnectionConfig,
+    editing_connection_name: Option<String>,
+
+    // ==================== 查询状态 ====================
+    selected_table: Option<String>,
+    result: Option<QueryResult>,
+
     // ==================== 异步通信 ====================
     /// 消息接收端，UI 线程轮询获取异步结果
     rx: Receiver<Message>,
-    /// 是否正在建立连接
-    /// 是否正在执行查询
-    /// 是否正在执行导入
-    /// 连接请求自增序列（用于丢弃过期连接/选库回包）
     /// 查询请求自增序列（用于丢弃过期回包）
     /// 元数据请求自增序列（触发器/存储过程）
     /// 各连接最新连接请求 ID
@@ -610,7 +600,7 @@ impl DbManagerApp {
                     .manager
                     .get_active()
                     .map(|connection| connection.config.db_type)
-                    .unwrap_or(crate::database::DatabaseType::SQLite);
+                    .unwrap_or(crate::data::DatabaseType::SQLite);
                 self.export_status = Some(workflow::export::execute_export(
                     result,
                     &table_name,
@@ -643,10 +633,10 @@ impl eframe::App for DbManagerApp {
 
         // 清理连接池，确保所有数据库连接正确关闭
         self.session.runtime.block_on(async {
-            crate::database::ssh_tunnel::SSH_TUNNEL_MANAGER
+            crate::data::ssh_tunnel::SSH_TUNNEL_MANAGER
                 .stop_all()
                 .await;
-            crate::database::POOL_MANAGER.clear_all().await;
+            crate::data::POOL_MANAGER.clear_all().await;
         });
     }
 }

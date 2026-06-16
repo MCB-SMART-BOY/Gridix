@@ -7,7 +7,7 @@ use super::condition::ColumnFilter;
 use super::logic::FilterLogic;
 use super::operators::check_filter_match_with_null;
 use crate::core::constants;
-use crate::database::QueryResult;
+use crate::data::QueryResult;
 use rayon::prelude::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};

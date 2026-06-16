@@ -3,7 +3,7 @@
 //! 处理 CSV、TSV、JSON、SQL 文件的统一传输逻辑。
 
 use crate::core::{plan_import_transfer, preview_import_transfer};
-use crate::database::execute_import_batch;
+use crate::data::execute_import_batch;
 use crate::ui;
 
 use super::{DbManagerApp, message::Message};

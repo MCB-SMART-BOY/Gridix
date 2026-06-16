@@ -5,7 +5,7 @@ use super::{
     TableList,
 };
 use crate::core::{Action, KeyBindings};
-use crate::database::ConnectionManager;
+use crate::data::ConnectionManager;
 use crate::ui::styles::{
     DANGER, GRAY, MARGIN_MD, MARGIN_SM, MUTED, SPACING_LG, SPACING_MD, SPACING_SM, SUCCESS,
     theme_text,

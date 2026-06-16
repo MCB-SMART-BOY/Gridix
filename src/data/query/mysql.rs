@@ -5,7 +5,7 @@ use super::{
     empty_result, exec_result, is_query_statement, query_result_with_null_flags,
 };
 use crate::core::constants;
-use crate::database::{ConnectionConfig, DatabaseType, DbError, POOL_MANAGER, QueryResult};
+use crate::data::{ConnectionConfig, DatabaseType, DbError, POOL_MANAGER, QueryResult};
 use mysql_async::prelude::*;
 use std::future::Future;
 use std::time::Duration;
@@ -335,7 +335,7 @@ fn build_mysql_direct_opts(config: &ConnectionConfig) -> Result<mysql_async::Opt
     let opts = mysql_async::Opts::from_url(config.connection_string().as_str())
         .map_err(|e| DbError::Connection(format!("MySQL 取消连接 URL 解析失败: {}", e)))?;
     let opts = mysql_async::OptsBuilder::from_opts(opts);
-    let opts = crate::database::PoolManager::configure_mysql_ssl(opts, config)?;
+    let opts = crate::data::PoolManager::configure_mysql_ssl(opts, config)?;
     Ok(mysql_async::Opts::from(opts))
 }
 
@@ -796,7 +796,7 @@ mod tests {
         DbError, await_cancellable_query, build_kill_query_sql, format_cancel_message,
         mysql_maintenance_databases, quote_mysql_identifier,
     };
-    use crate::database::{ConnectionConfig, DatabaseType, query::query_result};
+    use crate::data::{ConnectionConfig, DatabaseType, query::query_result};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;

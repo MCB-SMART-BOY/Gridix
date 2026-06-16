@@ -44,7 +44,7 @@ use super::mode::GridMode;
 use super::state::DataGridState;
 use super::view::GridVirtualRows;
 use crate::core::{KeyBinding, KeyBindings, KeyCode, KeyModifiers};
-use crate::database::QueryResult;
+use crate::data::QueryResult;
 use egui::{self, Key};
 use tracing::debug;
 
@@ -1367,7 +1367,7 @@ mod tests {
         has_pressed_key_event, should_clear_pending_command,
     };
     use crate::core::KeyBindings;
-    use crate::database::QueryResult;
+    use crate::data::QueryResult;
     use crate::ui::DataGridState;
     use crate::ui::components::grid::GridMode;
     use crate::ui::components::grid::actions::DataGridActions;

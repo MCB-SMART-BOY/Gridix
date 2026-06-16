@@ -36,7 +36,7 @@ pub use state::DataGridState;
 use view::{GridVirtualRow, GridVirtualRows};
 
 use crate::core::{Action, KeyBindings, constants};
-use crate::database::QueryResult;
+use crate::data::QueryResult;
 use crate::ui::dialogs::{DialogHeader, DialogStyle, DialogWindow};
 use crate::ui::styles::{GRAY, theme_disabled_text, theme_text};
 use crate::ui::{
@@ -902,7 +902,7 @@ fn shortcut_refs(shortcuts: &[String]) -> Vec<&str> {
 mod tests {
     use super::{DataGrid, DataGridActions};
     use crate::core::KeyBindings;
-    use crate::database::QueryResult;
+    use crate::data::QueryResult;
     use crate::ui::DataGridState;
     use egui::{Event, Key, Modifiers, RawInput};
 

@@ -11,7 +11,7 @@ use eframe::egui::{self, CornerRadius, RichText, ScrollArea, Stroke, Vec2};
 
 use crate::app::dialogs::host::DialogId;
 use crate::core::AppConfig;
-use crate::database::{ConnectionConfig, DatabaseType};
+use crate::data::{ConnectionConfig, DatabaseType};
 use crate::ui;
 use crate::ui::dialogs::{DialogContent, DialogShortcutContext, DialogStyle, DialogWindow};
 

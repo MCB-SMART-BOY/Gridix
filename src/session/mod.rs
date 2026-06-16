@@ -6,9 +6,9 @@
 pub mod message;
 pub mod tab;
 
-use crate::database::ConnectionManager;
+use crate::data::ConnectionManager;
 use crate::core::{NotificationManager, ProgressManager};
-use crate::database::QueryResult;
+use crate::data::QueryResult;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;

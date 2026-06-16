@@ -50,7 +50,7 @@ use table_list::TableList;
 use trigger_panel::TriggerPanel;
 
 use crate::core::KeyBindings;
-use crate::database::ConnectionManager;
+use crate::data::ConnectionManager;
 use crate::ui::SidebarSection;
 use crate::ui::{
     LocalShortcut, consume_local_shortcut_with_text_priority, shortcut_tooltip,
@@ -1171,7 +1171,7 @@ fn prev_operator(current: &crate::ui::FilterOperator) -> crate::ui::FilterOperat
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::{ConnectionConfig, ConnectionManager};
+    use crate::data::{ConnectionConfig, ConnectionManager};
     use crate::ui::{ColumnFilter, SidebarDeleteTarget, SidebarFilterWorkspaceMode};
     use egui::{Context, Event, Key, Modifiers, RawInput};
 

@@ -1,7 +1,7 @@
 use super::history::QueryHistory;
 use super::keybindings::KeyBindings;
 use super::theme::ThemePreset;
-use crate::database::{
+use crate::data::{
     ConnectionConfig, decrypt_password, load_password_secret, store_password_secret,
 };
 use serde::{Deserialize, Serialize};

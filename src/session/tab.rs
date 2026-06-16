@@ -3,7 +3,7 @@
 //! QueryTab 和 QueryTabManager 是 Layer 2 的纯数据类型。
 //! 渲染逻辑在 `src/ui/components/query_tab_bar.rs`。
 
-use crate::database::QueryResult;
+use crate::data::QueryResult;
 use uuid::Uuid;
 
 // ============================================================================

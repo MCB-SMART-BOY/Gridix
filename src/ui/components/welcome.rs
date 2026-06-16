@@ -1,7 +1,7 @@
 //! 欢迎页面组件 - 应用启动时的欢迎界面
 
 use crate::core::{Action, KeyBindings};
-use crate::database::DatabaseType;
+use crate::data::DatabaseType;
 use crate::ui::styles::{GRAY, MUTED, SPACING_LG, SPACING_MD, SPACING_SM};
 use crate::ui::{LocalShortcut, local_shortcut_text};
 use egui::{self, Color32, CornerRadius, RichText, Stroke, Vec2};

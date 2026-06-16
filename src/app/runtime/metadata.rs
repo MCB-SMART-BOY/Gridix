@@ -28,7 +28,7 @@ impl DbManagerApp {
                 let timeout_secs = constants::database::CONNECTION_TIMEOUT_SECS;
                 let result = timeout(
                     Duration::from_secs(timeout_secs),
-                    crate::database::get_triggers(&config),
+                    crate::data::get_triggers(&config),
                 )
                 .await
                 .map_err(|_| format!("加载触发器超时 ({}秒)", timeout_secs))
@@ -63,7 +63,7 @@ impl DbManagerApp {
                 let timeout_secs = constants::database::CONNECTION_TIMEOUT_SECS;
                 let result = timeout(
                     Duration::from_secs(timeout_secs),
-                    crate::database::get_routines(&config),
+                    crate::data::get_routines(&config),
                 )
                 .await
                 .map_err(|_| format!("加载存储过程超时 ({}秒)", timeout_secs))

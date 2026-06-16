@@ -159,7 +159,7 @@ impl DbManagerApp {
                 .manager
                 .get_active()
                 .map(|connection| connection.config.db_type)
-                .unwrap_or(crate::database::DatabaseType::SQLite);
+                .unwrap_or(crate::data::DatabaseType::SQLite);
             ui::ExportDialog::show(
                 ctx,
                 &mut self.show_export_dialog,
@@ -526,7 +526,7 @@ impl DbManagerApp {
 mod tests {
     use super::*;
     use crate::app::dialogs::host::DialogId;
-    use crate::database::{Connection, ConnectionConfig, DatabaseType, QueryResult};
+    use crate::data::{Connection, ConnectionConfig, DatabaseType, QueryResult};
     use crate::ui::{FocusArea, SidebarDeleteTarget};
 
     fn prime_active_connection_with_tables(app: &mut DbManagerApp, tables: &[&str]) {

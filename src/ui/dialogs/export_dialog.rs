@@ -18,7 +18,7 @@ use crate::core::{
     TransferJsonOptions, TransferMapping, TransferRowWindow, TransferSchema, TransferSession,
     TransferSqlOptions, preview_export_transfer,
 };
-use crate::database::{DatabaseType, QueryResult};
+use crate::data::{DatabaseType, QueryResult};
 use crate::ui::styles::{GRAY, MUTED, SPACING_SM};
 use crate::ui::{
     LocalShortcut, local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text,
