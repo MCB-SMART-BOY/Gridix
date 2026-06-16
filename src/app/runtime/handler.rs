@@ -254,6 +254,10 @@ impl DbManagerApp {
                 }
             }
         }
+        if self.session.needs_repaint {
+            ctx.request_repaint();
+            self.session.needs_repaint = false;
+        }
     }
 
     /// 处理 SQLite 连接完成消息
@@ -309,7 +313,7 @@ impl DbManagerApp {
                 }
             }
         }
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理 MySQL/PostgreSQL 连接完成消息
@@ -363,7 +367,7 @@ impl DbManagerApp {
                 }
             }
         }
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理数据库选择完成消息
@@ -419,7 +423,7 @@ impl DbManagerApp {
                 }
             }
         }
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理数据库删除完成消息
@@ -474,7 +478,7 @@ impl DbManagerApp {
             }
         }
 
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理表删除完成消息
@@ -514,7 +518,7 @@ impl DbManagerApp {
             }
         }
 
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理查询完成消息
@@ -595,7 +599,7 @@ impl DbManagerApp {
                         "忽略过期查询回包（请求已被新查询覆盖或标签已关闭）"
                     );
                     self.session.refresh_executing_flag();
-                    ctx.request_repaint();
+                    self.session.needs_repaint = true;
                     return;
                 }
 
@@ -701,7 +705,7 @@ impl DbManagerApp {
                         "忽略过期查询错误回包（请求已被新查询覆盖或标签已关闭）"
                     );
                     self.session.refresh_executing_flag();
-                    ctx.request_repaint();
+                    self.session.needs_repaint = true;
                     return;
                 }
 
@@ -711,7 +715,7 @@ impl DbManagerApp {
                         self.state.pending_drop_requests.remove(&request_id);
                     }
                     self.session.refresh_executing_flag();
-                    ctx.request_repaint();
+                    self.session.needs_repaint = true;
                     return;
                 }
 
@@ -761,7 +765,7 @@ impl DbManagerApp {
             }
         }
         self.session.refresh_executing_flag();
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
     /// 处理导入完成消息
     fn handle_import_done(
@@ -793,7 +797,7 @@ impl DbManagerApp {
             }
         }
 
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理主键获取完成消息
@@ -814,7 +818,7 @@ impl DbManagerApp {
                 self.state.grid_state.primary_key_column = None;
             }
         }
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 检查异步元数据回包是否仍对应当前连接上下文
@@ -877,7 +881,7 @@ impl DbManagerApp {
                 self.session.notifications.error(format!("加载触发器失败: {}", e));
             }
         }
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理存储过程/函数获取完成消息
@@ -927,7 +931,7 @@ impl DbManagerApp {
                 }
             }
         }
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理外键获取完成消息
@@ -954,7 +958,7 @@ impl DbManagerApp {
                 self.finalize_er_diagram_load_if_ready();
             }
         }
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理 ER 表列信息获取完成消息
@@ -1000,7 +1004,7 @@ impl DbManagerApp {
         self.state.er_diagram_state
             .mark_table_request_resolved(&table_name);
         self.finalize_er_diagram_load_if_ready();
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 }
 
