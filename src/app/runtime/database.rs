@@ -88,7 +88,7 @@ impl DbManagerApp {
         if !self.welcome_onboarding_status().is_complete() {
             self.open_welcome_setup_dialog(saved_db_type);
         }
-        self.save_config();
+        self.save_config_debounced();
         self.connect(name);
     }
 
@@ -280,7 +280,7 @@ impl DbManagerApp {
             self.session.command_history.clear();
             self.session.current_history_connection = None;
         }
-        self.save_config();
+        self.save_config_debounced();
     }
 
     /// 删除数据库（执行 DROP DATABASE）。
@@ -404,11 +404,7 @@ impl DbManagerApp {
         self.session.executing = true;
         self.result = None;
         self.session.last_query_time_ms = None;
-        self.session.next_query_request_id = self.session.next_query_request_id.wrapping_add(1);
-        if self.session.next_query_request_id == 0 {
-            self.session.next_query_request_id = 1;
-        }
-        let request_id = self.session.next_query_request_id;
+        let request_id = self.session.next_query_request_id();
         let mut target_tab_id = String::new();
 
         // 同步 SQL 到当前 Tab 并设置执行状态

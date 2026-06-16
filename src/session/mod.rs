@@ -29,6 +29,7 @@ pub struct Session {
     pub tab_manager: tab::QueryTabManager,
 
     // ── 异步基础设施 ──
+    /// 消息发送端。克隆后移入异步闭包：`let tx = self.session.tx.clone();`
     pub tx: Sender<message::Message>,
     pub rx: Receiver<message::Message>,
     pub runtime: tokio::runtime::Runtime,
@@ -38,10 +39,10 @@ pub struct Session {
     pub executing: bool,
     pub import_executing: bool,
 
-    // ── 请求 ID 序列 ──
-    pub next_connect_request_id: u64,
-    pub next_query_request_id: u64,
-    pub next_metadata_request_id: u64,
+    // ── 请求 ID 序列（私有：只能通过方法生成，保证单调递增）──
+    next_connect_request_id: u64,
+    next_query_request_id: u64,
+    next_metadata_request_id: u64,
 
     // ── 请求追踪 ──
     pub pending_connect_requests: HashMap<String, u64>,
@@ -147,6 +148,10 @@ impl Session {
 
     pub fn next_connect_request_id(&mut self) -> u64 {
         Self::next_nonzero_request_id(&mut self.next_connect_request_id)
+    }
+
+    pub fn next_query_request_id(&mut self) -> u64 {
+        Self::next_nonzero_request_id(&mut self.next_query_request_id)
     }
 
     pub fn next_metadata_request_id(&mut self) -> u64 {

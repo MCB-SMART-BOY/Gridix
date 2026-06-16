@@ -171,7 +171,7 @@ impl DbManagerApp {
         config.database = path.to_string_lossy().into_owned();
 
         self.session.manager.add(config);
-        self.save_config();
+        self.save_config_debounced();
         self.connect(LEARNING_CONNECTION_NAME.to_string());
 
         if notify {

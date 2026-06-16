@@ -116,6 +116,9 @@ impl DbManagerApp {
             ctx.request_repaint();
         }
 
+        // 批量持久化配置（5秒节流）
+        self.tick_config_save();
+
         // ===== 对话框 =====
         let was_connection_dialog_open = self.show_connection_dialog;
         let dialog_results = self.render_dialogs(&ctx);

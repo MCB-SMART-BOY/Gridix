@@ -232,6 +232,9 @@ pub struct DbManagerApp {
     sql_editor_height: f32,
     /// 待执行的切换日/夜模式操作（由键盘快捷键设置）
     pending_toggle_dark_mode: bool,
+    /// Config save throttling
+    config_dirty: bool,
+    last_config_save: std::time::Instant,
 }
 
 // ===== SQL 编辑器访问方法（委托给 tab_manager，消除 self.sql 双源）=====
@@ -252,6 +255,23 @@ impl DbManagerApp {
         }
         if let Some(tab) = self.session.tab_manager.get_active_mut() {
             tab.sql = sql;
+        }
+    }
+    // ── Config save throttling ──
+
+    /// Mark config as dirty — batch save on next tick
+    pub(crate) fn save_config_debounced(&mut self) {
+        self.config_dirty = true;
+    }
+
+    /// Periodically flush dirty config (called each frame)
+    pub(crate) fn tick_config_save(&mut self) {
+        if self.config_dirty
+            && self.last_config_save.elapsed() > std::time::Duration::from_secs(5)
+        {
+            self.save_config();
+            self.config_dirty = false;
+            self.last_config_save = std::time::Instant::now();
         }
     }
 }
@@ -378,6 +398,8 @@ impl DbManagerApp {
             er_diagram_state: ui::ERDiagramState::new(),
             sql_editor_height: 200.0, // 默认 SQL 编辑器高度
             pending_toggle_dark_mode: false,
+            config_dirty: false,
+            last_config_save: std::time::Instant::now(),
         };
         app.refresh_welcome_environment_status();
         app
@@ -579,7 +601,11 @@ impl eframe::App for DbManagerApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.save_config();
+        // Flush any pending config changes before exit
+        if self.config_dirty {
+            self.save_config();
+            self.config_dirty = false;
+        }
         for (_, handle) in self.session.pending_query_tasks.drain() {
             handle.abort();
         }
