@@ -1,7 +1,7 @@
 //! 边缘回归测试：覆盖高风险输入与状态机边界。
 
 use gridix::core::{AutoComplete, CompletionKind, SessionState, TabState};
-use gridix::database::DatabaseType;
+use gridix::data::DatabaseType;
 use gridix::ui::{
     WelcomeOnboardingStatus, WelcomeOnboardingStep, WelcomeServiceState, WelcomeStatusSummary,
 };

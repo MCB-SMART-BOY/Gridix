@@ -1,6 +1,6 @@
 //! 数据库模块测试
 
-use gridix::database::{
+use gridix::data::{
     ConnectionConfig, DatabaseType, MySqlSslMode, PostgresSslMode, SshAuthMethod,
     SshTunnelConfig,
 };

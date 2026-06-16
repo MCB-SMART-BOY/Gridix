@@ -8,7 +8,7 @@
 //! GRIDIX_IT_MYSQL_DB=test \
 //! cargo test --test mysql_cancel_integration -- --ignored
 
-use gridix::database::{
+use gridix::data::{
     ConnectionConfig, DatabaseType, MySqlSslMode, execute_query, execute_query_cancellable,
 };
 use std::time::{Duration, Instant};

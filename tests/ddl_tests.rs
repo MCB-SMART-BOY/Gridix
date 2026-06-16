@@ -2,7 +2,7 @@
 //!
 //! 测试表定义、列类型转换等
 
-use gridix::database::DatabaseType;
+use gridix::data::DatabaseType;
 use gridix::ui::{ColumnDefinition, ColumnType, TableDefinition};
 
 #[test]

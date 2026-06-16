@@ -354,14 +354,14 @@ fn test_highlight_with_numbers() {
 
 #[test]
 fn test_db_error_connection_display() {
-    let err = gridix::database::DbError::Connection("连接超时".to_string());
+    let err = gridix::data::DbError::Connection("连接超时".to_string());
     assert!(err.to_string().contains("连接超时"));
     assert!(err.to_string().contains("连接错误"));
 }
 
 #[test]
 fn test_db_error_query_display() {
-    let err = gridix::database::DbError::Query("syntax error near FROM".to_string());
+    let err = gridix::data::DbError::Query("syntax error near FROM".to_string());
     assert!(err.to_string().contains("syntax error"));
     assert!(err.to_string().contains("查询错误"));
 }

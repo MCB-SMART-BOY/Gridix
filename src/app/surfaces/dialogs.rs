@@ -551,7 +551,7 @@ mod tests {
         assert!(app.pending_delete_target.is_none());
         assert!(!app.show_delete_confirm);
         assert_eq!(app.active_dialog_id(), None);
-        assert_eq!(app.notifications.latest_message(), Some("目标连接已失效"));
+        assert_eq!(app.session.notifications.latest_message(), Some("目标连接已失效"));
     }
 
     #[test]
@@ -565,7 +565,7 @@ mod tests {
         assert!(app.pending_delete_target.is_none());
         assert!(!app.show_delete_confirm);
         assert_eq!(app.active_dialog_id(), None);
-        assert_eq!(app.notifications.latest_message(), Some("目标连接已失效"));
+        assert_eq!(app.session.notifications.latest_message(), Some("目标连接已失效"));
     }
 
     #[test]
