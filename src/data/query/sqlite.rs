@@ -417,4 +417,28 @@ mod tests {
         let triggers = get_triggers(&config).unwrap();
         assert!(triggers.is_empty());
     }
+
+    #[test]
+    fn connect_rejects_missing_database() {
+        let config = ConnectionConfig {
+            db_type: DatabaseType::SQLite,
+            database: "/nonexistent/path/db.sqlite".to_string(),
+            ..Default::default()
+        };
+        let result = connect(&config);
+        assert!(result.is_err()); // can't create dirs in test
+    }
+
+    #[test]
+    fn get_triggers_returns_trigger_info() {
+        let conn = rusqlite::Connection::open(":memory:").unwrap();
+        conn.execute("CREATE TABLE t (x INTEGER)", []).unwrap();
+        conn.execute("CREATE TRIGGER trg AFTER INSERT ON t BEGIN UPDATE t SET x = x + 1; END", [])
+            .unwrap();
+        let config = test_config();
+        let triggers = get_triggers(&config).unwrap();
+        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers[0].name, "trg");
+        assert!(triggers[0].definition.contains("INSERT ON t"));
+    }
 }

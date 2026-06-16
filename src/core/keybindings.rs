@@ -1032,7 +1032,6 @@ pub struct KeyBindings {
     diagnostics: Vec<KeymapDiagnostic>,
 }
 
-    #[path = "keybindings_defaults.rs"]
     fn default() -> Self {
         let mut bindings = HashMap::new();
 
