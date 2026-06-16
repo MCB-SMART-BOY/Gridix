@@ -4,9 +4,9 @@
 //! 更多字段将在后续提交中逐步迁移。
 
 use crate::core::{HighlightColors, ThemeManager};
-use crate::ui::{EditorMode, ERDiagramState, ExportConfig, FocusArea, ImportState, SidebarSection};
+use crate::ui::{DataGridState, EditorMode, ERDiagramState, ExportConfig, FocusArea, ImportState, SidebarSection};
 use crate::ui::{CreateDbDialogState, CreateUserDialogState, DdlDialogState, HelpState};
-use crate::ui::{HistoryPanelState, KeyBindingsDialogState};
+use crate::ui::{HistoryPanelState, KeyBindingsDialogState, SidebarPanelState};
 use crate::ui::{ToolbarMenuDialogState, ToolbarThemeDialogState};
 
 /// UI 状态（逐步从 DbManagerApp 提取中）
@@ -47,6 +47,8 @@ pub struct UiState {
     pub create_user_dialog_state: CreateUserDialogState,
     pub show_welcome_setup_dialog: bool,
     pub show_er_diagram: bool,
+    pub grid_state: DataGridState,
+    pub sidebar_panel_state: SidebarPanelState,
     pub er_diagram_state: ERDiagramState,
 }
 
@@ -92,6 +94,8 @@ impl Default for UiState {
             show_welcome_setup_dialog: false,
             show_er_diagram: false,
             er_diagram_state: ERDiagramState::default(),
+            grid_state: DataGridState::default(),
+            sidebar_panel_state: SidebarPanelState::default(),
         }
     }
 }

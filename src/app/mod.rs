@@ -125,7 +125,6 @@ pub struct DbManagerApp {
     /// 当前选中的单元格 (行, 列)
     selected_cell: Option<(usize, usize)>,
     /// 数据表格状态（筛选、排序、编辑等）
-    grid_state: ui::DataGridState,
     /// 按表实例隔离的表格工作区状态
     grid_workspaces: GridWorkspaceStore,
     /// 当前活动 surface 是否使用持久化 grid workspace
@@ -168,7 +167,6 @@ pub struct DbManagerApp {
     toolbar_index: usize,
     /// 侧边栏当前焦点子区域（连接/数据库/表）
     /// 侧边栏面板状态（上下分割、触发器列表、选中索引等）
-    sidebar_panel_state: ui::SidebarPanelState,
     /// 侧边栏宽度
     /// 欢迎页数据库环境检测状态
     welcome_status: ui::WelcomeStatusSummary,
@@ -336,7 +334,6 @@ impl DbManagerApp {
             search_column: None,
             selected_row: None,
             selected_cell: None,
-            grid_state: ui::DataGridState::new(),
             grid_workspaces: GridWorkspaceStore::default(),
             active_grid_workspace_enabled: false,
             export_status: None,
@@ -345,7 +342,6 @@ impl DbManagerApp {
             pending_filter_input_focus: None,
             dock_state: ui::dock_tabs::default_layout(),
             toolbar_index: 0,
-            sidebar_panel_state,
             sidebar_width: 280.0, // 默认侧边栏宽度
             welcome_status: ui::WelcomeStatusSummary::default(),
             welcome_setup_target: DatabaseType::SQLite,
@@ -439,11 +435,11 @@ impl DbManagerApp {
         let Some(workspace_id) = self.active_grid_workspace_id() else {
             return;
         };
-        self.grid_workspaces.save(workspace_id, &self.grid_state);
+        self.grid_workspaces.save(workspace_id, &self.state.grid_state);
     }
 
     fn sync_active_grid_focus(&mut self) {
-        self.grid_state.focused = self.state.focus_area == ui::FocusArea::DataGrid;
+        self.state.grid_state.focused = self.state.focus_area == ui::FocusArea::DataGrid;
     }
 
     pub(in crate::app) fn sync_active_surface_binding_to_tab(&mut self) {
@@ -456,7 +452,7 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn restore_grid_surface_from_active_tab(&mut self) {
-        self.grid_state = match self.active_grid_workspace_id() {
+        self.state.grid_state = match self.active_grid_workspace_id() {
             Some(workspace_id) => self.grid_workspaces.load(&workspace_id).unwrap_or_default(),
             None => ui::DataGridState::new(),
         };

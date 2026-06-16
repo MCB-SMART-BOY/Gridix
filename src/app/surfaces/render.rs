@@ -193,10 +193,10 @@ impl DbManagerApp {
                                     &mut self.state.show_connection_dialog,
                                     is_sidebar_focused,
                                     self.state.sidebar_section,
-                                    &mut self.sidebar_panel_state,
+                                    &mut self.state.sidebar_panel_state,
                                     sidebar_width,
                                     &self.keybindings,
-                                    &mut self.grid_state.filters,
+                                    &mut self.state.grid_state.filters,
                                     &columns,
                                     &mut self.pending_filter_input_focus,
                                 );
@@ -204,7 +204,7 @@ impl DbManagerApp {
 
                                 // 如果筛选条件改变，使缓存失效
                                 if filter_changed {
-                                    self.grid_state.filter_cache.invalidate();
+                                    self.state.grid_state.filter_cache.invalidate();
                                 }
 
                                 if ui.ui_contains_pointer()
@@ -390,14 +390,14 @@ impl DbManagerApp {
 
         if workspace_surface == WorkspaceSurface::TabularResult {
             if let Some(result) = &self.result {
-                self.grid_state.focused = self.state.focus_area == ui::FocusArea::DataGrid
+                self.state.grid_state.focused = self.state.focus_area == ui::FocusArea::DataGrid
                     && !self.has_modal_dialog_open();
                 let table_name = self.selected_table.as_deref();
                 let (grid_actions, _) = ui::DataGrid::show_editable(
                     ui, result,
                     &self.search_text, &self.search_column,
                     &mut self.selected_row, &mut self.selected_cell,
-                    &mut self.grid_state, table_name, &self.keybindings,
+                    &mut self.state.grid_state, table_name, &self.keybindings,
                 );
                 if grid_actions.open_filter_panel {
                     let ctx = ui.ctx().clone();
@@ -653,10 +653,10 @@ impl DbManagerApp {
             self.switch_grid_workspace(None);
             self.clear_result();
             self.session.autocomplete.clear();
-            self.sidebar_panel_state.clear_triggers();
-            self.sidebar_panel_state.clear_routines();
-            self.sidebar_panel_state.loading_triggers = false;
-            self.sidebar_panel_state.loading_routines = false;
+            self.state.sidebar_panel_state.clear_triggers();
+            self.state.sidebar_panel_state.clear_routines();
+            self.state.sidebar_panel_state.loading_triggers = false;
+            self.state.sidebar_panel_state.loading_routines = false;
         }
 
         // 数据库切换
@@ -750,7 +750,7 @@ impl DbManagerApp {
         actions: ui::SidebarActions,
     ) {
         if actions.filter_changed {
-            self.grid_state.filter_cache.invalidate();
+            self.state.grid_state.filter_cache.invalidate();
         }
 
         // 焦点转移
@@ -907,7 +907,7 @@ impl DbManagerApp {
             ui::SidebarSection::Triggers => self.load_triggers(),
             ui::SidebarSection::Routines => self.load_routines(),
             ui::SidebarSection::Filters => {
-                self.grid_state.filter_cache.invalidate();
+                self.state.grid_state.filter_cache.invalidate();
             }
         }
     }
@@ -935,47 +935,47 @@ impl DbManagerApp {
 
         let insert_index = match mode {
             ui::SidebarFilterInsertMode::BelowSelection => {
-                if self.grid_state.filters.is_empty() {
+                if self.state.grid_state.filters.is_empty() {
                     0
                 } else {
-                    (self.sidebar_panel_state.selection.filters + 1)
-                        .min(self.grid_state.filters.len())
+                    (self.state.sidebar_panel_state.selection.filters + 1)
+                        .min(self.state.grid_state.filters.len())
                 }
             }
-            ui::SidebarFilterInsertMode::AppendEnd => self.grid_state.filters.len(),
+            ui::SidebarFilterInsertMode::AppendEnd => self.state.grid_state.filters.len(),
         };
 
-        self.grid_state
+        self.state.grid_state
             .filters
             .insert(insert_index, ui::ColumnFilter::new(default_col));
-        self.sidebar_panel_state.selection.filters = insert_index;
-        self.grid_state.filter_cache.invalidate();
+        self.state.sidebar_panel_state.selection.filters = insert_index;
+        self.state.grid_state.filter_cache.invalidate();
 
         self.state.show_sidebar = true;
-        self.sidebar_panel_state.show_filters = true;
+        self.state.sidebar_panel_state.show_filters = true;
         self.state.sidebar_section = ui::SidebarSection::Filters;
         self.set_focus_area(ui::FocusArea::Sidebar);
-        self.sidebar_panel_state.workflow.filter_workspace = ui::SidebarFilterWorkspaceMode::Input;
+        self.state.sidebar_panel_state.workflow.filter_workspace = ui::SidebarFilterWorkspaceMode::Input;
         self.pending_filter_input_focus = Some(insert_index);
     }
 
     /// 侧边栏清空筛选条件
     pub(in crate::app) fn clear_sidebar_filters(&mut self) {
-        if self.grid_state.filters.is_empty() {
+        if self.state.grid_state.filters.is_empty() {
             return;
         }
-        self.grid_state.filters.clear();
-        self.sidebar_panel_state.selection.filters = 0;
-        self.sidebar_panel_state.exit_filter_input();
+        self.state.grid_state.filters.clear();
+        self.state.sidebar_panel_state.selection.filters = 0;
+        self.state.sidebar_panel_state.exit_filter_input();
         self.pending_filter_input_focus = None;
-        self.grid_state.filter_cache.invalidate();
+        self.state.grid_state.filter_cache.invalidate();
     }
 
     /// 切换筛选条件逻辑（AND/OR）
     fn toggle_sidebar_filter_logic(&mut self, index: usize) {
-        if let Some(filter) = self.grid_state.filters.get_mut(index) {
+        if let Some(filter) = self.state.grid_state.filters.get_mut(index) {
             filter.logic.toggle();
-            self.grid_state.filter_cache.invalidate();
+            self.state.grid_state.filter_cache.invalidate();
         }
     }
 
@@ -987,7 +987,7 @@ impl DbManagerApp {
         if columns.is_empty() {
             return;
         }
-        let Some(filter) = self.grid_state.filters.get_mut(index) else {
+        let Some(filter) = self.state.grid_state.filters.get_mut(index) else {
             return;
         };
 
@@ -1005,13 +1005,13 @@ impl DbManagerApp {
 
         if let Some(new_col) = columns.get(next) {
             filter.column = new_col.clone();
-            self.grid_state.filter_cache.invalidate();
+            self.state.grid_state.filter_cache.invalidate();
         }
     }
 
     /// 聚焦筛选输入框（i）
     fn focus_sidebar_filter_input(&mut self, index: usize) {
-        let Some(filter) = self.grid_state.filters.get_mut(index) else {
+        let Some(filter) = self.state.grid_state.filters.get_mut(index) else {
             return;
         };
         if !filter.operator.needs_value() {
@@ -1019,11 +1019,11 @@ impl DbManagerApp {
             return;
         }
         filter.enabled = true;
-        self.sidebar_panel_state.selection.filters = index;
+        self.state.sidebar_panel_state.selection.filters = index;
         self.pending_filter_input_focus = Some(index);
-        self.sidebar_panel_state.workflow.filter_workspace = ui::SidebarFilterWorkspaceMode::Input;
+        self.state.sidebar_panel_state.workflow.filter_workspace = ui::SidebarFilterWorkspaceMode::Input;
         self.state.show_sidebar = true;
-        self.sidebar_panel_state.show_filters = true;
+        self.state.sidebar_panel_state.show_filters = true;
         self.state.sidebar_section = ui::SidebarSection::Filters;
         self.set_focus_area(ui::FocusArea::Sidebar);
     }

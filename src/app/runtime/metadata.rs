@@ -17,8 +17,8 @@ impl DbManagerApp {
             let request_id = self.session.next_metadata_request_id();
             let tx = self.session.tx.clone();
 
-            self.sidebar_panel_state.loading_triggers = true;
-            self.sidebar_panel_state.clear_triggers();
+            self.state.sidebar_panel_state.loading_triggers = true;
+            self.state.sidebar_panel_state.clear_triggers();
             self.session.pending_triggers_request =
                 Some((active_name.clone(), database.clone(), request_id));
 
@@ -52,8 +52,8 @@ impl DbManagerApp {
             let request_id = self.session.next_metadata_request_id();
             let tx = self.session.tx.clone();
 
-            self.sidebar_panel_state.loading_routines = true;
-            self.sidebar_panel_state.clear_routines();
+            self.state.sidebar_panel_state.loading_routines = true;
+            self.state.sidebar_panel_state.clear_routines();
             self.session.pending_routines_request =
                 Some((active_name.clone(), database.clone(), request_id));
 

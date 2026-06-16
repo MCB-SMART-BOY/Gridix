@@ -1160,11 +1160,11 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::SaveGridChanges => {
-                self.grid_state.pending_save = true;
+                self.state.grid_state.pending_save = true;
                 Vec::new()
             }
             AppAction::GotoLine => {
-                self.grid_state.show_goto_dialog = true;
+                self.state.grid_state.show_goto_dialog = true;
                 Vec::new()
             }
             AppAction::FocusSidebar => {
@@ -1258,7 +1258,7 @@ impl DbManagerApp {
         };
         self.switch_grid_workspace(Some(table.clone()));
         if reset_primary_key {
-            self.grid_state.primary_key_column = None;
+            self.state.grid_state.primary_key_column = None;
         }
 
         let query_sql = match ui::quote_identifier(&table, self.is_mysql()) {
@@ -1292,7 +1292,7 @@ impl DbManagerApp {
 
     fn open_filter_workspace(&mut self) {
         self.state.show_sidebar = true;
-        self.sidebar_panel_state.show_filters = true;
+        self.state.sidebar_panel_state.show_filters = true;
         self.state.sidebar_section = ui::SidebarSection::Filters;
         self.set_focus_area(FocusArea::Sidebar);
     }
@@ -1342,25 +1342,25 @@ impl DbManagerApp {
             ui::SidebarSection::Connections
             | ui::SidebarSection::Databases
             | ui::SidebarSection::Tables => {
-                self.sidebar_panel_state.show_connections = true;
+                self.state.sidebar_panel_state.show_connections = true;
             }
             ui::SidebarSection::Filters => {
-                self.sidebar_panel_state.show_filters = true;
+                self.state.sidebar_panel_state.show_filters = true;
             }
             ui::SidebarSection::Triggers => {
-                self.sidebar_panel_state.show_triggers = true;
+                self.state.sidebar_panel_state.show_triggers = true;
             }
             ui::SidebarSection::Routines => {
-                self.sidebar_panel_state.show_routines = true;
+                self.state.sidebar_panel_state.show_routines = true;
             }
         }
 
-        if !self.sidebar_panel_state.show_connections
-            && !self.sidebar_panel_state.show_filters
-            && !self.sidebar_panel_state.show_triggers
-            && !self.sidebar_panel_state.show_routines
+        if !self.state.sidebar_panel_state.show_connections
+            && !self.state.sidebar_panel_state.show_filters
+            && !self.state.sidebar_panel_state.show_triggers
+            && !self.state.sidebar_panel_state.show_routines
         {
-            self.sidebar_panel_state.show_connections = true;
+            self.state.sidebar_panel_state.show_connections = true;
             self.state.sidebar_section = ui::SidebarSection::Connections;
         }
     }

@@ -761,11 +761,11 @@ impl DbManagerApp {
         self.state.focus_area = area;
         match area {
             ui::FocusArea::DataGrid => {
-                self.grid_state.focused = true;
+                self.state.grid_state.focused = true;
                 self.state.focus_sql_editor = false;
             }
             ui::FocusArea::SqlEditor => {
-                self.grid_state.focused = false;
+                self.state.grid_state.focused = false;
                 self.state.focus_sql_editor = true;
             }
             ui::FocusArea::Toolbar
@@ -773,7 +773,7 @@ impl DbManagerApp {
             | ui::FocusArea::Sidebar
             | ui::FocusArea::ErDiagram
             | ui::FocusArea::Dialog => {
-                self.grid_state.focused = false;
+                self.state.grid_state.focused = false;
                 self.state.focus_sql_editor = false;
             }
         }
@@ -852,9 +852,9 @@ impl DbManagerApp {
             focus_area: self.state.focus_area,
             editor_mode: self.state.editor_mode,
             sidebar_section: self.state.sidebar_section,
-            filter_input_has_focus: self.sidebar_panel_state.filter_input_has_focus,
-            grid_mode: self.grid_state.mode,
-            grid_editing_cell: self.grid_state.editing_cell.is_some(),
+            filter_input_has_focus: self.state.sidebar_panel_state.filter_input_has_focus,
+            grid_mode: self.state.grid_state.mode,
+            grid_editing_cell: self.state.grid_state.editing_cell.is_some(),
             show_connection_dialog: self.state.show_connection_dialog,
             show_export_dialog: self.state.show_export_dialog,
             show_import_dialog: self.state.show_import_dialog,
@@ -1003,29 +1003,29 @@ impl DbManagerApp {
         );
 
         let panel_visible = match section {
-            ui::SidebarSection::Connections => self.sidebar_panel_state.show_connections,
+            ui::SidebarSection::Connections => self.state.sidebar_panel_state.show_connections,
             ui::SidebarSection::Databases | ui::SidebarSection::Tables => {
-                self.sidebar_panel_state.show_connections
+                self.state.sidebar_panel_state.show_connections
             }
-            ui::SidebarSection::Filters => self.sidebar_panel_state.show_filters,
-            ui::SidebarSection::Triggers => self.sidebar_panel_state.show_triggers,
-            ui::SidebarSection::Routines => self.sidebar_panel_state.show_routines,
+            ui::SidebarSection::Filters => self.state.sidebar_panel_state.show_filters,
+            ui::SidebarSection::Triggers => self.state.sidebar_panel_state.show_triggers,
+            ui::SidebarSection::Routines => self.state.sidebar_panel_state.show_routines,
         };
 
         if is_toggle_panel && self.state.show_sidebar && self.state.sidebar_section == section && panel_visible
         {
             match section {
                 ui::SidebarSection::Connections => {
-                    self.sidebar_panel_state.show_connections = false;
+                    self.state.sidebar_panel_state.show_connections = false;
                 }
                 ui::SidebarSection::Filters => {
-                    self.sidebar_panel_state.show_filters = false;
+                    self.state.sidebar_panel_state.show_filters = false;
                 }
                 ui::SidebarSection::Triggers => {
-                    self.sidebar_panel_state.show_triggers = false;
+                    self.state.sidebar_panel_state.show_triggers = false;
                 }
                 ui::SidebarSection::Routines => {
-                    self.sidebar_panel_state.show_routines = false;
+                    self.state.sidebar_panel_state.show_routines = false;
                 }
                 _ => {}
             }
@@ -1044,16 +1044,16 @@ impl DbManagerApp {
             ui::SidebarSection::Connections
             | ui::SidebarSection::Databases
             | ui::SidebarSection::Tables => {
-                self.sidebar_panel_state.show_connections = true;
+                self.state.sidebar_panel_state.show_connections = true;
             }
             ui::SidebarSection::Filters => {
-                self.sidebar_panel_state.show_filters = true;
+                self.state.sidebar_panel_state.show_filters = true;
             }
             ui::SidebarSection::Triggers => {
-                self.sidebar_panel_state.show_triggers = true;
+                self.state.sidebar_panel_state.show_triggers = true;
             }
             ui::SidebarSection::Routines => {
-                self.sidebar_panel_state.show_routines = true;
+                self.state.sidebar_panel_state.show_routines = true;
             }
         }
     }

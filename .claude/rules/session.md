@@ -9,82 +9,78 @@ paths:
 
 ## Architecture
 
-`Session` owns all async infrastructure and connection lifecycle. It is the bridge between the data layer (pure DB operations) and the state layer (UI state).
+`Session` owns all async infrastructure and connection lifecycle.
 
 ```
-data/ (Layer 1) → Session (Layer 2) → FrameEffects → State (Layer 3) → ui/ (Layer 4)
+data/ (Layer 1) → Session (Layer 2) → FrameEffects (defined, not yet wired) → state/ (Layer 3) → ui/ (Layer 4)
 ```
 
-**Note:** `FrameEffects` types are defined in `session/frame_effects.rs` but not yet wired into the message processing pipeline. `handle_messages()` still lives on `DbManagerApp`.
+`FrameEffects` types defined in `session/frame_effects.rs`. Wiring delayed until QueryDone handler is ready for migration.
 
-## Session struct (30 fields)
+## Session struct (current state)
 
 ```rust
 pub struct Session {
-    // Connection
     pub manager: ConnectionManager,
-    // Tab management
-    pub tab_manager: QueryTabManager,
-    // Async infrastructure
-    pub tx: Sender<Message>,
-    pub rx: Receiver<Message>,
+    pub tab_manager: tab::QueryTabManager,
+    pub tx: Sender<message::Message>,
+    pub rx: Receiver<message::Message>,
     pub runtime: tokio::runtime::Runtime,
-    // Execution state
-    pub connecting: bool, pub executing: bool, pub import_executing: bool,
-    // Request IDs
-    pub next_connect_request_id: u64, pub next_query_request_id: u64,
-    pub next_metadata_request_id: u64,
-    // Request tracking (pending maps, query tasks, cancellers)
-    // History
-    pub query_history: QueryHistory,
-    pub last_query_time_ms: Option<u64>,
-    pub current_history_connection: Option<String>,
-    // Command history
-    pub command_history: Vec<String>, pub history_index: Option<usize>,
-    // Autocomplete
-    pub autocomplete: AutoComplete,
-    // Notifications
-    pub notifications: NotificationManager, pub progress: ProgressManager,
+    pub connecting: bool,
+    pub executing: bool,
+    pub import_executing: bool,
+    // Request IDs (private — accessed via methods)
+    next_connect_request_id: u64,
+    next_query_request_id: u64,
+    next_metadata_request_id: u64,
+    // Request tracking
+    pub pending_connect_requests: HashMap<...>,
+    pub pending_database_requests: HashMap<...>,
+    // ... (30 fields total)
 }
 ```
 
-**⚠️ All fields are `pub` — there is no encapsulation.** Any code can bypass methods and directly mutate internal state. Fix: make fields `pub(crate)`, expose operations through methods.
+**Encapsulation:** Request ID fields are private (accessed via `next_*_request_id()` methods). Other fields are `pub` — no external crate can access them since `app` is `pub(crate)`. Full encapsulation is not a priority for a single-crate project.
 
-## Core methods (implemented)
+## Core methods
 
-- `next_connect_request_id()` / `next_metadata_request_id()` — ID generation
-- `refresh_connecting_flag()` / `refresh_executing_flag()` — state refresh
-- `track_query_task()` — task registration
-- `active_sql()` / `set_active_sql()` — SQL editor access
-- `ensure_active_tab()` — tab lifecycle
+- `connect(name)` — spawns async connect task, tracks request_id (on DbManagerApp, pending migration)
+- `disconnect(name)` — clears SSH tunnels, removes pool entries (on DbManagerApp)
+- `execute(sql)` — spawns async query task (on DbManagerApp)
+- `cancel(request_id)` — sends cancel signal (on DbManagerApp)
+- `ensure_active_tab()` — creates tab if none exists
+- `active_sql()` / `set_active_sql(sql)` — read/write editor SQL
+- `next_connect_request_id()`, `next_query_request_id()`, `next_metadata_request_id()`
+- `refresh_connecting_flag()`, `refresh_executing_flag()`
+- `track_query_task()`
 
-## FrameEffects (defined, not wired)
+## FrameEffects (defined, minimal wiring pending)
 
-`session/frame_effects.rs` defines: `FrameEffects`, `QueryResultEffect`, `ConnectionEffect`, `MetadataEffect`, `NotifyLevel`.
+```rust
+pub struct FrameEffects {
+    pub queries: Vec<QueryResultEffect>,
+    pub connections: Vec<ConnectionEffect>,
+    pub metadata: Vec<MetadataEffect>,
+    pub notifications: Vec<(NotifyLevel, String)>,
+    pub repaint: bool,
+}
+```
 
-These types exist for future Session → State communication. Currently `handle_messages()` on `DbManagerApp` directly mutates both Session and State.
+Currently defined in `session/frame_effects.rs`. Not yet wired into the message handling pipeline. Will be connected one handler at a time, starting with the simplest (ImportDone).
 
 ## Message enum
 
-13 variants in `session/message.rs`, all carry `request_id: u64`. Re-exported from `app/runtime/message.rs` for backward compatibility.
+13 variants in `session/message.rs`. 6 carry `request_id`, 6 are idempotent (no guard needed). All handlers have appropriate stale guards except documented safe cases (DatabaseDropped, TableDropped, ImportDone, ForeignKeysFetched).
 
 ## Request lifecycle
 
-- `RequestIdCounter` → Session fields `next_*_request_id`
-- `PendingRequests` → Session fields `pending_*`
-- Stale response guard: handler compares request_id against latest pending
-- Cancel: backend-specific (InterruptHandle/CancelToken/KILL QUERY)
-
-## Tab management
-
-- `QueryTab` is pure data (id, title, sql, result, executing, modified, error, timing)
-- `QueryTabManager` holds `Vec<QueryTab>` + `active_index`
-- Tab rendering (tab bar widget) lives in `ui/components/query_tabs.rs`
-- `self.sql` is eliminated — always accessed via `session.active_sql()`
+- `RequestIdCounter` generates monotonic IDs per category
+- `PendingRequests` tracks in-flight operations
+- Cancel: backend-specific (SQLite InterruptHandle, PG CancelToken, MySQL KILL QUERY)
+- All taken from `DbManagerApp` via `self.session.xxx`
 
 ## Invariants
 
-- `handle_messages()` is called once per frame, before rendering
-- `self.sql` is eliminated — single source = tab_manager
-- SSH tunnels are stopped via `tokio::runtime::Handle::spawn()`
+- `poll_messages()` (handle_messages) called once per frame, before rendering
+- SSH tunnels stopped via `tokio::runtime::Handle::spawn()`, not `std::thread::spawn()`
 - All `Mutex::lock()` calls use `unwrap_or_else(|e| e.into_inner())`

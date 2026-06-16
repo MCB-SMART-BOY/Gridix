@@ -294,7 +294,7 @@ impl DbManagerApp {
                     ));
                     self.load_history_for_connection(&name);
                     self.session.autocomplete.set_tables(tables);
-                    self.sidebar_panel_state
+                    self.state.sidebar_panel_state
                         .selection
                         .reset_for_connection_change();
                     self.load_triggers();
@@ -350,7 +350,7 @@ impl DbManagerApp {
                     ));
                     self.load_history_for_connection(&name);
                     self.session.autocomplete.clear();
-                    self.sidebar_panel_state
+                    self.state.sidebar_panel_state
                         .selection
                         .reset_for_connection_change();
                 }
@@ -404,7 +404,7 @@ impl DbManagerApp {
                         tables.len()
                     ));
                     self.session.autocomplete.set_tables(tables);
-                    self.sidebar_panel_state
+                    self.state.sidebar_panel_state
                         .selection
                         .reset_for_database_change();
                     self.load_triggers();
@@ -447,7 +447,7 @@ impl DbManagerApp {
 
                 self.remove_grid_workspaces_for_database(&db_name);
                 if is_active {
-                    self.sidebar_panel_state
+                    self.state.sidebar_panel_state
                         .selection
                         .reset_for_database_change();
                     if dropped_selected_database {
@@ -456,10 +456,10 @@ impl DbManagerApp {
                         self.selected_table = None;
                         self.clear_search();
                         self.session.autocomplete.clear();
-                        self.sidebar_panel_state.clear_triggers();
-                        self.sidebar_panel_state.clear_routines();
-                        self.sidebar_panel_state.loading_triggers = false;
-                        self.sidebar_panel_state.loading_routines = false;
+                        self.state.sidebar_panel_state.clear_triggers();
+                        self.state.sidebar_panel_state.clear_routines();
+                        self.state.sidebar_panel_state.loading_triggers = false;
+                        self.state.sidebar_panel_state.loading_routines = false;
                         self.state.sidebar_section = ui::SidebarSection::Databases;
                         self.set_focus_area(ui::FocusArea::Sidebar);
                     }
@@ -634,15 +634,15 @@ impl DbManagerApp {
 
                         // 根据 SQL 类型设置光标位置
                         if is_update_or_delete {
-                            self.grid_state.scroll_to_row = Some(self.grid_state.cursor.0);
+                            self.state.grid_state.scroll_to_row = Some(self.state.grid_state.cursor.0);
                         } else if is_insert {
                             let last_row = res.rows.len().saturating_sub(1);
-                            self.grid_state.cursor = (last_row, 0);
-                            self.grid_state.scroll_to_row = Some(last_row);
+                            self.state.grid_state.cursor = (last_row, 0);
+                            self.state.grid_state.scroll_to_row = Some(last_row);
                         }
 
                         if self.state.focus_area == ui::FocusArea::DataGrid {
-                            self.grid_state.focused = true;
+                            self.state.grid_state.focused = true;
                         }
 
                         // 更新自动补全
@@ -808,10 +808,10 @@ impl DbManagerApp {
                 if let Some(result) = &self.result
                     && let Some(idx) = result.columns.iter().position(|c| c == &pk_name)
                 {
-                    self.grid_state.primary_key_column = Some(idx);
+                    self.state.grid_state.primary_key_column = Some(idx);
                 }
             } else {
-                self.grid_state.primary_key_column = None;
+                self.state.grid_state.primary_key_column = None;
             }
         }
         ctx.request_repaint();
@@ -864,14 +864,14 @@ impl DbManagerApp {
                 database = ?db_name,
                 "忽略过期触发器回包"
             );
-            self.sidebar_panel_state.loading_triggers = false;
+            self.state.sidebar_panel_state.loading_triggers = false;
             return;
         }
 
-        self.sidebar_panel_state.loading_triggers = false;
+        self.state.sidebar_panel_state.loading_triggers = false;
         match result {
             Ok(triggers) => {
-                self.sidebar_panel_state.set_triggers(triggers);
+                self.state.sidebar_panel_state.set_triggers(triggers);
             }
             Err(e) => {
                 self.session.notifications.error(format!("加载触发器失败: {}", e));
@@ -911,14 +911,14 @@ impl DbManagerApp {
                 database = ?db_name,
                 "忽略过期存储过程回包"
             );
-            self.sidebar_panel_state.loading_routines = false;
+            self.state.sidebar_panel_state.loading_routines = false;
             return;
         }
 
-        self.sidebar_panel_state.loading_routines = false;
+        self.state.sidebar_panel_state.loading_routines = false;
         match result {
             Ok(routines) => {
-                self.sidebar_panel_state.set_routines(routines);
+                self.state.sidebar_panel_state.set_routines(routines);
             }
             Err(e) => {
                 // 对于 SQLite 不显示错误，因为它不支持存储过程

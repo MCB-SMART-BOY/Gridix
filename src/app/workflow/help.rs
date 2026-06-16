@@ -65,7 +65,7 @@ impl DbManagerApp {
                 }
 
                 self.state.show_sidebar = true;
-                self.sidebar_panel_state.show_connections = true;
+                self.state.sidebar_panel_state.show_connections = true;
                 self.state.sidebar_section = ui::SidebarSection::Tables;
                 self.state.show_sql_editor = true;
                 self.set_focus_area(ui::FocusArea::DataGrid);
@@ -73,7 +73,7 @@ impl DbManagerApp {
 
                 if let Some(table_name) = table {
                     self.switch_grid_workspace(Some(table_name.clone()));
-                    self.grid_state.primary_key_column = None;
+                    self.state.grid_state.primary_key_column = None;
                     self.fetch_primary_key(&table_name);
                 }
 
@@ -110,7 +110,7 @@ impl DbManagerApp {
                 }
 
                 self.state.show_sidebar = true;
-                self.sidebar_panel_state.show_connections = true;
+                self.state.sidebar_panel_state.show_connections = true;
                 self.state.sidebar_section = ui::SidebarSection::Tables;
                 self.set_er_diagram_visible_with_notice(
                     true,
@@ -204,7 +204,7 @@ impl DbManagerApp {
 
         self.session.notifications.success(success_message);
         self.state.show_sidebar = true;
-        self.sidebar_panel_state.show_connections = true;
+        self.state.sidebar_panel_state.show_connections = true;
         self.state.sidebar_section = ui::SidebarSection::Tables;
         self.state.show_sql_editor = true;
         self.set_focus_area(ui::FocusArea::DataGrid);
@@ -216,7 +216,7 @@ impl DbManagerApp {
 
         if let Some(table_name) = preview_table {
             self.switch_grid_workspace(Some(table_name.clone()));
-            self.grid_state.primary_key_column = None;
+            self.state.grid_state.primary_key_column = None;
             self.fetch_primary_key(&table_name);
         }
 

@@ -105,10 +105,10 @@ impl DbManagerApp {
             self.session.pending_database_requests.remove(&name);
             self.session.pending_triggers_request = None;
             self.session.pending_routines_request = None;
-            self.sidebar_panel_state.loading_triggers = false;
-            self.sidebar_panel_state.loading_routines = false;
-            self.sidebar_panel_state.clear_triggers();
-            self.sidebar_panel_state.clear_routines();
+            self.state.sidebar_panel_state.loading_triggers = false;
+            self.state.sidebar_panel_state.loading_routines = false;
+            self.state.sidebar_panel_state.clear_triggers();
+            self.state.sidebar_panel_state.clear_routines();
             self.session.refresh_connecting_flag();
 
             tracing::info!(connection = %name, db_type = ?config.db_type, "开始连接数据库");
@@ -170,10 +170,10 @@ impl DbManagerApp {
             .insert(active_name.clone(), (database.clone(), request_id));
         self.session.pending_triggers_request = None;
         self.session.pending_routines_request = None;
-        self.sidebar_panel_state.loading_triggers = false;
-        self.sidebar_panel_state.loading_routines = false;
-        self.sidebar_panel_state.clear_triggers();
-        self.sidebar_panel_state.clear_routines();
+        self.state.sidebar_panel_state.loading_triggers = false;
+        self.state.sidebar_panel_state.loading_routines = false;
+        self.state.sidebar_panel_state.clear_triggers();
+        self.state.sidebar_panel_state.clear_routines();
         self.session.refresh_connecting_flag();
 
         self.session.runtime.spawn(async move {
@@ -247,10 +247,10 @@ impl DbManagerApp {
             self.switch_grid_workspace(None);
             self.clear_result();
             self.session.autocomplete.clear();
-            self.sidebar_panel_state.clear_triggers();
-            self.sidebar_panel_state.clear_routines();
-            self.sidebar_panel_state.loading_triggers = false;
-            self.sidebar_panel_state.loading_routines = false;
+            self.state.sidebar_panel_state.clear_triggers();
+            self.state.sidebar_panel_state.clear_routines();
+            self.state.sidebar_panel_state.loading_triggers = false;
+            self.state.sidebar_panel_state.loading_routines = false;
         }
         self.session.refresh_connecting_flag();
     }

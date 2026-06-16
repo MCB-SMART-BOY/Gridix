@@ -14,7 +14,7 @@ impl DbManagerApp {
     /// 检查是否有任何模态对话框打开
     /// 用于在对话框打开时禁用其他区域的键盘响应
     pub(in crate::app) fn has_modal_dialog_open(&self) -> bool {
-        self.active_dialog_id().is_some() || self.grid_state.show_save_confirm
+        self.active_dialog_id().is_some() || self.state.grid_state.show_save_confirm
     }
 
     /// 从当前活动 Tab 同步 SQL 和结果到主视图
