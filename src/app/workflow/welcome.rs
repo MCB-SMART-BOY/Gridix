@@ -203,7 +203,7 @@ impl DbManagerApp {
 
         let sql = "SELECT 1 AS hello;";
         self.set_active_sql(sql.to_string());
-        self.show_sql_editor = true;
+        self.state.show_sql_editor = true;
         self.set_focus_area(ui::FocusArea::DataGrid);
         let _ = self.execute(sql.to_string());
         self.session.notifications.info("已执行首条查询示例");

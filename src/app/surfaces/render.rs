@@ -336,7 +336,7 @@ impl DbManagerApp {
                     &self.keybindings,
                     self.result.is_some(),
                     self.state.show_sidebar,
-                    self.show_sql_editor,
+                    self.state.show_sql_editor,
                     self.app_config.is_dark_mode,
                     &mut toolbar_actions,
                     &connections,
@@ -457,7 +457,7 @@ impl DbManagerApp {
     ) -> SqlEditorActions {
         let mut sql_editor_actions = SqlEditorActions::default();
 
-        if !self.show_sql_editor {
+        if !self.state.show_sql_editor {
             return sql_editor_actions;
         }
 
@@ -466,7 +466,7 @@ impl DbManagerApp {
             self.state.focus_area == ui::FocusArea::SqlEditor && !self.has_modal_dialog_open();
 
         // 计算编辑器高度（使用 sql_editor_height 字段或默认值）
-        let editor_height = clamped_sql_editor_height(self.sql_editor_height, available_height);
+        let editor_height = clamped_sql_editor_height(self.state.sql_editor_height, available_height);
 
         // 可拖动的水平分割条
         let divider_height = 6.0;
@@ -501,7 +501,7 @@ impl DbManagerApp {
         // 处理拖动调整高度
         if divider_response.dragged() {
             let delta = -divider_response.drag_delta().y; // 向上拖动增加高度
-            self.sql_editor_height = (self.sql_editor_height + delta).clamp(100.0, 500.0);
+            self.state.sql_editor_height = (self.state.sql_editor_height + delta).clamp(100.0, 500.0);
         }
 
         // 鼠标光标
@@ -543,8 +543,8 @@ impl DbManagerApp {
                     &self.state.highlight_colors,
                     self.session.last_query_time_ms,
                     &self.session.autocomplete,
-                    &mut self.show_autocomplete,
-                    &mut self.selected_completion,
+                    &mut self.state.show_autocomplete,
+                    &mut self.state.selected_completion,
                     &mut request_editor_widget_focus,
                     is_editor_focused,
                     &mut self.state.editor_mode,
@@ -844,7 +844,7 @@ impl DbManagerApp {
         // 触发器定义
         if let Some(definition) = actions.show_trigger_definition {
             self.set_active_sql(definition);
-            self.show_sql_editor = true;
+            self.state.show_sql_editor = true;
             self.set_focus_area(ui::FocusArea::SqlEditor);
             self.session.notifications.info("触发器定义已加载到编辑器");
         }
@@ -852,7 +852,7 @@ impl DbManagerApp {
         // 存储过程/函数定义
         if let Some(definition) = actions.show_routine_definition {
             self.set_active_sql(definition);
-            self.show_sql_editor = true;
+            self.state.show_sql_editor = true;
             self.set_focus_area(ui::FocusArea::SqlEditor);
             self.session.notifications.info("存储过程/函数定义已加载到编辑器");
         }
@@ -1062,7 +1062,7 @@ impl DbManagerApp {
             }
         };
         self.set_active_sql(rename_sql);
-        self.show_sql_editor = true;
+        self.state.show_sql_editor = true;
         self.set_focus_area(ui::FocusArea::SqlEditor);
         self.session.notifications
             .info("已生成重命名 SQL，请修改目标表名后执行");

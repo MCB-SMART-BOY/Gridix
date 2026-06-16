@@ -35,7 +35,7 @@ impl DbManagerApp {
         let areas = focus_cycle_areas(
             self.state.show_sidebar,
             self.state.show_er_diagram,
-            self.show_sql_editor,
+            self.state.show_sql_editor,
         );
 
         if areas.len() <= 1 {

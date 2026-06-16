@@ -371,11 +371,7 @@ impl DbManagerApp {
             pending_delete_target: None,
             pending_drop_requests: HashMap::new(),
             pending_filter_input_focus: None,
-            show_autocomplete: false,
-            selected_completion: 0,
             dock_state: ui::dock_tabs::default_layout(),
-            show_sql_editor: false,
-            focus_sql_editor: false,
             toolbar_index: 0,
             sidebar_panel_state,
             sidebar_width: 280.0, // 默认侧边栏宽度
@@ -397,7 +393,6 @@ impl DbManagerApp {
             toolbar_create_menu_state: ui::ToolbarMenuDialogState::default(),
             toolbar_theme_dialog_state: ui::ToolbarThemeDialogState::default(),
             command_palette_state: CommandPaletteState::default(),
-            sql_editor_height: 200.0, // 默认 SQL 编辑器高度
             pending_toggle_dark_mode: false,
             config_dirty: false,
             last_config_save: std::time::Instant::now(),
@@ -421,7 +416,7 @@ impl DbManagerApp {
     }
 
     pub(crate) fn show_sql_editor(&self) -> bool {
-        self.show_sql_editor
+        self.state.show_sql_editor
     }
 
     /// Dock tab 关闭时的清理：持久化状态、取消查询、移除工作区

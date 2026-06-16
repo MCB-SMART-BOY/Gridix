@@ -67,7 +67,7 @@ impl DbManagerApp {
                 self.state.show_sidebar = true;
                 self.sidebar_panel_state.show_connections = true;
                 self.state.sidebar_section = ui::SidebarSection::Tables;
-                self.show_sql_editor = true;
+                self.state.show_sql_editor = true;
                 self.set_focus_area(ui::FocusArea::DataGrid);
                 self.set_active_sql(sql.clone());
 
@@ -206,7 +206,7 @@ impl DbManagerApp {
         self.state.show_sidebar = true;
         self.sidebar_panel_state.show_connections = true;
         self.state.sidebar_section = ui::SidebarSection::Tables;
-        self.show_sql_editor = true;
+        self.state.show_sql_editor = true;
         self.set_focus_area(ui::FocusArea::DataGrid);
         self.set_active_sql(format!(
             "{}\n\n-- 查看变更结果\n{}",

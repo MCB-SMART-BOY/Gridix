@@ -231,7 +231,7 @@ impl DbManagerApp {
                 active_connection_name: self.session.manager.active.clone(),
                 selected_table: self.selected_table.clone(),
                 has_result: self.result.is_some(),
-                show_sql_editor: self.show_sql_editor,
+                show_sql_editor: self.state.show_sql_editor,
                 show_er_diagram: self.state.show_er_diagram,
                 onboarding_environment_checked: onboarding.environment_checked,
                 onboarding_connection_created: onboarding.connection_created,
@@ -381,7 +381,7 @@ impl DbManagerApp {
             }
             ui::ImportAction::CopyToEditor(sql) => {
                 self.set_active_sql(sql);
-                self.show_sql_editor = true;
+                self.state.show_sql_editor = true;
                 self.set_focus_area(ui::FocusArea::SqlEditor);
                 self.close_dialog(DialogId::Import);
                 self.import_state.clear();
@@ -396,7 +396,7 @@ impl DbManagerApp {
         // 处理 DDL
         if let Some(create_sql) = results.ddl_sql {
             self.set_active_sql(create_sql);
-            self.show_sql_editor = true;
+            self.state.show_sql_editor = true;
             self.set_focus_area(ui::FocusArea::SqlEditor);
         }
 
@@ -418,7 +418,7 @@ impl DbManagerApp {
                 },
                 ui::CreateDatabaseRequest::Sql(sql) => {
                     self.set_active_sql(sql);
-                    self.show_sql_editor = true;
+                    self.state.show_sql_editor = true;
                     self.set_focus_area(ui::FocusArea::SqlEditor);
                     self.session.notifications.info(format!(
                         "SQL 已生成，按 {} 执行",
@@ -431,7 +431,7 @@ impl DbManagerApp {
         // 处理创建用户
         if let Some(statements) = results.create_user_sql {
             self.set_active_sql(statements.join("\n"));
-            self.show_sql_editor = true;
+            self.state.show_sql_editor = true;
             self.set_focus_area(ui::FocusArea::SqlEditor);
             self.session.notifications.info(format!(
                 "SQL 已生成，按 {} 执行",

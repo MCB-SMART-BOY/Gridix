@@ -408,7 +408,7 @@ impl InputContextSnapshot {
         }
 
         let editor_has_priority =
-            self.show_sql_editor && self.state.focus_area == ui::FocusArea::SqlEditor;
+            self.state.show_sql_editor && self.state.focus_area == ui::FocusArea::SqlEditor;
         if editor_has_priority {
             return FocusScope::Editor(match self.state.editor_mode {
                 EditorMode::Insert => EditorFocusScope::Insert,
@@ -474,7 +474,7 @@ impl InputContextSnapshot {
             return InputMode::Recording;
         }
 
-        if matches!(self.focus_scope(), FocusScope::Editor(_)) && !self.show_sql_editor {
+        if matches!(self.focus_scope(), FocusScope::Editor(_)) && !self.state.show_sql_editor {
             return InputMode::Disabled;
         }
 
@@ -490,7 +490,7 @@ impl InputContextSnapshot {
     }
 
     fn allows_focus_area_switch(self) -> bool {
-        !self.show_autocomplete
+        !self.state.show_autocomplete
             && !self.input_owner().is_modal()
             && !matches!(self.input_owner().mode(), InputMode::Disabled)
             && !self.text_entry_guard().is_active()
@@ -762,11 +762,11 @@ impl DbManagerApp {
         match area {
             ui::FocusArea::DataGrid => {
                 self.grid_state.focused = true;
-                self.focus_sql_editor = false;
+                self.state.focus_sql_editor = false;
             }
             ui::FocusArea::SqlEditor => {
                 self.grid_state.focused = false;
-                self.focus_sql_editor = true;
+                self.state.focus_sql_editor = true;
             }
             ui::FocusArea::Toolbar
             | ui::FocusArea::QueryTabs
@@ -774,7 +774,7 @@ impl DbManagerApp {
             | ui::FocusArea::ErDiagram
             | ui::FocusArea::Dialog => {
                 self.grid_state.focused = false;
-                self.focus_sql_editor = false;
+                self.state.focus_sql_editor = false;
             }
         }
 
@@ -788,7 +788,7 @@ impl DbManagerApp {
         resolve_er_return_focus_area(
             self.state.last_non_er_workspace_focus,
             self.state.show_sidebar,
-            self.show_sql_editor,
+            self.state.show_sql_editor,
         )
     }
 
@@ -846,9 +846,9 @@ impl DbManagerApp {
             active_dialog: self.active_dialog_id().map(DialogScope::from),
             text_focus: ctx.memory(|memory| memory.focused().is_some()),
             egui_captures_keyboard: ctx.egui_wants_keyboard_input(),
-            show_autocomplete: self.show_autocomplete,
-            show_sql_editor: self.show_sql_editor,
-            focus_sql_editor: self.focus_sql_editor,
+            show_autocomplete: self.state.show_autocomplete,
+            show_sql_editor: self.state.show_sql_editor,
+            focus_sql_editor: self.state.focus_sql_editor,
             focus_area: self.state.focus_area,
             editor_mode: self.state.editor_mode,
             sidebar_section: self.state.sidebar_section,
@@ -1071,18 +1071,18 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn set_sql_editor_visible(&mut self, visible: bool) {
-        self.show_sql_editor = visible;
+        self.state.show_sql_editor = visible;
         if visible {
             self.set_focus_area(ui::FocusArea::SqlEditor);
         } else if self.state.focus_area == ui::FocusArea::SqlEditor {
             self.set_focus_area(ui::FocusArea::DataGrid);
         } else {
-            self.focus_sql_editor = false;
+            self.state.focus_sql_editor = false;
         }
     }
 
     pub(crate) fn toggle_sql_editor_visibility(&mut self) {
-        self.set_sql_editor_visible(!self.show_sql_editor);
+        self.set_sql_editor_visible(!self.state.show_sql_editor);
     }
 
     pub(in crate::app) fn open_export_dialog(&mut self) {
@@ -1146,7 +1146,7 @@ impl DbManagerApp {
             self.state.focus_area,
             self.state.last_non_er_workspace_focus,
             self.state.show_sidebar,
-            self.show_sql_editor,
+            self.state.show_sql_editor,
         );
 
         self.state.show_er_diagram = visible;

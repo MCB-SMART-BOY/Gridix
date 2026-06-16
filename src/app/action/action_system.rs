@@ -228,7 +228,7 @@ impl ActionContext {
         } else {
             "侧边栏关"
         };
-        let editor = if self.show_sql_editor {
+        let editor = if self.state.show_sql_editor {
             "编辑器开"
         } else {
             "编辑器关"
@@ -1177,7 +1177,7 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::FocusEditor => {
-                self.show_sql_editor = true;
+                self.state.show_sql_editor = true;
                 self.set_focus_area(FocusArea::SqlEditor);
                 Vec::new()
             }

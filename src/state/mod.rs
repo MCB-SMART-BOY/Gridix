@@ -18,6 +18,11 @@ pub struct UiState {
     pub editor_mode: EditorMode,
     pub show_sidebar: bool,
     pub sidebar_width: f32,
+    pub show_sql_editor: bool,
+    pub focus_sql_editor: bool,
+    pub sql_editor_height: f32,
+    pub show_autocomplete: bool,
+    pub selected_completion: usize,
     pub show_er_diagram: bool,
     pub er_diagram_state: ERDiagramState,
 }
@@ -37,6 +42,11 @@ impl Default for UiState {
             editor_mode: EditorMode::Normal,
             show_sidebar: true,
             sidebar_width: 280.0,
+            show_sql_editor: true,
+            focus_sql_editor: false,
+            sql_editor_height: 200.0,
+            show_autocomplete: false,
+            selected_completion: 0,
             show_er_diagram: false,
             er_diagram_state: ERDiagramState::default(),
         }
