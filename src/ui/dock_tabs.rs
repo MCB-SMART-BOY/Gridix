@@ -1,4 +1,11 @@
 //! egui_dock integration — resizable panel layout for the main workspace.
+//!
+//! NOTE: Circular dependency — ui/dock_tabs.rs ↔ app/mod.rs.
+//! WorkspaceViewer (TabViewer impl) references DbManagerApp, while
+//! DbManagerApp owns DockState<DockTab>. This is contained to Layer 4
+//! (both modules are in the same layer) and does not cause compilation
+//! issues. A cleaner design would move WorkspaceViewer to app/ and keep
+//! DockTab + sync_all in ui/.
 
 use egui_dock::{DockState, NodeIndex, SurfaceIndex, TabViewer};
 use egui_dock::tab_viewer::OnCloseResponse;

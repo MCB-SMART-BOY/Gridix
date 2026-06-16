@@ -1,6 +1,10 @@
 use super::history::QueryHistory;
 use super::keybindings::KeyBindings;
 use super::theme::ThemePreset;
+// NOTE: Layer violation — core/L0 depends on data/L1 for ConnectionConfig.
+// AppConfig naturally owns connection configurations. The password migration
+// (decrypt/load/store) is transitional and will be removed once v4→v6 migration
+// window closes. This is an intentional exception, not a design flaw.
 use crate::data::{
     ConnectionConfig, decrypt_password, load_password_secret, store_password_secret,
 };
