@@ -787,7 +787,7 @@ impl DbManagerApp {
     fn resolve_er_return_focus_area(&self) -> ui::FocusArea {
         resolve_er_return_focus_area(
             self.last_non_er_workspace_focus,
-            self.show_sidebar,
+            self.state.show_sidebar,
             self.show_sql_editor,
         )
     }
@@ -1012,7 +1012,7 @@ impl DbManagerApp {
             ui::SidebarSection::Routines => self.sidebar_panel_state.show_routines,
         };
 
-        if is_toggle_panel && self.show_sidebar && self.sidebar_section == section && panel_visible
+        if is_toggle_panel && self.state.show_sidebar && self.sidebar_section == section && panel_visible
         {
             match section {
                 ui::SidebarSection::Connections => {
@@ -1036,7 +1036,7 @@ impl DbManagerApp {
             return;
         }
 
-        self.show_sidebar = true;
+        self.state.show_sidebar = true;
         self.set_focus_area(ui::FocusArea::Sidebar);
         self.sidebar_section = section;
 
@@ -1059,7 +1059,7 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn set_sidebar_visible(&mut self, visible: bool) {
-        self.show_sidebar = visible;
+        self.state.show_sidebar = visible;
         let next_focus = focus_after_sidebar_visibility_change(self.focus_area, visible);
         if next_focus != self.focus_area {
             self.set_focus_area(next_focus);
@@ -1067,7 +1067,7 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn toggle_sidebar_visibility(&mut self) {
-        self.set_sidebar_visible(!self.show_sidebar);
+        self.set_sidebar_visible(!self.state.show_sidebar);
     }
 
     pub(in crate::app) fn set_sql_editor_visible(&mut self, visible: bool) {
@@ -1145,7 +1145,7 @@ impl DbManagerApp {
             visible,
             self.focus_area,
             self.last_non_er_workspace_focus,
-            self.show_sidebar,
+            self.state.show_sidebar,
             self.show_sql_editor,
         );
 

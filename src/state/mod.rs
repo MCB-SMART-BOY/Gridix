@@ -12,6 +12,8 @@ pub struct UiState {
     pub highlight_colors: HighlightColors,
     pub ui_scale: f32,
     pub base_pixels_per_point: f32,
+    pub show_sidebar: bool,
+    pub sidebar_width: f32,
     pub show_er_diagram: bool,
     pub er_diagram_state: ERDiagramState,
 }
@@ -25,6 +27,8 @@ impl Default for UiState {
             highlight_colors,
             ui_scale: 1.0,
             base_pixels_per_point: 1.0,
+            show_sidebar: true,
+            sidebar_width: 280.0,
             show_er_diagram: false,
             er_diagram_state: ERDiagramState::default(),
         }

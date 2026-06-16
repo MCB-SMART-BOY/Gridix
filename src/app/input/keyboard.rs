@@ -33,7 +33,7 @@ impl DbManagerApp {
     pub(in crate::app) fn cycle_focus(&mut self, reverse: bool) {
         // 焦点循环顺序: Sidebar -> DataGrid -> ErDiagram -> SqlEditor -> Sidebar
         let areas = focus_cycle_areas(
-            self.show_sidebar,
+            self.state.show_sidebar,
             self.state.show_er_diagram,
             self.show_sql_editor,
         );

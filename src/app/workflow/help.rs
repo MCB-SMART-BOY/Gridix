@@ -64,7 +64,7 @@ impl DbManagerApp {
                     return;
                 }
 
-                self.show_sidebar = true;
+                self.state.show_sidebar = true;
                 self.sidebar_panel_state.show_connections = true;
                 self.sidebar_section = ui::SidebarSection::Tables;
                 self.show_sql_editor = true;
@@ -109,7 +109,7 @@ impl DbManagerApp {
                     return;
                 }
 
-                self.show_sidebar = true;
+                self.state.show_sidebar = true;
                 self.sidebar_panel_state.show_connections = true;
                 self.sidebar_section = ui::SidebarSection::Tables;
                 self.set_er_diagram_visible_with_notice(
@@ -203,7 +203,7 @@ impl DbManagerApp {
             .map_err(|e| format!("执行学习演示失败: {}", e))?;
 
         self.session.notifications.success(success_message);
-        self.show_sidebar = true;
+        self.state.show_sidebar = true;
         self.sidebar_panel_state.show_connections = true;
         self.sidebar_section = ui::SidebarSection::Tables;
         self.show_sql_editor = true;

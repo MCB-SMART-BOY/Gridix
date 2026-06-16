@@ -152,12 +152,12 @@ impl DbManagerApp {
                 let divider_width = 8.0;
 
                 // 计算侧边栏和主内容区的宽度
-                let sidebar_width = if self.show_sidebar {
-                    self.sidebar_width
+                let sidebar_width = if self.state.show_sidebar {
+                    self.state.sidebar_width
                 } else {
                     0.0
                 };
-                let main_width = if self.show_sidebar {
+                let main_width = if self.state.show_sidebar {
                     available_width - sidebar_width - divider_width
                 } else {
                     available_width
@@ -167,7 +167,7 @@ impl DbManagerApp {
                     ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
 
                     // ===== 侧边栏区域 =====
-                    if self.show_sidebar {
+                    if self.state.show_sidebar {
                         let mut sidebar_clicked = false;
                         ui.allocate_ui_with_layout(
                             egui::vec2(sidebar_width, available_height),
@@ -252,7 +252,7 @@ impl DbManagerApp {
                         // 处理拖动调整侧边栏宽度
                         if divider_response.dragged() {
                             let delta = divider_response.drag_delta().x;
-                            self.sidebar_width = (self.sidebar_width + delta).clamp(
+                            self.state.sidebar_width = (self.state.sidebar_width + delta).clamp(
                                 constants::ui::SIDEBAR_MIN_WIDTH_PX,
                                 constants::ui::SIDEBAR_MAX_WIDTH_PX,
                             );
@@ -335,7 +335,7 @@ impl DbManagerApp {
                     &self.state.theme_manager,
                     &self.keybindings,
                     self.result.is_some(),
-                    self.show_sidebar,
+                    self.state.show_sidebar,
                     self.show_sql_editor,
                     self.app_config.is_dark_mode,
                     &mut toolbar_actions,
@@ -951,7 +951,7 @@ impl DbManagerApp {
         self.sidebar_panel_state.selection.filters = insert_index;
         self.grid_state.filter_cache.invalidate();
 
-        self.show_sidebar = true;
+        self.state.show_sidebar = true;
         self.sidebar_panel_state.show_filters = true;
         self.sidebar_section = ui::SidebarSection::Filters;
         self.set_focus_area(ui::FocusArea::Sidebar);
@@ -1022,7 +1022,7 @@ impl DbManagerApp {
         self.sidebar_panel_state.selection.filters = index;
         self.pending_filter_input_focus = Some(index);
         self.sidebar_panel_state.workflow.filter_workspace = ui::SidebarFilterWorkspaceMode::Input;
-        self.show_sidebar = true;
+        self.state.show_sidebar = true;
         self.sidebar_panel_state.show_filters = true;
         self.sidebar_section = ui::SidebarSection::Filters;
         self.set_focus_area(ui::FocusArea::Sidebar);

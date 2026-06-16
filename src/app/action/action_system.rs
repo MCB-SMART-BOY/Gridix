@@ -223,7 +223,7 @@ impl ActionContext {
             FocusArea::SqlEditor => "编辑器",
             FocusArea::Dialog => "对话框",
         };
-        let sidebar = if self.show_sidebar {
+        let sidebar = if self.state.show_sidebar {
             "侧边栏开"
         } else {
             "侧边栏关"
@@ -1291,7 +1291,7 @@ impl DbManagerApp {
     }
 
     fn open_filter_workspace(&mut self) {
-        self.show_sidebar = true;
+        self.state.show_sidebar = true;
         self.sidebar_panel_state.show_filters = true;
         self.sidebar_section = ui::SidebarSection::Filters;
         self.set_focus_area(FocusArea::Sidebar);
@@ -1337,7 +1337,7 @@ impl DbManagerApp {
     }
 
     fn ensure_sidebar_workspace_visible(&mut self) {
-        self.show_sidebar = true;
+        self.state.show_sidebar = true;
         match self.sidebar_section {
             ui::SidebarSection::Connections
             | ui::SidebarSection::Databases

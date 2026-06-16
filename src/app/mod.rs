@@ -172,7 +172,6 @@ pub struct DbManagerApp {
     /// SQL 编辑器是否需要获取焦点
     focus_sql_editor: bool,
     /// 侧边栏是否显示
-    show_sidebar: bool,
     /// 全局焦点区域（侧边栏/SQL 编辑器/数据表格）
     focus_area: ui::FocusArea,
     /// 最近一个非 ER 的 workspace 主区域（仅记录 Sidebar / DataGrid / SqlEditor）
@@ -184,7 +183,6 @@ pub struct DbManagerApp {
     /// 侧边栏面板状态（上下分割、触发器列表、选中索引等）
     sidebar_panel_state: ui::SidebarPanelState,
     /// 侧边栏宽度
-    sidebar_width: f32,
     /// 欢迎页数据库环境检测状态
     welcome_status: ui::WelcomeStatusSummary,
     /// 是否显示欢迎页安装/初始化引导
@@ -383,7 +381,6 @@ impl DbManagerApp {
             dock_state: ui::dock_tabs::default_layout(),
             show_sql_editor: false,
             focus_sql_editor: false,
-            show_sidebar: false,
             focus_area: ui::FocusArea::DataGrid,
             last_non_er_workspace_focus: ui::FocusArea::DataGrid,
             toolbar_index: 0,
