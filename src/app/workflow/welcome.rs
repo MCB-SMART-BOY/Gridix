@@ -78,8 +78,8 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn welcome_onboarding_status(&self) -> ui::WelcomeOnboardingStatus {
-        let connection_created =
-            self.app_config.onboarding.connection_created || !self.session.manager.connections.is_empty();
+        let connection_created = self.app_config.onboarding.connection_created
+            || !self.session.manager.connections.is_empty();
         let require_user_step = !matches!(self.onboarding_target_db_type(), DatabaseType::SQLite);
         ui::WelcomeOnboardingStatus {
             environment_checked: self.app_config.onboarding.environment_checked,
@@ -147,7 +147,8 @@ impl DbManagerApp {
             ui::WelcomeOnboardingStep::CreateUser => {
                 let db_type = self.onboarding_target_db_type();
                 if matches!(db_type, DatabaseType::SQLite) {
-                    self.session.notifications
+                    self.session
+                        .notifications
                         .info("SQLite 无需创建用户，此步骤自动跳过");
                     self.mark_onboarding_user_created();
                     return;
@@ -195,7 +196,8 @@ impl DbManagerApp {
 
     fn run_onboarding_first_query(&mut self) {
         if self.session.manager.active.is_none() {
-            self.session.notifications
+            self.session
+                .notifications
                 .warning("请先创建并连接数据库，再执行首条查询");
             self.open_connection_dialog_for(self.onboarding_target_db_type());
             return;
@@ -390,6 +392,7 @@ impl DbManagerApp {
         let actions = Self::welcome_setup_actions(db_type);
         if !actions.is_empty() {
             self.state.welcome_setup_action_index = self
+                .state
                 .welcome_setup_action_index
                 .min(actions.len().saturating_sub(1));
         }
@@ -400,7 +403,9 @@ impl DbManagerApp {
                     close_now = true;
                 }
                 WelcomeSetupKeyAction::ConfirmSelected => {
-                    if let Some(action) = actions.get(self.state.welcome_setup_action_index).copied() {
+                    if let Some(action) =
+                        actions.get(self.state.welcome_setup_action_index).copied()
+                    {
                         close_now = self.run_welcome_setup_action(ctx, action, db_type);
                     }
                 }
@@ -413,7 +418,8 @@ impl DbManagerApp {
                 WelcomeSetupKeyAction::FocusPrev => {
                     if !actions.is_empty() {
                         self.state.welcome_setup_action_index =
-                            (self.state.welcome_setup_action_index + actions.len() - 1) % actions.len();
+                            (self.state.welcome_setup_action_index + actions.len() - 1)
+                                % actions.len();
                     }
                 }
                 WelcomeSetupKeyAction::Trigger(action) => {
@@ -548,7 +554,8 @@ impl DbManagerApp {
         if self.session.manager.connections.contains_key(&candidate) {
             let mut idx = 2usize;
             while self
-                .session.manager
+                .session
+                .manager
                 .connections
                 .contains_key(&format!("{} {}", candidate, idx))
             {

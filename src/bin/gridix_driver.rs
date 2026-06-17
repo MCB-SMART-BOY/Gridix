@@ -95,7 +95,10 @@ fn start_gridix() -> Result<Child, String> {
     }
     let child = Command::new(&bin)
         .env("WINIT_UNIX_BACKEND", "x11")
-        .env("DISPLAY", std::env::var("DISPLAY").unwrap_or_else(|_| XVFB_DISPLAY.into()))
+        .env(
+            "DISPLAY",
+            std::env::var("DISPLAY").unwrap_or_else(|_| XVFB_DISPLAY.into()),
+        )
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
@@ -109,7 +112,9 @@ fn start_gridix() -> Result<Child, String> {
 fn cmd_launch() -> Result<(Child, Child, String), String> {
     // SAFETY: set_var is safe in single-threaded context before any threads spawn.
     // The driver binary is single-threaded and this runs at startup.
-    unsafe { std::env::set_var("DISPLAY", XVFB_DISPLAY); }
+    unsafe {
+        std::env::set_var("DISPLAY", XVFB_DISPLAY);
+    }
     let xvfb = start_xvfb()?;
     let gridix = start_gridix()?;
     println!("waiting for window (up to {WINDOW_TIMEOUT}s)...");
@@ -142,7 +147,11 @@ fn cmd_ss(wid: &str, name: &str) -> Result<(), String> {
     Command::new("import")
         .args(["-window", wid, &path.to_string_lossy()])
         .output()
-        .map_err(|e| format!("import (imagemagick) not found: {e}\nInstall: sudo apt-get install imagemagick"))?;
+        .map_err(|e| {
+            format!(
+                "import (imagemagick) not found: {e}\nInstall: sudo apt-get install imagemagick"
+            )
+        })?;
     println!("screenshot: {}", path.display());
     Ok(())
 }
@@ -205,7 +214,10 @@ fn main() -> ExitCode {
             }
             let wid = match find_window() {
                 Ok(w) => w,
-                Err(e) => { eprintln!("ERROR: {e}"); return ExitCode::from(1); }
+                Err(e) => {
+                    eprintln!("ERROR: {e}");
+                    return ExitCode::from(1);
+                }
             };
             if let Err(e) = cmd_key(&wid, &keys) {
                 eprintln!("ERROR: {e}");
@@ -218,7 +230,10 @@ fn main() -> ExitCode {
             let name = args.get(2).map(String::as_str).unwrap_or("screenshot");
             let wid = match find_window() {
                 Ok(w) => w,
-                Err(e) => { eprintln!("ERROR: {e}"); return ExitCode::from(1); }
+                Err(e) => {
+                    eprintln!("ERROR: {e}");
+                    return ExitCode::from(1);
+                }
             };
             if let Err(e) = cmd_ss(&wid, name) {
                 eprintln!("ERROR: {e}");

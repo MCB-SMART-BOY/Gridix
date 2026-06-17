@@ -461,7 +461,10 @@ impl KeyModifiers {
         } else {
             self.ctrl == mods.ctrl
         };
-        ctrl_match && self.shift == mods.shift && self.alt == mods.alt && self.mac_cmd == mods.mac_cmd
+        ctrl_match
+            && self.shift == mods.shift
+            && self.alt == mods.alt
+            && self.mac_cmd == mods.mac_cmd
     }
 }
 
@@ -1032,7 +1035,7 @@ pub struct KeyBindings {
     diagnostics: Vec<KeymapDiagnostic>,
 }
 
-    #[path = "keybindings_defaults.rs"]
+impl Default for KeyBindings {
     fn default() -> Self {
         let mut bindings = HashMap::new();
 
@@ -1063,6 +1066,7 @@ pub struct KeyBindings {
             diagnostics: Vec::new(),
         }
     }
+}
 
 impl KeyBindings {
     const KNOWN_ACTION_SCOPE_PATHS: &[&'static str] = &[

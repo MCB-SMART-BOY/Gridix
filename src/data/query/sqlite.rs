@@ -362,15 +362,22 @@ mod tests {
         let mut stmt = conn
             .prepare("SELECT name FROM sqlite_master WHERE type='table'")
             .unwrap();
-        let names: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().filter_map(|r| r.ok()).collect();
+        let names: Vec<String> = stmt
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
         assert!(names.contains(&"users".to_string()));
     }
 
     #[test]
     fn get_columns_returns_column_info() {
         let conn = rusqlite::Connection::open(":memory:").unwrap();
-        conn.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age REAL)", [])
-            .unwrap();
+        conn.execute(
+            "CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age REAL)",
+            [],
+        )
+        .unwrap();
         let config = test_config();
         let columns = get_columns(&config, "test").unwrap();
         assert_eq!(columns.len(), 3);
@@ -384,7 +391,8 @@ mod tests {
     #[test]
     fn get_primary_key_returns_none_for_no_pk() {
         let conn = rusqlite::Connection::open(":memory:").unwrap();
-        conn.execute("CREATE TABLE nopk (a TEXT, b TEXT)", []).unwrap();
+        conn.execute("CREATE TABLE nopk (a TEXT, b TEXT)", [])
+            .unwrap();
         let config = test_config();
         let pk = get_primary_key(&config, "nopk").unwrap();
         assert!(pk.is_none());
@@ -405,7 +413,7 @@ mod tests {
         let conn = rusqlite::Connection::open(":memory:").unwrap();
         conn.execute("CREATE TABLE a (id INTEGER)", []).unwrap();
         let config = test_config();
-        let fks = get_foreign_keys(&config, "a").unwrap();
+        let fks = get_foreign_keys(&config).unwrap();
         assert!(fks.is_empty());
     }
 
@@ -416,5 +424,32 @@ mod tests {
         let config = test_config();
         let triggers = get_triggers(&config).unwrap();
         assert!(triggers.is_empty());
+    }
+
+    #[test]
+    fn connect_rejects_missing_database() {
+        let config = ConnectionConfig {
+            db_type: DatabaseType::SQLite,
+            database: "/nonexistent/path/db.sqlite".to_string(),
+            ..Default::default()
+        };
+        let result = connect(&config);
+        assert!(result.is_err()); // can't create dirs in test
+    }
+
+    #[test]
+    fn get_triggers_returns_trigger_info() {
+        let conn = rusqlite::Connection::open(":memory:").unwrap();
+        conn.execute("CREATE TABLE t (x INTEGER)", []).unwrap();
+        conn.execute(
+            "CREATE TRIGGER trg AFTER INSERT ON t BEGIN UPDATE t SET x = x + 1; END",
+            [],
+        )
+        .unwrap();
+        let config = test_config();
+        let triggers = get_triggers(&config).unwrap();
+        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers[0].name, "trg");
+        assert!(triggers[0].definition.contains("INSERT ON t"));
     }
 }

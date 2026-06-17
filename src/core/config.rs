@@ -49,6 +49,10 @@ impl Default for SidebarConfig {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppConfig {
+    /// 配置格式版本 — 用于未来格式迁移。当前版本：2。
+    /// 旧版本（无 version 字段）默认解析为 2。
+    #[serde(default = "default_config_version")]
+    pub version: u32,
     pub connections: Vec<ConnectionConfig>,
     #[serde(default)]
     pub theme_preset: ThemePreset,
@@ -88,6 +92,10 @@ pub struct AppConfig {
 
 fn default_ui_scale() -> f32 {
     1.0
+}
+
+fn default_config_version() -> u32 {
+    2
 }
 
 fn default_light_theme() -> ThemePreset {
@@ -213,6 +221,7 @@ fn persist_connection_passwords(connections: &mut [ConnectionConfig]) -> Result<
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            version: default_config_version(),
             connections: Vec::new(),
             theme_preset: ThemePreset::default(),
             light_theme: default_light_theme(),

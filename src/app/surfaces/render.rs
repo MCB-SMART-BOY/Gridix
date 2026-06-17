@@ -176,11 +176,13 @@ impl DbManagerApp {
                                 ui.set_min_size(egui::vec2(sidebar_width, available_height));
 
                                 // 只有在没有对话框打开时，侧边栏才响应键盘
-                                let is_sidebar_focused = self.state.focus_area == ui::FocusArea::Sidebar
+                                let is_sidebar_focused = self.state.focus_area
+                                    == ui::FocusArea::Sidebar
                                     && !self.has_modal_dialog_open();
 
                                 // 获取当前查询结果的列信息
                                 let columns: Vec<String> = self
+                                    .state
                                     .result
                                     .as_ref()
                                     .map(|r| r.columns.clone())
@@ -277,8 +279,7 @@ impl DbManagerApp {
                             );
                             ui::dock_tabs::sync_all(&mut dock, self);
                             let mut viewer = ui::dock_tabs::WorkspaceViewer { app: self };
-                            egui_dock::DockArea::new(&mut dock)
-                                .show_inside(ui, &mut viewer);
+                            egui_dock::DockArea::new(&mut dock).show_inside(ui, &mut viewer);
                             // Put dock_state back
                             self.dock_state = dock;
                         },
@@ -309,7 +310,10 @@ impl DbManagerApp {
         ui::NotificationToast::show(&ctx, &self.session.notifications);
 
         // 持续刷新（有活动任务或有通知时需要刷新）
-        if self.session.connecting || self.session.executing || !self.session.notifications.is_empty() {
+        if self.session.connecting
+            || self.session.executing
+            || !self.session.notifications.is_empty()
+        {
             ctx.request_repaint();
         }
     }
@@ -321,11 +325,19 @@ impl DbManagerApp {
         let mut toolbar_actions = ui::ToolbarActions::default();
         let cancel_task_id = ui
             .scope(|ui| {
-                let connections: Vec<String> = self.session.manager.connections.keys().cloned().collect();
+                let connections: Vec<String> =
+                    self.session.manager.connections.keys().cloned().collect();
                 let (databases, selected_database, tables) = self
-                    .session.manager
+                    .session
+                    .manager
                     .get_active()
-                    .map(|c| (c.databases.clone(), c.selected_database.clone(), c.tables.clone()))
+                    .map(|c| {
+                        (
+                            c.databases.clone(),
+                            c.selected_database.clone(),
+                            c.tables.clone(),
+                        )
+                    })
                     .unwrap_or_default();
                 let active_connection = self.session.manager.active.clone();
                 let selected_table = self.state.selected_table.clone();
@@ -381,12 +393,13 @@ impl DbManagerApp {
         ui.separator();
 
         // 数据表格 / 欢迎页 / 错误
-        let active_query_error = self.session.tab_manager.get_active()
+        let active_query_error = self
+            .session
+            .tab_manager
+            .get_active()
             .and_then(|tab| tab.last_error.clone());
-        let workspace_surface = classify_workspace_surface(
-            self.state.result.as_ref(),
-            active_query_error.as_deref(),
-        );
+        let workspace_surface =
+            classify_workspace_surface(self.state.result.as_ref(), active_query_error.as_deref());
 
         if workspace_surface == WorkspaceSurface::TabularResult {
             if let Some(result) = &self.state.result {
@@ -394,10 +407,15 @@ impl DbManagerApp {
                     && !self.has_modal_dialog_open();
                 let table_name = self.state.selected_table.as_deref();
                 let (grid_actions, _) = ui::DataGrid::show_editable(
-                    ui, result,
-                    &self.state.search_text, &self.state.search_column,
-                    &mut self.state.selected_row, &mut self.state.selected_cell,
-                    &mut self.state.grid_state, table_name, &self.keybindings,
+                    ui,
+                    result,
+                    &self.state.search_text,
+                    &self.state.search_column,
+                    &mut self.state.selected_row,
+                    &mut self.state.selected_cell,
+                    &mut self.state.grid_state,
+                    table_name,
+                    &self.keybindings,
                 );
                 if grid_actions.open_filter_panel {
                     let ctx = ui.ctx().clone();
@@ -405,7 +423,10 @@ impl DbManagerApp {
                 }
             }
         } else if workspace_surface == WorkspaceSurface::QueryError {
-            Self::render_query_error_surface(ui, active_query_error.as_deref().unwrap_or("查询失败"));
+            Self::render_query_error_surface(
+                ui,
+                active_query_error.as_deref().unwrap_or("查询失败"),
+            );
         } else {
             // Welcome surface — show when no table is selected and no result exists
             let action = ui::Welcome::show(ui, self.state.welcome_status, &self.keybindings);
@@ -419,9 +440,12 @@ impl DbManagerApp {
     /// 渲染 ER 关系图，供 egui_dock TabViewer 调用
     pub(crate) fn render_er_diagram_in_ui(&mut self, ui: &mut egui::Ui) {
         let theme_preset = self.state.theme_manager.current;
-        let er_is_focused = self.state.focus_area == ui::FocusArea::ErDiagram
-            && !self.has_modal_dialog_open();
-        let er_response = self.state.er_diagram_state.show(ui, &theme_preset, er_is_focused);
+        let er_is_focused =
+            self.state.focus_area == ui::FocusArea::ErDiagram && !self.has_modal_dialog_open();
+        let er_response = self
+            .state
+            .er_diagram_state
+            .show(ui, &theme_preset, er_is_focused);
         for action in collect_er_diagram_surface_actions(&er_response) {
             match action {
                 ErDiagramSurfaceAction::FocusDiagram => {
@@ -466,7 +490,8 @@ impl DbManagerApp {
             self.state.focus_area == ui::FocusArea::SqlEditor && !self.has_modal_dialog_open();
 
         // 计算编辑器高度（使用 sql_editor_height 字段或默认值）
-        let editor_height = clamped_sql_editor_height(self.state.sql_editor_height, available_height);
+        let editor_height =
+            clamped_sql_editor_height(self.state.sql_editor_height, available_height);
 
         // 可拖动的水平分割条
         let divider_height = 6.0;
@@ -501,7 +526,8 @@ impl DbManagerApp {
         // 处理拖动调整高度
         if divider_response.dragged() {
             let delta = -divider_response.drag_delta().y; // 向上拖动增加高度
-            self.state.sql_editor_height = (self.state.sql_editor_height + delta).clamp(100.0, 500.0);
+            self.state.sql_editor_height =
+                (self.state.sql_editor_height + delta).clamp(100.0, 500.0);
         }
 
         // 鼠标光标
@@ -516,7 +542,8 @@ impl DbManagerApp {
         }
         // 在获取 &mut sql 之前提取不可变值
         let active_tab_message = self
-            .session.tab_manager
+            .session
+            .tab_manager
             .tabs
             .get(self.session.tab_manager.active_index)
             .and_then(|tab| tab.last_message.as_deref())
@@ -569,7 +596,8 @@ impl DbManagerApp {
             let explain_sql = if self.is_mysql() {
                 format!("EXPLAIN FORMAT=TRADITIONAL {}", sql)
             } else if self
-                .session.manager
+                .session
+                .manager
                 .get_active()
                 .map(|c| c.config.db_type == crate::data::DatabaseType::PostgreSQL)
                 .unwrap_or(false)
@@ -854,7 +882,9 @@ impl DbManagerApp {
             self.set_active_sql(definition);
             self.state.show_sql_editor = true;
             self.set_focus_area(ui::FocusArea::SqlEditor);
-            self.session.notifications.info("存储过程/函数定义已加载到编辑器");
+            self.session
+                .notifications
+                .info("存储过程/函数定义已加载到编辑器");
         }
     }
 
@@ -874,7 +904,8 @@ impl DbManagerApp {
     fn refresh_sidebar_section(&mut self) {
         let active_name = self.session.manager.active.clone();
         let (db_type, selected_database) = self
-            .session.manager
+            .session
+            .manager
             .get_active()
             .map(|conn| (conn.config.db_type, conn.selected_database.clone()))
             .unwrap_or((crate::data::DatabaseType::SQLite, None));
@@ -895,8 +926,7 @@ impl DbManagerApp {
                         self.session.notifications.info("当前没有活动连接可刷新");
                     }
                 }
-                crate::data::DatabaseType::PostgreSQL
-                | crate::data::DatabaseType::MySQL => {
+                crate::data::DatabaseType::PostgreSQL | crate::data::DatabaseType::MySQL => {
                     if let Some(db) = selected_database {
                         self.select_database(db);
                     } else {
@@ -919,7 +949,8 @@ impl DbManagerApp {
 
     fn insert_sidebar_filter(&mut self, mode: ui::SidebarFilterInsertMode) {
         let Some(result) = &self.state.result else {
-            self.session.notifications
+            self.session
+                .notifications
                 .warning("当前结果集为空，无法添加筛选条件");
             return;
         };
@@ -929,7 +960,9 @@ impl DbManagerApp {
             .cloned()
             .or_else(|| result.columns.first().cloned())
         else {
-            self.session.notifications.warning("当前结果集没有可筛选的列");
+            self.session
+                .notifications
+                .warning("当前结果集没有可筛选的列");
             return;
         };
 
@@ -945,7 +978,8 @@ impl DbManagerApp {
             ui::SidebarFilterInsertMode::AppendEnd => self.state.grid_state.filters.len(),
         };
 
-        self.state.grid_state
+        self.state
+            .grid_state
             .filters
             .insert(insert_index, ui::ColumnFilter::new(default_col));
         self.state.sidebar_panel_state.selection.filters = insert_index;
@@ -955,7 +989,8 @@ impl DbManagerApp {
         self.state.sidebar_panel_state.show_filters = true;
         self.state.sidebar_section = ui::SidebarSection::Filters;
         self.set_focus_area(ui::FocusArea::Sidebar);
-        self.state.sidebar_panel_state.workflow.filter_workspace = ui::SidebarFilterWorkspaceMode::Input;
+        self.state.sidebar_panel_state.workflow.filter_workspace =
+            ui::SidebarFilterWorkspaceMode::Input;
         self.state.pending_filter_input_focus = Some(insert_index);
     }
 
@@ -1015,13 +1050,16 @@ impl DbManagerApp {
             return;
         };
         if !filter.operator.needs_value() {
-            self.session.notifications.info("当前筛选操作符不需要输入值");
+            self.session
+                .notifications
+                .info("当前筛选操作符不需要输入值");
             return;
         }
         filter.enabled = true;
         self.state.sidebar_panel_state.selection.filters = index;
         self.state.pending_filter_input_focus = Some(index);
-        self.state.sidebar_panel_state.workflow.filter_workspace = ui::SidebarFilterWorkspaceMode::Input;
+        self.state.sidebar_panel_state.workflow.filter_workspace =
+            ui::SidebarFilterWorkspaceMode::Input;
         self.state.show_sidebar = true;
         self.state.sidebar_panel_state.show_filters = true;
         self.state.sidebar_section = ui::SidebarSection::Filters;
@@ -1047,7 +1085,8 @@ impl DbManagerApp {
         let quoted_new = match ui::quote_identifier("new_table_name", use_backticks) {
             Ok(name) => name,
             Err(e) => {
-                self.session.notifications
+                self.session
+                    .notifications
                     .error(format!("目标表名模板生成失败: {}", e));
                 return;
             }
@@ -1064,7 +1103,8 @@ impl DbManagerApp {
         self.set_active_sql(rename_sql);
         self.state.show_sql_editor = true;
         self.set_focus_area(ui::FocusArea::SqlEditor);
-        self.session.notifications
+        self.session
+            .notifications
             .info("已生成重命名 SQL，请修改目标表名后执行");
     }
 
@@ -1086,10 +1126,16 @@ impl DbManagerApp {
         }
 
         if let Some(idx) = tab_actions.close_tab {
-            let closing_tab_id = self.session.tab_manager.tabs.get(idx).map(|tab| tab.id.clone());
+            let closing_tab_id = self
+                .session
+                .tab_manager
+                .tabs
+                .get(idx)
+                .map(|tab| tab.id.clone());
             if self.session.tab_manager.tabs.len() > 1
                 && let Some(request_id) = self
-                    .session.tab_manager
+                    .session
+                    .tab_manager
                     .tabs
                     .get(idx)
                     .and_then(|tab| tab.pending_request_id)
@@ -1105,7 +1151,8 @@ impl DbManagerApp {
         if tab_actions.close_others {
             let active_index = self.session.tab_manager.active_index;
             let request_ids: Vec<u64> = self
-                .session.tab_manager
+                .session
+                .tab_manager
                 .tabs
                 .iter()
                 .enumerate()
@@ -1118,7 +1165,8 @@ impl DbManagerApp {
                 })
                 .collect();
             let closing_tab_ids: Vec<String> = self
-                .session.tab_manager
+                .session
+                .tab_manager
                 .tabs
                 .iter()
                 .enumerate()
@@ -1142,7 +1190,8 @@ impl DbManagerApp {
         if tab_actions.close_right {
             let active_index = self.session.tab_manager.active_index;
             let request_ids: Vec<u64> = self
-                .session.tab_manager
+                .session
+                .tab_manager
                 .tabs
                 .iter()
                 .enumerate()
@@ -1155,7 +1204,8 @@ impl DbManagerApp {
                 })
                 .collect();
             let closing_tab_ids: Vec<String> = self
-                .session.tab_manager
+                .session
+                .tab_manager
                 .tabs
                 .iter()
                 .enumerate()
@@ -1240,7 +1290,8 @@ mod tests {
         connection.connected = true;
         connection.selected_database = Some("main".to_string());
         connection.tables = tables.iter().map(|name| (*name).to_string()).collect();
-        app.session.manager
+        app.session
+            .manager
             .connections
             .insert("demo".to_string(), connection);
         app.session.manager.active = Some("demo".to_string());
@@ -1359,7 +1410,7 @@ mod tests {
 
         app.handle_sidebar_actions(&ctx, actions);
 
-        assert_eq!(app.pending_delete_target, Some(target));
+        assert_eq!(app.state.pending_delete_target, Some(target));
         assert!(app.state.show_delete_confirm);
         assert_eq!(app.active_dialog_id(), Some(DialogId::DeleteConfirm));
     }
@@ -1369,11 +1420,11 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = DbManagerApp::new_for_test();
         prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
-        app.result = Some(QueryResult::with_rows(
+        app.state.result = Some(QueryResult::with_rows(
             vec!["id".to_string()],
             vec![vec!["1".to_string()]],
         ));
-        app.selected_table = Some("customers".to_string());
+        app.state.selected_table = Some("customers".to_string());
         app.set_focus_area(FocusArea::DataGrid);
         app.state.grid_state.cursor = (0, 0);
         app.state.grid_state.focused = true;
@@ -1394,7 +1445,7 @@ mod tests {
         assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
         assert!(!app.state.grid_state.focused);
         assert_eq!(
-            app.er_diagram_state.selected_table_name(),
+            app.state.er_diagram_state.selected_table_name(),
             Some("customers")
         );
 
@@ -1413,7 +1464,10 @@ mod tests {
         assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
         assert!(!app.state.grid_state.focused);
         assert_eq!(app.state.grid_state.cursor, (0, 0));
-        assert_eq!(app.er_diagram_state.selected_table_name(), Some("orders"));
+        assert_eq!(
+            app.state.er_diagram_state.selected_table_name(),
+            Some("orders")
+        );
     }
 
     #[test]
@@ -1421,11 +1475,11 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = DbManagerApp::new_for_test();
         prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
-        app.result = Some(QueryResult::with_rows(
+        app.state.result = Some(QueryResult::with_rows(
             vec!["id".to_string()],
             vec![vec!["1".to_string()]],
         ));
-        app.selected_table = Some("customers".to_string());
+        app.state.selected_table = Some("customers".to_string());
         app.set_focus_area(FocusArea::DataGrid);
 
         let actions = ToolbarActions {
@@ -1438,7 +1492,7 @@ mod tests {
         assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
         assert!(!app.state.grid_state.focused);
         assert_eq!(
-            app.er_diagram_state.selected_table_name(),
+            app.state.er_diagram_state.selected_table_name(),
             Some("customers")
         );
     }
@@ -1462,7 +1516,7 @@ mod tests {
                 modifiers: Modifiers::NONE,
             },
         );
-        assert!(app.er_diagram_state.is_viewport_mode());
+        assert!(app.state.er_diagram_state.is_viewport_mode());
 
         run_frame_with_event(
             &mut app,
@@ -1475,6 +1529,6 @@ mod tests {
                 modifiers: Modifiers::NONE,
             },
         );
-        assert!(!app.er_diagram_state.is_viewport_mode());
+        assert!(!app.state.er_diagram_state.is_viewport_mode());
     }
 }

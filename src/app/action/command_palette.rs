@@ -331,7 +331,8 @@ mod tests {
         connection.connected = true;
         connection.selected_database = Some("main".to_string());
         connection.tables = tables.iter().map(|name| (*name).to_string()).collect();
-        app.session.manager
+        app.session
+            .manager
             .connections
             .insert("demo".to_string(), connection);
         app.session.manager.active = Some("demo".to_string());
@@ -387,11 +388,11 @@ mod tests {
         let ctx = Context::default();
         let mut app = DbManagerApp::new_for_test();
         prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
-        app.result = Some(QueryResult::with_rows(
+        app.state.result = Some(QueryResult::with_rows(
             vec!["id".to_string()],
             vec![vec!["1".to_string()]],
         ));
-        app.selected_table = Some("customers".to_string());
+        app.state.selected_table = Some("customers".to_string());
         app.set_focus_area(FocusArea::DataGrid);
         app.open_dialog(DialogId::CommandPalette);
         app.command_palette_state.query = "toggle_er_diagram".to_string();
@@ -417,7 +418,7 @@ mod tests {
         assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
         assert!(!app.state.grid_state.focused);
         assert_eq!(
-            app.er_diagram_state.selected_table_name(),
+            app.state.er_diagram_state.selected_table_name(),
             Some("customers")
         );
     }

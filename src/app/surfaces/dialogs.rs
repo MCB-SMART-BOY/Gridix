@@ -96,7 +96,8 @@ impl DbManagerApp {
                 self.app_config.connection_dialog_show_advanced =
                     self.state.connection_dialog_show_advanced;
                 if let Err(e) = self.app_config.save() {
-                    self.session.notifications
+                    self.session
+                        .notifications
                         .error(format!("保存连接对话框模式失败: {}", e));
                 }
             }
@@ -152,11 +153,13 @@ impl DbManagerApp {
         // 导出对话框
         if active_dialog == Some(DialogId::Export) {
             let table_name = self
+                .state
                 .selected_table
                 .clone()
                 .unwrap_or_else(|| "result".to_string());
             let export_db_type = self
-                .session.manager
+                .session
+                .manager
                 .get_active()
                 .map(|connection| connection.config.db_type)
                 .unwrap_or(crate::data::DatabaseType::SQLite);
@@ -185,12 +188,14 @@ impl DbManagerApp {
 
         // DDL 对话框（创建表）
         if active_dialog == Some(DialogId::Ddl) {
-            results.ddl_sql = ui::DdlDialog::show_create_table(ctx, &mut self.state.ddl_dialog_state);
+            results.ddl_sql =
+                ui::DdlDialog::show_create_table(ctx, &mut self.state.ddl_dialog_state);
         }
 
         // 新建数据库对话框
         if active_dialog == Some(DialogId::CreateDatabase) {
-            let create_db_result = ui::CreateDbDialog::show(ctx, &mut self.state.create_db_dialog_state);
+            let create_db_result =
+                ui::CreateDbDialog::show(ctx, &mut self.state.create_db_dialog_state);
             match create_db_result {
                 ui::CreateDbDialogResult::Create(request) => {
                     results.create_database_request = Some(request);
@@ -407,12 +412,14 @@ impl DbManagerApp {
                     .initialize_sqlite_database(&path)
                 {
                     Ok(created_path) => {
-                        self.session.notifications
+                        self.session
+                            .notifications
                             .success(format!("SQLite 数据库已初始化: {}", created_path.display()));
                         self.mark_onboarding_database_initialized();
                     }
                     Err(error) => {
-                        self.session.notifications
+                        self.session
+                            .notifications
                             .error(format!("SQLite 初始化失败: {}", error));
                     }
                 },
@@ -459,7 +466,9 @@ impl DbManagerApp {
             self.keybindings = keybindings;
             ui::sync_runtime_local_shortcuts(&self.keybindings);
             if let Err(e) = self.keybindings.save_to_disk() {
-                self.session.notifications.error(format!("快捷键保存失败: {}", e));
+                self.session
+                    .notifications
+                    .error(format!("快捷键保存失败: {}", e));
             } else {
                 self.session.notifications.success("快捷键设置已保存");
             }
@@ -534,7 +543,8 @@ mod tests {
         connection.connected = true;
         connection.selected_database = Some("main".to_string());
         connection.tables = tables.iter().map(|name| (*name).to_string()).collect();
-        app.session.manager
+        app.session
+            .manager
             .connections
             .insert("demo".to_string(), connection);
         app.session.manager.active = Some("demo".to_string());
@@ -543,29 +553,36 @@ mod tests {
     #[test]
     fn confirm_pending_delete_database_target_hits_database_branch_and_clears_state() {
         let mut app = DbManagerApp::new_for_test();
-        app.pending_delete_target = Some(SidebarDeleteTarget::database("missing", "analytics"));
+        app.state.pending_delete_target =
+            Some(SidebarDeleteTarget::database("missing", "analytics"));
         app.open_dialog(DialogId::DeleteConfirm);
 
         app.confirm_pending_delete();
 
-        assert!(app.pending_delete_target.is_none());
+        assert!(app.state.pending_delete_target.is_none());
         assert!(!app.state.show_delete_confirm);
         assert_eq!(app.active_dialog_id(), None);
-        assert_eq!(app.session.notifications.latest_message(), Some("目标连接已失效"));
+        assert_eq!(
+            app.session.notifications.latest_message(),
+            Some("目标连接已失效")
+        );
     }
 
     #[test]
     fn confirm_pending_delete_table_target_hits_table_branch_and_clears_state() {
         let mut app = DbManagerApp::new_for_test();
-        app.pending_delete_target = Some(SidebarDeleteTarget::table("missing", "users"));
+        app.state.pending_delete_target = Some(SidebarDeleteTarget::table("missing", "users"));
         app.open_dialog(DialogId::DeleteConfirm);
 
         app.confirm_pending_delete();
 
-        assert!(app.pending_delete_target.is_none());
+        assert!(app.state.pending_delete_target.is_none());
         assert!(!app.state.show_delete_confirm);
         assert_eq!(app.active_dialog_id(), None);
-        assert_eq!(app.session.notifications.latest_message(), Some("目标连接已失效"));
+        assert_eq!(
+            app.session.notifications.latest_message(),
+            Some("目标连接已失效")
+        );
     }
 
     #[test]
@@ -573,11 +590,11 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = DbManagerApp::new_for_test();
         prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
-        app.result = Some(QueryResult::with_rows(
+        app.state.result = Some(QueryResult::with_rows(
             vec!["id".to_string()],
             vec![vec!["1".to_string()]],
         ));
-        app.selected_table = Some("customers".to_string());
+        app.state.selected_table = Some("customers".to_string());
         app.set_focus_area(FocusArea::DataGrid);
 
         app.handle_dialog_results(
@@ -592,7 +609,7 @@ mod tests {
         assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
         assert!(!app.state.grid_state.focused);
         assert_eq!(
-            app.er_diagram_state.selected_table_name(),
+            app.state.er_diagram_state.selected_table_name(),
             Some("customers")
         );
     }

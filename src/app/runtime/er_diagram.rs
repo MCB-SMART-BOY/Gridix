@@ -55,13 +55,15 @@ impl DbManagerApp {
             }
             ErDiagramLoadPlan::EmptyTables { db_name } => {
                 self.state.er_diagram_state.clear();
-                self.session.notifications
+                self.session
+                    .notifications
                     .warning(format!("数据库 {} 没有表，请先选择数据库", db_name));
                 self.state.er_diagram_state.loading = false;
             }
             ErDiagramLoadPlan::Load(load) => {
                 let layout_snapshot = self.state.er_diagram_state.capture_layout_snapshot();
-                self.state.er_diagram_state
+                self.state
+                    .er_diagram_state
                     .set_pending_layout_restore(layout_snapshot);
                 self.state.er_diagram_state.begin_loading(&load.tables);
 
@@ -124,6 +126,7 @@ impl DbManagerApp {
     pub fn infer_relationships_from_columns(&self) -> Vec<ui::Relationship> {
         let mut relationships = Vec::new();
         let table_names: Vec<&str> = self
+            .state
             .er_diagram_state
             .tables
             .iter()

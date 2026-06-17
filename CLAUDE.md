@@ -39,6 +39,11 @@ cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings &&
 | Grid edit/save changes | `.claude/references/grid-save-isolation.md` |
 | Known tech debt / issues | `.claude/references/tech-debt.md` |
 | Future improvements | `.claude/references/roadmap.md` |
+| New developer onboarding | `.claude/references/onboarding.md` |
+| Architecture decisions (ADR) | `.claude/references/architecture/decisions.md` |
+| Add a DB backend | `.claude/references/database-backends.md` |
+| Development workflow | `.claude/references/workflow.md` |
+| Testing patterns | `.claude/references/testing-guide.md` |
 
 ## Module map
 
@@ -113,18 +118,45 @@ src/
 
 ## Architecture
 
-**6-layer unidirectional dependency:**
+**6-layer unidirectional dependency (final):**
 ```
-src/types.rs    (Layer -1) ← shared by all layers
+src/types.rs    (Layer -1) — shared types
      ↑
-src/core/       (Layer 0)  ← pure functions, no side effects
+src/core/       (Layer 0)  — pure functions, no side effects
      ↑
-src/database/   (Layer 1)  ← database operations, match db_type dispatch
+src/data/       (Layer 1)  — database operations, match db_type dispatch
      ↑
-src/session/    (Layer 2)  ← connection lifecycle, tab management, async dispatch
+src/session/    (Layer 2)  — connection lifecycle, async dispatch (~30 fields)
      ↑
-src/state/      (Layer 3)  ← UI state structs (incremental extraction)
+src/state/      (Layer 3)  — UI rendering state (~60 fields)
      ↑
-src/app/ + ui/  (Layer 4)  ← eframe App impl, rendering, input routing
+src/app/ + ui/  (Layer 4)  — eframe App impl, rendering, input routing (DbManagerApp: ~11 fields)
 ```
+
+**Refactoring complete (v6.3.0):**
+- ✅ DbManagerApp: ~100 → ~11 fields (~89 migrated to Session/UiState)
+- ✅ Session: ~30 fields with request ID privacy, needs_repaint decoupling
+- ✅ UiState: ~60 fields with all UI rendering state
+- ✅ self.sql dual source eliminated
+- ✅ database/ → data/ renamed
+- ✅ Config versioning, throttling, security fixes
+- ✅ SQLite driver tests, AppError types, 3 audit fixes
+- ✅ 0 clippy errors, 0 compiler warnings, 0 test failures
+- ✅ 6 critical logic paths verified (needs_repaint, mirror sync, config debounce, handler guards, tab switch, connection guards)
+
+## Architecture of `.claude/`
+
+| directory | when loaded | purpose |
+|---|---|---|
+| `CLAUDE.md` | every session | project-wide context, module map, architecture |
+| `workflow/` | agent follows stage by stage | 7-stage lifecycle: Plan→Design→Implement→Review→Test→Release→Monitor |
+| `skills/` | user invokes `/<name>` or `description` matches task | executable workflows: run-gridix, keybindings, pr-prep, release, troubleshoot |
+| `rules/` | automatically when editing files matching `paths:` | domain rules with DO/DON'T/VERIFY patterns: database, session, ui-egui, testing, sync-claude |
+| `templates/` | agent uses for consistency | standard formats: commit messages, PR descriptions, feature requests |
+| `references/` | agent reads on demand | engineering ledgers (tech-debt, roadmap, bug-ledger), design contracts (core-flows, er-contracts, dialog-audit), architecture ADRs |
+| `memory/` | persistent between sessions | project context, user preferences, feedback log |
+
+## Available skills
+
+`/run-gridix` — build, launch, screenshot · `/keybindings` — keyboard shortcuts · `/pr-prep` — pre-PR checks · `/release` — version bump → publish · `/troubleshoot` — build/launch/test fixes
 

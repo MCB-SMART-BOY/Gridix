@@ -10,8 +10,8 @@ pub mod tab;
 use crate::core::{AutoComplete, NotificationManager, ProgressManager, QueryHistory};
 use crate::data::{ConnectionManager, QueryResult};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 
 // ============================================================================
 // Session — 数据库会话管理
@@ -51,7 +51,8 @@ pub struct Session {
     pub pending_routines_request: Option<(String, Option<String>, u64)>,
     pub pending_query_tasks: HashMap<u64, tokio::task::JoinHandle<()>>,
     pub pending_query_connections: HashMap<u64, String>,
-    pub pending_query_cancellers: HashMap<u64, Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>>,
+    pub pending_query_cancellers:
+        HashMap<u64, Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>>,
     pub user_cancelled_query_requests: HashSet<u64>,
 
     // ── 自动补全 ──
@@ -65,6 +66,9 @@ pub struct Session {
     // ── 命令历史 ──
     pub command_history: Vec<String>,
     pub history_index: Option<usize>,
+
+    /// 当前帧是否需要重绘（由 handler 设置，不在 handler 中直接调用 ctx）
+    pub needs_repaint: bool,
 
     // ── 通知 ──
     pub notifications: NotificationManager,
@@ -105,6 +109,7 @@ impl Session {
             autocomplete: AutoComplete::new(),
             command_history: Vec::new(),
             history_index: None,
+            needs_repaint: false,
             notifications: NotificationManager::default(),
             progress: ProgressManager::default(),
         }
@@ -133,7 +138,9 @@ impl Session {
 
     /// 检查活动 Tab 的查询结果
     pub fn active_result(&self) -> Option<&QueryResult> {
-        self.tab_manager.get_active().and_then(|t| t.result.as_ref())
+        self.tab_manager
+            .get_active()
+            .and_then(|t| t.result.as_ref())
     }
 
     // ── 请求 ID 生成 ──

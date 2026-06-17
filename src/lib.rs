@@ -25,7 +25,6 @@
 // 内部模块
 // ============================================================================
 
-pub mod types;
 pub(crate) mod app;
 pub mod bootstrap;
 pub mod core;
@@ -33,6 +32,7 @@ pub mod data;
 pub mod prelude;
 pub mod session;
 pub mod state;
+pub mod types;
 pub mod ui;
 
 // ============================================================================

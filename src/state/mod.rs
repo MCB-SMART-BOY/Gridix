@@ -4,8 +4,10 @@
 //! 更多字段将在后续提交中逐步迁移。
 
 use crate::core::{HighlightColors, ThemeManager};
-use crate::ui::{DataGridState, EditorMode, ERDiagramState, ExportConfig, FocusArea, ImportState, SidebarSection};
 use crate::ui::{CreateDbDialogState, CreateUserDialogState, DdlDialogState, HelpState};
+use crate::ui::{
+    DataGridState, ERDiagramState, EditorMode, ExportConfig, FocusArea, ImportState, SidebarSection,
+};
 use crate::ui::{HistoryPanelState, KeyBindingsDialogState, SidebarPanelState};
 use crate::ui::{ToolbarMenuDialogState, ToolbarThemeDialogState};
 
@@ -53,6 +55,18 @@ pub struct UiState {
     pub selected_cell: Option<(usize, usize)>,
     pub toolbar_index: usize,
     pub help_scroll_offset: f32,
+    pub selected_table: Option<String>,
+    pub result: Option<crate::data::QueryResult>,
+    pub new_config: crate::data::ConnectionConfig,
+    pub editing_connection_name: Option<String>,
+    pub export_status: Option<Result<String, String>>,
+    pub pending_delete_target: Option<crate::ui::SidebarDeleteTarget>,
+    pub welcome_status: crate::ui::WelcomeStatusSummary,
+    pub welcome_setup_target: crate::data::DatabaseType,
+    pub welcome_setup_action_index: usize,
+    pub pending_drop_requests: std::collections::HashMap<u64, (String, String)>,
+    pub pending_filter_input_focus: Option<usize>,
+    pub(crate) active_dialog_owner: Option<crate::app::dialogs::host::DialogId>,
     pub grid_state: DataGridState,
     pub sidebar_panel_state: SidebarPanelState,
     pub er_diagram_state: ERDiagramState,
@@ -107,6 +121,18 @@ impl Default for UiState {
             toolbar_index: 0,
             help_scroll_offset: 0.0,
             grid_state: DataGridState::default(),
+            selected_table: None,
+            result: None,
+            new_config: crate::data::ConnectionConfig::default(),
+            editing_connection_name: None,
+            export_status: None,
+            pending_delete_target: None,
+            welcome_status: crate::ui::WelcomeStatusSummary::default(),
+            welcome_setup_target: crate::data::DatabaseType::SQLite,
+            welcome_setup_action_index: 0,
+            pending_drop_requests: std::collections::HashMap::new(),
+            pending_filter_input_focus: None,
+            active_dialog_owner: None,
             sidebar_panel_state: SidebarPanelState::default(),
         }
     }

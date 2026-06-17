@@ -682,7 +682,9 @@ fn skip_balanced_parens(sql: &str, mut i: usize) -> Option<usize> {
 
     while i < bytes.len() {
         // Handle dollar-quoted strings (PostgreSQL $$...$$ or $tag$...$tag$)
-        if bytes[i] == b'$' && let Some(tag) = parse_dollar_quote_tag_bytes(bytes, i) {
+        if bytes[i] == b'$'
+            && let Some(tag) = parse_dollar_quote_tag_bytes(bytes, i)
+        {
             i += tag.len();
             // Scan for matching closing tag
             while i + tag.len() <= bytes.len() {

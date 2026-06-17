@@ -12,7 +12,7 @@
 //! - `workflow`: 导入导出、帮助和欢迎页用户流程
 
 mod action;
-mod dialogs;
+pub(crate) mod dialogs;
 mod input;
 pub(crate) mod runtime;
 mod surfaces;
@@ -22,14 +22,10 @@ use eframe::egui;
 use std::collections::HashMap;
 use std::sync::mpsc::channel;
 
-use crate::core::{
-    AppConfig, HighlightColors, KeyBindings, ThemeManager, constants,
-};
-use crate::data::{ConnectionConfig, DatabaseType, QueryResult};
-use crate::ui::{self, DdlDialogState, ExportConfig, KeyBindingsDialogState, QueryTabManager};
+use crate::core::{AppConfig, HighlightColors, KeyBindings, ThemeManager, constants};
+use crate::ui::{self, ExportConfig, QueryTabManager};
 
 use action::command_palette::CommandPaletteState;
-use dialogs::host::DialogId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(in crate::app) struct GridWorkspaceId {
@@ -98,87 +94,15 @@ impl GridWorkspaceStore {
 /// 目标：4 字段 { session, state, config, keybindings }
 /// 当前：~47 字段（已迁移 ~53）
 pub struct DbManagerApp {
-    // ==================== 核心聚合 ====================
-    /// 会话状态 — 聚合 DB 连接、异步基础设施、请求追踪（渐进迁移中）
-    session: crate::session::Session,
-    /// UI 状态 — 聚合渲染状态（渐进迁移中）
-    state: crate::state::UiState,
-
-    // ==================== 连接对话框 ====================
-
-    // ==================== 查询状态 ====================
-
-    // ==================== 配置和历史 ====================
+    pub session: crate::session::Session,
+    pub state: crate::state::UiState,
     app_config: AppConfig,
-
-    // ==================== 搜索和选择 ====================
-    /// 表格搜索文本
-    /// 搜索限定的列名
-    /// 当前选中的行索引
-    /// 当前选中的单元格 (行, 列)
-    /// 数据表格状态（筛选、排序、编辑等）
-    /// 按表实例隔离的表格工作区状态
     grid_workspaces: GridWorkspaceStore,
-    /// 当前活动 surface 是否使用持久化 grid workspace
     active_grid_workspace_enabled: bool,
-
-    // ==================== 对话框状态 ====================
-    /// 是否显示导出对话框
-    /// 导出配置
-    /// 导出操作结果
-    /// 是否显示导入对话框
-    /// 导入状态（文件、预览、配置）
-    /// 是否显示历史面板
-    /// 历史面板状态
-    /// 是否显示删除确认对话框
-    /// 待删除目标（连接 / 数据库 / 表）
-    /// 待处理的表删除（request_id -> (连接名, 表名)）
-    /// 侧边栏请求聚焦的筛选输入框索引
-
-    // ==================== 自动补全 ====================
-    /// 当前选中的补全项索引
-    /// SQL 编辑器模式 (Normal/Insert)
-
-    // ==================== UI 显示状态 ====================
-    /// egui_dock 布局状态（管理主工作区的面板布局）
     dock_state: egui_dock::DockState<ui::dock_tabs::DockTab>,
-    /// SQL 编辑器是否展开显示
-    /// SQL 编辑器是否需要获取焦点
-    /// 侧边栏是否显示
-    /// 全局焦点区域（侧边栏/SQL 编辑器/数据表格）
-    /// 最近一个非 ER 的 workspace 主区域（仅记录 Sidebar / DataGrid / SqlEditor）
-    /// 工具栏当前选中项索引（用于键盘导航）
-    /// 侧边栏当前焦点子区域（连接/数据库/表）
-    /// 侧边栏面板状态（上下分割、触发器列表、选中索引等）
-    /// 侧边栏宽度
-    /// 欢迎页数据库环境检测状态
-    /// 是否显示欢迎页安装/初始化引导
-    /// 当前引导目标数据库
-    /// 欢迎页安装/初始化引导当前选中的动作索引
-    /// 是否显示帮助面板
-    /// 帮助面板滚动位置
-    /// 帮助面板分类与学习主题状态
-    /// 是否显示关于对话框
-    /// 当前显式 dialog owner（输入/渲染优先走这里，再兼容回退到可见性采样）
-    /// DDL 对话框状态（新建表等）
-    /// 新建数据库对话框状态
-    /// 新建用户对话框状态
-    /// 快捷键绑定
     keybindings: KeyBindings,
-    /// 快捷键设置对话框状态
-    /// 顶部工具栏“操作”菜单状态
-    /// 顶部工具栏“新建”菜单状态
-    /// 顶部工具栏“主题”菜单状态
-    /// 命令面板状态
     command_palette_state: CommandPaletteState,
-    /// 是否显示 ER 图面板
-    /// ER 图状态
-    er_diagram_state: ui::ERDiagramState,
-    /// SQL 编辑器高度（用于可调整大小）
-    sql_editor_height: f32,
-    /// 待执行的切换日/夜模式操作（由键盘快捷键设置）
     pending_toggle_dark_mode: bool,
-    /// Config save throttling
     config_dirty: bool,
     last_config_save: std::time::Instant,
 }
@@ -188,7 +112,8 @@ pub struct DbManagerApp {
 impl DbManagerApp {
     /// 获取当前活动 Tab 的 SQL（只读）
     pub(crate) fn active_sql(&self) -> &str {
-        self.session.tab_manager
+        self.session
+            .tab_manager
             .get_active()
             .map(|t| t.sql.as_str())
             .unwrap_or("")
@@ -230,8 +155,7 @@ impl DbManagerApp {
 
     /// Periodically flush dirty config (called each frame)
     pub(crate) fn tick_config_save(&mut self) {
-        if self.config_dirty
-            && self.last_config_save.elapsed() > std::time::Duration::from_secs(5)
+        if self.config_dirty && self.last_config_save.elapsed() > std::time::Duration::from_secs(5)
         {
             self.save_config();
             self.config_dirty = false;
@@ -293,24 +217,19 @@ impl DbManagerApp {
         sidebar_panel_state.workflow.edge_transfer = app_config.sidebar.edge_transfer;
 
         let mut app = Self {
-            connection_dialog_show_advanced: app_config.connection_dialog_show_advanced,
             session,
-            state: {
-                let mut s = crate::state::UiState::default();
-                s.theme_manager = theme_manager;
-                s.highlight_colors = highlight_colors;
-                s.ui_scale = ui_scale;
-                s.base_pixels_per_point = base_pixels_per_point;
-                s
+            state: crate::state::UiState {
+                theme_manager,
+                highlight_colors,
+                ui_scale,
+                base_pixels_per_point,
+                connection_dialog_show_advanced: app_config.connection_dialog_show_advanced,
+                ..Default::default()
             },
             app_config,
             grid_workspaces: GridWorkspaceStore::default(),
             active_grid_workspace_enabled: false,
             dock_state: ui::dock_tabs::default_layout(),
-            sidebar_width: 280.0, // 默认侧边栏宽度
-            ddl_dialog_state: DdlDialogState::default(),
-            create_db_dialog_state: ui::CreateDbDialogState::new(),
-            create_user_dialog_state: ui::CreateUserDialogState::new(),
             keybindings,
             command_palette_state: CommandPaletteState::default(),
             pending_toggle_dark_mode: false,
@@ -331,22 +250,20 @@ impl DbManagerApp {
         &mut self.session.tab_manager
     }
 
-    pub(crate) fn show_er_diagram(&self) -> bool {
-        self.state.show_er_diagram
-    }
-
-    pub(crate) fn show_sql_editor(&self) -> bool {
-        self.state.show_sql_editor
-    }
-
     /// Dock tab 关闭时的清理：持久化状态、取消查询、移除工作区
     pub(crate) fn on_dock_tab_close(&mut self, tab_index: usize) {
         self.persist_active_tab_state_for_navigation();
         // Clone needed values before mutable operations
-        let pending_id = self.session.tab_manager.tabs
+        let pending_id = self
+            .session
+            .tab_manager
+            .tabs
             .get(tab_index)
             .and_then(|tab| tab.pending_request_id);
-        let tab_id = self.session.tab_manager.tabs
+        let tab_id = self
+            .session
+            .tab_manager
+            .tabs
             .get(tab_index)
             .map(|tab| tab.id.clone());
         if let Some(request_id) = pending_id {
@@ -372,7 +289,8 @@ impl DbManagerApp {
         let tab_id = self.session.tab_manager.get_active()?.id.clone();
         let connection_name = self.session.manager.active.clone()?;
         let database_name = self
-            .session.manager
+            .session
+            .manager
             .get_active()
             .and_then(|connection| connection.selected_database.clone());
         Some(GridWorkspaceId {
@@ -395,7 +313,8 @@ impl DbManagerApp {
         let Some(workspace_id) = self.active_grid_workspace_id() else {
             return;
         };
-        self.grid_workspaces.save(workspace_id, &self.state.grid_state);
+        self.grid_workspaces
+            .save(workspace_id, &self.state.grid_state);
     }
 
     fn sync_active_grid_focus(&mut self) {
@@ -451,7 +370,8 @@ impl DbManagerApp {
             return;
         };
         let database_name = self
-            .session.manager
+            .session
+            .manager
             .get_active()
             .and_then(|connection| connection.selected_database.clone());
         self.grid_workspaces
@@ -475,6 +395,7 @@ impl DbManagerApp {
 
     fn handle_export_with_config(&mut self, config: ExportConfig) {
         let table_name = self
+            .state
             .selected_table
             .clone()
             .unwrap_or_else(|| "query_result".to_string());
@@ -490,7 +411,8 @@ impl DbManagerApp {
             if let Some(path) = file_dialog.save_file() {
                 // 使用导出模块执行导出
                 let db_type = self
-                    .session.manager
+                    .session
+                    .manager
                     .get_active()
                     .map(|connection| connection.config.db_type)
                     .unwrap_or(crate::data::DatabaseType::SQLite);
@@ -530,9 +452,7 @@ impl eframe::App for DbManagerApp {
 
         // 清理连接池，确保所有数据库连接正确关闭
         self.session.runtime.block_on(async {
-            crate::data::ssh_tunnel::SSH_TUNNEL_MANAGER
-                .stop_all()
-                .await;
+            crate::data::ssh_tunnel::SSH_TUNNEL_MANAGER.stop_all().await;
             crate::data::POOL_MANAGER.clear_all().await;
         });
     }

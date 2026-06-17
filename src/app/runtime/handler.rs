@@ -53,7 +53,6 @@ fn clamp_grid_cursor_for_result(
     )
 }
 
-
 fn should_drop_query_error_as_stale(
     is_stale_for_existing_tab: bool,
     is_cancelled: bool,
@@ -254,18 +253,23 @@ impl DbManagerApp {
                 }
             }
         }
+        if self.session.needs_repaint {
+            ctx.request_repaint();
+            self.session.needs_repaint = false;
+        }
     }
 
     /// 处理 SQLite 连接完成消息
     fn handle_connected_with_tables(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         name: String,
         request_id: u64,
         result: Result<Vec<String>, String>,
     ) {
         let is_latest = self
-            .session.pending_connect_requests
+            .session
+            .pending_connect_requests
             .get(&name)
             .is_some_and(|id| *id == request_id);
         if !is_latest {
@@ -294,7 +298,8 @@ impl DbManagerApp {
                     ));
                     self.load_history_for_connection(&name);
                     self.session.autocomplete.set_tables(tables);
-                    self.state.sidebar_panel_state
+                    self.state
+                        .sidebar_panel_state
                         .selection
                         .reset_for_connection_change();
                     self.load_triggers();
@@ -309,19 +314,20 @@ impl DbManagerApp {
                 }
             }
         }
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理 MySQL/PostgreSQL 连接完成消息
     fn handle_connected_with_databases(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         name: String,
         request_id: u64,
         result: Result<Vec<String>, String>,
     ) {
         let is_latest = self
-            .session.pending_connect_requests
+            .session
+            .pending_connect_requests
             .get(&name)
             .is_some_and(|id| *id == request_id);
         if !is_latest {
@@ -350,7 +356,8 @@ impl DbManagerApp {
                     ));
                     self.load_history_for_connection(&name);
                     self.session.autocomplete.clear();
-                    self.state.sidebar_panel_state
+                    self.state
+                        .sidebar_panel_state
                         .selection
                         .reset_for_connection_change();
                 }
@@ -363,21 +370,25 @@ impl DbManagerApp {
                 }
             }
         }
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理数据库选择完成消息
     fn handle_database_selected(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         conn_name: String,
         db_name: String,
         request_id: u64,
         result: Result<Vec<String>, String>,
     ) {
-        let is_latest = self.session.pending_database_requests.get(&conn_name).is_some_and(
-            |(pending_db, pending_id)| pending_db == &db_name && *pending_id == request_id,
-        );
+        let is_latest = self
+            .session
+            .pending_database_requests
+            .get(&conn_name)
+            .is_some_and(|(pending_db, pending_id)| {
+                pending_db == &db_name && *pending_id == request_id
+            });
         if !is_latest {
             tracing::debug!(
                 connection = %conn_name,
@@ -404,7 +415,8 @@ impl DbManagerApp {
                         tables.len()
                     ));
                     self.session.autocomplete.set_tables(tables);
-                    self.state.sidebar_panel_state
+                    self.state
+                        .sidebar_panel_state
                         .selection
                         .reset_for_database_change();
                     self.load_triggers();
@@ -415,17 +427,19 @@ impl DbManagerApp {
             }
             Err(e) => {
                 if is_active {
-                    self.session.notifications.error(format!("选择数据库失败: {}", e));
+                    self.session
+                        .notifications
+                        .error(format!("选择数据库失败: {}", e));
                 }
             }
         }
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理数据库删除完成消息
     fn handle_database_dropped(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         conn_name: String,
         db_name: String,
         result: Result<(), String>,
@@ -447,7 +461,8 @@ impl DbManagerApp {
 
                 self.remove_grid_workspaces_for_database(&db_name);
                 if is_active {
-                    self.state.sidebar_panel_state
+                    self.state
+                        .sidebar_panel_state
                         .selection
                         .reset_for_database_change();
                     if dropped_selected_database {
@@ -465,22 +480,24 @@ impl DbManagerApp {
                     }
                 }
 
-                self.session.notifications
+                self.session
+                    .notifications
                     .success(format!("数据库 '{}' 已删除", db_name));
             }
             Err(error) => {
-                self.session.notifications
+                self.session
+                    .notifications
                     .error(format!("删除数据库 '{}' 失败: {}", db_name, error));
             }
         }
 
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理表删除完成消息
     fn handle_table_dropped(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         conn_name: String,
         table_name: String,
         result: Result<(), String>,
@@ -505,20 +522,22 @@ impl DbManagerApp {
                     self.set_focus_area(ui::FocusArea::Sidebar);
                 }
 
-                self.session.notifications
+                self.session
+                    .notifications
                     .success(format!("表 '{}' 已删除", table_name));
             }
             Err(error) => {
-                self.session.notifications
+                self.session
+                    .notifications
                     .error(format!("删除表 '{}' 失败: {}", table_name, error));
             }
         }
 
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理查询完成消息
-    fn handle_query_done(&mut self, ctx: &egui::Context, payload: QueryDonePayload) {
+    fn handle_query_done(&mut self, _ctx: &egui::Context, payload: QueryDonePayload) {
         use crate::core::constants;
         let QueryDonePayload {
             sql,
@@ -530,9 +549,17 @@ impl DbManagerApp {
         } = payload;
 
         self.finalize_query_task(request_id);
-        let was_user_cancelled = self.session.user_cancelled_query_requests.remove(&request_id);
+        let was_user_cancelled = self
+            .session
+            .user_cancelled_query_requests
+            .remove(&request_id);
 
-        let target_tab_index = self.session.tab_manager.tabs.iter().position(|t| t.id == tab_id);
+        let target_tab_index = self
+            .session
+            .tab_manager
+            .tabs
+            .iter()
+            .position(|t| t.id == tab_id);
         let is_stale_for_existing_tab = target_tab_index
             .and_then(|idx| self.session.tab_manager.tabs.get(idx))
             .is_some_and(|tab| tab.pending_request_id != Some(request_id));
@@ -548,7 +575,8 @@ impl DbManagerApp {
         let is_drop_table = sql_hints.is_drop_table;
 
         let db_type = self
-            .session.manager
+            .session
+            .manager
             .connections
             .get(&conn_name)
             .map(|c| c.config.db_type.display_name().to_string())
@@ -595,7 +623,7 @@ impl DbManagerApp {
                         "忽略过期查询回包（请求已被新查询覆盖或标签已关闭）"
                     );
                     self.session.refresh_executing_flag();
-                    ctx.request_repaint();
+                    self.session.needs_repaint = true;
                     return;
                 }
 
@@ -634,7 +662,8 @@ impl DbManagerApp {
 
                         // 根据 SQL 类型设置光标位置
                         if is_update_or_delete {
-                            self.state.grid_state.scroll_to_row = Some(self.state.grid_state.cursor.0);
+                            self.state.grid_state.scroll_to_row =
+                                Some(self.state.grid_state.cursor.0);
                         } else if is_insert {
                             let last_row = res.rows.len().saturating_sub(1);
                             self.state.grid_state.cursor = (last_row, 0);
@@ -649,12 +678,12 @@ impl DbManagerApp {
                         if let Some(table) = &self.state.selected_table
                             && !res.columns.is_empty()
                         {
-                            self.session.autocomplete
+                            self.session
+                                .autocomplete
                                 .set_columns(table.clone(), res.columns.clone());
                         }
 
                         self.state.result = Some(res.clone());
-
                     }
                 } else {
                     tracing::debug!(tab_id = %tab_id, "查询回包对应的标签页已不存在");
@@ -674,7 +703,9 @@ impl DbManagerApp {
                         }
                     }
 
-                    if is_current_active && self.state.selected_table.as_deref() == Some(&dropped_table) {
+                    if is_current_active
+                        && self.state.selected_table.as_deref() == Some(&dropped_table)
+                    {
                         self.switch_grid_workspace(None);
                         self.remove_grid_workspace_for_table(&dropped_table);
                         self.clear_result();
@@ -701,7 +732,7 @@ impl DbManagerApp {
                         "忽略过期查询错误回包（请求已被新查询覆盖或标签已关闭）"
                     );
                     self.session.refresh_executing_flag();
-                    ctx.request_repaint();
+                    self.session.needs_repaint = true;
                     return;
                 }
 
@@ -711,7 +742,7 @@ impl DbManagerApp {
                         self.state.pending_drop_requests.remove(&request_id);
                     }
                     self.session.refresh_executing_flag();
-                    ctx.request_repaint();
+                    self.session.needs_repaint = true;
                     return;
                 }
 
@@ -761,12 +792,12 @@ impl DbManagerApp {
             }
         }
         self.session.refresh_executing_flag();
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
     /// 处理导入完成消息
     fn handle_import_done(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         result: Result<crate::data::ImportExecutionReport, String>,
         elapsed_ms: u64,
     ) {
@@ -793,13 +824,13 @@ impl DbManagerApp {
             }
         }
 
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理主键获取完成消息
     fn handle_primary_key_fetched(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         table_name: String,
         pk_column: Option<String>,
     ) {
@@ -814,7 +845,7 @@ impl DbManagerApp {
                 self.state.grid_state.primary_key_column = None;
             }
         }
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 检查异步元数据回包是否仍对应当前连接上下文
@@ -836,7 +867,7 @@ impl DbManagerApp {
     /// 处理触发器获取完成消息
     fn handle_triggers_fetched(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         conn_name: String,
         db_name: Option<String>,
         request_id: u64,
@@ -874,16 +905,18 @@ impl DbManagerApp {
                 self.state.sidebar_panel_state.set_triggers(triggers);
             }
             Err(e) => {
-                self.session.notifications.error(format!("加载触发器失败: {}", e));
+                self.session
+                    .notifications
+                    .error(format!("加载触发器失败: {}", e));
             }
         }
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理存储过程/函数获取完成消息
     fn handle_routines_fetched(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         conn_name: String,
         db_name: Option<String>,
         request_id: u64,
@@ -923,23 +956,26 @@ impl DbManagerApp {
             Err(e) => {
                 // 对于 SQLite 不显示错误，因为它不支持存储过程
                 if !e.contains("不支持") {
-                    self.session.notifications.error(format!("加载存储过程失败: {}", e));
+                    self.session
+                        .notifications
+                        .error(format!("加载存储过程失败: {}", e));
                 }
             }
         }
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理外键获取完成消息
     fn handle_foreign_keys_fetched(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         result: Result<Vec<crate::data::ForeignKeyInfo>, String>,
     ) {
         match result {
             Ok(fks) => {
                 let foreign_key_columns = collect_er_foreign_key_columns(&fks);
-                self.state.er_diagram_state
+                self.state
+                    .er_diagram_state
                     .set_foreign_key_columns(foreign_key_columns);
 
                 let relationships = collect_er_relationships_from_foreign_keys(fks);
@@ -950,17 +986,19 @@ impl DbManagerApp {
             }
             Err(e) => {
                 self.state.er_diagram_state.mark_foreign_keys_resolved();
-                self.session.notifications.error(format!("加载外键关系失败: {}", e));
+                self.session
+                    .notifications
+                    .error(format!("加载外键关系失败: {}", e));
                 self.finalize_er_diagram_load_if_ready();
             }
         }
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 
     /// 处理 ER 表列信息获取完成消息
     fn handle_er_table_columns_fetched(
         &mut self,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         table_name: String,
         result: Result<Vec<crate::data::ColumnInfo>, String>,
     ) {
@@ -970,6 +1008,7 @@ impl DbManagerApp {
                     .into_iter()
                     .map(|c| ui::ERColumn {
                         is_foreign_key: self
+                            .state
                             .er_diagram_state
                             .is_foreign_key_column(&table_name, &c.name),
                         name: c.name,
@@ -982,6 +1021,7 @@ impl DbManagerApp {
 
                 let display_mode = self.state.er_diagram_state.card_display_mode();
                 if let Some(er_table) = self
+                    .state
                     .er_diagram_state
                     .tables
                     .iter_mut()
@@ -993,14 +1033,16 @@ impl DbManagerApp {
                 }
             }
             Err(e) => {
-                self.session.notifications
+                self.session
+                    .notifications
                     .warning(format!("获取表 {} 结构失败: {}", table_name, e));
             }
         }
-        self.state.er_diagram_state
+        self.state
+            .er_diagram_state
             .mark_table_request_resolved(&table_name);
         self.finalize_er_diagram_load_if_ready();
-        ctx.request_repaint();
+        self.session.needs_repaint = true;
     }
 }
 
@@ -1009,9 +1051,9 @@ mod tests {
     use super::{
         ErDiagramReadyKind, apply_default_er_diagram_layout, apply_ready_state_er_diagram_layout,
         clamp_grid_cursor_for_result, collect_er_relationships_from_foreign_keys,
-        er_diagram_ready_message, is_cancelled_query_error,
-        resolve_er_diagram_ready_state, select_ready_state_er_layout_strategy,
-        should_drop_query_error_as_stale, should_record_active_query_time,
+        er_diagram_ready_message, is_cancelled_query_error, resolve_er_diagram_ready_state,
+        select_ready_state_er_layout_strategy, should_drop_query_error_as_stale,
+        should_record_active_query_time,
     };
     use crate::data::ForeignKeyInfo;
     use crate::data::QueryResult;
@@ -1224,29 +1266,30 @@ mod tests {
     #[test]
     fn finalize_er_diagram_load_restores_snapshot_when_table_names_match_exactly() {
         let mut app = crate::app::DbManagerApp::new_for_test();
-        app.er_diagram_state.tables = vec![
+        app.state.er_diagram_state.tables = vec![
             ERTable::new("customers".into()),
             ERTable::new("orders".into()),
         ];
-        app.er_diagram_state
-            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+        app.state.er_diagram_state.set_pending_layout_restore(Some(
+            std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(320.0, 140.0)),
                 ("orders".to_string(), egui::pos2(80.0, 420.0)),
-            ])));
-        app.er_diagram_state.loading = false;
-        app.er_diagram_state.relationships = vec![relationship("orders", "customers")];
+            ]),
+        ));
+        app.state.er_diagram_state.loading = false;
+        app.state.er_diagram_state.relationships = vec![relationship("orders", "customers")];
 
         app.finalize_er_diagram_load_if_ready();
 
         assert_eq!(
-            app.er_diagram_state.tables[0].position,
+            app.state.er_diagram_state.tables[0].position,
             egui::pos2(320.0, 140.0)
         );
         assert_eq!(
-            app.er_diagram_state.tables[1].position,
+            app.state.er_diagram_state.tables[1].position,
             egui::pos2(80.0, 420.0)
         );
-        assert!(!app.er_diagram_state.has_pending_layout_restore());
+        assert!(!app.state.er_diagram_state.has_pending_layout_restore());
     }
 
     #[test]
@@ -1274,39 +1317,40 @@ mod tests {
     #[test]
     fn finalize_er_diagram_load_restores_matching_snapshot_after_strategy_layout() {
         let mut app = crate::app::DbManagerApp::new_for_test();
-        app.er_diagram_state.tables = vec![
+        app.state.er_diagram_state.tables = vec![
             ERTable::new("customers".into()),
             ERTable::new("orders".into()),
             ERTable::new("invoices".into()),
         ];
-        app.er_diagram_state
-            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+        app.state.er_diagram_state.set_pending_layout_restore(Some(
+            std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(320.0, 140.0)),
                 ("orders".to_string(), egui::pos2(80.0, 420.0)),
                 ("legacy".to_string(), egui::pos2(920.0, 40.0)),
-            ])));
-        app.er_diagram_state.loading = false;
-        app.er_diagram_state.relationships = vec![relationship("orders", "customers")];
+            ]),
+        ));
+        app.state.er_diagram_state.loading = false;
+        app.state.er_diagram_state.relationships = vec![relationship("orders", "customers")];
 
         app.finalize_er_diagram_load_if_ready();
 
         assert_eq!(
-            app.er_diagram_state.tables[0].position,
+            app.state.er_diagram_state.tables[0].position,
             egui::pos2(320.0, 140.0)
         );
         assert_eq!(
-            app.er_diagram_state.tables[1].position,
+            app.state.er_diagram_state.tables[1].position,
             egui::pos2(80.0, 420.0)
         );
         assert_ne!(
-            app.er_diagram_state.tables[2].position,
+            app.state.er_diagram_state.tables[2].position,
             egui::pos2(320.0, 140.0)
         );
         assert_ne!(
-            app.er_diagram_state.tables[2].position,
+            app.state.er_diagram_state.tables[2].position,
             egui::pos2(80.0, 420.0)
         );
-        assert!(!app.er_diagram_state.has_pending_layout_restore());
+        assert!(!app.state.er_diagram_state.has_pending_layout_restore());
     }
 
     #[test]
@@ -1318,30 +1362,34 @@ mod tests {
         orders.size = egui::vec2(180.0, 200.0);
         let mut invoices = ERTable::new("invoices".into());
         invoices.size = egui::vec2(180.0, 200.0);
-        app.er_diagram_state.tables = vec![customers, orders, invoices];
-        app.er_diagram_state
-            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+        app.state.er_diagram_state.tables = vec![customers, orders, invoices];
+        app.state.er_diagram_state.set_pending_layout_restore(Some(
+            std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(540.0, 50.0)),
                 ("orders".to_string(), egui::pos2(300.0, 50.0)),
                 ("legacy".to_string(), egui::pos2(80.0, 420.0)),
-            ])));
-        app.er_diagram_state.loading = false;
+            ]),
+        ));
+        app.state.er_diagram_state.loading = false;
 
         app.finalize_er_diagram_load_if_ready();
 
         let customers = app
+            .state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "customers")
             .unwrap();
         let orders = app
+            .state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "orders")
             .unwrap();
         let invoices = app
+            .state
             .er_diagram_state
             .tables
             .iter()
@@ -1352,7 +1400,7 @@ mod tests {
         assert_eq!(orders.position, egui::pos2(300.0, 50.0));
         assert!(!invoices.rect().intersects(customers.rect()));
         assert!(!invoices.rect().intersects(orders.rect()));
-        assert!(!app.er_diagram_state.has_pending_layout_restore());
+        assert!(!app.state.er_diagram_state.has_pending_layout_restore());
     }
 
     #[test]
@@ -1381,15 +1429,16 @@ mod tests {
         orders.size = egui::vec2(180.0, 200.0);
         let mut invoices = ERTable::new("invoices".into());
         invoices.size = egui::vec2(180.0, 200.0);
-        app.er_diagram_state.tables = vec![customers, orders, invoices];
+        app.state.er_diagram_state.tables = vec![customers, orders, invoices];
         let restored_orders = egui::pos2(660.0, 50.0);
-        app.er_diagram_state
-            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+        app.state.er_diagram_state.set_pending_layout_restore(Some(
+            std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(900.0, 50.0)),
                 ("orders".to_string(), restored_orders),
-            ])));
-        app.er_diagram_state.loading = false;
-        app.er_diagram_state.relationships = relationships;
+            ]),
+        ));
+        app.state.er_diagram_state.loading = false;
+        app.state.er_diagram_state.relationships = relationships;
 
         let strategy_distance =
             strategy_invoice.distance(restored_orders + egui::vec2(90.0, 100.0));
@@ -1397,12 +1446,14 @@ mod tests {
         app.finalize_er_diagram_load_if_ready();
 
         let orders = app
+            .state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "orders")
             .unwrap();
         let invoices = app
+            .state
             .er_diagram_state
             .tables
             .iter()
@@ -1412,7 +1463,7 @@ mod tests {
 
         assert!(restored_distance < strategy_distance);
         assert!(!invoices.rect().intersects(orders.rect()));
-        assert!(!app.er_diagram_state.has_pending_layout_restore());
+        assert!(!app.state.er_diagram_state.has_pending_layout_restore());
     }
 
     #[test]
@@ -1425,24 +1476,24 @@ mod tests {
         let relationships = vec![relationship("invoices", "orders")];
 
         let mut app = crate::app::DbManagerApp::new_for_test();
-        app.er_diagram_state.tables = vec![orders, invoices];
-        app.er_diagram_state
-            .set_pending_layout_restore(Some(std::collections::HashMap::from([(
-                "orders".to_string(),
-                egui::pos2(660.0, 50.0),
-            )])));
-        app.er_diagram_state.loading = false;
-        app.er_diagram_state.relationships = relationships;
+        app.state.er_diagram_state.tables = vec![orders, invoices];
+        app.state.er_diagram_state.set_pending_layout_restore(Some(
+            std::collections::HashMap::from([("orders".to_string(), egui::pos2(660.0, 50.0))]),
+        ));
+        app.state.er_diagram_state.loading = false;
+        app.state.er_diagram_state.relationships = relationships;
 
         app.finalize_er_diagram_load_if_ready();
 
         let orders = app
+            .state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "orders")
             .unwrap();
         let invoices = app
+            .state
             .er_diagram_state
             .tables
             .iter()
@@ -1451,7 +1502,7 @@ mod tests {
 
         assert!(invoices.rect().top() >= orders.rect().bottom() + 39.0);
         assert!(!invoices.rect().intersects(orders.rect()));
-        assert!(!app.er_diagram_state.has_pending_layout_restore());
+        assert!(!app.state.er_diagram_state.has_pending_layout_restore());
     }
 
     #[test]
@@ -1469,30 +1520,34 @@ mod tests {
         ];
 
         let mut app = crate::app::DbManagerApp::new_for_test();
-        app.er_diagram_state.tables = vec![customers, order_items, orders];
-        app.er_diagram_state
-            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+        app.state.er_diagram_state.tables = vec![customers, order_items, orders];
+        app.state.er_diagram_state.set_pending_layout_restore(Some(
+            std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(660.0, 50.0)),
                 ("order_items".to_string(), egui::pos2(940.0, 250.0)),
-            ])));
-        app.er_diagram_state.loading = false;
-        app.er_diagram_state.relationships = relationships;
+            ]),
+        ));
+        app.state.er_diagram_state.loading = false;
+        app.state.er_diagram_state.relationships = relationships;
 
         app.finalize_er_diagram_load_if_ready();
 
         let customers = app
+            .state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "customers")
             .unwrap();
         let order_items = app
+            .state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "order_items")
             .unwrap();
         let orders = app
+            .state
             .er_diagram_state
             .tables
             .iter()
@@ -1503,7 +1558,7 @@ mod tests {
         assert!(orders.center().y < order_items.center().y);
         assert!(!orders.rect().intersects(customers.rect()));
         assert!(!orders.rect().intersects(order_items.rect()));
-        assert!(!app.er_diagram_state.has_pending_layout_restore());
+        assert!(!app.state.er_diagram_state.has_pending_layout_restore());
     }
 
     #[test]

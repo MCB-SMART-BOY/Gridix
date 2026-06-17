@@ -133,10 +133,7 @@ pub fn generate_save_sql(
 ) {
     // Determine quoting style: backticks for MySQL, double-quotes for PG/SQLite.
     // SQLite supports both; PostgreSQL requires double-quotes; MySQL requires backticks.
-    let use_backticks = matches!(
-        db_type,
-        Some(crate::data::DatabaseType::MySQL)
-    );
+    let use_backticks = matches!(db_type, Some(crate::data::DatabaseType::MySQL));
 
     // 验证并引用表名
     let safe_table_name = match quote_identifier(table_name, use_backticks) {

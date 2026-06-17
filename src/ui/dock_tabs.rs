@@ -7,9 +7,9 @@
 //! issues. A cleaner design would move WorkspaceViewer to app/ and keep
 //! DockTab + sync_all in ui/.
 
-use egui_dock::{DockState, NodeIndex, SurfaceIndex, TabViewer};
-use egui_dock::tab_viewer::OnCloseResponse;
 use crate::app::DbManagerApp;
+use egui_dock::tab_viewer::OnCloseResponse;
+use egui_dock::{DockState, NodeIndex, SurfaceIndex, TabViewer};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum DockTab {
@@ -27,7 +27,10 @@ pub enum AuxPanelKind {
 }
 
 pub fn default_layout() -> DockState<DockTab> {
-    DockState::new(vec![DockTab::QueryData { index: 0, title: "查询 1".into() }])
+    DockState::new(vec![DockTab::QueryData {
+        index: 0,
+        title: "查询 1".into(),
+    }])
 }
 
 // ── 同步：每帧渲染前调用 ──────────────────────────────────────────────
@@ -35,17 +38,18 @@ pub fn default_layout() -> DockState<DockTab> {
 /// 同步 dock 布局与 app 状态（query tabs、ER 图、SQL 编辑器）
 pub fn sync_all(state: &mut DockState<DockTab>, app: &DbManagerApp) {
     sync_query_tabs(state, app.tab_manager());
-    sync_er_visibility(state, app.state.show_er_diagram());
-    sync_sql_editor_visibility(state, app.show_sql_editor());
+    sync_er_visibility(state, app.state.show_er_diagram);
+    sync_sql_editor_visibility(state, app.state.show_sql_editor);
 }
 
 fn sync_query_tabs(state: &mut DockState<DockTab>, tab_manager: &crate::ui::QueryTabManager) {
     let mgr_count = tab_manager.tabs.len();
 
     // 1. 移除 dock 中索引越界的 QueryData tab
-    remove_tabs(state, |t| {
-        matches!(t, DockTab::QueryData { index, .. } if *index >= mgr_count)
-    });
+    remove_tabs(
+        state,
+        |t| matches!(t, DockTab::QueryData { index, .. } if *index >= mgr_count),
+    );
 
     // 2. 修复剩余 tabs 的索引，使其与 tab_manager 顺序一致
     let tree = state.main_surface_mut();
@@ -69,8 +73,12 @@ fn sync_query_tabs(state: &mut DockState<DockTab>, tab_manager: &crate::ui::Quer
         // 找到第一个 QueryData leaf 节点
         let mut target: Option<NodeIndex> = None;
         for (i, node) in tree.iter().enumerate() {
-            if node.is_leaf() && node.tabs().unwrap_or(&[]).iter()
-                .any(|t| matches!(t, DockTab::QueryData { .. }))
+            if node.is_leaf()
+                && node
+                    .tabs()
+                    .unwrap_or(&[])
+                    .iter()
+                    .any(|t| matches!(t, DockTab::QueryData { .. }))
             {
                 target = Some(NodeIndex(i));
                 break;
@@ -94,14 +102,21 @@ fn sync_query_tabs(state: &mut DockState<DockTab>, tab_manager: &crate::ui::Quer
 fn sync_er_visibility(state: &mut DockState<DockTab>, show: bool) {
     let has_er = {
         if let Some(surface) = state.get_surface(SurfaceIndex::main()) {
-            surface.iter_all_tabs().any(|(_, t)| matches!(t, DockTab::ErDiagram))
-        } else { false }
+            surface
+                .iter_all_tabs()
+                .any(|(_, t)| matches!(t, DockTab::ErDiagram))
+        } else {
+            false
+        }
     };
 
     match (show, has_er) {
         (true, false) => {
-            let _ = state.main_surface_mut()
-                .split_right(NodeIndex::root(), 0.3, vec![DockTab::ErDiagram]);
+            let _ = state.main_surface_mut().split_right(
+                NodeIndex::root(),
+                0.3,
+                vec![DockTab::ErDiagram],
+            );
         }
         (false, true) => remove_tabs(state, |t| matches!(t, DockTab::ErDiagram)),
         _ => {}
@@ -111,14 +126,21 @@ fn sync_er_visibility(state: &mut DockState<DockTab>, show: bool) {
 fn sync_sql_editor_visibility(state: &mut DockState<DockTab>, show: bool) {
     let has_editor = {
         if let Some(surface) = state.get_surface(SurfaceIndex::main()) {
-            surface.iter_all_tabs().any(|(_, t)| matches!(t, DockTab::SqlEditor))
-        } else { false }
+            surface
+                .iter_all_tabs()
+                .any(|(_, t)| matches!(t, DockTab::SqlEditor))
+        } else {
+            false
+        }
     };
 
     match (show, has_editor) {
         (true, false) => {
-            let _ = state.main_surface_mut()
-                .split_below(NodeIndex::root(), 0.25, vec![DockTab::SqlEditor]);
+            let _ = state.main_surface_mut().split_below(
+                NodeIndex::root(),
+                0.25,
+                vec![DockTab::SqlEditor],
+            );
         }
         (false, true) => remove_tabs(state, |t| matches!(t, DockTab::SqlEditor)),
         _ => {}

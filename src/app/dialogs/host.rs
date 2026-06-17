@@ -8,7 +8,7 @@ use super::DbManagerApp;
 
 /// Stable dialog identity used by app-level routing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(in crate::app) enum DialogId {
+pub(crate) enum DialogId {
     Connection,
     Export,
     Import,
@@ -149,6 +149,7 @@ impl DbManagerApp {
 
     pub(in crate::app) fn reconcile_active_dialog_owner(&mut self) {
         if self
+            .state
             .active_dialog_owner
             .is_some_and(|id| self.is_dialog_visible(id))
         {
@@ -216,7 +217,8 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn active_dialog_id(&self) -> Option<DialogId> {
-        self.state.active_dialog_owner
+        self.state
+            .active_dialog_owner
             .filter(|id| self.is_dialog_visible(*id))
             .or_else(|| self.dialog_host_snapshot().active_dialog())
     }

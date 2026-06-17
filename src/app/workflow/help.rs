@@ -147,12 +147,16 @@ impl DbManagerApp {
 
         if reset {
             if self
-                .session.manager
+                .session
+                .manager
                 .connections
                 .contains_key(LEARNING_CONNECTION_NAME)
             {
                 self.disconnect(LEARNING_CONNECTION_NAME.to_string());
-                self.session.manager.connections.remove(LEARNING_CONNECTION_NAME);
+                self.session
+                    .manager
+                    .connections
+                    .remove(LEARNING_CONNECTION_NAME);
             }
 
             if path.exists() {
