@@ -137,4 +137,5 @@ src/app/ + ui/  (Layer 4)  — eframe App impl, rendering, input routing (DbMana
 - ✅ Config versioning, throttling, security fixes
 - ✅ SQLite driver tests, AppError types, 3 audit fixes
 - ✅ 0 clippy errors, 0 compiler warnings, 0 test failures
+- ✅ 6 critical logic paths verified (needs_repaint, mirror sync, config debounce, handler guards, tab switch, connection guards)
 

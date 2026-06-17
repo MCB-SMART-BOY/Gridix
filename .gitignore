@@ -41,7 +41,5 @@ QWEN.md
 # Claude tooling — shared with team
 # CLAUDE.md and .claude/ are tracked
 
-flake.nix
-flake.lock
 *.log
 _work_*
