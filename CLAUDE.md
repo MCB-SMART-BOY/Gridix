@@ -113,18 +113,28 @@ src/
 
 ## Architecture
 
-**6-layer unidirectional dependency:**
+**6-layer unidirectional dependency (final):**
 ```
-src/types.rs    (Layer -1) ← shared by all layers
+src/types.rs    (Layer -1) — shared types
      ↑
-src/core/       (Layer 0)  ← pure functions, no side effects
+src/core/       (Layer 0)  — pure functions, no side effects
      ↑
-src/database/   (Layer 1)  ← database operations, match db_type dispatch
+src/data/       (Layer 1)  — database operations, match db_type dispatch
      ↑
-src/session/    (Layer 2)  ← connection lifecycle, tab management, async dispatch
+src/session/    (Layer 2)  — connection lifecycle, async dispatch (~30 fields)
      ↑
-src/state/      (Layer 3)  ← UI state structs (incremental extraction)
+src/state/      (Layer 3)  — UI rendering state (~60 fields)
      ↑
-src/app/ + ui/  (Layer 4)  ← eframe App impl, rendering, input routing
+src/app/ + ui/  (Layer 4)  — eframe App impl, rendering, input routing (DbManagerApp: ~11 fields)
 ```
+
+**Refactoring complete (v6.3.0):**
+- ✅ DbManagerApp: ~100 → ~11 fields (~89 migrated to Session/UiState)
+- ✅ Session: ~30 fields with request ID privacy, needs_repaint decoupling
+- ✅ UiState: ~60 fields with all UI rendering state
+- ✅ self.sql dual source eliminated
+- ✅ database/ → data/ renamed
+- ✅ Config versioning, throttling, security fixes
+- ✅ SQLite driver tests, AppError types, 3 audit fixes
+- ✅ 0 clippy errors, 0 compiler warnings, 0 test failures
 
