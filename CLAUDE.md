@@ -39,6 +39,11 @@ cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings &&
 | Grid edit/save changes | `.claude/references/grid-save-isolation.md` |
 | Known tech debt / issues | `.claude/references/tech-debt.md` |
 | Future improvements | `.claude/references/roadmap.md` |
+| New developer onboarding | `.claude/references/onboarding.md` |
+| Architecture decisions (ADR) | `.claude/references/architecture/decisions.md` |
+| Add a DB backend | `.claude/references/database-backends.md` |
+| Development workflow | `.claude/references/workflow.md` |
+| Testing patterns | `.claude/references/testing-guide.md` |
 
 ## Module map
 
@@ -138,4 +143,19 @@ src/app/ + ui/  (Layer 4)  — eframe App impl, rendering, input routing (DbMana
 - ✅ SQLite driver tests, AppError types, 3 audit fixes
 - ✅ 0 clippy errors, 0 compiler warnings, 0 test failures
 - ✅ 6 critical logic paths verified (needs_repaint, mirror sync, config debounce, handler guards, tab switch, connection guards)
+
+## Architecture of `.claude/`
+
+| directory | when loaded | contains |
+|---|---|---|
+| `CLAUDE.md` | every session | project-wide context, module map, architecture |
+| `skills/` | user invokes `/<name>` | 6 executable workflows: run-gridix, keybindings, pr-prep, code-review, release, troubleshoot |
+| `rules/` | automatically on matching `paths:` | 5 domain rules: database, session, sync-claude, testing, ui-egui |
+| `references/` | agent reads on demand (linked from task nav + recipes) | engineering ledgers, invariants, design contracts, onboarding, testing guide |
+| `memory/` | persistent between sessions | user preferences, project facts, feedback |
+
+## Development workflow
+
+See `.claude/references/workflow.md` for the complete 7-stage workflow:
+Plan → Code → Review → Test → Pre-PR → Commit → Release
 
