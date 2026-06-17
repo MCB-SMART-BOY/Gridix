@@ -128,7 +128,9 @@ impl Session {
         if self.tab_manager.tabs.is_empty() {
             self.tab_manager.new_tab();
         }
-        self.tab_manager.get_active_mut().unwrap()
+        self.tab_manager
+            .get_active_mut()
+            .expect("active tab should exist after ensure_active_tab")
     }
 
     /// 设置编辑器 SQL（如无 tab 则自动创建）

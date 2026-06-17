@@ -1804,7 +1804,6 @@ dependencies = [
  "keyring",
  "mysql_async",
  "native-tls",
- "parking_lot",
  "postgres-native-tls",
  "pretty_assertions",
  "rayon",

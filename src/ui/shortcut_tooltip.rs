@@ -6,9 +6,9 @@ use crate::core::{
     Action, KeyBinding, KeyBindings, KeyCode, KeyModifiers, ScopedCommandBinding, scoped_command,
 };
 use egui::InputState;
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::OnceLock;
+use std::sync::RwLock;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LocalBinding {
@@ -487,6 +487,7 @@ impl LocalShortcut {
     pub fn bindings(self) -> Vec<LocalBinding> {
         if let Some(bindings) = current_local_shortcut_overrides()
             .read()
+            .unwrap_or_else(|e| e.into_inner())
             .get(self.config_key())
         {
             return bindings.clone();
@@ -550,7 +551,9 @@ pub fn sync_runtime_local_shortcuts(keybindings: &KeyBindings) {
             }
         }
     }
-    *current_local_shortcut_overrides().write() = overrides;
+    *current_local_shortcut_overrides()
+        .write()
+        .unwrap_or_else(|e| e.into_inner()) = overrides;
 }
 
 /// 仅使用给定快捷键列表生成提示。
@@ -670,7 +673,11 @@ pub fn consume_scoped_command_with_text_priority(
 }
 
 fn scoped_command_bindings(command_id: &'static str) -> Vec<LocalBinding> {
-    if let Some(bindings) = current_local_shortcut_overrides().read().get(command_id) {
+    if let Some(bindings) = current_local_shortcut_overrides()
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(command_id)
+    {
         return bindings.clone();
     }
 

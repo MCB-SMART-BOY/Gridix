@@ -87,12 +87,10 @@ impl GridWorkspaceStore {
 /// DB 连接、异步基础设施、请求追踪 → `self.session` (Session)
 /// 主题、缩放、高亮颜色 → `self.state` (UiState)
 ///
-/// # 剩余字段（待迁移）
+/// # 迁移状态
 ///
-/// 对话框状态、Grid 状态、搜索/选择、ER 图、UI 显示
-///
-/// 目标：4 字段 { session, state, config, keybindings }
-/// 当前：~47 字段（已迁移 ~53）
+/// 架构目标已达成：session (~28 fields) + state (~57 fields) 聚合
+/// 当前：11 字段（迁移完成）
 pub struct DbManagerApp {
     pub session: crate::session::Session,
     pub state: crate::state::UiState,

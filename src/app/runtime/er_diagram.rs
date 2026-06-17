@@ -94,10 +94,15 @@ impl DbManagerApp {
                     self.session.runtime.spawn(async move {
                         let result =
                             crate::data::get_table_columns(&config_clone, &table_clone).await;
-                        let _ = tx.send(Message::ERTableColumnsFetched(
-                            table_clone,
-                            result.map_err(|e| e.to_string()),
-                        ));
+                        if tx
+                            .send(Message::ERTableColumnsFetched(
+                                table_clone,
+                                result.map_err(|e| e.to_string()),
+                            ))
+                            .is_err()
+                        {
+                            tracing::warn!("无法发送 ER 表列数据：接收端已关闭");
+                        }
                     });
                 }
 
@@ -106,9 +111,14 @@ impl DbManagerApp {
                 let config = load.config.clone();
                 self.session.runtime.spawn(async move {
                     let result = crate::data::get_foreign_keys(&config).await;
-                    let _ = tx.send(Message::ForeignKeysFetched(
-                        result.map_err(|e| e.to_string()),
-                    ));
+                    if tx
+                        .send(Message::ForeignKeysFetched(
+                            result.map_err(|e| e.to_string()),
+                        ))
+                        .is_err()
+                    {
+                        tracing::warn!("无法发送外键数据：接收端已关闭");
+                    }
                 });
             }
         }

@@ -684,6 +684,8 @@ impl DbManagerApp {
                         }
 
                         self.state.result = Some(res.clone());
+                        // 清除过期行删除标记，防止新数据行数变化后误删
+                        self.state.grid_state.rows_to_delete.clear();
                     }
                 } else {
                     tracing::debug!(tab_id = %tab_id, "查询回包对应的标签页已不存在");

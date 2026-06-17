@@ -1,7 +1,7 @@
 //! 数据库连接配置
 
 use super::ssh_tunnel::SshTunnelConfig;
-use super::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
+use crate::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
 use serde::{Deserialize, Serialize};
 
 // ============================================================================

@@ -12,14 +12,13 @@ mod error;
 mod pool;
 mod query;
 pub mod ssh_tunnel;
-mod types;
 
 // ============================================================================
 // 公开导出
 // ============================================================================
 
 // 类型
-pub use types::{DatabaseType, MySqlSslMode, PostgresSslMode, QueryResult};
+pub use crate::types::{DatabaseType, MySqlSslMode, PostgresSslMode, QueryResult};
 
 // 错误
 pub use error::DbError;

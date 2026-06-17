@@ -96,7 +96,9 @@ impl DbManagerApp {
             return;
         }
         self.app_config.onboarding.connection_created = true;
-        let _ = self.app_config.save();
+        if let Err(e) = self.app_config.save() {
+            tracing::warn!(%e, "保存配置失败");
+        }
     }
 
     pub(in crate::app) fn mark_onboarding_database_initialized(&mut self) {
@@ -104,7 +106,9 @@ impl DbManagerApp {
             return;
         }
         self.app_config.onboarding.database_initialized = true;
-        let _ = self.app_config.save();
+        if let Err(e) = self.app_config.save() {
+            tracing::warn!(%e, "保存配置失败");
+        }
     }
 
     pub(in crate::app) fn mark_onboarding_user_created(&mut self) {
@@ -112,7 +116,9 @@ impl DbManagerApp {
             return;
         }
         self.app_config.onboarding.user_created = true;
-        let _ = self.app_config.save();
+        if let Err(e) = self.app_config.save() {
+            tracing::warn!(%e, "保存配置失败");
+        }
     }
 
     pub(in crate::app) fn mark_onboarding_first_query_executed(&mut self) {
@@ -120,7 +126,9 @@ impl DbManagerApp {
             return;
         }
         self.app_config.onboarding.first_query_executed = true;
-        let _ = self.app_config.save();
+        if let Err(e) = self.app_config.save() {
+            tracing::warn!(%e, "保存配置失败");
+        }
     }
 
     fn mark_onboarding_environment_checked(&mut self) {
@@ -128,7 +136,9 @@ impl DbManagerApp {
             return;
         }
         self.app_config.onboarding.environment_checked = true;
-        let _ = self.app_config.save();
+        if let Err(e) = self.app_config.save() {
+            tracing::warn!(%e, "保存配置失败");
+        }
     }
 
     pub(in crate::app) fn handle_onboarding_step(&mut self, step: ui::WelcomeOnboardingStep) {

@@ -160,6 +160,11 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn open_dialog(&mut self, id: DialogId) {
+        // 关闭弹出菜单以避免多个对话框同时持有输入焦点
+        self.state.toolbar_actions_menu_state.close();
+        self.state.toolbar_create_menu_state.close();
+        self.state.toolbar_theme_dialog_state.close();
+        self.command_palette_state.close();
         match id {
             DialogId::Connection => self.state.show_connection_dialog = true,
             DialogId::Export => self.state.show_export_dialog = true,

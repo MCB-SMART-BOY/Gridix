@@ -105,6 +105,12 @@ impl DbManagerApp {
 
         // 删除确认对话框
         if active_dialog == Some(DialogId::DeleteConfirm) {
+            // 守卫：target 为空时应自动关闭对话框，防止渲染空白内容
+            if self.state.pending_delete_target.is_none() {
+                self.state.show_delete_confirm = false;
+                self.state.active_dialog_owner = None;
+                return results;
+            }
             let mut confirm_delete = false;
             let (delete_title, delete_msg) = match self.state.pending_delete_target.as_ref() {
                 Some(ui::SidebarDeleteTarget::Connection(connection)) => (
@@ -454,7 +460,9 @@ impl DbManagerApp {
         if results.clear_history {
             self.session.query_history.clear();
             self.app_config.query_history.clear();
-            let _ = self.app_config.save();
+            if let Err(e) = self.app_config.save() {
+                tracing::warn!(%e, "保存配置失败");
+            }
         }
 
         if let Some(action) = results.help_action {

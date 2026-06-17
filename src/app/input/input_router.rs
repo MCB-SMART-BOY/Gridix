@@ -1110,23 +1110,21 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn open_create_table_dialog(&mut self) {
-        let db_type = self
-            .session
-            .manager
-            .get_active()
-            .map(|c| c.config.db_type)
-            .unwrap_or_default();
+        let Some(db_type) = self.session.manager.get_active().map(|c| c.config.db_type) else {
+            self.session.notifications.warning("请先连接数据库再创建表");
+            return;
+        };
         self.state.ddl_dialog_state.open_create_table(db_type);
         self.mark_dialog_owner(DialogId::Ddl);
     }
 
     pub(in crate::app) fn open_create_database_dialog(&mut self) {
-        let db_type = self
-            .session
-            .manager
-            .get_active()
-            .map(|c| c.config.db_type)
-            .unwrap_or_default();
+        let Some(db_type) = self.session.manager.get_active().map(|c| c.config.db_type) else {
+            self.session
+                .notifications
+                .warning("请先连接数据库再创建数据库");
+            return;
+        };
         self.state.create_db_dialog_state.open(db_type);
         self.mark_dialog_owner(DialogId::CreateDatabase);
     }

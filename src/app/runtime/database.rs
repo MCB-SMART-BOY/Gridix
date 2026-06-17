@@ -283,7 +283,9 @@ impl DbManagerApp {
             .get(name)
             .and_then(|connection| connection.config.password_ref.clone())
         {
-            let _ = crate::data::delete_password_secret(&password_ref);
+            if let Err(e) = crate::data::delete_password_secret(&password_ref) {
+                tracing::warn!(%e, password_ref = %password_ref, "删除密钥环中的密码失败");
+            }
         }
         if self.session.manager.connections.contains_key(name) {
             self.disconnect(name.to_string());
@@ -419,7 +421,9 @@ impl DbManagerApp {
             }
             // 保存历史记录到配置文件
             self.save_current_history();
-            let _ = self.app_config.save();
+            if let Err(e) = self.app_config.save() {
+                tracing::warn!(%e, "保存配置失败");
+            }
         }
         self.session.history_index = None;
 

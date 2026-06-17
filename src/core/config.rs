@@ -118,12 +118,17 @@ fn default_sidebar_edge_transfer() -> bool {
     true
 }
 
-fn backup_invalid_config(path: &Path) {
+fn backup_invalid_config(path: &Path) -> bool {
     let backup_path = path.with_extension("toml.bak");
-    if let Err(e) = fs::copy(path, &backup_path) {
-        tracing::warn!(error = %e, original = ?path, backup = ?backup_path, "备份损坏配置文件失败");
-    } else {
-        tracing::warn!(original = ?path, backup = ?backup_path, "已备份无法解析的配置文件");
+    match fs::copy(path, &backup_path) {
+        Ok(_) => {
+            tracing::warn!(original = ?path, backup = ?backup_path, "已备份无法解析的配置文件");
+            true
+        }
+        Err(e) => {
+            tracing::error!(error = %e, original = ?path, backup = ?backup_path, "备份损坏配置文件失败，原文件将被保留");
+            false
+        }
     }
 }
 
@@ -273,6 +278,12 @@ impl AppConfig {
                 return Self::default();
             }
         };
+
+        // 防止非法 ui_scale 值（用户可能手动编辑配置）
+        config.ui_scale = config.ui_scale.clamp(
+            crate::core::constants::ui::UI_SCALE_MIN,
+            crate::core::constants::ui::UI_SCALE_MAX,
+        );
 
         let migration_needed = hydrate_connection_passwords(&mut config.connections);
         if migration_needed && let Err(e) = config.save() {

@@ -2,8 +2,8 @@
 
 use super::config::ConnectionConfig;
 use super::error::DbError;
-use super::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
 use crate::core::constants;
+use crate::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;

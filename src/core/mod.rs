@@ -10,7 +10,6 @@ mod history;
 mod keybindings;
 mod notification;
 mod progress;
-mod session;
 mod syntax;
 mod theme;
 mod transfer;
@@ -35,8 +34,6 @@ pub use keybindings::{
 pub use notification::{Notification, NotificationLevel, NotificationManager};
 #[allow(unused_imports)] // 公开 API，供外部使用
 pub use progress::{ProgressManager, ProgressTask};
-#[allow(unused_imports)] // 公开 API，供未来使用
-pub use session::{SessionManager, SessionState, TabState, WindowState};
 #[allow(unused_imports)] // 公开 API
 pub use syntax::{HighlightColors, SqlHighlighter, clear_highlight_cache, highlight_sql};
 pub use theme::{ThemeManager, ThemePreset};

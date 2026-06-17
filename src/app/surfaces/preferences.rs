@@ -15,7 +15,9 @@ impl DbManagerApp {
         self.state.ui_scale = scale;
         self.app_config.ui_scale = scale;
         ctx.set_pixels_per_point(self.state.base_pixels_per_point * scale);
-        let _ = self.app_config.save();
+        if let Err(e) = self.app_config.save() {
+            tracing::warn!(%e, "保存配置失败");
+        }
     }
 
     /// 检查当前连接是否是 MySQL（用于选择 SQL 引号类型）
@@ -34,7 +36,9 @@ impl DbManagerApp {
         self.app_config.theme_preset = preset;
         // 清除语法高亮缓存，确保使用新主题颜色
         clear_highlight_cache();
-        let _ = self.app_config.save();
+        if let Err(e) = self.app_config.save() {
+            tracing::warn!(%e, "保存配置失败");
+        }
     }
 
     pub(in crate::app) fn save_config(&mut self) {
@@ -51,7 +55,9 @@ impl DbManagerApp {
         self.app_config.query_history = self.session.query_history.clone();
         self.app_config.connection_dialog_show_advanced =
             self.state.connection_dialog_show_advanced;
-        let _ = self.app_config.save();
+        if let Err(e) = self.app_config.save() {
+            tracing::warn!(%e, "保存配置失败");
+        }
 
         for saved_config in &self.app_config.connections {
             if let Some(connection) = self.session.manager.connections.get_mut(&saved_config.name) {
