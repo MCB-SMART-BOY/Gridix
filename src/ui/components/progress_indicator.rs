@@ -5,6 +5,7 @@
 #![allow(dead_code)] // 公开 API
 
 use crate::core::ProgressManager;
+use crate::ui::styles::ACCENT_BLUE;
 use eframe::egui;
 
 /// 进度指示器
@@ -36,7 +37,7 @@ impl ProgressIndicator {
 
                 ui.label(
                     egui::RichText::new(spinner_char)
-                        .color(egui::Color32::from_rgb(100, 149, 237))
+                        .color(ACCENT_BLUE)
                         .monospace(),
                 );
 
@@ -50,7 +51,7 @@ impl ProgressIndicator {
                 ui.label(
                     egui::RichText::new(&desc)
                         .size(12.0)
-                        .color(egui::Color32::from_gray(180)),
+                        .color(ui.visuals().weak_text_color()),
                 );
 
                 // 进度条（如果有确定进度）
@@ -67,7 +68,7 @@ impl ProgressIndicator {
                     ui.painter().rect_filled(
                         rect,
                         egui::CornerRadius::same(2),
-                        egui::Color32::from_gray(60),
+                        ui.visuals().faint_bg_color,
                     );
 
                     // 进度
@@ -78,7 +79,7 @@ impl ProgressIndicator {
                     ui.painter().rect_filled(
                         progress_rect,
                         egui::CornerRadius::same(2),
-                        egui::Color32::from_rgb(100, 149, 237),
+                        ACCENT_BLUE,
                     );
                 }
 
@@ -88,7 +89,7 @@ impl ProgressIndicator {
                     ui.label(
                         egui::RichText::new(format!("{:.1}s", elapsed as f32 / 1000.0))
                             .size(11.0)
-                            .color(egui::Color32::from_gray(120)),
+                            .color(ui.visuals().weak_text_color()),
                     );
                 }
 
@@ -99,7 +100,7 @@ impl ProgressIndicator {
                             egui::Button::new(
                                 egui::RichText::new("x")
                                     .size(11.0)
-                                    .color(egui::Color32::from_gray(150)),
+                                    .color(ui.visuals().weak_text_color()),
                             )
                             .frame(false),
                         )
@@ -145,13 +146,11 @@ impl ProgressIndicator {
         };
 
         ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(spinner_char).color(egui::Color32::from_rgb(100, 149, 237)),
-            );
+            ui.label(egui::RichText::new(spinner_char).color(ACCENT_BLUE));
             ui.label(
                 egui::RichText::new(&text)
                     .size(12.0)
-                    .color(egui::Color32::from_gray(150)),
+                    .color(ui.visuals().weak_text_color()),
             );
         });
 

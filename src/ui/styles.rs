@@ -2,13 +2,15 @@
 
 #![allow(dead_code)] // 公开 API
 
-use egui::{Color32, Visuals};
+use egui::{Color32, CornerRadius, Visuals};
 
 // 颜色常量
 pub const SUCCESS: Color32 = Color32::from_rgb(82, 196, 106);
 pub const DANGER: Color32 = Color32::from_rgb(235, 87, 87);
 pub const GRAY: Color32 = Color32::from_rgb(140, 140, 150);
 pub const MUTED: Color32 = Color32::from_rgb(100, 100, 110);
+/// 全局强调蓝色 (用于 toolbar avatar、spinner、进度条等)
+pub const ACCENT_BLUE: Color32 = Color32::from_rgb(100, 149, 237);
 
 // 间距常量 (f32 用于 add_space 等)
 pub const SPACING_SM: f32 = 4.0;
@@ -19,6 +21,19 @@ pub const SPACING_LG: f32 = 12.0;
 pub const MARGIN_SM: i8 = 4;
 pub const MARGIN_MD: i8 = 8;
 pub const MARGIN_LG: i8 = 12;
+
+// 圆角 Token (CornerRadius)
+pub const RADIUS_SM: CornerRadius = CornerRadius::same(4);
+pub const RADIUS_MD: CornerRadius = CornerRadius::same(8);
+pub const RADIUS_LG: CornerRadius = CornerRadius::same(12);
+pub const RADIUS_XL: CornerRadius = CornerRadius::same(16);
+
+// 字体大小 Token
+pub const FONT_XS: f32 = 10.0;
+pub const FONT_SM: f32 = 12.0;
+pub const FONT_MD: f32 = 14.0;
+pub const FONT_LG: f32 = 18.0;
+pub const FONT_XL: f32 = 24.0;
 
 pub fn theme_text(visuals: &Visuals) -> Color32 {
     visuals.text_color()

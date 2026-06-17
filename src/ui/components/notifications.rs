@@ -45,7 +45,9 @@ impl NotificationToast {
             255
         };
 
-        let bg_color = egui::Color32::from_rgba_unmultiplied(40, 40, 40, alpha);
+        let base_bg = ui.visuals().faint_bg_color;
+        let bg_color =
+            egui::Color32::from_rgba_unmultiplied(base_bg.r(), base_bg.g(), base_bg.b(), alpha);
         let border_color = egui::Color32::from_rgba_unmultiplied(
             level_color.r(),
             level_color.g(),
