@@ -34,7 +34,7 @@ const fn bind(key: KeyCode, modifiers: KeyModifiers) -> ScopedCommandBinding {
     ScopedCommandBinding::new(key, modifiers)
 }
 
-pub const SCOPED_COMMANDS: &[ScopedCommand] = &[
+pub(crate) const SCOPED_COMMANDS: &[ScopedCommand] = &[
     ScopedCommand {
         id: "dialog.common.confirm",
         description: "确认",

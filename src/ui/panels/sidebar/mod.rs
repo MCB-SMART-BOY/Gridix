@@ -34,7 +34,7 @@ mod trigger_panel;
 pub use actions::{
     SidebarActions, SidebarDeleteTarget, SidebarFilterInsertMode, SidebarFocusTransfer,
 };
-pub use filter_panel::FilterPanel;
+pub(crate) use filter_panel::FilterPanel;
 pub use state::{
     SidebarFilterWorkspaceMode, SidebarPanelState, SidebarSelectionState, SidebarWorkflowState,
 };

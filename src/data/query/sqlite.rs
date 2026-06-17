@@ -9,7 +9,7 @@ use crate::data::{ConnectionConfig, DatabaseType, DbError, QueryResult};
 use rusqlite::{Connection as SqliteConn, InterruptHandle, types::ValueRef};
 
 /// 连接 SQLite 并获取表列表
-pub fn connect(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
+pub(crate) fn connect(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
     let conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
 
@@ -26,7 +26,10 @@ pub fn connect(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
 }
 
 /// 获取 SQLite 表的主键列名
-pub fn get_primary_key(config: &ConnectionConfig, table: &str) -> Result<Option<String>, DbError> {
+pub(crate) fn get_primary_key(
+    config: &ConnectionConfig,
+    table: &str,
+) -> Result<Option<String>, DbError> {
     let conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
 
@@ -56,7 +59,7 @@ pub fn get_primary_key(config: &ConnectionConfig, table: &str) -> Result<Option<
 }
 
 /// 执行 SQLite 查询
-pub fn execute(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbError> {
+pub(crate) fn execute(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbError> {
     let conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
 
@@ -64,7 +67,7 @@ pub fn execute(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbEr
 }
 
 /// 执行 SQLite 查询并返回可用于中断的句柄
-pub fn execute_with_interrupt_handle(
+pub(crate) fn execute_with_interrupt_handle(
     config: &ConnectionConfig,
     sql: &str,
     interrupt_sender: Option<tokio::sync::oneshot::Sender<InterruptHandle>>,
@@ -125,7 +128,7 @@ fn execute_with_connection(conn: &SqliteConn, sql: &str) -> Result<QueryResult, 
 }
 
 /// 批量执行 SQLite 语句（用于导入）
-pub fn execute_batch(
+pub(crate) fn execute_batch(
     config: &ConnectionConfig,
     statements: &[String],
     use_transaction: bool,
@@ -197,7 +200,7 @@ fn value_to_string(
 }
 
 /// 获取 SQLite 触发器
-pub fn get_triggers(config: &ConnectionConfig) -> Result<Vec<TriggerInfo>, DbError> {
+pub(crate) fn get_triggers(config: &ConnectionConfig) -> Result<Vec<TriggerInfo>, DbError> {
     let conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
 
@@ -250,7 +253,7 @@ pub fn get_triggers(config: &ConnectionConfig) -> Result<Vec<TriggerInfo>, DbErr
 }
 
 /// 获取 SQLite 外键
-pub fn get_foreign_keys(config: &ConnectionConfig) -> Result<Vec<ForeignKeyInfo>, DbError> {
+pub(crate) fn get_foreign_keys(config: &ConnectionConfig) -> Result<Vec<ForeignKeyInfo>, DbError> {
     let conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
 
@@ -298,7 +301,10 @@ pub fn get_foreign_keys(config: &ConnectionConfig) -> Result<Vec<ForeignKeyInfo>
 }
 
 /// 获取 SQLite 表的列信息
-pub fn get_columns(config: &ConnectionConfig, table: &str) -> Result<Vec<ColumnInfo>, DbError> {
+pub(crate) fn get_columns(
+    config: &ConnectionConfig,
+    table: &str,
+) -> Result<Vec<ColumnInfo>, DbError> {
     let conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
 

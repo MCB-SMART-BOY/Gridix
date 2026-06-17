@@ -69,7 +69,7 @@ impl Default for SidebarWorkflowState {
 ///
 /// 这里刻意只放影响 focus graph 的事实，避免 reducer 依赖 egui 或数据库管理器。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SidebarWorkflowContext {
+pub(crate) struct SidebarWorkflowContext {
     pub show_connections: bool,
     pub show_filters: bool,
     pub show_triggers: bool,
@@ -79,7 +79,7 @@ pub struct SidebarWorkflowContext {
 }
 
 impl SidebarWorkflowContext {
-    pub const fn new(
+    pub(crate) const fn new(
         show_connections: bool,
         show_filters: bool,
         show_triggers: bool,
@@ -162,7 +162,7 @@ const SIDEBAR_FOCUS_ORDER: [SidebarSection; 6] = [
 /// UI 层负责把按键/点击翻译成这些动作；reducer 只负责 section、edge transfer
 /// 和 filters.list / filters.input 的状态语义。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SidebarWorkflowAction {
+pub(crate) enum SidebarWorkflowAction {
     FocusSection(SidebarSection),
     MoveLeft {
         current: SidebarSection,
@@ -187,14 +187,14 @@ pub enum SidebarWorkflowAction {
 
 /// reducer 输出的副作用请求，仍由现有 SidebarActions 兼容层执行。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SidebarWorkflowEffect {
+pub(crate) enum SidebarWorkflowEffect {
     SectionChanged(SidebarSection),
     FocusFilterInput(usize),
     FocusTransferToDataGrid,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct SidebarWorkflowReduction {
+pub(crate) struct SidebarWorkflowReduction {
     pub effect: Option<SidebarWorkflowEffect>,
 }
 
@@ -212,7 +212,7 @@ impl SidebarWorkflowReduction {
     }
 }
 
-pub fn reduce_sidebar_workflow(
+pub(crate) fn reduce_sidebar_workflow(
     workflow: &mut SidebarWorkflowState,
     context: SidebarWorkflowContext,
     action: SidebarWorkflowAction,

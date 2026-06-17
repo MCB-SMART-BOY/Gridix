@@ -13,7 +13,7 @@
 #![allow(clippy::too_many_arguments)]
 
 mod actions;
-pub mod filter;
+pub(crate) mod filter;
 pub(crate) mod keyboard;
 mod mode;
 mod render;

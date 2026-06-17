@@ -39,13 +39,13 @@ fn toolbar_button_chrome(
 
 /// 工具栏图标按钮 - 默认透明，仅在 hover/focus/selected 时显示 chrome
 /// 鼠标悬停显示 tooltip（内容 + 快捷键）
-pub fn icon_button(ui: &mut egui::Ui, icon: &str, tooltip: &str, enabled: bool) -> bool {
+pub(crate) fn icon_button(ui: &mut egui::Ui, icon: &str, tooltip: &str, enabled: bool) -> bool {
     icon_button_with_focus(ui, icon, tooltip, enabled, false)
 }
 
 /// 带焦点状态的图标按钮
 /// is_selected: 当工具栏有焦点且此按钮被选中时为 true
-pub fn icon_button_with_focus(
+pub(crate) fn icon_button_with_focus(
     ui: &mut egui::Ui,
     icon: &str,
     tooltip: &str,
@@ -73,7 +73,7 @@ pub fn icon_button_with_focus(
 }
 
 /// 纯文字按钮（无边框）
-pub fn text_button(ui: &mut egui::Ui, text: &str, tooltip: &str, enabled: bool) -> bool {
+pub(crate) fn text_button(ui: &mut egui::Ui, text: &str, tooltip: &str, enabled: bool) -> bool {
     let visuals = ui.visuals();
     let color = if enabled {
         theme_text(visuals)
@@ -91,7 +91,7 @@ pub fn text_button(ui: &mut egui::Ui, text: &str, tooltip: &str, enabled: bool) 
 }
 
 /// 分隔符
-pub fn separator(ui: &mut egui::Ui) {
+pub(crate) fn separator(ui: &mut egui::Ui) {
     ui.add_space(2.0);
     let rect = ui.available_rect_before_wrap();
     let height = 20.0;

@@ -124,7 +124,7 @@ fn escape_editor_input(value: &str) -> String {
 }
 
 /// 生成保存修改的 SQL（带确认）
-pub fn generate_save_sql(
+pub(crate) fn generate_save_sql(
     result: &QueryResult,
     state: &mut DataGridState,
     table_name: &str,
@@ -262,7 +262,7 @@ pub fn generate_save_sql(
 }
 
 /// 确认执行待确认的 SQL
-pub fn confirm_pending_sql(state: &mut DataGridState, actions: &mut DataGridActions) {
+pub(crate) fn confirm_pending_sql(state: &mut DataGridState, actions: &mut DataGridActions) {
     if !state.pending_sql.is_empty() {
         actions.sql_to_execute = std::mem::take(&mut state.pending_sql);
         actions.message = Some(format!("执行 {} 条 SQL 语句", actions.sql_to_execute.len()));
@@ -271,7 +271,7 @@ pub fn confirm_pending_sql(state: &mut DataGridState, actions: &mut DataGridActi
 }
 
 /// 取消待确认的 SQL
-pub fn cancel_pending_sql(state: &mut DataGridState) {
+pub(crate) fn cancel_pending_sql(state: &mut DataGridState) {
     state.pending_sql.clear();
     state.show_save_confirm = false;
 }

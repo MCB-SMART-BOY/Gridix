@@ -534,7 +534,7 @@ pub fn preview_export(
 }
 
 #[allow(dead_code)]
-pub fn export_to_csv(result: &QueryResult, path: &Path) -> Result<(), String> {
+pub(crate) fn export_to_csv(result: &QueryResult, path: &Path) -> Result<(), String> {
     let options = ExportOptions {
         format: ExportFormat::Csv,
         ..Default::default()
@@ -543,7 +543,11 @@ pub fn export_to_csv(result: &QueryResult, path: &Path) -> Result<(), String> {
 }
 
 #[allow(dead_code)]
-pub fn export_to_sql(result: &QueryResult, table_name: &str, path: &Path) -> Result<(), String> {
+pub(crate) fn export_to_sql(
+    result: &QueryResult,
+    table_name: &str,
+    path: &Path,
+) -> Result<(), String> {
     let options = ExportOptions {
         format: ExportFormat::Sql,
         ..Default::default()
@@ -552,7 +556,7 @@ pub fn export_to_sql(result: &QueryResult, table_name: &str, path: &Path) -> Res
 }
 
 #[allow(dead_code)]
-pub fn export_to_json(result: &QueryResult, path: &Path) -> Result<(), String> {
+pub(crate) fn export_to_json(result: &QueryResult, path: &Path) -> Result<(), String> {
     let options = ExportOptions {
         format: ExportFormat::Json,
         ..Default::default()
@@ -1226,7 +1230,7 @@ fn escape_sql_identifier(name: &str) -> String {
 
 /// 读取 SQL 文件内容
 #[allow(dead_code)] // 公开 API，供外部使用
-pub fn import_sql_file(path: &Path) -> Result<String, String> {
+pub(crate) fn import_sql_file(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| e.to_string())
 }
 

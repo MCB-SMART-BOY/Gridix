@@ -1083,10 +1083,10 @@ impl DialogWindow {
 /// 工作台型对话框布局壳层。
 ///
 /// 负责固定 header/subheader/footer，让 body 始终占用剩余空间。
-pub struct WorkspaceDialogShell;
+pub(crate) struct WorkspaceDialogShell;
 
 impl WorkspaceDialogShell {
-    pub fn show(
+    pub(crate) fn show(
         ui: &mut egui::Ui,
         id_source: impl Hash,
         header: impl FnOnce(&mut egui::Ui),
@@ -1128,24 +1128,24 @@ impl WorkspaceDialogShell {
 /// 长表单对话框布局壳层。
 ///
 /// 负责固定 header/footer，并让 body 成为唯一主滚动区域。
-pub type FormFieldId = &'static str;
+pub(crate) type FormFieldId = &'static str;
 
 #[derive(Default)]
-pub struct FormDialogBodyContext {
+pub(crate) struct FormDialogBodyContext {
     field_rects: HashMap<FormFieldId, egui::Rect>,
     requested_first_error: Option<FormFieldId>,
 }
 
 impl FormDialogBodyContext {
-    pub fn register_field(&mut self, field_id: FormFieldId, response: &egui::Response) {
+    pub(crate) fn register_field(&mut self, field_id: FormFieldId, response: &egui::Response) {
         self.register_rect(field_id, response.rect);
     }
 
-    pub fn register_rect(&mut self, field_id: FormFieldId, rect: egui::Rect) {
+    pub(crate) fn register_rect(&mut self, field_id: FormFieldId, rect: egui::Rect) {
         self.field_rects.insert(field_id, rect);
     }
 
-    pub fn request_first_error(&mut self, field_id: FormFieldId) {
+    pub(crate) fn request_first_error(&mut self, field_id: FormFieldId) {
         self.requested_first_error.get_or_insert(field_id);
     }
 
@@ -1155,10 +1155,10 @@ impl FormDialogBodyContext {
     }
 }
 
-pub struct FormDialogShell;
+pub(crate) struct FormDialogShell;
 
 impl FormDialogShell {
-    pub fn show(
+    pub(crate) fn show(
         ui: &mut egui::Ui,
         id_source: impl Hash,
         header: impl FnOnce(&mut egui::Ui),

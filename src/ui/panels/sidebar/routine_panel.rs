@@ -7,11 +7,11 @@ use crate::ui::styles::{GRAY, MARGIN_SM, MUTED, SPACING_LG, SPACING_SM, SUCCESS,
 use egui::{self, Color32, CornerRadius, RichText, Vec2};
 
 /// 存储过程/函数面板
-pub struct RoutinePanel;
+pub(crate) struct RoutinePanel;
 
 impl RoutinePanel {
     /// 显示存储过程/函数面板
-    pub fn show(
+    pub(crate) fn show(
         ui: &mut egui::Ui,
         is_focused: bool,
         focused_section: SidebarSection,

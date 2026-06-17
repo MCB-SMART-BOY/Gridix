@@ -16,7 +16,7 @@ use egui::{self, Color32, RichText, Sense, TextEdit, Vec2};
 const COLOR_NULL: Color32 = Color32::from_rgb(120, 120, 140);
 
 /// 渲染列头
-pub fn render_column_header(
+pub(crate) fn render_column_header(
     ui: &mut egui::Ui,
     col_name: &str,
     col_idx: usize,
@@ -70,7 +70,7 @@ fn column_header_text_color(
 }
 
 /// 渲染行号单元格
-pub fn render_row_number(
+pub(crate) fn render_row_number(
     ui: &mut egui::Ui,
     row_idx: usize,
     is_cursor_row: bool,
@@ -155,7 +155,7 @@ pub fn render_row_number(
 }
 
 /// 渲染可编辑的数据单元格
-pub fn render_editable_cell(
+pub(crate) fn render_editable_cell(
     ui: &mut egui::Ui,
     cell: &str,
     is_null: bool,
@@ -393,7 +393,7 @@ mod header_tests {
 const COLOR_NEW_ROW: Color32 = Color32::from_rgba_premultiplied(48, 96, 48, 60);
 
 /// 渲染新增行的单元格
-pub fn render_new_row_cell(
+pub(crate) fn render_new_row_cell(
     ui: &mut egui::Ui,
     cell: &str,
     row_idx: usize,

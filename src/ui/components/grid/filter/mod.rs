@@ -13,4 +13,4 @@ pub use cache::{FilterCache, filter_rows_cached};
 pub use condition::ColumnFilter;
 pub use logic::FilterLogic;
 pub use operators::{FilterOperator, check_filter_match};
-pub use ui::show_filter_bar;
+pub(crate) use ui::show_filter_bar;

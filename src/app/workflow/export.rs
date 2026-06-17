@@ -8,7 +8,7 @@ use crate::ui::ExportConfig;
 use std::path::Path;
 
 /// 执行导出操作
-pub fn execute_export(
+pub(crate) fn execute_export(
     result: &QueryResult,
     table_name: &str,
     path: &Path,

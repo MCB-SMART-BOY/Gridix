@@ -11,9 +11,9 @@ use crate::ui::{
 use egui::{self, Color32, CornerRadius, RichText, TextEdit, Vec2};
 
 /// 筛选面板
-pub struct FilterPanel;
+pub(crate) struct FilterPanel;
 
-pub struct FilterPanelResult {
+pub(crate) struct FilterPanelResult {
     pub changed: bool,
     pub clicked: bool,
 }
@@ -23,7 +23,7 @@ impl FilterPanel {
     ///
     /// 返回是否有修改（用于使缓存失效）
     #[allow(clippy::too_many_arguments)]
-    pub fn show(
+    pub(crate) fn show(
         ui: &mut egui::Ui,
         _keybindings: &KeyBindings,
         is_focused: bool,

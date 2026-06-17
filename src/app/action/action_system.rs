@@ -76,7 +76,7 @@ pub(in crate::app) enum CommandScope {
 }
 
 impl CommandScope {
-    pub const fn label(self) -> &'static str {
+    pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::Global => "全局",
             Self::Connection => "连接",
@@ -104,7 +104,7 @@ pub(in crate::app) struct CommandDescriptor {
 
 impl CommandDescriptor {
     #[allow(clippy::too_many_arguments)]
-    pub const fn new(
+    pub(crate) const fn new(
         id: &'static str,
         title: &'static str,
         subtitle: &'static str,
@@ -134,14 +134,14 @@ pub(in crate::app) struct ActionAvailability {
 }
 
 impl ActionAvailability {
-    pub const fn enabled() -> Self {
+    pub(crate) const fn enabled() -> Self {
         Self {
             enabled: true,
             reason: None,
         }
     }
 
-    pub const fn disabled(reason: &'static str) -> Self {
+    pub(crate) const fn disabled(reason: &'static str) -> Self {
         Self {
             enabled: false,
             reason: Some(reason),

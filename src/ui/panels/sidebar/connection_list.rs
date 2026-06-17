@@ -44,7 +44,7 @@ struct ConnectionHeaderRender {
 }
 
 /// 连接列表
-pub struct ConnectionList;
+pub(crate) struct ConnectionList;
 
 impl ConnectionList {
     fn request_delete_target(actions: &mut SidebarActions, target: SidebarDeleteTarget) {
@@ -141,7 +141,7 @@ impl ConnectionList {
 
     /// 显示上部面板（连接/数据库/表）
     #[allow(clippy::too_many_arguments)]
-    pub fn show(
+    pub(crate) fn show(
         ui: &mut egui::Ui,
         connection_manager: &mut ConnectionManager,
         selected_table: &mut Option<String>,

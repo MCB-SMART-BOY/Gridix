@@ -7,12 +7,12 @@ use crate::ui::styles::{GRAY, MUTED, SPACING_LG, SPACING_SM};
 use egui::{self, Color32, CornerRadius, RichText};
 
 /// 表列表
-pub struct TableList;
+pub(crate) struct TableList;
 
 impl TableList {
     /// 显示表列表（SQLite 模式，直接在连接下）
     #[allow(clippy::too_many_arguments)]
-    pub fn show(
+    pub(crate) fn show(
         ui: &mut egui::Ui,
         conn_name: &str,
         tables: &[String],
@@ -114,7 +114,7 @@ impl TableList {
 
     /// 显示嵌套的表列表（在数据库下方）
     #[allow(clippy::too_many_arguments)]
-    pub fn show_nested(
+    pub(crate) fn show_nested(
         ui: &mut egui::Ui,
         conn_name: &str,
         tables: &[String],

@@ -5,7 +5,7 @@ use eframe::egui::{self, RichText, Vec2};
 /// 顶部工具栏主题选择 trigger。
 ///
 /// 真正的主题选择由显式 overlay dialog 负责；这里仅保留当前主题显示与鼠标入口。
-pub fn show_theme_selector_trigger(
+pub(crate) fn show_theme_selector_trigger(
     ui: &mut egui::Ui,
     current_theme: ThemePreset,
     tooltip: &str,

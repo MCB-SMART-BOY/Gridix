@@ -7,11 +7,11 @@ use crate::ui::styles::{GRAY, MARGIN_SM, MUTED, SPACING_LG, SPACING_SM, SUCCESS,
 use egui::{self, Color32, CornerRadius, RichText, Vec2};
 
 /// 触发器面板
-pub struct TriggerPanel;
+pub(crate) struct TriggerPanel;
 
 impl TriggerPanel {
     /// 显示下部面板（触发器）
-    pub fn show(
+    pub(crate) fn show(
         ui: &mut egui::Ui,
         is_focused: bool,
         focused_section: SidebarSection,

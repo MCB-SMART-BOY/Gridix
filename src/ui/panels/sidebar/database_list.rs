@@ -7,12 +7,12 @@ use crate::ui::styles::{MUTED, SPACING_LG};
 use egui::{self, Color32, CornerRadius, RichText};
 
 /// 数据库列表
-pub struct DatabaseList;
+pub(crate) struct DatabaseList;
 
 impl DatabaseList {
     /// 显示数据库列表（MySQL/PostgreSQL）
     #[allow(clippy::too_many_arguments)]
-    pub fn show(
+    pub(crate) fn show(
         ui: &mut egui::Ui,
         conn_name: &str,
         databases: &[String],
