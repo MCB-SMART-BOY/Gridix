@@ -3,6 +3,7 @@
 //! 处理 ER 图数据加载和关系推断。
 
 use super::{DbManagerApp, Message};
+use crate::core::constants;
 use crate::data::{Connection, ConnectionConfig};
 use crate::ui;
 
@@ -86,12 +87,17 @@ impl DbManagerApp {
                     load.db_name
                 ));
 
-                // 异步加载每个表的列信息
+                // 异步加载每个表的列信息（带并发限制）
+                let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(
+                    constants::database::MAX_ER_CONCURRENT_TABLE_FETCHES,
+                ));
                 for table_name in &load.tables {
                     let tx = self.session.tx.clone();
                     let config_clone = load.config.clone();
                     let table_clone = table_name.clone();
+                    let permit = semaphore.clone();
                     self.session.runtime.spawn(async move {
+                        let _permit = permit.acquire().await;
                         let result =
                             crate::data::get_table_columns(&config_clone, &table_clone).await;
                         if tx

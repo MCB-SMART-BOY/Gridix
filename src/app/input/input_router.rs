@@ -1114,8 +1114,8 @@ impl DbManagerApp {
             self.session.notifications.warning("请先连接数据库再创建表");
             return;
         };
+        self.open_dialog(DialogId::Ddl);
         self.state.ddl_dialog_state.open_create_table(db_type);
-        self.mark_dialog_owner(DialogId::Ddl);
     }
 
     pub(in crate::app) fn open_create_database_dialog(&mut self) {
@@ -1125,8 +1125,8 @@ impl DbManagerApp {
                 .warning("请先连接数据库再创建数据库");
             return;
         };
+        self.open_dialog(DialogId::CreateDatabase);
         self.state.create_db_dialog_state.open(db_type);
-        self.mark_dialog_owner(DialogId::CreateDatabase);
     }
 
     pub(in crate::app) fn open_create_user_dialog(&mut self) {

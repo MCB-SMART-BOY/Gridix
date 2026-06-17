@@ -143,10 +143,6 @@ impl DbManagerApp {
         }
     }
 
-    pub(in crate::app) fn mark_dialog_owner(&mut self, id: DialogId) {
-        self.state.active_dialog_owner = Some(id);
-    }
-
     pub(in crate::app) fn reconcile_active_dialog_owner(&mut self) {
         if self
             .state

@@ -46,6 +46,9 @@ pub mod database {
         /// MySQL 连接最大生存时间（秒）
         pub const MYSQL_MAX_LIFETIME_SECS: u64 = 1800;
     }
+
+    /// ER 图加载最大并发表列获取数
+    pub const MAX_ER_CONCURRENT_TABLE_FETCHES: usize = 8;
 }
 
 /// UI 相关常量

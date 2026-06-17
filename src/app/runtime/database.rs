@@ -282,10 +282,9 @@ impl DbManagerApp {
             .connections
             .get(name)
             .and_then(|connection| connection.config.password_ref.clone())
+            && let Err(e) = crate::data::delete_password_secret(&password_ref)
         {
-            if let Err(e) = crate::data::delete_password_secret(&password_ref) {
-                tracing::warn!(%e, password_ref = %password_ref, "删除密钥环中的密码失败");
-            }
+            tracing::warn!(%e, password_ref = %password_ref, "删除密钥环中的密码失败");
         }
         if self.session.manager.connections.contains_key(name) {
             self.disconnect(name.to_string());

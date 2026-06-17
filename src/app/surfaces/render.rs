@@ -763,8 +763,8 @@ impl DbManagerApp {
                 self.session.notifications.warning("SQLite 不支持用户管理");
             } else {
                 let databases = conn.databases.clone();
+                self.open_dialog(DialogId::CreateUser);
                 self.state.create_user_dialog_state.open(db_type, databases);
-                self.mark_dialog_owner(DialogId::CreateUser);
             }
         } else {
             self.session.notifications.warning("请先连接数据库");
