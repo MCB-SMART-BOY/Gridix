@@ -146,16 +146,17 @@ src/app/ + ui/  (Layer 4)  — eframe App impl, rendering, input routing (DbMana
 
 ## Architecture of `.claude/`
 
-| directory | when loaded | contains |
+| directory | when loaded | purpose |
 |---|---|---|
 | `CLAUDE.md` | every session | project-wide context, module map, architecture |
-| `skills/` | user invokes `/<name>` | 6 executable workflows: run-gridix, keybindings, pr-prep, code-review, release, troubleshoot |
-| `rules/` | automatically on matching `paths:` | 5 domain rules: database, session, sync-claude, testing, ui-egui |
-| `references/` | agent reads on demand (linked from task nav + recipes) | engineering ledgers, invariants, design contracts, onboarding, testing guide |
-| `memory/` | persistent between sessions | user preferences, project facts, feedback |
+| `workflow/` | agent follows stage by stage | 7-stage lifecycle: Plan→Design→Implement→Review→Test→Release→Monitor |
+| `skills/` | user invokes `/<name>` or `description` matches task | executable workflows: run-gridix, keybindings, pr-prep, release, troubleshoot |
+| `rules/` | automatically when editing files matching `paths:` | domain rules with DO/DON'T/VERIFY patterns: database, session, ui-egui, testing, sync-claude |
+| `templates/` | agent uses for consistency | standard formats: commit messages, PR descriptions, feature requests |
+| `references/` | agent reads on demand | engineering ledgers (tech-debt, roadmap, bug-ledger), design contracts (core-flows, er-contracts, dialog-audit), architecture ADRs |
+| `memory/` | persistent between sessions | project context, user preferences, feedback log |
 
-## Development workflow
+## Available skills
 
-See `.claude/references/workflow.md` for the complete 7-stage workflow:
-Plan → Code → Review → Test → Pre-PR → Commit → Release
+`/run-gridix` — build, launch, screenshot · `/keybindings` — keyboard shortcuts · `/pr-prep` — pre-PR checks · `/release` — version bump → publish · `/troubleshoot` — build/launch/test fixes
 
