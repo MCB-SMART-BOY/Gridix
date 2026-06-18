@@ -684,6 +684,7 @@ impl DbManagerApp {
                         }
 
                         self.state.result = Some(res.clone());
+                        self.reveal_bottom_panel_for_query(crate::core::BottomPanelTab::Results);
                         // 清除过期行删除标记，防止新数据行数变化后误删
                         self.state.grid_state.rows_to_delete.clear();
                     }
@@ -784,6 +785,9 @@ impl DbManagerApp {
                         }
                         if !is_cancelled {
                             self.clear_result();
+                            self.reveal_bottom_panel_for_query(
+                                crate::core::BottomPanelTab::Messages,
+                            );
                         }
                     }
                 }

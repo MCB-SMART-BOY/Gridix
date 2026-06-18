@@ -759,6 +759,7 @@ impl DbManagerApp {
         }
 
         self.state.focus_area = area;
+        self.state.workbench.set_focus_area(area);
         match area {
             ui::FocusArea::DataGrid => {
                 self.state.grid_state.focused = true;
@@ -1073,6 +1074,9 @@ impl DbManagerApp {
 
     pub(in crate::app) fn set_sidebar_visible(&mut self, visible: bool) {
         self.state.show_sidebar = visible;
+        self.state.workbench.primary_sidebar.visible = visible;
+        self.app_config.workbench.sidebar.visible = visible;
+        self.save_config_debounced();
         let next_focus = focus_after_sidebar_visibility_change(self.state.focus_area, visible);
         if next_focus != self.state.focus_area {
             self.set_focus_area(next_focus);
@@ -1164,6 +1168,7 @@ impl DbManagerApp {
 
         self.state.show_er_diagram = visible;
         if self.state.show_er_diagram {
+            self.reveal_workbench_surface(crate::state::WorkbenchSurfaceKind::ErDiagram);
             self.load_er_diagram_data();
             self.state.er_diagram_state.request_fit_to_view();
         }
@@ -3314,6 +3319,7 @@ mod tests {
         let mut app = test_app();
         app.state.show_sidebar = true;
         app.state.show_er_diagram = true;
+        app.state.sidebar_section = SidebarSection::Connections;
 
         app.set_focus_area(FocusArea::Sidebar);
         app.dispatch_app_action(&ctx, AppAction::FocusErDiagram);

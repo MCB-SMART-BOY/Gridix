@@ -5,8 +5,9 @@
 use eframe::egui;
 
 use crate::app::dialogs::host::DialogId;
-use crate::core::{constants, format_sql};
+use crate::core::{BottomPanelTab, constants, format_sql};
 use crate::data::{ConnectionConfig, QueryResult};
+use crate::state::WorkbenchSurfaceKind;
 use crate::ui::{self, SqlEditorActions, TabBarActions, ToolbarActions};
 
 use super::DbManagerApp;
@@ -19,8 +20,7 @@ use super::action_system::AppAction;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WorkspaceSurface {
     Welcome,
-    QueryError,
-    TabularResult,
+    QueryOutputAvailable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,10 +35,8 @@ fn classify_workspace_surface(
     result: Option<&QueryResult>,
     active_query_error: Option<&str>,
 ) -> WorkspaceSurface {
-    if active_query_error.is_some() {
-        WorkspaceSurface::QueryError
-    } else if result.is_some_and(|result| !result.columns.is_empty()) {
-        WorkspaceSurface::TabularResult
+    if active_query_error.is_some() || result.is_some() {
+        WorkspaceSurface::QueryOutputAvailable
     } else {
         WorkspaceSurface::Welcome
     }
@@ -53,6 +51,7 @@ fn select_sql_editor_status_message(
         .or_else(|| latest_notification.map(ToOwned::to_owned))
 }
 
+#[cfg(test)]
 fn clamped_sql_editor_height(preferred_height: f32, available_height: f32) -> f32 {
     let max_height = (available_height * 0.6).max(0.0);
     if max_height <= 0.0 {
@@ -85,17 +84,40 @@ fn collect_er_diagram_surface_actions(
 }
 
 impl DbManagerApp {
-    fn render_query_error_surface(ui: &mut egui::Ui, error: &str) {
+    fn render_query_output_placeholder(
+        &mut self,
+        ui: &mut egui::Ui,
+        active_query_error: Option<&str>,
+    ) {
+        let target_tab = if active_query_error.is_some() {
+            BottomPanelTab::Messages
+        } else {
+            BottomPanelTab::Results
+        };
+        let (title, detail, action_label) = if active_query_error.is_some() {
+            (
+                "查询消息已移到底部面板",
+                "错误详情会保留在 Messages，不再覆盖编辑工作区。",
+                "打开 Messages",
+            )
+        } else {
+            (
+                "查询结果已移到底部面板",
+                "结果表格会保留在 Results，编辑器和其它工作区仍可继续使用。",
+                "打开 Results",
+            )
+        };
+
         ui.vertical_centered(|ui| {
             ui.add_space(24.0);
-            ui.heading("查询执行失败");
+            ui.heading(title);
             ui.add_space(8.0);
-            ui.label("结果表格未更新。请修正 SQL 后重新执行。");
+            ui.label(detail);
             ui.add_space(12.0);
-            ui.group(|ui| {
-                ui.set_width(ui.available_width().min(720.0));
-                ui.label(egui::RichText::new(error).monospace());
-            });
+            if ui.button(action_label).clicked() {
+                let ctx = ui.ctx().clone();
+                self.dispatch_app_action(&ctx, AppAction::SetBottomPanelTab(target_tab));
+            }
         });
     }
 }
@@ -130,64 +152,118 @@ impl DbManagerApp {
             self.state.new_config = ConnectionConfig::default();
         }
 
-        // ===== 中心面板 =====
+        // ===== Workbench shell =====
         let central_frame = egui::Frame::NONE
             .fill(ctx.global_style().visuals.panel_fill)
             .inner_margin(egui::Margin::same(0));
 
         // 侧边栏操作结果（在 CentralPanel 外声明）
         let mut sidebar_actions = ui::SidebarActions::default();
+        self.sync_workbench_state_from_legacy_layout();
+        let status_bar = self
+            .state
+            .workbench
+            .status_bar
+            .visible
+            .then(|| self.workbench_status_bar_content());
 
-        egui::CentralPanel::default()
-            .frame(central_frame)
-            .show_inside(root_ui, |ui| {
-                // 准备连接列表（侧边栏使用）
-                let mut connections: Vec<String> =
-                    self.session.manager.connections.keys().cloned().collect();
-                connections.sort_unstable();
+        Self::render_workbench(root_ui, central_frame, status_bar, |ui| {
+            let top_bar_actions = self.render_top_bar(ui);
+            self.handle_toolbar_actions(ui.ctx(), top_bar_actions);
+            ui.separator();
 
-                // 使用 horizontal 布局：侧边栏 + 分割条 + 主内容区
-                let available_width = ui.available_width();
-                let available_height = ui.available_height();
-                let divider_width = 8.0;
+            // 准备连接列表（侧边栏使用）
+            let mut connections: Vec<String> =
+                self.session.manager.connections.keys().cloned().collect();
+            connections.sort_unstable();
 
-                // 计算侧边栏和主内容区的宽度
-                let sidebar_width = if self.state.show_sidebar {
-                    self.state.sidebar_width
-                } else {
-                    0.0
-                };
-                let main_width = if self.state.show_sidebar {
-                    available_width - sidebar_width - divider_width
-                } else {
-                    available_width
-                };
+            // 使用 horizontal 布局：侧边栏 + 分割条 + 主内容区
+            let available_width = ui.available_width();
+            let available_height = ui.available_height();
+            let activity_bar_width = constants::ui::workbench::ACTIVITY_BAR_WIDTH;
+            let divider_width = 8.0;
 
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+            // 计算侧边栏和主内容区的宽度
+            let primary_sidebar_fallback_visible =
+                self.state.show_sidebar && !self.active_activity_surface_is_docked();
+            let sidebar_width = if primary_sidebar_fallback_visible {
+                self.state.sidebar_width
+            } else {
+                0.0
+            };
+            let reserved_sidebar_width = if primary_sidebar_fallback_visible {
+                sidebar_width + divider_width
+            } else {
+                0.0
+            };
+            let right_inspector_visible = self.state.workbench.right_inspector.visible
+                && !self.active_right_inspector_surface_is_docked();
+            let right_inspector_divider_width = if right_inspector_visible { 6.0 } else { 0.0 };
+            let right_inspector_width = if right_inspector_visible {
+                self.right_inspector_width_for_available(available_width)
+            } else {
+                0.0
+            };
+            let main_width = if primary_sidebar_fallback_visible {
+                available_width
+                    - activity_bar_width
+                    - reserved_sidebar_width
+                    - right_inspector_width
+                    - right_inspector_divider_width
+            } else {
+                available_width
+                    - activity_bar_width
+                    - right_inspector_width
+                    - right_inspector_divider_width
+            }
+            .max(0.0);
 
-                    // ===== 侧边栏区域 =====
-                    if self.state.show_sidebar {
-                        let mut sidebar_clicked = false;
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(sidebar_width, available_height),
-                            egui::Layout::top_down(egui::Align::LEFT),
-                            |ui| {
-                                ui.set_min_size(egui::vec2(sidebar_width, available_height));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
 
-                                // 只有在没有对话框打开时，侧边栏才响应键盘
-                                let is_sidebar_focused = self.state.focus_area
-                                    == ui::FocusArea::Sidebar
-                                    && !self.has_modal_dialog_open();
+                // ===== ActivityBar =====
+                ui.allocate_ui_with_layout(
+                    egui::vec2(activity_bar_width, available_height),
+                    egui::Layout::top_down(egui::Align::Center),
+                    |ui| {
+                        let response = self.render_activity_bar(ui);
+                        if let Some(activity) = response.selected_activity {
+                            let ctx = ui.ctx().clone();
+                            self.dispatch_app_action(
+                                &ctx,
+                                AppAction::SetWorkbenchActivity(activity),
+                            );
+                        }
+                        if response.toggle_sidebar {
+                            let ctx = ui.ctx().clone();
+                            self.dispatch_app_action(&ctx, AppAction::TogglePrimarySidebar);
+                        }
+                    },
+                );
 
-                                // 获取当前查询结果的列信息
-                                let columns: Vec<String> = self
-                                    .state
-                                    .result
-                                    .as_ref()
-                                    .map(|r| r.columns.clone())
-                                    .unwrap_or_default();
+                // ===== 侧边栏区域 =====
+                if primary_sidebar_fallback_visible {
+                    let mut sidebar_clicked = false;
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(sidebar_width, available_height),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            ui.set_min_size(egui::vec2(sidebar_width, available_height));
 
+                            // 只有在没有对话框打开时，侧边栏才响应键盘
+                            let is_sidebar_focused = self.state.focus_area
+                                == ui::FocusArea::Sidebar
+                                && !self.has_modal_dialog_open();
+
+                            // 获取当前查询结果的列信息
+                            let columns: Vec<String> = self
+                                .state
+                                .result
+                                .as_ref()
+                                .map(|r| r.columns.clone())
+                                .unwrap_or_default();
+
+                            if self.active_activity_uses_legacy_sidebar() {
                                 let (actions, filter_changed) = ui::Sidebar::show_in_ui(
                                     ui,
                                     &mut self.session.manager,
@@ -208,84 +284,137 @@ impl DbManagerApp {
                                 if filter_changed {
                                     self.state.grid_state.filter_cache.invalidate();
                                 }
+                            } else {
+                                self.render_primary_sidebar_activity_placeholder(ui, sidebar_width);
+                            }
 
-                                if ui.ui_contains_pointer()
-                                    && ui.input(|input| input.pointer.primary_clicked())
-                                {
-                                    sidebar_clicked = true;
-                                }
+                            if ui.ui_contains_pointer()
+                                && ui.input(|input| input.pointer.primary_clicked())
+                            {
+                                sidebar_clicked = true;
+                            }
+                        },
+                    );
+
+                    if sidebar_clicked {
+                        self.set_focus_area(ui::FocusArea::Sidebar);
+                        let active_surface = WorkbenchSurfaceKind::from_activity(
+                            self.state.workbench.active_activity,
+                        );
+                        self.state.workbench.set_focused_surface(&active_surface);
+                    }
+
+                    // 可拖动的垂直分割条（与 ER 图分割条相同风格）
+                    let (divider_rect, divider_response) = ui.allocate_exact_size(
+                        egui::vec2(divider_width, available_height),
+                        egui::Sense::drag(),
+                    );
+
+                    // 绘制分割条
+                    let divider_color = if divider_response.dragged() || divider_response.hovered()
+                    {
+                        egui::Color32::from_rgb(100, 150, 255)
+                    } else {
+                        egui::Color32::from_rgba_unmultiplied(128, 128, 128, 80)
+                    };
+
+                    ui.painter().rect_filled(
+                        divider_rect.shrink2(egui::vec2(2.0, 4.0)),
+                        egui::CornerRadius::same(2),
+                        divider_color,
+                    );
+
+                    // 中间的拖动指示器（三个小点）
+                    let center = divider_rect.center();
+                    for offset in [-10.0, 0.0, 10.0] {
+                        ui.painter().circle_filled(
+                            egui::pos2(center.x, center.y + offset),
+                            2.0,
+                            egui::Color32::from_gray(180),
+                        );
+                    }
+
+                    // 处理拖动调整侧边栏宽度
+                    if divider_response.dragged() {
+                        let delta = divider_response.drag_delta().x;
+                        self.state.sidebar_width = (self.state.sidebar_width + delta).clamp(
+                            constants::ui::SIDEBAR_MIN_WIDTH_PX,
+                            constants::ui::SIDEBAR_MAX_WIDTH_PX,
+                        );
+                    }
+                    self.state.workbench.primary_sidebar.width = self.state.sidebar_width;
+                    self.state.workbench.primary_sidebar.is_resizing = divider_response.dragged();
+
+                    // 鼠标光标
+                    if divider_response.hovered() || divider_response.dragged() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                    }
+                }
+
+                // ===== 主内容区 — egui_dock DockArea + BottomPanel =====
+                ui.allocate_ui_with_layout(
+                    egui::vec2(main_width, available_height),
+                    egui::Layout::top_down(egui::Align::LEFT),
+                    |ui| {
+                        ui.set_min_size(egui::vec2(main_width, available_height));
+                        let bottom_panel_visible = self.state.workbench.bottom_panel.visible
+                            && !self.active_bottom_panel_surface_is_docked();
+                        let bottom_divider_height = if bottom_panel_visible { 6.0 } else { 0.0 };
+                        let bottom_panel_height = if bottom_panel_visible {
+                            self.bottom_panel_height_for_available(available_height)
+                        } else {
+                            0.0
+                        };
+                        let editor_area_height =
+                            (available_height - bottom_panel_height - bottom_divider_height)
+                                .max(0.0);
+
+                        // Take dock_state to avoid borrow conflict with viewer
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(main_width, editor_area_height),
+                            egui::Layout::top_down(egui::Align::LEFT),
+                            |ui| {
+                                let fallback_dock = self.default_workbench_surface_layout();
+                                let mut dock =
+                                    std::mem::replace(&mut self.dock_state, fallback_dock);
+                                ui::dock_tabs::sync_all(&mut dock, self);
+                                let mut viewer = ui::dock_tabs::WorkspaceViewer { app: self };
+                                egui_dock::DockArea::new(&mut dock).show_inside(ui, &mut viewer);
+                                // Put dock_state back
+                                self.dock_state = dock;
                             },
                         );
 
-                        if sidebar_clicked {
-                            self.set_focus_area(ui::FocusArea::Sidebar);
-                        }
-
-                        // 可拖动的垂直分割条（与 ER 图分割条相同风格）
-                        let (divider_rect, divider_response) = ui.allocate_exact_size(
-                            egui::vec2(divider_width, available_height),
-                            egui::Sense::drag(),
-                        );
-
-                        // 绘制分割条
-                        let divider_color =
-                            if divider_response.dragged() || divider_response.hovered() {
-                                egui::Color32::from_rgb(100, 150, 255)
-                            } else {
-                                egui::Color32::from_rgba_unmultiplied(128, 128, 128, 80)
-                            };
-
-                        ui.painter().rect_filled(
-                            divider_rect.shrink2(egui::vec2(2.0, 4.0)),
-                            egui::CornerRadius::same(2),
-                            divider_color,
-                        );
-
-                        // 中间的拖动指示器（三个小点）
-                        let center = divider_rect.center();
-                        for offset in [-10.0, 0.0, 10.0] {
-                            ui.painter().circle_filled(
-                                egui::pos2(center.x, center.y + offset),
-                                2.0,
-                                egui::Color32::from_gray(180),
+                        if bottom_panel_visible {
+                            self.render_bottom_panel_resize_divider(ui, available_height);
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(main_width, bottom_panel_height),
+                                egui::Layout::top_down(egui::Align::LEFT),
+                                |ui| {
+                                    self.render_bottom_panel_in_ui(ui);
+                                },
                             );
                         }
+                    },
+                ); // allocate_ui_with_layout 主内容区结束
 
-                        // 处理拖动调整侧边栏宽度
-                        if divider_response.dragged() {
-                            let delta = divider_response.drag_delta().x;
-                            self.state.sidebar_width = (self.state.sidebar_width + delta).clamp(
-                                constants::ui::SIDEBAR_MIN_WIDTH_PX,
-                                constants::ui::SIDEBAR_MAX_WIDTH_PX,
-                            );
-                        }
-
-                        // 鼠标光标
-                        if divider_response.hovered() || divider_response.dragged() {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                        }
-                    }
-
-                    // ===== 主内容区 — egui_dock DockArea =====
+                if right_inspector_visible {
+                    self.render_right_inspector_resize_divider(
+                        ui,
+                        available_width,
+                        available_height,
+                    );
                     ui.allocate_ui_with_layout(
-                        egui::vec2(main_width, available_height),
+                        egui::vec2(right_inspector_width, available_height),
                         egui::Layout::top_down(egui::Align::LEFT),
                         |ui| {
-                            ui.set_min_size(egui::vec2(main_width, available_height));
-                            // Take dock_state to avoid borrow conflict with viewer
-                            let mut dock = std::mem::replace(
-                                &mut self.dock_state,
-                                ui::dock_tabs::default_layout(),
-                            );
-                            ui::dock_tabs::sync_all(&mut dock, self);
-                            let mut viewer = ui::dock_tabs::WorkspaceViewer { app: self };
-                            egui_dock::DockArea::new(&mut dock).show_inside(ui, &mut viewer);
-                            // Put dock_state back
-                            self.dock_state = dock;
+                            ui.set_min_size(egui::vec2(right_inspector_width, available_height));
+                            self.render_right_inspector_in_ui(ui);
                         },
-                    ); // allocate_ui_with_layout 主内容区结束
-                }); // horizontal 布局结束
-            }); // CentralPanel 闭包结束
+                    );
+                }
+            }); // horizontal 布局结束
+        }); // Workbench shell 闭包结束
 
         // ===== 处理各种操作 =====
         self.handle_toolbar_actions(&ctx, toolbar_actions);
@@ -318,67 +447,9 @@ impl DbManagerApp {
         }
     }
 
-    /// 渲染工作区内容（工具栏 + Tab栏 + 数据表格/欢迎页），供 egui_dock TabViewer 调用
+    /// 渲染非 SQL 文档占位内容，供 EditorArea dock tab 调用。
     pub(crate) fn render_workspace_content(&mut self, ui: &mut egui::Ui) {
-        // 工具栏
-        let is_toolbar_focused = self.state.focus_area == ui::FocusArea::Toolbar;
-        let mut toolbar_actions = ui::ToolbarActions::default();
-        let cancel_task_id = ui
-            .scope(|ui| {
-                let connections: Vec<String> =
-                    self.session.manager.connections.keys().cloned().collect();
-                let (databases, selected_database, tables) = self
-                    .session
-                    .manager
-                    .get_active()
-                    .map(|c| {
-                        (
-                            c.databases.clone(),
-                            c.selected_database.clone(),
-                            c.tables.clone(),
-                        )
-                    })
-                    .unwrap_or_default();
-                let active_connection = self.session.manager.active.clone();
-                let selected_table = self.state.selected_table.clone();
-
-                let cid = ui::Toolbar::show_with_focus(
-                    ui,
-                    &self.state.theme_manager,
-                    &self.keybindings,
-                    self.state.result.is_some(),
-                    self.state.show_sidebar,
-                    self.state.show_sql_editor,
-                    self.app_config.is_dark_mode,
-                    &mut toolbar_actions,
-                    &connections,
-                    active_connection.as_deref(),
-                    &databases,
-                    selected_database.as_deref(),
-                    &tables,
-                    selected_table.as_deref(),
-                    self.state.ui_scale,
-                    &self.session.progress,
-                    is_toolbar_focused,
-                    self.state.toolbar_index,
-                );
-                if ui.ui_contains_pointer() && ui.input(|i| i.pointer.primary_clicked()) {
-                    self.set_focus_area(ui::FocusArea::Toolbar);
-                }
-                cid
-            })
-            .inner;
-        if let Some(id) = cancel_task_id {
-            self.session.progress.cancel(id);
-        }
-        if self.state.focus_area == ui::FocusArea::Toolbar {
-            ui::Toolbar::handle_keyboard(ui, &mut self.state.toolbar_index, &mut toolbar_actions);
-        }
-        self.handle_toolbar_actions(ui.ctx(), toolbar_actions);
-
-        ui.separator();
-
-        // Tab 栏 — dock tabs 提供原生标签UI，此处仅保留键盘快捷键处理
+        // Dock tabs 提供原生标签 UI，此处仅保留 QueryTabs 键盘快捷键处理。
         let mut tab_actions = ui::TabBarActions::default();
         if self.state.focus_area == ui::FocusArea::QueryTabs {
             ui::QueryTabBar::handle_keyboard(
@@ -390,8 +461,6 @@ impl DbManagerApp {
         }
         self.handle_tab_actions(ui.ctx(), tab_actions);
 
-        ui.separator();
-
         // 数据表格 / 欢迎页 / 错误
         let active_query_error = self
             .session
@@ -401,39 +470,73 @@ impl DbManagerApp {
         let workspace_surface =
             classify_workspace_surface(self.state.result.as_ref(), active_query_error.as_deref());
 
-        if workspace_surface == WorkspaceSurface::TabularResult {
-            if let Some(result) = &self.state.result {
-                self.state.grid_state.focused = self.state.focus_area == ui::FocusArea::DataGrid
-                    && !self.has_modal_dialog_open();
-                let table_name = self.state.selected_table.as_deref();
-                let (grid_actions, _) = ui::DataGrid::show_editable(
-                    ui,
-                    result,
-                    &self.state.search_text,
-                    &self.state.search_column,
-                    &mut self.state.selected_row,
-                    &mut self.state.selected_cell,
-                    &mut self.state.grid_state,
-                    table_name,
-                    &self.keybindings,
-                );
-                if grid_actions.open_filter_panel {
+        match workspace_surface {
+            WorkspaceSurface::QueryOutputAvailable => {
+                self.render_query_output_placeholder(ui, active_query_error.as_deref());
+            }
+            WorkspaceSurface::Welcome => {
+                // Welcome surface — show when no table is selected and no result exists
+                let action = ui::Welcome::show(ui, self.state.welcome_status, &self.keybindings);
+                if let Some(action) = action {
                     let ctx = ui.ctx().clone();
-                    self.dispatch_app_action(&ctx, AppAction::OpenFilterWorkspace);
+                    self.handle_welcome_action(&ctx, action);
                 }
             }
-        } else if workspace_surface == WorkspaceSurface::QueryError {
-            Self::render_query_error_surface(
-                ui,
-                active_query_error.as_deref().unwrap_or("查询失败"),
-            );
-        } else {
-            // Welcome surface — show when no table is selected and no result exists
-            let action = ui::Welcome::show(ui, self.state.welcome_status, &self.keybindings);
-            if let Some(action) = action {
-                let ctx = ui.ctx().clone();
-                self.handle_welcome_action(&ctx, action);
+        }
+    }
+
+    pub(crate) fn render_result_grid_in_ui(&mut self, ui: &mut egui::Ui) {
+        let Some(result) = &self.state.result else {
+            return;
+        };
+
+        self.state.grid_state.focused =
+            self.state.focus_area == ui::FocusArea::DataGrid && !self.has_modal_dialog_open();
+        let table_name = self.state.selected_table.as_deref();
+        let (grid_actions, _) = ui::DataGrid::show_editable(
+            ui,
+            result,
+            &self.state.search_text,
+            &self.state.search_column,
+            &mut self.state.selected_row,
+            &mut self.state.selected_cell,
+            &mut self.state.grid_state,
+            table_name,
+            &self.keybindings,
+        );
+
+        if grid_actions.open_filter_panel {
+            let ctx = ui.ctx().clone();
+            self.dispatch_app_action(&ctx, AppAction::OpenFilterWorkspace);
+        }
+        if grid_actions.request_focus {
+            self.set_focus_area(ui::FocusArea::DataGrid);
+        }
+        if let Some(transfer) = grid_actions.focus_transfer {
+            match transfer {
+                ui::FocusTransfer::Sidebar => {
+                    self.dispatch_app_action(ui.ctx(), AppAction::FocusSidebar);
+                }
+                ui::FocusTransfer::SqlEditor => {
+                    self.dispatch_app_action(ui.ctx(), AppAction::FocusEditor);
+                }
+                ui::FocusTransfer::QueryTabs => {
+                    self.dispatch_app_action(ui.ctx(), AppAction::FocusQueryTabs);
+                }
             }
+        }
+        if grid_actions.refresh_requested {
+            self.dispatch_app_action(ui.ctx(), AppAction::RefreshSelectedTable);
+        }
+        if let Some(message) = grid_actions.message {
+            self.session.notifications.info(message);
+        }
+        for sql in grid_actions.sql_to_execute {
+            let _ = self.execute(sql);
+        }
+        if let Some(tab) = grid_actions.switch_to_tab {
+            let index = tab.saturating_sub(1);
+            self.dispatch_app_action(ui.ctx(), AppAction::SwitchToQueryTab(index));
         }
     }
 
@@ -442,10 +545,23 @@ impl DbManagerApp {
         let theme_preset = self.state.theme_manager.current;
         let er_is_focused =
             self.state.focus_area == ui::FocusArea::ErDiagram && !self.has_modal_dialog_open();
+        let previous_selection = self
+            .state
+            .er_diagram_state
+            .selected_table_name()
+            .map(ToOwned::to_owned);
         let er_response = self
             .state
             .er_diagram_state
             .show(ui, &theme_preset, er_is_focused);
+        let next_selection = self
+            .state
+            .er_diagram_state
+            .selected_table_name()
+            .map(ToOwned::to_owned);
+        if next_selection.is_some() && next_selection != previous_selection {
+            self.reveal_right_inspector_for_inspect(crate::core::RightInspectorTab::ErSelection);
+        }
         for action in collect_er_diagram_surface_actions(&er_response) {
             match action {
                 ErDiagramSurfaceAction::FocusDiagram => {
@@ -473,67 +589,18 @@ impl DbManagerApp {
         }
     }
 
-    /// 渲染 SQL 编辑器面板（在主内容区内部渲染，不遮挡侧边栏）
-    pub(crate) fn render_sql_editor_in_ui(
-        &mut self,
-        ui: &mut egui::Ui,
-        available_height: f32,
-    ) -> SqlEditorActions {
+    /// 渲染 SQL 文档内容，供 EditorArea dock tab 调用。
+    pub(crate) fn render_sql_document_in_ui(&mut self, ui: &mut egui::Ui) -> SqlEditorActions {
         let mut sql_editor_actions = SqlEditorActions::default();
 
         if !self.state.show_sql_editor {
+            self.render_sql_document_hidden_placeholder(ui);
             return sql_editor_actions;
         }
 
         // 只有在没有对话框打开时，SQL 编辑器才响应快捷键
         let is_editor_focused =
             self.state.focus_area == ui::FocusArea::SqlEditor && !self.has_modal_dialog_open();
-
-        // 计算编辑器高度（使用 sql_editor_height 字段或默认值）
-        let editor_height =
-            clamped_sql_editor_height(self.state.sql_editor_height, available_height);
-
-        // 可拖动的水平分割条
-        let divider_height = 6.0;
-        let (divider_rect, divider_response) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), divider_height),
-            egui::Sense::drag(),
-        );
-
-        // 绘制分割条
-        let divider_color = if divider_response.dragged() || divider_response.hovered() {
-            egui::Color32::from_rgb(100, 150, 255)
-        } else {
-            egui::Color32::from_rgba_unmultiplied(128, 128, 128, 80)
-        };
-
-        ui.painter().rect_filled(
-            divider_rect.shrink2(egui::vec2(4.0, 1.0)),
-            egui::CornerRadius::same(2),
-            divider_color,
-        );
-
-        // 中间的拖动指示器（三个小点水平排列）
-        let center = divider_rect.center();
-        for offset in [-15.0, 0.0, 15.0] {
-            ui.painter().circle_filled(
-                egui::pos2(center.x + offset, center.y),
-                2.0,
-                egui::Color32::from_gray(160),
-            );
-        }
-
-        // 处理拖动调整高度
-        if divider_response.dragged() {
-            let delta = -divider_response.drag_delta().y; // 向上拖动增加高度
-            self.state.sql_editor_height =
-                (self.state.sql_editor_height + delta).clamp(100.0, 500.0);
-        }
-
-        // 鼠标光标
-        if divider_response.hovered() || divider_response.dragged() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
-        }
 
         // SQL 编辑器内容区域
         // 确保至少有一个 tab 用于 SQL 编辑
@@ -551,7 +618,7 @@ impl DbManagerApp {
         let tab_sql = &mut self.session.tab_manager.tabs[self.session.tab_manager.active_index].sql;
 
         ui.allocate_ui_with_layout(
-            egui::vec2(ui.available_width(), editor_height),
+            egui::vec2(ui.available_width(), ui.available_height()),
             egui::Layout::top_down(egui::Align::LEFT),
             |ui| {
                 let latest_msg = select_sql_editor_status_message(
@@ -580,6 +647,29 @@ impl DbManagerApp {
         );
 
         sql_editor_actions
+    }
+
+    fn render_sql_document_hidden_placeholder(&mut self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            ui.add_space(32.0);
+            ui.heading("SQL 文档已隐藏");
+            ui.add_space(8.0);
+            ui.label("SQL 现在是 EditorArea 文档。旧的编辑器开关暂时只隐藏文档内容。");
+            ui.add_space(12.0);
+            if ui.button("显示 SQL 文档").clicked() {
+                let ctx = ui.ctx().clone();
+                self.dispatch_app_action(&ctx, AppAction::FocusEditor);
+            }
+        });
+    }
+
+    pub(crate) fn render_schema_object_placeholder(&mut self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            ui.add_space(32.0);
+            ui.heading("Schema Object");
+            ui.add_space(8.0);
+            ui.label("SchemaObject 已作为 EditorArea 目标视图预留。具体内容会在 RightInspector/Schema 阶段接入。");
+        });
     }
 
     /// 处理 SQL 编辑器操作
@@ -752,6 +842,14 @@ impl DbManagerApp {
 
         if actions.show_keybindings {
             self.dispatch_app_action(ctx, AppAction::OpenKeybindingsDialog);
+        }
+
+        if let Some(transfer) = actions.focus_transfer {
+            match transfer {
+                ui::ToolbarFocusTransfer::ToQueryTabs => {
+                    self.set_focus_area(ui::FocusArea::QueryTabs);
+                }
+            }
         }
     }
 
@@ -1298,7 +1396,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_surface_requires_columns_for_tabular_view() {
+    fn workspace_surface_routes_query_output_to_bottom_panel() {
         assert_eq!(
             classify_workspace_surface(None, None),
             WorkspaceSurface::Welcome
@@ -1311,29 +1409,29 @@ mod tests {
                 }),
                 None,
             ),
-            WorkspaceSurface::Welcome
+            WorkspaceSurface::QueryOutputAvailable
         );
         assert_eq!(
             classify_workspace_surface(
                 Some(&QueryResult::with_rows(vec!["id".to_string()], Vec::new())),
                 None,
             ),
-            WorkspaceSurface::TabularResult
+            WorkspaceSurface::QueryOutputAvailable
         );
     }
 
     #[test]
-    fn workspace_surface_prioritizes_explicit_query_error() {
+    fn workspace_surface_routes_query_error_to_bottom_panel() {
         assert_eq!(
             classify_workspace_surface(
                 Some(&QueryResult::with_rows(vec!["id".to_string()], Vec::new())),
                 Some("错误: syntax error"),
             ),
-            WorkspaceSurface::QueryError
+            WorkspaceSurface::QueryOutputAvailable
         );
         assert_eq!(
             classify_workspace_surface(None, Some("错误: syntax error")),
-            WorkspaceSurface::QueryError
+            WorkspaceSurface::QueryOutputAvailable
         );
     }
 

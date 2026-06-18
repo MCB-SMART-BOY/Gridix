@@ -74,6 +74,32 @@ pub mod ui {
     pub const SIDEBAR_MIN_WIDTH_PX: f32 = 150.0;
     /// 侧边栏最大宽度（像素）
     pub const SIDEBAR_MAX_WIDTH_PX: f32 = 500.0;
+
+    /// 编辑器式工作台布局相关常量
+    pub mod workbench {
+        /// 当前 workbench 配置结构版本
+        pub const SCHEMA_VERSION: u32 = 1;
+        /// 主侧边栏默认宽度（像素）
+        pub const PRIMARY_SIDEBAR_WIDTH: f32 = 280.0;
+        /// 主侧边栏最小宽度（像素）
+        pub const PRIMARY_SIDEBAR_MIN_WIDTH: f32 = 220.0;
+        /// 主侧边栏最大宽度（像素）
+        pub const PRIMARY_SIDEBAR_MAX_WIDTH: f32 = 460.0;
+        /// ActivityBar 固定宽度（像素）
+        pub const ACTIVITY_BAR_WIDTH: f32 = 48.0;
+        /// 底部面板默认高度（像素）
+        pub const BOTTOM_PANEL_HEIGHT: f32 = 260.0;
+        /// 底部面板最小高度（像素）
+        pub const BOTTOM_PANEL_MIN_HEIGHT: f32 = 140.0;
+        /// 底部面板默认最大视口高度占比
+        pub const BOTTOM_PANEL_MAX_HEIGHT_RATIO: f32 = 0.55;
+        /// 右侧检查器默认宽度（像素）
+        pub const RIGHT_INSPECTOR_WIDTH: f32 = 320.0;
+        /// 右侧检查器最小宽度（像素）
+        pub const RIGHT_INSPECTOR_MIN_WIDTH: f32 = 260.0;
+        /// 右侧检查器最大宽度（像素）
+        pub const RIGHT_INSPECTOR_MAX_WIDTH: f32 = 480.0;
+    }
 }
 
 /// 自动补全相关常量

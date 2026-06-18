@@ -17,6 +17,7 @@ impl DbManagerApp {
 
     /// 从当前活动 Tab 同步 SQL 和结果到主视图
     pub(crate) fn sync_from_active_tab(&mut self) {
+        let mut query_bottom_panel_tab = None;
         if let Some(tab) = self.session.tab_manager.get_active() {
             self.state.result = tab.result.clone();
             self.session.last_query_time_ms = tab.query_time_ms;
@@ -24,6 +25,13 @@ impl DbManagerApp {
             self.state.search_text = tab.search_text.clone();
             self.state.search_column = tab.search_column.clone();
             self.active_grid_workspace_enabled = tab.uses_grid_workspace;
+            query_bottom_panel_tab = if tab.last_error.is_some() {
+                Some(crate::core::BottomPanelTab::Messages)
+            } else if tab.result.is_some() {
+                Some(crate::core::BottomPanelTab::Results)
+            } else {
+                None
+            };
         } else {
             self.session.last_query_time_ms = None;
             self.state.selected_table = None;
@@ -34,6 +42,9 @@ impl DbManagerApp {
         self.state.selected_row = None;
         self.state.selected_cell = None;
         self.restore_grid_surface_from_active_tab();
+        if let Some(tab) = query_bottom_panel_tab {
+            self.reveal_bottom_panel_for_query(tab);
+        }
     }
 
     /// 在切换/打开其它 Tab 前持久化当前活动 Tab 的状态

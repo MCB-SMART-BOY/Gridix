@@ -5,7 +5,9 @@
 use eframe::egui;
 
 use crate::app::dialogs::host::DialogId;
-use crate::core::{Action as ShortcutAction, constants};
+use crate::core::{
+    Action as ShortcutAction, BottomPanelTab, RightInspectorTab, WorkbenchActivity, constants,
+};
 use crate::data::DatabaseType;
 use crate::ui::{self, FocusArea};
 
@@ -25,6 +27,15 @@ pub(in crate::app) enum AppAction {
     ToggleHelpPanel,
     OpenHistoryPanel,
     ToggleHistoryPanel,
+    SetWorkbenchActivity(WorkbenchActivity),
+    TogglePrimarySidebar,
+    SetPrimarySidebarVisible(bool),
+    ToggleBottomPanel,
+    SetBottomPanelVisible(bool),
+    SetBottomPanelTab(BottomPanelTab),
+    ToggleRightInspector,
+    SetRightInspectorVisible(bool),
+    SetRightInspectorTab(RightInspectorTab),
     OpenAboutDialog,
     OpenKeybindingsDialog,
     ToggleSidebar,
@@ -380,6 +391,172 @@ const COMMANDS: &[CommandDescriptor] = &[
         ],
     ),
     CommandDescriptor::new(
+        "workbench_show_primary_sidebar",
+        "显示 PrimarySidebar",
+        "显示当前 Workbench 活动对应的主侧边栏。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetPrimarySidebarVisible(true),
+        None,
+        &["sidebar", "show sidebar", "primary sidebar", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_hide_primary_sidebar",
+        "隐藏 PrimarySidebar",
+        "隐藏主侧边栏但保留 ActivityBar。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetPrimarySidebarVisible(false),
+        None,
+        &["sidebar", "hide sidebar", "primary sidebar", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_toggle_bottom_panel",
+        "切换 BottomPanel",
+        "显示或隐藏结果、消息和任务底部面板。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::ToggleBottomPanel,
+        None,
+        &["bottom panel", "results", "messages", "panel", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_show_bottom_panel",
+        "显示 BottomPanel",
+        "显示底部结果和消息面板。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::SetBottomPanelVisible(true),
+        None,
+        &["bottom panel", "show panel", "results", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_hide_bottom_panel",
+        "隐藏 BottomPanel",
+        "隐藏底部结果和消息面板。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::SetBottomPanelVisible(false),
+        None,
+        &["bottom panel", "hide panel", "results", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_bottom_results",
+        "打开 Results",
+        "在 BottomPanel 中显示查询结果。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::SetBottomPanelTab(BottomPanelTab::Results),
+        None,
+        &["results", "bottom panel", "grid", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_bottom_messages",
+        "打开 Messages",
+        "在 BottomPanel 中显示查询消息和错误。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::SetBottomPanelTab(BottomPanelTab::Messages),
+        None,
+        &["messages", "errors", "bottom panel", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_bottom_explain",
+        "打开 Explain",
+        "在 BottomPanel 中显示执行计划入口。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::SetBottomPanelTab(BottomPanelTab::Explain),
+        None,
+        &["explain", "plan", "bottom panel", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_bottom_history",
+        "打开 Bottom History",
+        "在 BottomPanel 中显示最近查询历史。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::SetBottomPanelTab(BottomPanelTab::History),
+        None,
+        &["history", "queries", "bottom panel", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_bottom_tasks",
+        "打开 Tasks",
+        "在 BottomPanel 中显示后台任务。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::SetBottomPanelTab(BottomPanelTab::Tasks),
+        None,
+        &["tasks", "progress", "bottom panel", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_activity_explorer",
+        "打开 Explorer 活动",
+        "在 PrimarySidebar 中显示连接、数据库和表。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetWorkbenchActivity(WorkbenchActivity::Explorer),
+        None,
+        &["activity", "explorer", "connections", "tables", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_activity_filters",
+        "打开 Filters 活动",
+        "在 PrimarySidebar 中显示当前结果筛选条件。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetWorkbenchActivity(WorkbenchActivity::Filters),
+        None,
+        &["activity", "filters", "where", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_activity_objects",
+        "打开 Objects 活动",
+        "在 PrimarySidebar 中显示触发器和存储过程。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetWorkbenchActivity(WorkbenchActivity::Objects),
+        None,
+        &["activity", "objects", "triggers", "routines", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_activity_history",
+        "打开 History 活动",
+        "在 PrimarySidebar 中显示查询历史入口。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetWorkbenchActivity(WorkbenchActivity::History),
+        None,
+        &["activity", "history", "queries", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_activity_help",
+        "打开 Help 活动",
+        "在 PrimarySidebar 中显示帮助入口。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetWorkbenchActivity(WorkbenchActivity::Help),
+        None,
+        &["activity", "help", "docs", "learning", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_activity_settings",
+        "打开 Settings 活动",
+        "在 PrimarySidebar 中显示设置入口。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetWorkbenchActivity(WorkbenchActivity::Settings),
+        None,
+        &[
+            "activity",
+            "settings",
+            "preferences",
+            "keybindings",
+            "workbench",
+        ],
+    ),
+    CommandDescriptor::new(
         "toggle_editor",
         "切换 SQL 编辑器",
         "显示或隐藏底部 SQL 编辑器工作区。",
@@ -408,6 +585,16 @@ const COMMANDS: &[CommandDescriptor] = &[
         AppAction::FocusErDiagram,
         Some(ShortcutAction::FocusErDiagram),
         &["er", "diagram", "focus", "graph", "focus er"],
+    ),
+    CommandDescriptor::new(
+        "toggle_right_inspector",
+        "切换右侧检查器",
+        "显示或隐藏当前上下文的属性、结构、行、单元格和 ER 详情。",
+        "布局",
+        CommandScope::Global,
+        AppAction::ToggleRightInspector,
+        None,
+        &["inspector", "right panel", "properties", "schema", "cell"],
     ),
     CommandDescriptor::new(
         "run_current_sql",
@@ -845,6 +1032,15 @@ fn availability_for_action(context: &ActionContext, action: AppAction) -> Action
         | AppAction::ToggleHelpPanel
         | AppAction::OpenHistoryPanel
         | AppAction::ToggleHistoryPanel
+        | AppAction::SetWorkbenchActivity(_)
+        | AppAction::TogglePrimarySidebar
+        | AppAction::SetPrimarySidebarVisible(_)
+        | AppAction::ToggleBottomPanel
+        | AppAction::SetBottomPanelVisible(_)
+        | AppAction::SetBottomPanelTab(_)
+        | AppAction::ToggleRightInspector
+        | AppAction::SetRightInspectorVisible(_)
+        | AppAction::SetRightInspectorTab(_)
         | AppAction::OpenAboutDialog
         | AppAction::OpenKeybindingsDialog
         | AppAction::ToggleSidebar
@@ -1062,6 +1258,44 @@ impl DbManagerApp {
                 self.toggle_history_panel();
                 Vec::new()
             }
+            AppAction::SetWorkbenchActivity(activity) => {
+                self.set_workbench_activity(activity);
+                Vec::new()
+            }
+            AppAction::TogglePrimarySidebar => {
+                self.toggle_sidebar_visibility();
+                Vec::new()
+            }
+            AppAction::SetPrimarySidebarVisible(visible) => {
+                self.set_primary_sidebar_visible(visible);
+                Vec::new()
+            }
+            AppAction::ToggleBottomPanel => {
+                self.set_bottom_panel_visible(!self.state.workbench.bottom_panel.visible);
+                Vec::new()
+            }
+            AppAction::SetBottomPanelVisible(visible) => {
+                self.set_bottom_panel_visible(visible);
+                Vec::new()
+            }
+            AppAction::SetBottomPanelTab(tab) => {
+                self.set_bottom_panel_tab(tab);
+                self.set_bottom_panel_visible(true);
+                Vec::new()
+            }
+            AppAction::ToggleRightInspector => {
+                self.set_right_inspector_visible(!self.state.workbench.right_inspector.visible);
+                Vec::new()
+            }
+            AppAction::SetRightInspectorVisible(visible) => {
+                self.set_right_inspector_visible(visible);
+                Vec::new()
+            }
+            AppAction::SetRightInspectorTab(tab) => {
+                self.set_right_inspector_tab(tab);
+                self.set_right_inspector_visible(true);
+                Vec::new()
+            }
             AppAction::OpenAboutDialog => {
                 self.open_dialog(DialogId::About);
                 Vec::new()
@@ -1087,6 +1321,7 @@ impl DbManagerApp {
             }
             AppAction::FocusErDiagram => {
                 if let Some(area) = resolve_focus_er_diagram_target(self.state.show_er_diagram) {
+                    self.reveal_workbench_surface(crate::state::WorkbenchSurfaceKind::ErDiagram);
                     self.set_focus_area(area);
                 }
                 Vec::new()
@@ -1180,6 +1415,8 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::FocusGrid => {
+                self.set_bottom_panel_visible(true);
+                self.set_bottom_panel_tab(BottomPanelTab::Results);
                 self.set_focus_area(FocusArea::DataGrid);
                 Vec::new()
             }
@@ -1202,6 +1439,8 @@ impl DbManagerApp {
                     return Vec::new();
                 };
                 self.state.selected_table = Some(table.clone());
+                self.state.workbench.right_inspector.schema_table = Some(table.clone());
+                self.reveal_right_inspector_for_inspect(RightInspectorTab::Schema);
                 let Some(conn) = self.session.manager.get_active() else {
                     return Vec::new();
                 };
@@ -1300,8 +1539,7 @@ impl DbManagerApp {
     }
 
     fn open_filter_workspace(&mut self) {
-        self.state.show_sidebar = true;
-        self.state.sidebar_panel_state.show_filters = true;
+        self.set_workbench_activity(WorkbenchActivity::Filters);
         self.state.sidebar_section = ui::SidebarSection::Filters;
         self.set_focus_area(FocusArea::Sidebar);
     }
@@ -1477,6 +1715,20 @@ mod tests {
         assert_eq!(
             resolve_focus_er_diagram_target(true),
             Some(FocusArea::ErDiagram)
+        );
+    }
+
+    #[test]
+    fn toggle_right_inspector_command_is_registered_and_available() {
+        let descriptor = command_descriptors()
+            .iter()
+            .find(|entry| entry.id == "toggle_right_inspector")
+            .expect("right inspector command should be registered");
+
+        assert_eq!(descriptor.action, AppAction::ToggleRightInspector);
+        assert_eq!(
+            availability_for_action(&base_context(), AppAction::ToggleRightInspector),
+            ActionAvailability::enabled()
         );
     }
 

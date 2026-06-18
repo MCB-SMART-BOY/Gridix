@@ -17,7 +17,11 @@ mod transfer;
 pub use autocomplete::{AutoComplete, CompletionKind};
 #[allow(unused_imports)] // 公开 API，供 UI 和 keymap 设置使用
 pub use commands::{ScopedCommand, ScopedCommandBinding, scoped_command, scoped_commands};
-pub use config::AppConfig;
+pub use config::{
+    AppConfig, BottomPanelConfig, BottomPanelTab, EditorAreaConfig, PrimarySidebarConfig,
+    ResultPlacement, RightInspectorConfig, RightInspectorTab, StatusBarConfig, TableOpenMode,
+    WorkbenchActivity, WorkbenchBehaviorConfig, WorkbenchConfig, WorkbenchDensity,
+};
 #[allow(unused_imports)] // parse_csv_line 等供测试使用
 pub use export::{
     CsvImportConfig, ExportFormat, ExportOptions, JsonImportConfig, SqlDialect, export_to_path,

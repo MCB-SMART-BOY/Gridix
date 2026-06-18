@@ -212,7 +212,17 @@ impl DbManagerApp {
         }
 
         let mut sidebar_panel_state = ui::SidebarPanelState::default();
-        sidebar_panel_state.workflow.edge_transfer = app_config.sidebar.edge_transfer;
+        sidebar_panel_state.workflow.edge_transfer = app_config.workbench.sidebar.edge_transfer;
+        let workbench_state = crate::state::WorkbenchState::from_config(&app_config.workbench);
+        let initial_query_tab_id = session
+            .tab_manager
+            .get_active()
+            .map(|tab| tab.id.clone())
+            .unwrap_or_else(|| "query-0".to_string());
+        let dock_state = ui::dock_tabs::default_surface_layout(
+            initial_query_tab_id,
+            workbench_state.right_inspector.active_tab,
+        );
 
         let mut app = Self {
             session,
@@ -222,18 +232,22 @@ impl DbManagerApp {
                 ui_scale,
                 base_pixels_per_point,
                 connection_dialog_show_advanced: app_config.connection_dialog_show_advanced,
+                show_sidebar: app_config.workbench.sidebar.visible,
+                sidebar_width: app_config.workbench.sidebar.width,
+                workbench: workbench_state,
                 ..Default::default()
             },
             app_config,
             grid_workspaces: GridWorkspaceStore::default(),
             active_grid_workspace_enabled: false,
-            dock_state: ui::dock_tabs::default_layout(),
+            dock_state,
             keybindings,
             command_palette_state: CommandPaletteState::default(),
             pending_toggle_dark_mode: false,
             config_dirty: false,
             last_config_save: std::time::Instant::now(),
         };
+        app.apply_workbench_activity_to_sidebar_panels();
         app.refresh_welcome_environment_status();
         app
     }

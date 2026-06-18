@@ -1040,19 +1040,50 @@ impl Default for KeyBindings {
         let mut bindings = HashMap::new();
 
         // 全局操作
+        bindings.insert(Action::NextFocusArea, KeyBinding::key_only(KeyCode::Tab));
+        bindings.insert(
+            Action::PrevFocusArea,
+            KeyBinding::new(KeyCode::Tab, KeyModifiers::SHIFT),
+        );
         bindings.insert(Action::NewConnection, KeyBinding::ctrl(KeyCode::N));
         bindings.insert(Action::CommandPalette, KeyBinding::ctrl(KeyCode::P));
+        bindings.insert(
+            Action::OpenToolbarActionsMenu,
+            KeyBinding::new(KeyCode::A, KeyModifiers::ALT),
+        );
+        bindings.insert(
+            Action::OpenToolbarCreateMenu,
+            KeyBinding::new(KeyCode::N, KeyModifiers::ALT),
+        );
+        bindings.insert(
+            Action::OpenThemeSelector,
+            KeyBinding::ctrl_shift(KeyCode::T),
+        );
         bindings.insert(Action::ToggleSidebar, KeyBinding::ctrl(KeyCode::B));
         bindings.insert(Action::ToggleDarkMode, KeyBinding::ctrl(KeyCode::D));
         bindings.insert(Action::ToggleEditor, KeyBinding::ctrl(KeyCode::J));
         bindings.insert(Action::ToggleErDiagram, KeyBinding::ctrl(KeyCode::R));
+        bindings.insert(
+            Action::FocusErDiagram,
+            KeyBinding::new(KeyCode::R, KeyModifiers::ALT),
+        );
         bindings.insert(Action::ShowHelp, KeyBinding::key_only(KeyCode::F1));
         bindings.insert(Action::ShowHistory, KeyBinding::ctrl(KeyCode::H));
         bindings.insert(Action::Export, KeyBinding::ctrl(KeyCode::E));
         bindings.insert(Action::Import, KeyBinding::ctrl(KeyCode::I));
         bindings.insert(Action::Refresh, KeyBinding::key_only(KeyCode::F5));
+        bindings.insert(Action::ClearCommandLine, KeyBinding::ctrl(KeyCode::L));
+        bindings.insert(Action::ClearSearch, KeyBinding::ctrl(KeyCode::K));
         bindings.insert(Action::NewTab, KeyBinding::ctrl(KeyCode::T));
         bindings.insert(Action::CloseTab, KeyBinding::ctrl(KeyCode::W));
+        bindings.insert(
+            Action::NextTab,
+            KeyBinding::new(KeyCode::Tab, KeyModifiers::CTRL),
+        );
+        bindings.insert(
+            Action::PrevTab,
+            KeyBinding::new(KeyCode::Tab, KeyModifiers::CTRL_SHIFT),
+        );
         bindings.insert(Action::Save, KeyBinding::ctrl(KeyCode::S));
         bindings.insert(Action::GotoLine, KeyBinding::ctrl(KeyCode::G));
         bindings.insert(Action::ZoomIn, KeyBinding::ctrl(KeyCode::Plus));

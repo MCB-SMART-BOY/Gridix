@@ -11,6 +11,13 @@ use crate::ui::{
 use crate::ui::{HistoryPanelState, KeyBindingsDialogState, SidebarPanelState};
 use crate::ui::{ToolbarMenuDialogState, ToolbarThemeDialogState};
 
+pub mod workbench;
+
+pub use workbench::{
+    WorkbenchFocus, WorkbenchPlacement, WorkbenchState, WorkbenchSurfaceDescriptor,
+    WorkbenchSurfaceId, WorkbenchSurfaceKind, WorkbenchSurfaceRole,
+};
+
 /// UI 状态（逐步从 DbManagerApp 提取中）
 pub struct UiState {
     pub theme_manager: ThemeManager,
@@ -70,6 +77,7 @@ pub struct UiState {
     pub(crate) grid_state: DataGridState,
     pub(crate) sidebar_panel_state: SidebarPanelState,
     pub(crate) er_diagram_state: ERDiagramState,
+    pub(crate) workbench: WorkbenchState,
 }
 
 impl Default for UiState {
@@ -134,6 +142,7 @@ impl Default for UiState {
             pending_filter_input_focus: None,
             active_dialog_owner: None,
             sidebar_panel_state: SidebarPanelState::default(),
+            workbench: WorkbenchState::default(),
         }
     }
 }
