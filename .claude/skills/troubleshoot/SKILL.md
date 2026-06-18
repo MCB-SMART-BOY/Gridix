@@ -28,7 +28,7 @@ pkg-config: can't find xdo
 ## App won't start
 
 ### No X server (headless)
-→ Use driver: `source "$HOME/.codex/skills/run-gridix/driver.sh" && launch`
+→ Use driver: `source "$HOME/.claude/skills/run-gridix/driver.sh" && launch`
 Or manually: `Xvfb :99 -screen 0 1920x1080x24 &; export DISPLAY=:99; cargo run --release`
 
 ### Stale Xvfb lock

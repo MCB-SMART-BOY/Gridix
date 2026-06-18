@@ -73,7 +73,7 @@ BottomPanel layout actions currently exist only as command-palette actions unles
 
 ### Verify a keybinding works
 ```bash
-source "$HOME/.codex/skills/run-gridix/driver.sh"
+source "$HOME/.claude/skills/run-gridix/driver.sh"
 launch
 key Ctrl+N          # test shortcut
 ss result

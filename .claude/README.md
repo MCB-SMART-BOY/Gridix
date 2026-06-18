@@ -12,7 +12,7 @@ Primary source of truth: `~/.codex/` (actively maintained by Codex sessions). Th
 ├── settings.json             ← Claude Code permissions (allow/deny rules)
 ├── .gitignore                ← excludes settings.json from git
 │
-├── references/               ← Engineering ledgers & design contracts (21 files)
+├── references/               ← Engineering ledgers & design contracts (22 files)
 │   ├── architecture/         ← ADR: architecture/decisions.md
 │   ├── *-ledger              ← bug-ledger.md, tech-debt.md
 │   ├── *-spec                ← workbench-ui-refactor-spec.md
@@ -21,7 +21,9 @@ Primary source of truth: `~/.codex/` (actively maintained by Codex sessions). Th
 │   ├── *-guide               ← testing-guide.md, onboarding.md, workflow.md
 │   ├── *-plan                ← project-refactor-execution-plan.md
 │   ├── *-playbook            ← rust-modern-engineering-playbook.md
-│   └── roadmap.md            ← planned features & milestones
+│   ├── *-workflow            ← modern-software-engineering-workflow.md
+│   ├── roadmap.md            ← planned features & milestones
+│   └── workbench-april-shell-v3.md ← April shell v3 corrected baseline
 │
 ├── rules/                    ← Domain rules — DO/DON'T/VERIFY patterns (9 files)
 │   ├── database.md           ← data layer: match db_type, no traits
@@ -95,6 +97,7 @@ Primary source of truth: `~/.codex/` (actively maintained by Codex sessions). Th
 | Workbench UI implementation | `references/workbench-ui-refactor-spec.md` |
 | Project-wide refactor | `references/project-refactor-execution-plan.md` |
 | General engineering process | `workflow/README.md` → `skills/modern-engineering-workflow/SKILL.md` |
+| Engineering process reference | `references/modern-software-engineering-workflow.md` |
 | Rust-specific quality | `references/rust-modern-engineering-playbook.md` |
 | Understand development workflow | `references/workflow.md` |
 | Add a DB backend | `references/database-backends.md` |
@@ -102,6 +105,7 @@ Primary source of truth: `~/.codex/` (actively maintained by Codex sessions). Th
 | Grid save isolation | `references/grid-save-isolation.md` |
 | Visual system (design tokens) | `references/gridix-ui-visual-system-v2.md` |
 | Testing patterns & guide | `references/testing-guide.md` |
+| April shell v3 baseline layout | `references/workbench-april-shell-v3.md` |
 | Historical egui_dock plan | `references/egui-dock-plan.md` |
 | After making code changes | `rules/sync-claude.md` (`.claude/`) + `rules/sync-codex.md` (`~/.codex/`) |
 

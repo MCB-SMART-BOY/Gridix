@@ -51,7 +51,7 @@ cargo run --bin check-doc-links
 ## 6. Keybinding verification (if shortcuts changed)
 
 ```bash
-source "$HOME/.codex/skills/run-gridix/driver.sh"
+source "$HOME/.claude/skills/run-gridix/driver.sh"
 launch
 key Ctrl+N
 ss check

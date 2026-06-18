@@ -32,6 +32,10 @@
 - [x] Dockable Workbench v2 Phase C 动作接线：Activity/BottomPanel/RightInspector/ER reveal-open 路径接入 `ensure_surface_tab()`，并保持固定区域 fallback
 - [x] Dockable Workbench v2 Phase C fallback 去重：当等价 surface 已在 dock tree 中存在时，固定 PrimarySidebar/BottomPanel/RightInspector fallback 不再占用布局空间或重复渲染内容
 - [x] Dockable Workbench v2 Phase C 运行时默认布局：应用启动和渲染 borrow 替换兜底都使用 `default_surface_layout()` surface seed
+- [x] Dockable Workbench v2 Phase C 导航 surface 可用化：Explorer/Filters/Objects dock surface 复用真实 Sidebar 渲染器，不再显示兼容占位文本
+- [x] Dockable Workbench v2 Phase C 视觉/比例校准：默认 dock split 比例命名化并调整为 VS Code/Zed 式编辑器优先布局，默认运行布局移除重复左侧 ActivityBar/SurfaceRail
+- [x] Workbench April Shell v3 修正：默认布局基于 4 月稳定 PrimarySidebar，`default_surface_layout()` seed Results center / SQL editor bottom / ER right，顶栏侧边栏按钮不再增删 dock tabs
+- [x] Workbench April Shell v3 默认比例锁定：按用户 2026-06-19 截图固定 `280px` PrimarySidebar、dock 中心/右侧 `0.73/0.27`、上/下 `0.69/0.31`
 - [ ] Dockable Workbench v2：将 Explorer/Filters/Objects/History/Settings/Results/Tables/Inspector 统一为可拖拽 surface
 - [ ] UI Visual System v2：统一面板骨架、图标优先、tooltip/快捷键提示、极简默认布局
 - [ ] Phase 8 减少 Help/History/Settings 的阻塞式浮动面板
