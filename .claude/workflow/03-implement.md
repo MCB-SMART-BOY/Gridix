@@ -1,63 +1,75 @@
 # Stage 3: Implement
 
 ## Entry Criteria
-- [ ] Approved plan from Stage 1
-- [ ] Design decisions documented (for architectural changes)
+- [ ] Design or direct-change scope is clear
+- [ ] Safety net is identified or intentionally skipped with reason
 
 ## Activities
 
-### Layer Awareness
+### General Implementation Loop
 
-When editing files, know which layer you're in:
+1. Make the smallest coherent change.
+2. Run the fastest useful check.
+3. Add/adjust tests.
+4. Repeat.
+5. Stop before mixing unrelated cleanup.
 
-| Layer | Directory | Can import from | Cannot import from |
-|-------|-----------|-----------------|---------------------|
-| -1 | `src/types.rs` | nothing | anything |
-| 0 | `src/core/` | types | data, session, state, ui, egui |
-| 1 | `src/data/` | types, core | session, state, ui, egui |
-| 2 | `src/session/` | types, core, data | state, ui, egui |
-| 3 | `src/state/` | types, core, data, session | ui, egui, app |
-| 4 | `src/app/`, `src/ui/` | all below | nothing (top) |
+### Refactor Pattern
 
-### Field Migration Pattern
-
-IF moving a field from DbManagerApp to Session or UiState:
-1. Add field to target struct FIRST
-2. Update target struct's constructor/Default
-3. Replace ONE reference, verify with `cargo check`
-4. Repeat for ALL references
-5. Remove from DbManagerApp
-6. Run `cargo test`
-
-**NEVER use sed batch replacement** — it corrupts other structs with same-named fields.
-
-### Session Access Pattern
-
-- Session fields: `self.session.xxx`
-- State fields: `self.state.xxx`
-- DbManagerApp fields: `self.xxx` (only for remaining ~11 fields)
-
-### Code Conventions
-
-- `use crate::prelude::*;` for common types
-- `thiserror` for error types
-- `// =====...=====` section separators
-- Chinese `//!` module docs, English identifiers
-- `#[allow(dead_code)]` only with Chinese justification comment
-
-### After Each Change
-
-```bash
-cargo check    # Quick verification
-cargo test     # Full verification before commit
+```text
+characterize -> extract -> adapt -> move -> switch callers -> delete old path -> verify
 ```
 
+For field/module moves:
+1. Add the new target type/module first.
+2. Add adapter or re-export.
+3. Move one group of call sites.
+4. Compile.
+5. Repeat.
+6. Remove old path only after tests pass.
+
+Avoid broad search/replace when field names are common.
+
+### Rust Fast Loop
+
+```bash
+cargo check
+cargo test -p <package> <focused_test>
+```
+
+Pre-commit Rust gate:
+
+```bash
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test
+```
+
+### Project Overlay
+
+Apply local rules after the general process. For Gridix, check `rules/*.md` and preserve documented invariants.
+
+Workbench surface migration:
+1. Add or update `WorkbenchSurfaceKind` descriptor metadata first.
+2. Preserve legacy adapters until the new dock tree is verified.
+3. Keep `DockTab::surface_kind()` in sync during the transition.
+4. Use `SurfaceAction`/shared tooltip contract for icon-only surface controls.
+5. Route dock-tab content through the unified surface renderer before moving placement into a new dock tree.
+6. Preserve legacy `FocusArea` keyboard behavior while adding `WorkbenchFocus::Surface` for surface identity.
+7. Use `ensure_surface_tab()` for reveal/open migration and test duplicate reveal behavior by stable surface identity.
+8. Once reveal/open paths are dock-backed, de-duplicate fixed fallback rendering before deleting compatibility regions.
+9. After fallback de-duplication is implemented, switch runtime startup to the tested surface dock seed with startup/focus/config tests.
+10. After the runtime seed switch is verified, migrate remaining fixed-region chrome into the shared surface shell before deleting compatibility regions.
+
+For Gridix project-wide refactors, finish each coherent phase by updating the relevant `~/.codex/` memory, workflow references, rules, and skills in the same local change set.
+
 ## Exit Criteria
-- [ ] `cargo test` passes (0 failures)
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` passes
-- [ ] No `self.field` references to migrated fields
-- [ ] No cross-layer imports introduced
+- [ ] Targeted checks pass
+- [ ] No unrelated changes mixed in
+- [ ] New behavior has tests or documented manual verification
+- [ ] Local project rules are satisfied
+- [ ] Project workflow knowledge is synchronized when architecture, UI layout, config, tests, or behavior changed
 
 ## Artifacts
 - Working code changes
-- Tests for new functionality
+- Tests or measurements for the change

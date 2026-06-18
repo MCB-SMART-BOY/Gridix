@@ -4,9 +4,57 @@ paths:
   - src/**/mod.rs
 ---
 
-# Gridix testing rules
+# Testing rules with Gridix overlay
+
+Use `~/.codex/references/modern-software-engineering-workflow.md` for the cross-project testing strategy and `~/.codex/references/rust-modern-engineering-playbook.md` for Rust-specific gates.
 
 **Code is the source of truth.** Verify patterns against existing tests in `tests/` and `src/`. Update this file when test infrastructure changes.
+
+## Universal policy
+
+- Test the risk, not the implementation detail.
+- Put pure logic tests at the lowest layer that can express the behavior.
+- Add regression tests for fixed bugs when practical.
+- Use characterization tests before high-risk refactors.
+- Use measurements, not intuition, for optimization claims.
+- Keep tests deterministic and independent of external services by default.
+
+## Rust gates
+
+Fast local loop:
+
+```bash
+cargo check
+cargo test -p <package> <test_name>
+```
+
+Pre-commit:
+
+```bash
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test
+```
+
+Pre-merge for workspaces:
+
+```bash
+cargo fmt --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+cargo doc --workspace --no-deps
+```
+
+Optional when installed/configured:
+
+```bash
+cargo nextest run
+cargo llvm-cov nextest --workspace --all-features
+cargo audit
+cargo deny check
+cargo fuzz run <target>
+cargo bench
+```
 
 ## Test locations
 
@@ -80,7 +128,7 @@ async fn test_query() {
 | Layer | Test type | Example |
 |-------|-----------|---------|
 | `core/` | Pure unit tests | `#[test] fn test_format_sql()` |
-| `data/` | Async integration (SQLite in-memory) | `#[tokio::test] async fn test_connect()` |
+| `data/` | Async integration (SQLite in-memory for single connection; temp file for multi-connection metadata) | `#[tokio::test] async fn test_connect()` |
 | `session/` | Unit with mock runtime | `#[test] fn test_poll_messages()` |
 | `state/` | Pure unit tests | `#[test] fn test_apply_effects()` |
 | `ui/` | egui Context tests | `#[test] fn test_dialog_rendering()` |

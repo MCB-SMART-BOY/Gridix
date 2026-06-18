@@ -39,21 +39,30 @@ Dependency direction: `types ← core ← data ← session ← state ← ui`
 
 ## Read first
 
-1. `CLAUDE.md` — complete project map
-2. `.claude/references/architecture/decisions.md` — why we made key choices
-3. `.claude/references/core-flows.md` — runtime invariants
-4. `.claude/references/workflow.md` — dev workflow
+1. `~/.codex/references/modern-software-engineering-workflow.md` — default workflow for any software change
+2. `~/.codex/references/rust-modern-engineering-playbook.md` — Rust quality gates, refactor, test, async, and CI rules
+3. `CLAUDE.md` — complete project map
+4. `~/.codex/references/architecture/decisions.md` — why we made key choices
+5. `~/.codex/references/core-flows.md` — runtime invariants
+6. `~/.codex/references/workflow.md` — Gridix-specific dev workflow overlay
+7. `~/.codex/references/workbench-ui-design.md` — target UI shell and migration plan
+8. `~/.codex/references/workbench-ui-refactor-spec.md` — workbench config and implementation details
+9. `~/.codex/references/project-refactor-execution-plan.md` — phase-by-phase project refactor route
 
 ## Common tasks
 
 | Task | Start here |
 |------|-----------|
+| Plan any software change | `modern-engineering-workflow` skill |
+| Define Rust quality gates | `~/.codex/references/rust-modern-engineering-playbook.md` |
 | Understand architecture | `CLAUDE.md` → Architecture section |
-| Change database code | `src/data/` + `.claude/rules/database.md` |
-| Change UI | `src/ui/` + `.claude/rules/ui-egui.md` |
-| Add a dialog | `.claude/references/dialog-audit.md` |
-| Add a DB backend | `.claude/references/database-backends.md` |
-| Change keybindings | `/keybindings` skill |
+| Change database code | `src/data/` + `~/.codex/rules/database.md` |
+| Change UI | `src/ui/` + `~/.codex/rules/ui-egui.md` |
+| Redesign workbench UI | `~/.codex/references/workbench-ui-design.md` |
+| Execute project refactor | `~/.codex/references/project-refactor-execution-plan.md` |
+| Add a dialog | `~/.codex/references/dialog-audit.md` |
+| Add a DB backend | `~/.codex/references/database-backends.md` |
+| Change keybindings | `gridix-keybindings` skill |
 
 ## Key conventions
 

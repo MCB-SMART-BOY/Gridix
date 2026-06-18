@@ -8,14 +8,26 @@ paths:
 
 # After code changes: update `.claude/`
 
-Every code change that affects architecture, conventions, APIs, or behavior must be reflected in `.claude/`.
+Every code change that affects architecture, conventions, APIs, or behavior must be reflected in `.claude/`. The primary source of truth is `~/.codex/`; `.claude/` is a mirror with Claude Code-specific enhancements (`paths:` frontmatter, adapted system skills, this sync file).
+
+## Dual-ecosystem note
+
+Gridix maintains parallel AI harnesses:
+- `~/.codex/` — primary, actively maintained by Codex sessions
+- `.claude/` — mirror + Claude Code adaptations
+
+When updating one, update the other. Use `rsync -av ~/.codex/{references,rules,templates,workflow,skills,memory}/ .claude/{references,rules,templates,workflow,skills,memory}/` to sync content from Codex to Claude.
 
 ## What to check
 
 | change type | update this |
 |---|---|
+| Engineering workflow / delivery policy changed | `references/modern-software-engineering-workflow.md`, `workflow/README.md`, `references/workflow.md` |
+| Rust quality gate / Cargo tooling changed | `references/rust-modern-engineering-playbook.md`, `rules/testing.md`, relevant skill docs |
 | New module / moved file | `CLAUDE.md` module map, relevant `rules/` paths |
 | New dialog / changed dialog shell | `references/dialog-audit.md`, `rules/ui-egui.md` |
+| Workbench layout / panel model change | `references/workbench-ui-design.md`, `references/workbench-ui-refactor-spec.md`, `references/dockable-workbench-v2.md`, `references/gridix-ui-visual-system-v2.md`, `rules/ui-egui.md` |
+| Project-wide refactor phase changed | `references/project-refactor-execution-plan.md`, `references/tech-debt.md`, `references/roadmap.md` |
 | Changed keybinding / new shortcut | `skills/keybindings/SKILL.md`, `CLAUDE.md` key counts |
 | New AppAction / command | `CLAUDE.md` variant counts, `skills/keybindings/SKILL.md` |
 | Database driver / pool / query change | `rules/database.md`, `references/query-execution.md` |

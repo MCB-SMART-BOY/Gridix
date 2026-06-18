@@ -1,6 +1,6 @@
 ---
-name: keybindings
-description: Add, modify, or verify Gridix keyboard shortcuts. Use when asked to change a shortcut, fix key routing, add a keybinding, or understand the keyboard system.
+name: gridix-keybindings
+description: Add, modify, or verify Gridix keyboard shortcuts. Use only in the Gridix repository when asked to change a shortcut, fix key routing, add a keybinding, or understand the keyboard system.
 paths:
   - src/core/keybindings.rs
   - src/core/commands.rs
@@ -20,7 +20,7 @@ Keypress → input_router.rs (8-stage pipeline)
          → InputContextSnapshot (per-frame state capture)
          → FocusScope → keymap_scope_path()
          → KeyBindings (keymap.toml lookup)
-         → AppAction (44 variants) → AppEffect
+         → AppAction (54 variants) → AppEffect
          → apply_app_effects()
 ```
 
@@ -28,9 +28,9 @@ Keypress → input_router.rs (8-stage pipeline)
 
 | layer | file | what it defines |
 |---|---|---|
-| Keymap engine | `core/keybindings.rs` | `Action` (35 variants), `KeyBindings`, `KeyBinding::parse()`, scope_resolution_chain(), conflict detection |
+| Keymap engine | `core/keybindings.rs` | `Action` (38 variants), `KeyBindings`, `KeyBinding::parse()`, scope_resolution_chain(), conflict detection |
 | Command registry | `core/commands.rs` | ~100 `ScopedCommand` entries with `default_bindings` |
-| UI shortcuts | `ui/shortcut_tooltip.rs` | `LocalShortcut` (141 variants), `config_key()`, runtime overrides |
+| UI shortcuts | `ui/shortcut_tooltip.rs` | `LocalShortcut` (138 variants), `config_key()`, runtime overrides |
 | Routing pipeline | `app/input/input_router.rs` | `FocusScope`, `resolve_input_action_with()`, `TextEntryGuard` |
 | Action system | `app/action/action_system.rs` | `AppAction` → `AppEffect`, `command_descriptors()`, availability |
 
@@ -69,9 +69,11 @@ Add `scoped_command!()` entry in `core/commands.rs` with id, description, defaul
 ### Add a global action
 Add `AppAction` variant → `CommandDescriptor` → availability → reduction arm in `action_system.rs`. If it needs a global key, add to `Action` enum + `default_bindings()` in `keybindings.rs`.
 
+BottomPanel layout actions currently exist only as command-palette actions unless a key is added: `ToggleBottomPanel`, `SetBottomPanelVisible(bool)`, and `SetBottomPanelTab(BottomPanelTab)`.
+
 ### Verify a keybinding works
 ```bash
-source .claude/skills/run-gridix/driver.sh
+source "$HOME/.codex/skills/run-gridix/driver.sh"
 launch
 key Ctrl+N          # test shortcut
 ss result

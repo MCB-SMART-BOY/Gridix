@@ -1,6 +1,6 @@
 ---
-name: release
-description: Execute the Gridix release checklist from bump to publish. Use when asked to release, bump version, publish a release, or tag a version.
+name: gridix-release
+description: Execute the Gridix release checklist from bump to publish. Use only in the Gridix repository when asked to release, bump version, publish a release, or tag a version.
 paths:
   - Cargo.toml
   - docs/CHANGELOG.md
@@ -14,7 +14,7 @@ All commands from repo root.
 ## 1. Pre-release checks
 
 ```bash
-cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test && python scripts/check_doc_links.py
+cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test && cargo run --bin check-doc-links
 ```
 
 ## 2. Version bump
@@ -30,7 +30,7 @@ Update `docs/CHANGELOG.md` — version header, date, categorized bullets (biling
 
 ## 4. Related docs
 
-Shortcut changes → update `/keybindings` skill. Config changes → update `CLAUDE.md`. Cross-check `docs/CHANGELOG.md`.
+Shortcut changes → update the `gridix-keybindings` skill. Config changes → update `CLAUDE.md`. Cross-check `docs/CHANGELOG.md`.
 
 ## 5. Commit + push (branch first, then tag)
 

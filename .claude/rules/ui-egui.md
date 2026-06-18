@@ -31,6 +31,34 @@ pub struct DbManagerApp {
 
 `src/ui/dock_tabs.rs` — DockTab, WorkspaceViewer, sync_all(). `sync_all()` reads from `self.session.tab_manager`.
 
+## Workbench shell
+
+Current state: `UiState.workbench` and `src/ui/workbench/` exist, `render_top_bar()` renders the toolbar once globally, `WorkbenchActivityBar` drives PrimarySidebar activities, `WorkbenchBottomPanel` owns query results/messages, `WorkbenchRightInspector` owns contextual properties/schema/row/cell/ER/connection details, and EditorArea dock tabs use document/view semantics. Dockable Workbench v2 surface model and shared surface header/action shell are implemented. These fixed regions are now compatibility adapters; the target model is Dockable Workbench v2 peer surfaces.
+
+Rules:
+- Keep persisted config in `src/core/config.rs`, runtime state in `src/state/workbench.rs`, reusable widgets in `src/ui/workbench/`, and app-bound adapters in `src/app/surfaces/workbench.rs`.
+- Until migration completes, keep legacy `FocusArea`, `show_sidebar`, and `sidebar_width` synchronized with `UiState.workbench`.
+- Do not move BottomPanel and RightInspector behavior in the same slice unless tests cover the combined change.
+- Do not render Toolbar inside `render_workspace_content()` or any dock tab; global TopBar rendering belongs in `DbManagerApp::render_top_bar()`.
+- Activity switches must go through `AppAction::SetWorkbenchActivity`, not direct widget-side state mutation.
+- BottomPanel tab/visibility changes must go through `AppAction::ToggleBottomPanel`, `AppAction::SetBottomPanelVisible`, or `AppAction::SetBottomPanelTab` when initiated by UI/commands.
+- RightInspector tab/visibility changes must go through `AppAction::ToggleRightInspector`, `AppAction::SetRightInspectorVisible`, or `AppAction::SetRightInspectorTab` when initiated by UI/commands.
+- Query success should reveal `BottomPanelTab::Results`; query failure should reveal `BottomPanelTab::Messages`.
+- Schema/ER inspect actions should reveal the relevant RightInspector tab instead of opening a blocking detail dialog or replacing editor content.
+- EditorArea dock tabs should use document/view roles: `SqlDocument`, `TableData`, `ErDiagram`, `SchemaObject`, `Welcome`, and `AuxPanel`. Do not reintroduce a standalone SQL scratchpad dock tab split from SQL documents.
+- New surface kinds must add descriptor metadata with role, title, icon, description, command ID when available, singleton flag, default placement, allowed placements, persistence key, and tests for stable identity/tooltip behavior.
+- While the transition bridge exists, keep `DockTab::surface_kind()` updated for every EditorArea tab variant.
+- `DockTab::ui()` should render through `DbManagerApp::render_workbench_surface_in_ui()`; do not reintroduce per-tab content rendering in `DockTab::ui()`.
+- Use `DockTab::Surface` for new dockable Workbench surfaces. Use `ensure_surface_tab()` when revealing a surface from commands/actions so repeated reveals are idempotent by `WorkbenchSurfaceId`.
+- `default_surface_layout()` is the runtime startup seed: Explorer left, SQL center, Results bottom, Inspector right. Render-time dock-state replacement must use `DbManagerApp::default_workbench_surface_layout()` or equivalent so fallback creation does not downgrade to legacy layout.
+- Reveal/open paths for activity surfaces, BottomPanel tabs, RightInspector tabs, and ER must go through `DbManagerApp::reveal_workbench_surface()` or an equivalent `ensure_surface_tab()` adapter.
+- Fixed-region compatibility adapters should set `WorkbenchFocus::Surface(...)` when the user focuses/clicks a surface body, while preserving legacy `FocusArea` keyboard behavior.
+- Fixed-region fallback visibility must be computed at layout level from docked-equivalent surface existence. If the active Activity/BottomPanel/RightInspector surface is already in the dock tree, the fixed PrimarySidebar/BottomPanel/RightInspector fallback must not reserve space or render duplicate content.
+- Icon-only surface controls should use `SurfaceAction` plus `surface_icon_button()` or the same tooltip contract; no bare icon button without function name and shortcut/command metadata.
+- Next expected slice: migrate remaining fixed-region chrome into the shared surface shell before reducing Help/History/Settings dialogs.
+- Do not add new permanent left/right/bottom content regions unless they are implemented as movable `WorkbenchSurface` items or explicitly marked as compatibility adapters.
+- New surface UI must follow `references/gridix-ui-visual-system-v2.md`: shared surface header/body/footer anatomy, icon-first repeated chrome, tooltip with function name and shortcut/command metadata, and no redundant text labels in rails/toolbars.
+
 ## Dialog shells
 
 4 contracts in `ui/components/dialogs/common.rs`: Blocking Modal, Form Dialog Shell, Workspace Dialog Shell, Utility Overlay.

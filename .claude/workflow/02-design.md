@@ -1,50 +1,52 @@
 # Stage 2: Design
 
 ## Entry Criteria
-- [ ] Approved plan from Stage 1
+- [ ] Scope and success criteria are clear
 - [ ] Affected modules identified
 
 ## Activities
 
-### 1. Layer Impact Analysis
+### 1. Impact Analysis
 
-Determine which layers are affected:
-```
-types(-1) → core(0) → data(1) → session(2) → state(3) → ui/app(4)
-```
+Determine affected areas:
+- data/config/API/schema
+- domain logic
+- async/background work
+- UI/transport
+- tests/docs/CI
+- deployment/release
 
-IF change spans multiple layers, document dependency order.
+For layered projects, document dependency order before editing.
 
 ### 2. Architecture Check
 
-- [ ] No new cross-layer imports introduced
-- [ ] core/ does not import from data/ (except documented `config.rs` exception)
-- [ ] data/ does not import from session/ or ui/
-- [ ] session/ does not import from state/ or ui/
-- [ ] state/ does not import from app/
+- [ ] Boundaries stay explicit
+- [ ] Public API changes are intentional
+- [ ] Side effects stay near boundaries
+- [ ] Config/data migrations are backward compatible
+- [ ] New dependencies are justified
 
-### 3. Pattern Selection
+### 3. Safety Plan
 
-Check `references/architecture/decisions.md` for applicable ADRs:
-- ADR-001: 6-layer dependency direction
-- ADR-002: match db_type dispatch (no trait)
-- ADR-003: Single process (no IPC)
-- ADR-004: QueryTab.sql sole authority (no dual source)
-- ADR-005: needs_repaint decoupling
+Choose verification before implementation:
+- Unit tests for pure logic
+- Integration tests for boundaries
+- Regression test for bug fixes
+- Characterization tests for refactors
+- Benchmark/profile for optimization
+- Migration tests for persisted data/config
 
-### 4. Risk Assessment
+### 4. Implementation Plan
 
-| Risk | Check |
-|------|-------|
-| State inconsistency | Will mirror fields stay in sync with canonical tab state? |
-| Stale response | Does the handler have a request_id guard? |
-| Dialog completeness | Is the new DialogId handled in ALL match arms in host.rs? |
-| Config persistence | Is save_config_debounced() called (not direct save_config)? |
-| Session init | Are new Session fields initialized in Session::new()? |
+- [ ] Smallest first slice identified
+- [ ] Adapter/compatibility bridge considered
+- [ ] Rollback path known
+- [ ] Tests and commands listed
 
 ### 5. Design Decision Record
 
-For architectural changes, create an ADR in `references/architecture/decisions.md`:
+For architectural changes, create/update an ADR or design note:
+
 ```markdown
 ## ADR-XXX: Title
 **Date:** YYYY-MM
@@ -55,7 +57,7 @@ For architectural changes, create an ADR in `references/architecture/decisions.m
 ```
 
 ## Exit Criteria
-- [ ] Layer impact documented
-- [ ] Architecture rules verified
-- [ ] Risk assessment complete
-- [ ] ADR created (if architectural change)
+- [ ] Impact documented
+- [ ] Architecture/risk checked
+- [ ] Test plan exists
+- [ ] ADR/design note created if needed

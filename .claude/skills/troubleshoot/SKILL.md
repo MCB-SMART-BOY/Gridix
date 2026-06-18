@@ -1,6 +1,6 @@
 ---
-name: troubleshoot
-description: Diagnose and fix Gridix build, launch, and test failures. Use when builds fail, the app won't start, tests break, or dependencies are missing.
+name: gridix-troubleshoot
+description: Diagnose and fix Gridix build, launch, and test failures. Use only in the Gridix repository when builds fail, the app will not start, tests break, or dependencies are missing.
 paths:
   - Cargo.toml
   - Cargo.lock
@@ -28,7 +28,7 @@ pkg-config: can't find xdo
 ## App won't start
 
 ### No X server (headless)
-→ Use driver: `source .claude/skills/run-gridix/driver.sh && launch`
+→ Use driver: `source "$HOME/.codex/skills/run-gridix/driver.sh" && launch`
 Or manually: `Xvfb :99 -screen 0 1920x1080x24 &; export DISPLAY=:99; cargo run --release`
 
 ### Stale Xvfb lock
@@ -68,7 +68,7 @@ Relaunch → fresh config created.
 
 ## Keybindings in config.toml ignored
 
-The `keybindings` field in `config.toml` is legacy read-only. Active keymap: `~/.config/gridix/keymap.toml`. See `/keybindings` skill.
+The `keybindings` field in `config.toml` is legacy read-only. Active keymap: `~/.config/gridix/keymap.toml`. See the `gridix-keybindings` skill.
 
 ## PostgreSQL/MySQL not detected
 

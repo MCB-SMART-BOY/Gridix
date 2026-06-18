@@ -15,6 +15,34 @@
 - [x] SQLite 驱动测试
 - [x] 文档同步
 
+## 短期 — Workbench UI 重设计
+
+- [x] Phase 0 基线安全检查完成，完整测试和文档链接检查通过
+- [x] Phase 1 Workbench 持久化配置基础完成
+- [x] Phase 2 引入 WorkbenchState、shell wrapper 和 StatusBar 兼容层
+- [x] Phase 3 顶部 Toolbar 移出 QueryData dock tab，成为全局 TopBar
+- [x] Phase 4 引入 ActivityBar + PrimarySidebar 活动模型
+- [x] Phase 5 将查询结果/错误/Explain 占位归入 BottomPanel
+- [x] Phase 6 重命名并稳定 EditorArea dock tab 语义
+- [x] Phase 7 引入 RightInspector 右侧检查器
+- [x] Dockable Workbench v2 基础：`WorkbenchSurfaceKind/Role/Placement/Id`、descriptor 元数据和 `DockTab::surface_kind()` 过渡桥接
+- [x] UI Visual System v2 基础：统一 `WorkbenchSurfaceHeader`/`SurfaceAction`、图标按钮 tooltip contract，并接入 BottomPanel/RightInspector 关闭控件
+- [x] Dockable Workbench v2 Phase C 桥接：`WorkbenchFocus::Surface`、legacy 区域到 surface 映射、统一 surface renderer、`DockTab::ui()` 走 surface 渲染入口
+- [x] Dockable Workbench v2 Phase C 种子布局：`DockTab::Surface`、`default_surface_layout()`、`ensure_surface_tab()`，并修复新增 SQL dock tab 可能 push 到错误 leaf 的同步风险
+- [x] Dockable Workbench v2 Phase C 动作接线：Activity/BottomPanel/RightInspector/ER reveal-open 路径接入 `ensure_surface_tab()`，并保持固定区域 fallback
+- [x] Dockable Workbench v2 Phase C fallback 去重：当等价 surface 已在 dock tree 中存在时，固定 PrimarySidebar/BottomPanel/RightInspector fallback 不再占用布局空间或重复渲染内容
+- [x] Dockable Workbench v2 Phase C 运行时默认布局：应用启动和渲染 borrow 替换兜底都使用 `default_surface_layout()` surface seed
+- [ ] Dockable Workbench v2：将 Explorer/Filters/Objects/History/Settings/Results/Tables/Inspector 统一为可拖拽 surface
+- [ ] UI Visual System v2：统一面板骨架、图标优先、tooltip/快捷键提示、极简默认布局
+- [ ] Phase 8 减少 Help/History/Settings 的阻塞式浮动面板
+- [ ] 按 `references/project-refactor-execution-plan.md` 继续分阶段执行项目级重构
+- [ ] 按 `references/workbench-ui-design.md` 和 `references/workbench-ui-refactor-spec.md` 引入稳定 WorkbenchShell
+- [x] 配置层持久化 sidebar/bottom/right panel 的宽度、高度和可见性
+- [x] 将持久化 workbench 配置接入运行时 state
+- [x] BottomPanel 高度拖拽结果接入 debounce 保存
+- [x] RightInspector 宽度拖拽结果接入 debounce 保存
+- [ ] 将剩余 workbench 布局拖拽结果接入 debounce 保存
+
 ## 短期 — 功能发布
 
 - [ ] 查询计划可视化 (EXPLAIN)

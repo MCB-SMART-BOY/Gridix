@@ -1,6 +1,6 @@
 ---
-name: run-gridix
-description: Build, run, and drive the Gridix desktop database management app. Use when asked to start, run, launch, build, screenshot, or interact with Gridix.
+name: gridix-run
+description: Build, run, and drive the Gridix desktop database management app. Use only in the Gridix repository when asked to start, run, launch, build, screenshot, or interact with Gridix.
 paths:
   - src/**/*.rs
   - Cargo.toml
@@ -47,7 +47,7 @@ Needs `xdotool` and `imagemagick` (for `import`) on the system.
 
 ### Shell driver (fallback)
 ```bash
-source .claude/skills/run-gridix/driver.sh
+source "$HOME/.claude/skills/run-gridix/driver.sh"
 launch
 key Ctrl+N
 ss landing
@@ -58,13 +58,13 @@ quit
 
 One-liner: source the driver then call `tmux_wrap`.
 ```bash
-source .claude/skills/run-gridix/driver.sh && tmux_wrap
+source "$HOME/.claude/skills/run-gridix/driver.sh" && tmux_wrap
 ```
 
 Manual setup:
 ```bash
 tmux new-session -d -s gridix -x 200 -y 50
-tmux send-keys -t gridix 'source .claude/skills/run-gridix/driver.sh && launch' Enter
+tmux send-keys -t gridix 'source "$HOME/.claude/skills/run-gridix/driver.sh" && launch' Enter
 timeout 40 bash -c 'until tmux capture-pane -t gridix -p | grep -q "ready"; do sleep 0.3; done'
 tmux send-keys -t gridix 'ss landing' Enter
 ```
@@ -87,6 +87,8 @@ The welcome page shows database status cards (SQLite/PostgreSQL/MySQL).
 Flow: `Ctrl+N` → choose SQLite → select/create database file → table appears in sidebar → `Ctrl+J` for SQL editor → `Ctrl+Enter` execute → `F1` help.
 
 Learning sample: `F1` → "Learning" tab → ensures SQLite learning DB (8 tables, 100+ rows, e-commerce schema). `F1` auto-creates + connects it.
+
+Workbench shell note: current builds include the compatibility shell, StatusBar, global TopBar, ActivityBar-driven PrimarySidebar activities, BottomPanel result/message routing, EditorArea document/view dock tabs, and RightInspector detail tabs. Successful queries reveal Results; failed queries reveal Messages; schema/ER inspect paths reveal RightInspector tabs; SQL editing happens in `SqlDocument` tabs.
 
 ## Run (human path)
 

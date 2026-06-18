@@ -1,6 +1,6 @@
 ---
-name: pr-prep
-description: Run the full pre-PR checklist. Use when asked to prepare a PR, check code before pushing, run pre-merge checks, or verify changes pass CI.
+name: gridix-pr-prep
+description: Run the full Gridix pre-PR checklist. Use only in the Gridix repository when asked to prepare a PR, check code before pushing, run pre-merge checks, or verify changes pass CI.
 paths:
   - src/**/*.rs
   - tests/**/*.rs
@@ -45,13 +45,13 @@ cargo run --bin check-doc-links
 ## 5. Docs sync (if behavior changed)
 
 - User-visible → `docs/CHANGELOG.md`
-- Shortcuts → update `/keybindings` skill
+- Shortcuts → update the `gridix-keybindings` skill
 - Config → update `CLAUDE.md` config section
 
 ## 6. Keybinding verification (if shortcuts changed)
 
 ```bash
-source .claude/skills/run-gridix/driver.sh
+source "$HOME/.codex/skills/run-gridix/driver.sh"
 launch
 key Ctrl+N
 ss check

@@ -1,20 +1,26 @@
-# Gridix Development Workflow
+# Modern Software Development Workflow
 
-## 7-Stage Lifecycle
+This workflow is a general default for software projects. Project-specific references and rules are overlays.
+
+For the full general process, read `.claude/references/modern-software-engineering-workflow.md`.
+For Rust projects, also read `.claude/references/rust-modern-engineering-playbook.md`.
+
+## 8-Stage Lifecycle
 
 ```
-Stage 1: PLAN     → Understand scope, explore, design approach, get approval
-Stage 2: DESIGN    → Architecture decisions, risk assessment, dependency map
-Stage 3: IMPLEMENT → Code with layer awareness, incremental verification
-Stage 4: REVIEW    → Self-review checklist, cross-layer check, stale ref scan
-Stage 5: TEST      → Unit tests, integration tests, regression check
-Stage 6: RELEASE   → Version bump, changelog, tag, publish
-Stage 7: MONITOR   → Post-release verification, bug ledger update
+Stage 0: INTAKE      → classify work type, scope, risk, success criteria         [01-plan.md]
+Stage 1: DISCOVERY   → inspect code, reproduce, measure, find invariants         [01-plan.md]
+Stage 2: DESIGN      → choose minimal approach, migration and test plan           [02-design.md]
+Stage 3: SAFETY NET  → add/identify tests or measurements                        [03-implement.md]
+Stage 4: IMPLEMENT   → small slices, compile/check frequently                    [03-implement.md]
+Stage 5: REVIEW      → self-review correctness, architecture, docs, risk         [04-review.md]
+Stage 6: VERIFY      → targeted and full quality gates                           [05-test.md]
+Stage 7: DELIVER     → summarize, document, commit/release, update harness       [06-deliver.md]
 ```
 
 ## Quality Gates
 
-Each stage has entry and exit criteria. Every commit passes:
+Adapt to each project. Rust defaults:
 
 ```bash
 cargo fmt --check
@@ -22,15 +28,30 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 ```
 
-## Key Rules (auto-loaded by path matching)
+Workspace Rust pre-merge:
+
+```bash
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+cargo doc --workspace --no-deps
+```
+
+## Project Overlays
+
+When a project has local rules, apply them after the general workflow.
+
+Gridix overlays:
 
 | When editing... | Rule loaded | Key constraint |
 |----------------|-------------|----------------|
 | `src/data/**` | `rules/database.md` | match db_type, no trait objects |
 | `src/session/**` | `rules/session.md` | Async via Session, needs_repaint pattern |
 | `src/ui/**`, `src/state/**` | `rules/ui-egui.md` | DialogId match arms, state field access |
-| `src/**/mod.rs`, `tests/**` | `rules/testing.md` | SQLite in-memory for data layer |
-| Any source file | `rules/sync-claude.md` | Update .claude/ docs after changes |
+| `src/**/mod.rs`, `tests/**` | `rules/testing.md` | data tests stay deterministic; use SQLite temp files for multi-connection metadata |
+| Any source file | `rules/sync-codex.md` | Update `~/.codex/` workflow docs after changes |
+| Any source file | `rules/sync-claude.md` | Update `.claude/` workflow docs after changes |
+
+Gridix refactor phases are not complete until `~/.codex/memory` and `.claude/memory`, affected `references/`, `rules/`, and skills reflect the new state.
 
 ## Templates (in `templates/`)
 
