@@ -1,8 +1,11 @@
-//! ActivityBar for switching primary sidebar activities.
+//! Dormant ActivityBar widget for a future optional SurfaceRail.
 
 use eframe::egui;
 
 use crate::core::WorkbenchActivity;
+use crate::state::WorkbenchSurfaceKind;
+
+use super::surface::surface_icon_glyph;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WorkbenchActivityBarResponse {
@@ -27,17 +30,19 @@ impl WorkbenchActivityBar {
                 ui.vertical_centered(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(0.0, 6.0);
 
-                    for (activity, label, tooltip) in activity_items() {
+                    for activity in activity_items() {
+                        let surface = WorkbenchSurfaceKind::from_activity(activity);
+                        let descriptor = surface.descriptor();
                         let is_active = activity == active_activity;
-                        let text =
-                            egui::RichText::new(label)
-                                .size(12.0)
-                                .strong()
-                                .color(if is_active {
-                                    ui.visuals().selection.stroke.color
-                                } else {
-                                    ui.visuals().weak_text_color()
-                                });
+                        let text = egui::RichText::new(surface_icon_glyph(descriptor.icon))
+                            .size(12.0)
+                            .strong()
+                            .monospace()
+                            .color(if is_active {
+                                ui.visuals().selection.stroke.color
+                            } else {
+                                ui.visuals().weak_text_color()
+                            });
                         let button = egui::Button::new(text)
                             .fill(if is_active {
                                 ui.visuals().selection.bg_fill
@@ -52,7 +57,7 @@ impl WorkbenchActivityBar {
                             .corner_radius(egui::CornerRadius::same(8))
                             .min_size(egui::vec2(38.0, 34.0));
 
-                        if ui.add(button).on_hover_text(tooltip).clicked() {
+                        if ui.add(button).on_hover_text(descriptor.tooltip()).clicked() {
                             if is_active && sidebar_visible {
                                 response.toggle_sidebar = true;
                             } else {
@@ -67,14 +72,14 @@ impl WorkbenchActivityBar {
     }
 }
 
-fn activity_items() -> [(WorkbenchActivity, &'static str, &'static str); 6] {
+fn activity_items() -> [WorkbenchActivity; 6] {
     [
-        (WorkbenchActivity::Explorer, "探索", "连接、数据库和表"),
-        (WorkbenchActivity::Filters, "筛选", "当前结果筛选条件"),
-        (WorkbenchActivity::Objects, "对象", "触发器和存储过程"),
-        (WorkbenchActivity::History, "历史", "查询历史入口"),
-        (WorkbenchActivity::Help, "帮助", "学习与帮助入口"),
-        (WorkbenchActivity::Settings, "设置", "设置入口"),
+        WorkbenchActivity::Explorer,
+        WorkbenchActivity::Filters,
+        WorkbenchActivity::Objects,
+        WorkbenchActivity::History,
+        WorkbenchActivity::Help,
+        WorkbenchActivity::Settings,
     ]
 }
 
@@ -87,35 +92,25 @@ mod tests {
         let items = activity_items();
 
         assert_eq!(items.len(), 6);
-        assert!(
-            items
-                .iter()
-                .any(|(activity, _, _)| *activity == WorkbenchActivity::Explorer)
-        );
-        assert!(
-            items
-                .iter()
-                .any(|(activity, _, _)| *activity == WorkbenchActivity::Filters)
-        );
-        assert!(
-            items
-                .iter()
-                .any(|(activity, _, _)| *activity == WorkbenchActivity::Objects)
-        );
-        assert!(
-            items
-                .iter()
-                .any(|(activity, _, _)| *activity == WorkbenchActivity::History)
-        );
-        assert!(
-            items
-                .iter()
-                .any(|(activity, _, _)| *activity == WorkbenchActivity::Help)
-        );
-        assert!(
-            items
-                .iter()
-                .any(|(activity, _, _)| *activity == WorkbenchActivity::Settings)
-        );
+        assert!(items.contains(&WorkbenchActivity::Explorer));
+        assert!(items.contains(&WorkbenchActivity::Filters));
+        assert!(items.contains(&WorkbenchActivity::Objects));
+        assert!(items.contains(&WorkbenchActivity::History));
+        assert!(items.contains(&WorkbenchActivity::Help));
+        assert!(items.contains(&WorkbenchActivity::Settings));
+    }
+
+    #[test]
+    fn activity_items_reuse_surface_descriptor_tooltips() {
+        for activity in activity_items() {
+            let surface = WorkbenchSurfaceKind::from_activity(activity);
+            let descriptor = surface.descriptor();
+            let tooltip = descriptor.tooltip();
+
+            assert!(tooltip.contains(&descriptor.title));
+            assert!(tooltip.contains(descriptor.description));
+            assert!(descriptor.command_id.is_some());
+            assert_ne!(surface_icon_glyph(descriptor.icon), "•");
+        }
     }
 }

@@ -213,8 +213,8 @@ impl WorkbenchSurfaceKind {
                 command_id: Some("workbench.surface.sql"),
                 role: WorkbenchSurfaceRole::Document,
                 singleton: false,
-                default_placement: WorkbenchPlacement::Center,
-                allowed_placements: DOCUMENT_PLACEMENTS,
+                default_placement: WorkbenchPlacement::Bottom,
+                allowed_placements: ALL_PLACEMENTS,
             },
             Self::QueryResult { .. } => SurfaceMetadata {
                 title: "Results",
@@ -223,7 +223,7 @@ impl WorkbenchSurfaceKind {
                 command_id: Some("workbench.surface.results"),
                 role: WorkbenchSurfaceRole::Output,
                 singleton: false,
-                default_placement: WorkbenchPlacement::Bottom,
+                default_placement: WorkbenchPlacement::Center,
                 allowed_placements: OUTPUT_PLACEMENTS,
             },
             Self::Explain { .. } => SurfaceMetadata {
@@ -253,7 +253,7 @@ impl WorkbenchSurfaceKind {
                 command_id: Some("workbench.surface.er"),
                 role: WorkbenchSurfaceRole::Document,
                 singleton: true,
-                default_placement: WorkbenchPlacement::Center,
+                default_placement: WorkbenchPlacement::Right,
                 allowed_placements: ALL_PLACEMENTS,
             },
             Self::SchemaObject { .. } => SurfaceMetadata {
@@ -699,11 +699,13 @@ mod tests {
     }
 
     #[test]
-    fn result_and_table_surfaces_are_not_fixed_to_bottom_panel() {
+    fn default_surface_placements_match_current_workbench_baseline() {
+        let sql = WorkbenchSurfaceKind::SqlDocument { index: 0 }.descriptor();
         let result = WorkbenchSurfaceKind::QueryResult {
             query_tab_id: "q1".to_string(),
         }
         .descriptor();
+        let er = WorkbenchSurfaceKind::ErDiagram.descriptor();
         let explain = WorkbenchSurfaceKind::Explain {
             query_tab_id: "q1".to_string(),
         }
@@ -715,13 +717,19 @@ mod tests {
         }
         .descriptor();
 
+        assert_eq!(sql.role, WorkbenchSurfaceRole::Document);
+        assert_eq!(sql.default_placement, WorkbenchPlacement::Bottom);
+        assert!(sql.allowed_placements.contains(&WorkbenchPlacement::Center));
         assert_eq!(result.role, WorkbenchSurfaceRole::Output);
-        assert_eq!(result.default_placement, WorkbenchPlacement::Bottom);
+        assert_eq!(result.default_placement, WorkbenchPlacement::Center);
         assert!(
             result
                 .allowed_placements
-                .contains(&WorkbenchPlacement::Center)
+                .contains(&WorkbenchPlacement::Bottom)
         );
+        assert_eq!(er.role, WorkbenchSurfaceRole::Document);
+        assert_eq!(er.default_placement, WorkbenchPlacement::Right);
+        assert!(er.allowed_placements.contains(&WorkbenchPlacement::Center));
         assert_eq!(explain.role, WorkbenchSurfaceRole::Output);
         assert_eq!(explain.default_placement, WorkbenchPlacement::Bottom);
         assert_eq!(explain.persistence_key, "explain:q1");

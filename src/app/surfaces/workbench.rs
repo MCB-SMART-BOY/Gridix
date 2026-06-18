@@ -103,25 +103,9 @@ impl DbManagerApp {
         ))
     }
 
-    pub(in crate::app) fn render_activity_bar(
-        &mut self,
-        ui: &mut egui::Ui,
-    ) -> ui::WorkbenchActivityBarResponse {
-        let response = ui::WorkbenchActivityBar::show(
-            ui,
-            self.state.workbench.active_activity,
-            self.state.show_sidebar,
-        );
-        if response.selected_activity.is_some() || response.toggle_sidebar {
-            self.state.workbench.focus = WorkbenchFocus::ActivityBar;
-        }
-        response
-    }
-
     pub(in crate::app) fn set_workbench_activity(&mut self, activity: WorkbenchActivity) {
         self.state.workbench.active_activity = activity;
         self.app_config.workbench.activity = activity;
-        self.reveal_workbench_surface(WorkbenchSurfaceKind::from_activity(activity));
         self.set_primary_sidebar_visible(true);
         self.apply_workbench_activity_to_sidebar_panels();
         self.save_config_debounced();
@@ -575,7 +559,7 @@ impl DbManagerApp {
             WorkbenchSurfaceKind::Explorer
             | WorkbenchSurfaceKind::Filters
             | WorkbenchSurfaceKind::Objects => {
-                self.render_navigation_surface_placeholder(ui, &surface);
+                self.render_navigation_surface_body(ui, &surface);
             }
             WorkbenchSurfaceKind::History => {
                 self.render_bottom_panel_surface_body(ui, BottomPanelTab::History);
@@ -660,21 +644,62 @@ impl DbManagerApp {
         }
     }
 
-    fn render_navigation_surface_placeholder(
-        &self,
+    fn render_navigation_surface_body(
+        &mut self,
         ui: &mut egui::Ui,
         surface: &WorkbenchSurfaceKind,
     ) {
-        let descriptor = surface.descriptor();
+        let Some(activity) = navigation_activity_for_surface(surface) else {
+            return;
+        };
+        let columns = self
+            .state
+            .result
+            .as_ref()
+            .map(|result| result.columns.clone())
+            .unwrap_or_default();
+        let surface_id = surface.surface_id();
+        let is_focused = self.state.workbench.focus == WorkbenchFocus::Surface(surface_id);
+        let focused_section = navigation_default_section(activity, self.state.sidebar_section);
+        let width = ui.available_width().max(self.state.sidebar_width);
+        let mut panel_state = self.state.sidebar_panel_state.clone();
+        configure_sidebar_panels_for_activity(&mut panel_state, activity);
 
-        ui.vertical_centered(|ui| {
-            ui.add_space(24.0);
-            ui.heading(descriptor.title);
-            ui.add_space(8.0);
-            ui.label(descriptor.description);
-            ui.add_space(8.0);
-            ui.label("该 surface 已有稳定身份；内容仍由 PrimarySidebar 兼容适配器承载。");
-        });
+        let (mut actions, filter_changed) = ui::Sidebar::show_in_ui(
+            ui,
+            &mut self.session.manager,
+            &mut self.state.selected_table,
+            &mut self.state.show_connection_dialog,
+            is_focused,
+            focused_section,
+            &mut panel_state,
+            width,
+            &self.keybindings,
+            &mut self.state.grid_state.filters,
+            &columns,
+            &mut self.state.pending_filter_input_focus,
+        );
+        if filter_changed {
+            actions.filter_changed = true;
+        }
+        let clicked = ui.ui_contains_pointer() && ui.input(|input| input.pointer.primary_clicked());
+        let should_commit_panel_state = self.state.workbench.active_activity == activity
+            || is_focused
+            || clicked
+            || actions.has_action()
+            || filter_changed;
+        if should_commit_panel_state {
+            self.state.sidebar_panel_state = panel_state;
+        }
+        if clicked {
+            self.state.workbench.active_activity = activity;
+            self.state.sidebar_section = focused_section;
+            self.state.workbench.set_focused_surface(surface);
+            self.set_focus_area(ui::FocusArea::Sidebar);
+        }
+
+        let ctx = ui.ctx().clone();
+        self.handle_sidebar_actions(&ctx, actions);
     }
 
     fn render_right_inspector_properties(&self, ui: &mut egui::Ui) {
@@ -1088,6 +1113,69 @@ fn property_row(ui: &mut egui::Ui, label: &str, value: &str) {
     });
 }
 
+fn navigation_activity_for_surface(surface: &WorkbenchSurfaceKind) -> Option<WorkbenchActivity> {
+    match surface {
+        WorkbenchSurfaceKind::Explorer => Some(WorkbenchActivity::Explorer),
+        WorkbenchSurfaceKind::Filters => Some(WorkbenchActivity::Filters),
+        WorkbenchSurfaceKind::Objects => Some(WorkbenchActivity::Objects),
+        _ => None,
+    }
+}
+
+fn navigation_default_section(
+    activity: WorkbenchActivity,
+    current: ui::SidebarSection,
+) -> ui::SidebarSection {
+    match activity {
+        WorkbenchActivity::Explorer => match current {
+            ui::SidebarSection::Connections
+            | ui::SidebarSection::Databases
+            | ui::SidebarSection::Tables => current,
+            _ => ui::SidebarSection::Connections,
+        },
+        WorkbenchActivity::Filters => ui::SidebarSection::Filters,
+        WorkbenchActivity::Objects => match current {
+            ui::SidebarSection::Triggers | ui::SidebarSection::Routines => current,
+            _ => ui::SidebarSection::Triggers,
+        },
+        WorkbenchActivity::History | WorkbenchActivity::Help | WorkbenchActivity::Settings => {
+            current
+        }
+    }
+}
+
+fn configure_sidebar_panels_for_activity(
+    panel_state: &mut ui::SidebarPanelState,
+    activity: WorkbenchActivity,
+) {
+    match activity {
+        WorkbenchActivity::Explorer => {
+            panel_state.show_connections = true;
+            panel_state.show_filters = false;
+            panel_state.show_triggers = false;
+            panel_state.show_routines = false;
+        }
+        WorkbenchActivity::Filters => {
+            panel_state.show_connections = false;
+            panel_state.show_filters = true;
+            panel_state.show_triggers = false;
+            panel_state.show_routines = false;
+        }
+        WorkbenchActivity::Objects => {
+            panel_state.show_connections = false;
+            panel_state.show_filters = false;
+            panel_state.show_triggers = true;
+            panel_state.show_routines = true;
+        }
+        WorkbenchActivity::History | WorkbenchActivity::Help | WorkbenchActivity::Settings => {
+            panel_state.show_connections = false;
+            panel_state.show_filters = false;
+            panel_state.show_triggers = false;
+            panel_state.show_routines = false;
+        }
+    }
+}
+
 fn selected_cell_label(selected_cell: Option<(usize, usize)>) -> String {
     selected_cell
         .map(|(row, col)| format!("row {}, col {}", row + 1, col + 1))
@@ -1355,19 +1443,18 @@ mod tests {
     }
 
     #[test]
-    fn workbench_activity_reveals_matching_surface_tab() {
+    fn workbench_activity_updates_fixed_sidebar_without_forcing_dock_surface() {
         let mut app = DbManagerApp::new_for_test();
 
-        assert!(app.active_activity_surface_is_docked());
+        assert!(!app.active_activity_surface_is_docked());
 
         app.set_workbench_activity(WorkbenchActivity::Filters);
 
-        assert!(app.active_activity_surface_is_docked());
-        assert_eq!(count_surface_tabs(&app, &WorkbenchSurfaceKind::Filters), 1);
-        assert_eq!(
-            app.state.workbench.focus,
-            WorkbenchFocus::Surface(WorkbenchSurfaceId::new("filters"))
-        );
+        assert!(!app.active_activity_surface_is_docked());
+        assert_eq!(count_surface_tabs(&app, &WorkbenchSurfaceKind::Filters), 0);
+        assert!(app.state.show_sidebar);
+        assert!(app.state.sidebar_panel_state.show_filters);
+        assert!(!app.state.sidebar_panel_state.show_connections);
     }
 
     #[test]
@@ -1375,7 +1462,7 @@ mod tests {
         let mut app = DbManagerApp::new_for_test();
 
         assert!(app.active_bottom_panel_surface_is_docked());
-        assert!(app.active_right_inspector_surface_is_docked());
+        assert!(!app.active_right_inspector_surface_is_docked());
 
         app.set_bottom_panel_tab(BottomPanelTab::Messages);
         app.set_right_inspector_tab(RightInspectorTab::Cell);
@@ -1391,8 +1478,18 @@ mod tests {
         let app = DbManagerApp::new_for_test();
         let result_surface = app.active_bottom_panel_surface_kind(BottomPanelTab::Results);
 
-        assert_eq!(count_surface_tabs(&app, &WorkbenchSurfaceKind::Explorer), 1);
+        assert_eq!(count_surface_tabs(&app, &WorkbenchSurfaceKind::Explorer), 0);
+        assert!(app.state.show_sidebar);
+        assert!(app.state.show_er_diagram);
         assert_eq!(count_surface_tabs(&app, &result_surface), 1);
+        assert_eq!(
+            count_surface_tabs(&app, &WorkbenchSurfaceKind::SqlDocument { index: 0 }),
+            1
+        );
+        assert_eq!(
+            count_surface_tabs(&app, &WorkbenchSurfaceKind::ErDiagram),
+            1
+        );
         assert_eq!(
             count_surface_tabs(
                 &app,
@@ -1400,13 +1497,22 @@ mod tests {
                     mode: app.state.workbench.right_inspector.active_tab
                 }
             ),
-            1
+            0
         );
     }
 
     #[test]
     fn er_visibility_reveals_er_surface_tab() {
         let mut app = DbManagerApp::new_for_test();
+        app.set_er_diagram_visible(false);
+        let fallback_dock = app.default_workbench_surface_layout();
+        let mut dock = std::mem::replace(&mut app.dock_state, fallback_dock);
+        ui::dock_tabs::sync_all(&mut dock, &app);
+        app.dock_state = dock;
+        assert_eq!(
+            count_surface_tabs(&app, &WorkbenchSurfaceKind::ErDiagram),
+            0
+        );
 
         app.set_er_diagram_visible(true);
 
@@ -1497,6 +1603,90 @@ mod tests {
         assert!(!app.state.sidebar_panel_state.show_filters);
         assert!(app.state.sidebar_panel_state.show_triggers);
         assert!(app.state.sidebar_panel_state.show_routines);
+    }
+
+    #[test]
+    fn sidebar_visibility_controls_stable_fixed_sidebar_only() {
+        let mut app = DbManagerApp::new_for_test();
+
+        assert!(!app.has_workbench_surface_tab(&WorkbenchSurfaceKind::Explorer));
+
+        app.set_sidebar_visible(false);
+
+        assert!(!app.state.show_sidebar);
+        assert!(!app.has_workbench_surface_tab(&WorkbenchSurfaceKind::Explorer));
+
+        app.set_sidebar_visible(true);
+
+        assert!(app.state.show_sidebar);
+        assert!(!app.has_workbench_surface_tab(&WorkbenchSurfaceKind::Explorer));
+    }
+
+    #[test]
+    fn navigation_surfaces_map_to_real_sidebar_activities() {
+        assert_eq!(
+            navigation_activity_for_surface(&WorkbenchSurfaceKind::Explorer),
+            Some(WorkbenchActivity::Explorer)
+        );
+        assert_eq!(
+            navigation_activity_for_surface(&WorkbenchSurfaceKind::Filters),
+            Some(WorkbenchActivity::Filters)
+        );
+        assert_eq!(
+            navigation_activity_for_surface(&WorkbenchSurfaceKind::Objects),
+            Some(WorkbenchActivity::Objects)
+        );
+        assert_eq!(
+            navigation_activity_for_surface(&WorkbenchSurfaceKind::Messages),
+            None
+        );
+    }
+
+    #[test]
+    fn navigation_activity_configures_sidebar_panel_groups() {
+        let mut panel_state = ui::SidebarPanelState::default();
+
+        configure_sidebar_panels_for_activity(&mut panel_state, WorkbenchActivity::Filters);
+        assert!(!panel_state.show_connections);
+        assert!(panel_state.show_filters);
+        assert!(!panel_state.show_triggers);
+        assert!(!panel_state.show_routines);
+
+        configure_sidebar_panels_for_activity(&mut panel_state, WorkbenchActivity::Objects);
+        assert!(!panel_state.show_connections);
+        assert!(!panel_state.show_filters);
+        assert!(panel_state.show_triggers);
+        assert!(panel_state.show_routines);
+
+        configure_sidebar_panels_for_activity(&mut panel_state, WorkbenchActivity::Explorer);
+        assert!(panel_state.show_connections);
+        assert!(!panel_state.show_filters);
+        assert!(!panel_state.show_triggers);
+        assert!(!panel_state.show_routines);
+    }
+
+    #[test]
+    fn navigation_default_section_matches_activity_class() {
+        assert_eq!(
+            navigation_default_section(WorkbenchActivity::Explorer, ui::SidebarSection::Tables),
+            ui::SidebarSection::Tables
+        );
+        assert_eq!(
+            navigation_default_section(WorkbenchActivity::Explorer, ui::SidebarSection::Filters),
+            ui::SidebarSection::Connections
+        );
+        assert_eq!(
+            navigation_default_section(WorkbenchActivity::Filters, ui::SidebarSection::Connections),
+            ui::SidebarSection::Filters
+        );
+        assert_eq!(
+            navigation_default_section(WorkbenchActivity::Objects, ui::SidebarSection::Routines),
+            ui::SidebarSection::Routines
+        );
+        assert_eq!(
+            navigation_default_section(WorkbenchActivity::Objects, ui::SidebarSection::Tables),
+            ui::SidebarSection::Triggers
+        );
     }
 
     #[test]

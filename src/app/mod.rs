@@ -234,6 +234,7 @@ impl DbManagerApp {
                 connection_dialog_show_advanced: app_config.connection_dialog_show_advanced,
                 show_sidebar: app_config.workbench.sidebar.visible,
                 sidebar_width: app_config.workbench.sidebar.width,
+                show_er_diagram: true,
                 workbench: workbench_state,
                 ..Default::default()
             },

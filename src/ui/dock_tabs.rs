@@ -13,6 +13,15 @@ use crate::state::{WorkbenchPlacement, WorkbenchSurfaceKind};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_dock::{DockState, NodeIndex, SurfaceIndex, TabViewer};
 
+/// Canonical April-shell screenshot proportions for the dock workspace.
+///
+/// The fixed PrimarySidebar keeps its 280px shell width outside this dock tree.
+/// These ratios only control movable dock surfaces: dominant center editor/data,
+/// compact right inspector, and a lower SQL/output region.
+pub const DEFAULT_LEFT_RETAIN_RATIO: f32 = 0.79;
+pub const DEFAULT_RIGHT_RETAIN_RATIO: f32 = 0.73;
+pub const DEFAULT_BOTTOM_RETAIN_RATIO: f32 = 0.69;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum DockTab {
     Surface {
@@ -89,32 +98,25 @@ pub fn default_layout() -> DockState<DockTab> {
 
 pub fn default_surface_layout(
     active_query_tab_id: impl Into<String>,
-    inspector_mode: RightInspectorTab,
+    _inspector_mode: RightInspectorTab,
 ) -> DockState<DockTab> {
-    let mut state = DockState::new(vec![DockTab::surface_with_title(
-        WorkbenchSurfaceKind::SqlDocument { index: 0 },
-        "查询 1",
-    )]);
     let query_tab_id = active_query_tab_id.into();
+    let mut state = DockState::new(vec![DockTab::surface(WorkbenchSurfaceKind::QueryResult {
+        query_tab_id,
+    })]);
     let tree = state.main_surface_mut();
-    let [center, _left] = tree.split_left(
-        NodeIndex::root(),
-        0.78,
-        vec![DockTab::surface(WorkbenchSurfaceKind::Explorer)],
-    );
     let [center, _right] = tree.split_right(
-        center,
-        0.72,
-        vec![DockTab::surface(WorkbenchSurfaceKind::Inspector {
-            mode: inspector_mode,
-        })],
+        NodeIndex::root(),
+        DEFAULT_RIGHT_RETAIN_RATIO,
+        vec![DockTab::surface(WorkbenchSurfaceKind::ErDiagram)],
     );
     let _ = tree.split_below(
         center,
-        0.68,
-        vec![DockTab::surface(WorkbenchSurfaceKind::QueryResult {
-            query_tab_id,
-        })],
+        DEFAULT_BOTTOM_RETAIN_RATIO,
+        vec![DockTab::surface_with_title(
+            WorkbenchSurfaceKind::SqlDocument { index: 0 },
+            "查询 1",
+        )],
     );
     state
 }
@@ -132,13 +134,13 @@ pub fn ensure_surface_tab(state: &mut DockState<DockTab>, kind: WorkbenchSurface
             tree.push_to_focused_leaf(tab);
         }
         WorkbenchPlacement::Left => {
-            let _ = tree.split_left(NodeIndex::root(), 0.78, vec![tab]);
+            let _ = tree.split_left(NodeIndex::root(), DEFAULT_LEFT_RETAIN_RATIO, vec![tab]);
         }
         WorkbenchPlacement::Right => {
-            let _ = tree.split_right(NodeIndex::root(), 0.78, vec![tab]);
+            let _ = tree.split_right(NodeIndex::root(), DEFAULT_RIGHT_RETAIN_RATIO, vec![tab]);
         }
         WorkbenchPlacement::Bottom => {
-            let _ = tree.split_below(NodeIndex::root(), 0.68, vec![tab]);
+            let _ = tree.split_below(NodeIndex::root(), DEFAULT_BOTTOM_RETAIN_RATIO, vec![tab]);
         }
     }
     true
@@ -228,7 +230,7 @@ fn sync_sql_documents(state: &mut DockState<DockTab>, tab_manager: &crate::ui::Q
                 tree.set_focused_node(*node_idx);
                 tree.push_to_focused_leaf(tab);
             } else {
-                let _ = tree.split_right(NodeIndex::root(), 0.3, vec![tab]);
+                let _ = tree.split_right(NodeIndex::root(), DEFAULT_RIGHT_RETAIN_RATIO, vec![tab]);
             }
         }
     }
@@ -251,9 +253,11 @@ fn sync_er_visibility(state: &mut DockState<DockTab>, show: bool) {
             } else {
                 DockTab::ErDiagram
             };
-            let _ = state
-                .main_surface_mut()
-                .split_right(NodeIndex::root(), 0.3, vec![tab]);
+            let _ = state.main_surface_mut().split_right(
+                NodeIndex::root(),
+                DEFAULT_RIGHT_RETAIN_RATIO,
+                vec![tab],
+            );
         }
         (false, true) => remove_tabs(state, is_er_diagram_tab),
         _ => {}
@@ -408,19 +412,27 @@ mod tests {
     }
 
     #[test]
-    fn default_surface_layout_seeds_peer_workbench_surfaces() {
+    fn default_surface_ratios_match_april_shell_screenshot_baseline() {
+        assert_eq!(DEFAULT_LEFT_RETAIN_RATIO, 0.79);
+        assert_eq!(DEFAULT_RIGHT_RETAIN_RATIO, 0.73);
+        assert_eq!(DEFAULT_BOTTOM_RETAIN_RATIO, 0.69);
+    }
+
+    #[test]
+    fn default_surface_layout_seeds_results_editor_and_er_surfaces() {
         let state = default_surface_layout("tab-a", RightInspectorTab::Schema);
         let surfaces: Vec<_> = all_tabs(&state)
             .into_iter()
             .map(|tab| tab.surface_kind())
             .collect();
 
-        assert!(surfaces.contains(&WorkbenchSurfaceKind::Explorer));
+        assert!(!surfaces.contains(&WorkbenchSurfaceKind::Explorer));
         assert!(surfaces.contains(&WorkbenchSurfaceKind::SqlDocument { index: 0 }));
         assert!(surfaces.contains(&WorkbenchSurfaceKind::QueryResult {
             query_tab_id: "tab-a".to_string()
         }));
-        assert!(surfaces.contains(&WorkbenchSurfaceKind::Inspector {
+        assert!(surfaces.contains(&WorkbenchSurfaceKind::ErDiagram));
+        assert!(!surfaces.contains(&WorkbenchSurfaceKind::Inspector {
             mode: RightInspectorTab::Schema
         }));
     }
@@ -582,7 +594,7 @@ mod tests {
         .descriptor();
 
         assert_eq!(sql.role, WorkbenchSurfaceRole::Document);
-        assert_eq!(sql.default_placement, WorkbenchPlacement::Center);
+        assert_eq!(sql.default_placement, WorkbenchPlacement::Bottom);
         assert_eq!(sql.persistence_key, "sql:2");
         assert_eq!(explorer_like_aux.role, WorkbenchSurfaceRole::Utility);
         assert_eq!(explorer_like_aux.persistence_key, "history");

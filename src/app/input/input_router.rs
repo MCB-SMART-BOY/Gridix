@@ -3370,6 +3370,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = test_app();
         app.state.show_sidebar = true;
+        app.state.show_er_diagram = false;
 
         app.set_focus_area(FocusArea::Sidebar);
         assert_eq!(app.state.last_non_er_workspace_focus, FocusArea::Sidebar);
@@ -3388,6 +3389,7 @@ mod tests {
     #[test]
     fn opening_er_requests_fit_to_view_after_loading_starts() {
         let mut app = test_app();
+        app.state.show_er_diagram = false;
         assert!(!app.state.show_er_diagram);
         assert!(!app.state.er_diagram_state.has_pending_fit_to_view());
 

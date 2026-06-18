@@ -113,6 +113,27 @@ pub fn surface_icon_button(ui: &mut egui::Ui, action: SurfaceAction) -> bool {
     .clicked()
 }
 
+pub fn surface_icon_glyph(icon_key: &str) -> &'static str {
+    match icon_key {
+        "database-tree" => "▦",
+        "filter" => "◇",
+        "objects" => "{}",
+        "history" => "↺",
+        "gear" => "⚙",
+        "help" => "?",
+        "sql" => "SQL",
+        "table" | "grid" => "▤",
+        "explain" => "EX",
+        "graph" => "◇",
+        "schema" => "□",
+        "log" => "!",
+        "tasks" => "✓",
+        "info" => "i",
+        "welcome" => "·",
+        _ => "•",
+    }
+}
+
 pub fn surface_tooltip(
     label: &str,
     description: &str,
@@ -158,5 +179,13 @@ mod tests {
             surface_tooltip("Explorer", "显示连接、数据库和表", None, None),
             "Explorer\n显示连接、数据库和表"
         );
+    }
+
+    #[test]
+    fn surface_icon_glyph_maps_descriptor_keys_to_compact_symbols() {
+        assert_eq!(surface_icon_glyph("database-tree"), "▦");
+        assert_eq!(surface_icon_glyph("filter"), "◇");
+        assert_eq!(surface_icon_glyph("objects"), "{}");
+        assert_eq!(surface_icon_glyph("unknown"), "•");
     }
 }

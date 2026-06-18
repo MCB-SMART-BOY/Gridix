@@ -603,6 +603,7 @@ mod tests {
             vec![vec!["1".to_string()]],
         ));
         app.state.selected_table = Some("customers".to_string());
+        app.state.show_er_diagram = false;
         app.set_focus_area(FocusArea::DataGrid);
 
         app.handle_dialog_results(

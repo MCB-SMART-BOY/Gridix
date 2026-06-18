@@ -79,13 +79,13 @@ pub mod ui {
     pub mod workbench {
         /// 当前 workbench 配置结构版本
         pub const SCHEMA_VERSION: u32 = 1;
-        /// 主侧边栏默认宽度（像素）
+        /// 主侧边栏默认宽度（像素）。2026-06-19 截图基准要求默认保持 280px。
         pub const PRIMARY_SIDEBAR_WIDTH: f32 = 280.0;
         /// 主侧边栏最小宽度（像素）
         pub const PRIMARY_SIDEBAR_MIN_WIDTH: f32 = 220.0;
         /// 主侧边栏最大宽度（像素）
         pub const PRIMARY_SIDEBAR_MAX_WIDTH: f32 = 460.0;
-        /// ActivityBar 固定宽度（像素）
+        /// Legacy ActivityBar width; the default runtime layout no longer renders this rail.
         pub const ACTIVITY_BAR_WIDTH: f32 = 48.0;
         /// 底部面板默认高度（像素）
         pub const BOTTOM_PANEL_HEIGHT: f32 = 260.0;

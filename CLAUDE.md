@@ -101,13 +101,13 @@ src/
 │   │   └── metadata.rs  # Sidebar triggers/routines loading
 │   ├── surfaces/
 │   │   ├── render.rs    # run_frame() main loop + surface/fallback layout orchestration
-│   │   ├── workbench.rs # TopBar/ActivityBar/PrimarySidebar/BottomPanel/RightInspector app-bound render adapters + unified surface renderer + surface seed/fallback de-dup helpers
+│   │   ├── workbench.rs # TopBar/ActivityBar/PrimarySidebar/BottomPanel/RightInspector app-bound render adapters + unified surface renderer + navigation surface adapter + surface seed/fallback de-dup helpers
 │   │   ├── dialogs.rs   # render_dialogs() + handle_dialog_results()
 │   │   └── preferences.rs  # set_ui_scale (0.5–2.0), set_theme, save_config
 │   └── workflow/        # export, import, help, welcome
 └── ui/                  # Layer 4: egui rendering — widgets, components, styling
-    ├── dock_tabs.rs     # egui_dock integration — legacy tabs + DockTab::Surface, default_surface_layout(), ensure_surface_tab(), has_surface_tab(), WorkspaceViewer, sync_all()
-    ├── workbench/       # WorkbenchShell, ActivityBar, BottomPanel, RightInspector, StatusBar, SurfaceHeader widgets
+    ├── dock_tabs.rs     # egui_dock integration — legacy tabs + DockTab::Surface, canonical April-shell seed (Results center, SQL editor bottom, ER right) and split ratios (query/ER 0.73/0.27, results/editor 0.69/0.31), default_surface_layout(), ensure_surface_tab(), has_surface_tab(), WorkspaceViewer, sync_all()
+    ├── workbench/       # WorkbenchShell, dormant ActivityBar widget, BottomPanel, RightInspector, StatusBar, SurfaceHeader widgets
     ├── styles.rs        # SUCCESS/DANGER/GRAY/MUTED from egui Visuals
     ├── shortcut_tooltip.rs  # LocalShortcut (138 variants), config_key() paths
     ├── components/      # grid (10 files), sql_editor, toolbar (4 files),

@@ -51,6 +51,19 @@ fn select_sql_editor_status_message(
         .or_else(|| latest_notification.map(ToOwned::to_owned))
 }
 
+fn workbench_main_width(
+    available_width: f32,
+    reserved_sidebar_width: f32,
+    right_inspector_width: f32,
+    right_inspector_divider_width: f32,
+) -> f32 {
+    (available_width
+        - reserved_sidebar_width
+        - right_inspector_width
+        - right_inspector_divider_width)
+        .max(0.0)
+}
+
 #[cfg(test)]
 fn clamped_sql_editor_height(preferred_height: f32, available_height: f32) -> f32 {
     let max_height = (available_height * 0.6).max(0.0);
@@ -180,7 +193,6 @@ impl DbManagerApp {
             // 使用 horizontal 布局：侧边栏 + 分割条 + 主内容区
             let available_width = ui.available_width();
             let available_height = ui.available_height();
-            let activity_bar_width = constants::ui::workbench::ACTIVITY_BAR_WIDTH;
             let divider_width = 8.0;
 
             // 计算侧边栏和主内容区的宽度
@@ -204,42 +216,15 @@ impl DbManagerApp {
             } else {
                 0.0
             };
-            let main_width = if primary_sidebar_fallback_visible {
-                available_width
-                    - activity_bar_width
-                    - reserved_sidebar_width
-                    - right_inspector_width
-                    - right_inspector_divider_width
-            } else {
-                available_width
-                    - activity_bar_width
-                    - right_inspector_width
-                    - right_inspector_divider_width
-            }
-            .max(0.0);
+            let main_width = workbench_main_width(
+                available_width,
+                reserved_sidebar_width,
+                right_inspector_width,
+                right_inspector_divider_width,
+            );
 
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-
-                // ===== ActivityBar =====
-                ui.allocate_ui_with_layout(
-                    egui::vec2(activity_bar_width, available_height),
-                    egui::Layout::top_down(egui::Align::Center),
-                    |ui| {
-                        let response = self.render_activity_bar(ui);
-                        if let Some(activity) = response.selected_activity {
-                            let ctx = ui.ctx().clone();
-                            self.dispatch_app_action(
-                                &ctx,
-                                AppAction::SetWorkbenchActivity(activity),
-                            );
-                        }
-                        if response.toggle_sidebar {
-                            let ctx = ui.ctx().clone();
-                            self.dispatch_app_action(&ctx, AppAction::TogglePrimarySidebar);
-                        }
-                    },
-                );
 
                 // ===== 侧边栏区域 =====
                 if primary_sidebar_fallback_visible {
@@ -1357,11 +1342,13 @@ mod tests {
     use super::{
         ErDiagramSurfaceAction, WorkspaceSurface, clamped_sql_editor_height,
         classify_workspace_surface, collect_er_diagram_surface_actions,
-        select_sql_editor_status_message,
+        select_sql_editor_status_message, workbench_main_width,
     };
     use crate::app::DbManagerApp;
     use crate::app::dialogs::host::DialogId;
+    use crate::core::BottomPanelTab;
     use crate::data::{Connection, ConnectionConfig, DatabaseType, QueryResult};
+    use crate::state::WorkbenchSurfaceKind;
     use crate::ui::{
         ERDiagramResponse, FocusArea, SidebarActions, SidebarDeleteTarget, ToolbarActions,
     };
@@ -1448,6 +1435,13 @@ mod tests {
     }
 
     #[test]
+    fn workbench_main_width_does_not_reserve_duplicate_activity_rail() {
+        assert_eq!(workbench_main_width(1200.0, 0.0, 0.0, 0.0), 1200.0);
+        assert_eq!(workbench_main_width(1200.0, 288.0, 326.0, 6.0), 580.0);
+        assert_eq!(workbench_main_width(400.0, 288.0, 326.0, 6.0), 0.0);
+    }
+
+    #[test]
     fn er_diagram_surface_actions_follow_response_flags_in_stable_order() {
         let response = ERDiagramResponse {
             request_focus: true,
@@ -1514,6 +1508,41 @@ mod tests {
     }
 
     #[test]
+    fn toolbar_toggle_sidebar_does_not_mutate_dock_navigation_tabs() {
+        let ctx = egui::Context::default();
+        let mut app = DbManagerApp::new_for_test();
+        let result_surface = app.active_bottom_panel_surface_kind(BottomPanelTab::Results);
+
+        assert!(app.state.show_sidebar);
+        assert!(!app.has_workbench_surface_tab(&WorkbenchSurfaceKind::Explorer));
+        assert!(app.has_workbench_surface_tab(&result_surface));
+
+        app.handle_toolbar_actions(
+            &ctx,
+            ToolbarActions {
+                toggle_sidebar: true,
+                ..Default::default()
+            },
+        );
+
+        assert!(!app.state.show_sidebar);
+        assert!(!app.has_workbench_surface_tab(&WorkbenchSurfaceKind::Explorer));
+        assert!(app.has_workbench_surface_tab(&result_surface));
+
+        app.handle_toolbar_actions(
+            &ctx,
+            ToolbarActions {
+                toggle_sidebar: true,
+                ..Default::default()
+            },
+        );
+
+        assert!(app.state.show_sidebar);
+        assert!(!app.has_workbench_surface_tab(&WorkbenchSurfaceKind::Explorer));
+        assert!(app.has_workbench_surface_tab(&result_surface));
+    }
+
+    #[test]
     fn ctrl_r_opening_er_moves_focus_off_data_grid_before_grid_can_consume_j() {
         let ctx = egui::Context::default();
         let mut app = DbManagerApp::new_for_test();
@@ -1523,6 +1552,7 @@ mod tests {
             vec![vec!["1".to_string()]],
         ));
         app.state.selected_table = Some("customers".to_string());
+        app.state.show_er_diagram = false;
         app.set_focus_area(FocusArea::DataGrid);
         app.state.grid_state.cursor = (0, 0);
         app.state.grid_state.focused = true;
@@ -1578,6 +1608,7 @@ mod tests {
             vec![vec!["1".to_string()]],
         ));
         app.state.selected_table = Some("customers".to_string());
+        app.state.show_er_diagram = false;
         app.set_focus_area(FocusArea::DataGrid);
 
         let actions = ToolbarActions {

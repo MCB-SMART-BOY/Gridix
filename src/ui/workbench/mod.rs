@@ -19,5 +19,5 @@ pub use shell::WorkbenchShell;
 pub use status_bar::WorkbenchStatusBarContent;
 pub use surface::{
     SurfaceAction, WorkbenchSurfaceHeader, WorkbenchSurfaceHeaderResponse, surface_icon_button,
-    surface_tooltip,
+    surface_icon_glyph, surface_tooltip,
 };

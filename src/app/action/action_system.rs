@@ -28,7 +28,6 @@ pub(in crate::app) enum AppAction {
     OpenHistoryPanel,
     ToggleHistoryPanel,
     SetWorkbenchActivity(WorkbenchActivity),
-    TogglePrimarySidebar,
     SetPrimarySidebarVisible(bool),
     ToggleBottomPanel,
     SetBottomPanelVisible(bool),
@@ -403,7 +402,7 @@ const COMMANDS: &[CommandDescriptor] = &[
     CommandDescriptor::new(
         "workbench_hide_primary_sidebar",
         "隐藏 PrimarySidebar",
-        "隐藏主侧边栏但保留 ActivityBar。",
+        "隐藏当前主导航 surface。",
         "Workbench",
         CommandScope::Sidebar,
         AppAction::SetPrimarySidebarVisible(false),
@@ -1033,7 +1032,6 @@ fn availability_for_action(context: &ActionContext, action: AppAction) -> Action
         | AppAction::OpenHistoryPanel
         | AppAction::ToggleHistoryPanel
         | AppAction::SetWorkbenchActivity(_)
-        | AppAction::TogglePrimarySidebar
         | AppAction::SetPrimarySidebarVisible(_)
         | AppAction::ToggleBottomPanel
         | AppAction::SetBottomPanelVisible(_)
@@ -1260,10 +1258,6 @@ impl DbManagerApp {
             }
             AppAction::SetWorkbenchActivity(activity) => {
                 self.set_workbench_activity(activity);
-                Vec::new()
-            }
-            AppAction::TogglePrimarySidebar => {
-                self.toggle_sidebar_visibility();
                 Vec::new()
             }
             AppAction::SetPrimarySidebarVisible(visible) => {
