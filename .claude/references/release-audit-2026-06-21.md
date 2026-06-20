@@ -29,17 +29,19 @@ individual symptoms — the symptoms are the test cases for the cascade.
 
 ## BLOCKERS
 
-> **Status 2026-06-21:** B1, B2, B3 (grid-save trilogy) **FIXED** — routed grid save
-> through the transactional batch seam (`execute_grid_save`→`GridSaveDone`→
-> `handle_grid_save_done`), threaded `db_type` for correct quoting, clear-edits-on-commit.
-> See `grid-save-isolation.md` and `bug-ledger.md` (AUD-B1/B2/B3). Remaining: B4–B9.
+> **Status 2026-06-21:** All 9 audit BLOCKERs addressed across separate commits.
+> B1/B2/B3-grid (transactional grid save), B4 (query cancel UI), B5/B6 (zombie active +
+> stale db-switch metadata), B6-ER (cross-connection ER guard), B7 (hot-path panics),
+> B8/B9 (WelcomeSetup modal + keyboard-first bindings). B3-tabclose (unsaved-edit on
+> close) MITIGATED to a warning (full pre-close confirm dialog is a tracked follow-up).
+> Remaining work is the GAP/POLISH backlog below and the invalidation-cascade refactor.
 
 | ID | Title | Evidence | Symptom |
 |---|---|---|---|
 | ~~B1 (G1)~~ ✅ | Grid edits not cleared after successful save | `app/runtime/handler.rs` `handle_grid_save_done` now clears edits on committed batch | FIXED |
 | ~~B2 (G3)~~ ✅ | MySQL grid save uses wrong identifier quoting | `db_type` threaded into `generate_save_sql` | FIXED |
 | ~~B2b (G2)~~ ✅ | Multi-statement save fire-and-forget | now single transactional `execute_import_batch` | FIXED |
-| B3 (G4) | Unsaved grid edits silently dropped on tab close / table switch | `app/runtime/request_lifecycle.rs:51-55`, `input_router.rs:1199-1230`; close path calls `remove_grid_workspaces_for_tab` with no warning | Closing a tab or switching tables silently destroys uncommitted cell edits, new rows, and delete marks |
+| B3 (G4) | Unsaved grid edits silently dropped on tab close / table switch | ~~`request_lifecycle.rs`/`input_router.rs`~~ PARTIAL: table-switch already persists edits to the store (isolation fix, recoverable). Tab close now warns via `warn_if_tab_has_unsaved_grid_edits` before discarding (no longer silent). Full pre-close confirm dialog remains a follow-up. | MITIGATED 2026-06-21 |
 | B4 (Q1) | No user-visible way to cancel a running query | ~~`app/runtime/request_lifecycle.rs:9`~~ FIXED: `cancel_active_query()` + `AppAction::CancelQuery` + palette command "取消查询" + ⏹ stop button beside the SQL-editor spinner | FIXED 2026-06-21 |
 | B5 (CONN-F4) | Zombie `manager.active` on connect failure | ~~`app/runtime/database.rs:107`~~ FIXED: `handle_connection_error` now resets `manager.active=None` when the failed connection is active | FIXED 2026-06-21 |
 | B6 (CONN-F3 + F8) | In-flight ER fetches are untracked + carry no connection identity | ~~`session/message.rs:49-52`~~ FIXED: ER messages carry a monotonic `load_generation`; `ERDiagramState.clear()`/`begin_loading()` bump it; handlers drop mismatched generations; disconnect clears ER (also fixes CONN-F1) | FIXED 2026-06-21 |

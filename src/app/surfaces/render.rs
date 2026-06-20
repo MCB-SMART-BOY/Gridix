@@ -1242,6 +1242,7 @@ impl DbManagerApp {
             }
             self.session.tab_manager.close_tab(idx);
             if let Some(tab_id) = closing_tab_id {
+                self.warn_if_tab_has_unsaved_grid_edits(&tab_id);
                 self.remove_grid_workspaces_for_tab(&tab_id);
             }
         }

@@ -59,6 +59,13 @@ impl GridWorkspaceStore {
             .retain(|workspace_id, _| workspace_id.tab_id != tab_id);
     }
 
+    /// 该标签页是否存在任何未保存的网格编辑（修改单元格 / 新增行 / 待删除行）。
+    fn tab_has_unsaved_edits(&self, tab_id: &str) -> bool {
+        self.states
+            .iter()
+            .any(|(workspace_id, state)| workspace_id.tab_id == tab_id && state.has_changes())
+    }
+
     fn remove_table(
         &mut self,
         connection_name: &str,
@@ -283,6 +290,7 @@ impl DbManagerApp {
             self.cancel_query_request_silently(request_id);
         }
         if let Some(ref id) = tab_id {
+            self.warn_if_tab_has_unsaved_grid_edits(id);
             self.remove_grid_workspaces_for_tab(id);
         }
         self.session.tab_manager.close_tab(tab_index);
@@ -376,6 +384,18 @@ impl DbManagerApp {
 
     pub(crate) fn remove_grid_workspaces_for_tab(&mut self, tab_id: &str) {
         self.grid_workspaces.remove_tab(tab_id);
+    }
+
+    /// 关闭标签页前：若该标签页有未保存的网格编辑，发出明确警告，避免静默丢失（修复审计 B3-tabclose）。
+    ///
+    /// 在删除工作区前调用。先持久化当前活动工作区，确保 store 反映最新编辑。
+    pub(crate) fn warn_if_tab_has_unsaved_grid_edits(&mut self, tab_id: &str) {
+        self.persist_active_grid_workspace();
+        if self.grid_workspaces.tab_has_unsaved_edits(tab_id) {
+            self.session
+                .notifications
+                .warning("已关闭标签页，丢弃了其中未保存的表格修改（保存请用 Ctrl+S）");
+        }
     }
 
     pub(in crate::app) fn remove_grid_workspace_for_table(&mut self, table_name: &str) {
@@ -520,6 +540,40 @@ mod tests {
         assert_eq!(restored_orders.new_rows.len(), 1);
         assert_eq!(restored_orders.new_rows[0].len(), 2);
         assert_eq!(restored_orders.cursor, (8, 1));
+    }
+
+    #[test]
+    fn tab_has_unsaved_edits_detects_pending_changes() {
+        // 审计 B3-tabclose：关闭标签页前需能检测到该标签页是否有未保存的网格编辑。
+        let mut store = GridWorkspaceStore::default();
+
+        let clean_state = DataGridState::new();
+        let mut dirty_state = DataGridState::new();
+        dirty_state
+            .modified_cells
+            .insert((0, 1), "edited".to_string());
+
+        store.save(
+            workspace("tab-1", "local", Some("main"), "users"),
+            &clean_state,
+        );
+        store.save(
+            workspace("tab-2", "local", Some("main"), "orders"),
+            &dirty_state,
+        );
+
+        assert!(
+            !store.tab_has_unsaved_edits("tab-1"),
+            "a tab with only clean grid state must report no unsaved edits"
+        );
+        assert!(
+            store.tab_has_unsaved_edits("tab-2"),
+            "a tab with modified cells must report unsaved edits"
+        );
+        assert!(
+            !store.tab_has_unsaved_edits("tab-unknown"),
+            "an unknown tab id must report no unsaved edits"
+        );
     }
 
     #[test]
