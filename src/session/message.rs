@@ -55,8 +55,8 @@ pub enum Message {
         u64,
         Result<Vec<RoutineInfo>, String>,
     ),
-    /// 外键关系获取完成 (外键列表结果)
-    ForeignKeysFetched(Result<Vec<ForeignKeyInfo>, String>),
-    /// ER图表结构获取完成 (表名, 列信息列表)
-    ERTableColumnsFetched(String, Result<Vec<ColumnInfo>, String>),
+    /// 外键关系获取完成 (加载代号, 外键列表结果)
+    ForeignKeysFetched(u64, Result<Vec<ForeignKeyInfo>, String>),
+    /// ER图表结构获取完成 (加载代号, 表名, 列信息列表)
+    ERTableColumnsFetched(u64, String, Result<Vec<ColumnInfo>, String>),
 }

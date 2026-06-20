@@ -269,6 +269,9 @@ impl DbManagerApp {
             self.state.sidebar_panel_state.clear_routines();
             self.state.sidebar_panel_state.loading_triggers = false;
             self.state.sidebar_panel_state.loading_routines = false;
+            // 清除 ER 图并使在途 ER 回包失效（审计 CONN-F1 / B6-ER）。
+            self.state.er_diagram_state.clear();
+            self.state.er_diagram_state.loading = false;
         }
         self.session.refresh_connecting_flag();
     }

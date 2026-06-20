@@ -274,11 +274,11 @@ impl DbManagerApp {
                 Message::RoutinesFetched(conn_name, db_name, request_id, result) => {
                     self.handle_routines_fetched(ctx, conn_name, db_name, request_id, result);
                 }
-                Message::ForeignKeysFetched(result) => {
-                    self.handle_foreign_keys_fetched(ctx, result);
+                Message::ForeignKeysFetched(generation, result) => {
+                    self.handle_foreign_keys_fetched(ctx, generation, result);
                 }
-                Message::ERTableColumnsFetched(table_name, result) => {
-                    self.handle_er_table_columns_fetched(ctx, table_name, result);
+                Message::ERTableColumnsFetched(generation, table_name, result) => {
+                    self.handle_er_table_columns_fetched(ctx, generation, table_name, result);
                 }
             }
         }
@@ -1067,8 +1067,14 @@ impl DbManagerApp {
     fn handle_foreign_keys_fetched(
         &mut self,
         _ctx: &egui::Context,
+        generation: u64,
         result: Result<Vec<crate::data::ForeignKeyInfo>, String>,
     ) {
+        // 丢弃过期连接/上一轮加载的外键回包（审计 B6-ER）。
+        if generation != self.state.er_diagram_state.current_load_generation() {
+            tracing::debug!(generation, "忽略过期 ER 外键回包");
+            return;
+        }
         match result {
             Ok(fks) => {
                 let foreign_key_columns = collect_er_foreign_key_columns(&fks);
@@ -1097,9 +1103,15 @@ impl DbManagerApp {
     fn handle_er_table_columns_fetched(
         &mut self,
         _ctx: &egui::Context,
+        generation: u64,
         table_name: String,
         result: Result<Vec<crate::data::ColumnInfo>, String>,
     ) {
+        // 丢弃过期连接/上一轮加载的列回包（审计 B6-ER）。
+        if generation != self.state.er_diagram_state.current_load_generation() {
+            tracing::debug!(generation, table = %table_name, "忽略过期 ER 列回包");
+            return;
+        }
         match result {
             Ok(columns) => {
                 let er_columns: Vec<ui::ERColumn> = columns

@@ -179,6 +179,8 @@ pub struct ERDiagramState {
     pub zoom: f32,
     /// 当前正在拖动的表索引
     pub dragging_table: Option<usize>,
+    /// 当前是否正在拖动画布视口
+    panning_canvas: bool,
     /// 拖动开始时的鼠标位置
     drag_start: Option<Pos2>,
     /// 当前选中的表索引
@@ -205,6 +207,9 @@ pub struct ERDiagramState {
     foreign_key_columns: HashSet<(String, String)>,
     /// 外键请求是否已完成（成功或失败）
     foreign_keys_resolved: bool,
+    /// 当前加载代号，单调递增。每次 begin_loading/clear 自增，用于丢弃过期连接的
+    /// 异步 ER 回包，防止断开/切换后旧连接的列/外键写入新连接的 ER 状态（审计 B6-ER）。
+    load_generation: u64,
 }
 
 impl ERDiagramState {
@@ -223,6 +228,7 @@ impl ERDiagramState {
         self.relationships.clear();
         self.selected_table = None;
         self.dragging_table = None;
+        self.panning_canvas = false;
         self.pending_selection_reveal = false;
         self.pending_fit_to_view = false;
         self.pending_layout_restore = None;
@@ -231,6 +237,13 @@ impl ERDiagramState {
         self.pending_column_tables.clear();
         self.foreign_key_columns.clear();
         self.foreign_keys_resolved = false;
+        // 使任何在途的旧回包失效。
+        self.load_generation = self.load_generation.wrapping_add(1);
+    }
+
+    /// 当前加载代号。异步 ER 任务捕获此值并随回包带回，handler 比对以丢弃过期回包。
+    pub fn current_load_generation(&self) -> u64 {
+        self.load_generation
     }
 
     /// 开始一轮新的 ER 数据加载。
@@ -351,25 +364,65 @@ impl ERDiagramState {
     /// 开始拖动表
     pub fn start_drag(&mut self, table_index: usize, mouse_pos: Pos2) {
         self.dragging_table = Some(table_index);
+        self.panning_canvas = false;
         self.drag_start = Some(mouse_pos);
         self.select_table(table_index);
     }
 
     /// 更新拖动位置
-    pub fn update_drag(&mut self, mouse_pos: Pos2) {
+    pub fn update_drag(&mut self, mouse_pos: Pos2, zoom: f32) -> bool {
         if let (Some(table_idx), Some(start)) = (self.dragging_table, self.drag_start) {
             if let Some(table) = self.tables.get_mut(table_idx) {
-                let delta = mouse_pos - start;
+                let delta = (mouse_pos - start) / zoom.max(ER_DIAGRAM_MIN_ZOOM);
                 table.position += delta;
             }
             self.drag_start = Some(mouse_pos);
+            return true;
         }
+
+        false
+    }
+
+    /// 开始拖动画布视口。
+    pub fn start_canvas_pan(&mut self, mouse_pos: Pos2) {
+        self.dragging_table = None;
+        self.panning_canvas = true;
+        self.drag_start = Some(mouse_pos);
+    }
+
+    /// 更新画布拖动位置。
+    pub fn update_canvas_pan(&mut self, mouse_pos: Pos2, zoom: f32) -> bool {
+        if !self.panning_canvas {
+            return false;
+        }
+
+        let Some(start) = self.drag_start else {
+            self.drag_start = Some(mouse_pos);
+            return false;
+        };
+
+        let delta = (mouse_pos - start) / zoom.max(ER_DIAGRAM_MIN_ZOOM);
+        self.pan_offset += delta;
+        self.drag_start = Some(mouse_pos);
+        true
+    }
+
+    pub fn is_canvas_panning(&self) -> bool {
+        self.panning_canvas
     }
 
     /// 结束拖动
     pub fn end_drag(&mut self) {
         self.dragging_table = None;
+        self.panning_canvas = false;
         self.drag_start = None;
+    }
+
+    /// 清除当前表选择。
+    pub fn clear_selection(&mut self) {
+        self.selected_table = None;
+        self.pending_selection_reveal = false;
+        self.sync_selected_flags();
     }
 
     /// 缩放
@@ -1171,6 +1224,52 @@ mod tests {
     }
 
     #[test]
+    fn table_drag_uses_incremental_screen_delta_scaled_by_zoom() {
+        let mut state = ERDiagramState::new();
+        state.tables = vec![make_table("orders", Pos2::new(10.0, 20.0))];
+
+        state.start_drag(0, Pos2::new(100.0, 100.0));
+
+        assert!(state.update_drag(Pos2::new(140.0, 120.0), 2.0));
+        assert_eq!(state.tables[0].position, Pos2::new(30.0, 30.0));
+
+        assert!(state.update_drag(Pos2::new(150.0, 130.0), 2.0));
+        assert_eq!(state.tables[0].position, Pos2::new(35.0, 35.0));
+    }
+
+    #[test]
+    fn canvas_pan_uses_incremental_screen_delta_scaled_by_zoom() {
+        let mut state = ERDiagramState::new();
+
+        state.start_canvas_pan(Pos2::new(100.0, 100.0));
+
+        assert!(state.update_canvas_pan(Pos2::new(140.0, 120.0), 2.0));
+        assert_eq!(state.pan_offset, Vec2::new(20.0, 10.0));
+
+        assert!(state.update_canvas_pan(Pos2::new(150.0, 130.0), 2.0));
+        assert_eq!(state.pan_offset, Vec2::new(25.0, 15.0));
+
+        state.end_drag();
+        assert!(!state.is_canvas_panning());
+    }
+
+    #[test]
+    fn clear_selection_resets_table_flags_and_pending_reveal() {
+        let mut state = ERDiagramState::new();
+        state.tables = vec![
+            make_table("customers", Pos2::new(0.0, 0.0)),
+            make_table("orders", Pos2::new(200.0, 0.0)),
+        ];
+
+        assert!(state.select_table(1));
+        state.clear_selection();
+
+        assert_eq!(state.selected_table, None);
+        assert!(!state.pending_selection_reveal);
+        assert!(state.tables.iter().all(|table| !table.selected));
+    }
+
+    #[test]
     fn begin_loading_resets_interaction_mode_and_pending_selection_reveal() {
         let mut state = ERDiagramState::new();
         state.toggle_interaction_mode();
@@ -1192,6 +1291,27 @@ mod tests {
         assert!(!state.pending_fit_to_view);
         assert!(state.loading);
         assert!(state.has_pending_layout_restore());
+    }
+
+    #[test]
+    fn load_generation_advances_on_each_load_and_clear() {
+        // 审计 B6-ER：每轮加载/清空都推进代号，使旧连接的在途 ER 回包失效。
+        let mut state = ERDiagramState::new();
+        let g0 = state.current_load_generation();
+
+        state.begin_loading(&["users".to_string()]);
+        let g1 = state.current_load_generation();
+        assert_ne!(g0, g1, "begin_loading must advance the generation");
+
+        // 模拟切换/断开连接：清空使代号再次推进。
+        state.clear();
+        let g2 = state.current_load_generation();
+        assert_ne!(g1, g2, "clear must advance the generation");
+
+        // 第二轮加载产生又一个不同代号。
+        state.begin_loading(&["orders".to_string()]);
+        let g3 = state.current_load_generation();
+        assert_ne!(g2, g3, "a fresh load must advance the generation again");
     }
 
     #[test]

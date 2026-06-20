@@ -67,6 +67,7 @@ impl DbManagerApp {
                     .er_diagram_state
                     .set_pending_layout_restore(layout_snapshot);
                 self.state.er_diagram_state.begin_loading(&load.tables);
+                let load_generation = self.state.er_diagram_state.current_load_generation();
 
                 // 创建 ER 表结构
                 for table_name in &load.tables {
@@ -102,6 +103,7 @@ impl DbManagerApp {
                             crate::data::get_table_columns(&config_clone, &table_clone).await;
                         if tx
                             .send(Message::ERTableColumnsFetched(
+                                load_generation,
                                 table_clone,
                                 result.map_err(|e| e.to_string()),
                             ))
@@ -119,6 +121,7 @@ impl DbManagerApp {
                     let result = crate::data::get_foreign_keys(&config).await;
                     if tx
                         .send(Message::ForeignKeysFetched(
+                            load_generation,
                             result.map_err(|e| e.to_string()),
                         ))
                         .is_err()
