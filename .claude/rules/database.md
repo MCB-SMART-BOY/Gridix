@@ -45,6 +45,15 @@ Each backend has a different cancel strategy:
 `null_flags[row][col] == true` means the value is SQL NULL (the corresponding string is empty).
 This is deliberate — avoids sentinel values for distinguishing NULL from empty string.
 
+## Grid save (transactional batch)
+
+Grid cell edits/inserts/deletes are saved as ONE atomic transaction, not N independent queries:
+- `DbManagerApp::execute_grid_save(table, statements)` → `execute_import_batch(&config, statements, use_transaction=true, stop_on_error=true)`.
+- Result via `Message::GridSaveDone { result, table, request_id, elapsed_ms }` → `handle_grid_save_done`.
+- Committed (failed == 0) → `clear_edits()` + `RefreshSelectedTable`; rolled back → keep edits + error.
+- `db_type` MUST be threaded into `generate_save_sql` for correct identifier quoting (MySQL backticks, PG/SQLite double-quotes). Do NOT pass `db_type=None` from the grid UI layer.
+- Do NOT revert to looping `execute()` per statement — that reintroduces partial-commit (audit B2) and post-save stale edits (audit B1).
+
 ## Password security
 
 - `ConnectionConfig.password` is `#[serde(skip_serializing)]`

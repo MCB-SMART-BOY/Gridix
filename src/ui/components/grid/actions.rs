@@ -340,4 +340,57 @@ mod tests {
         assert_eq!(state.rows_to_delete, vec![0]);
         assert!(state.has_changes());
     }
+
+    #[test]
+    fn generate_save_sql_uses_backticks_for_mysql() {
+        use crate::data::DatabaseType;
+        let result = sample_result();
+        let mut state = DataGridState::default();
+        let mut actions = DataGridActions::default();
+
+        state.modified_cells.insert((0, 1), "bob".to_string());
+
+        generate_save_sql(
+            &result,
+            &mut state,
+            "users",
+            &mut actions,
+            Some(DatabaseType::MySQL),
+        );
+
+        assert_eq!(actions.sql_to_execute.len(), 1);
+        let sql = &actions.sql_to_execute[0];
+        // MySQL 必须用反引号引用标识符，禁止出现双引号标识符（修复 B3）
+        assert!(sql.contains("`users`"), "expected backtick table: {sql}");
+        assert!(sql.contains("`name`"), "expected backtick column: {sql}");
+        assert!(
+            !sql.contains("\"users\"") && !sql.contains("\"name\""),
+            "MySQL save must not use double-quoted identifiers: {sql}"
+        );
+    }
+
+    #[test]
+    fn generate_save_sql_uses_double_quotes_for_postgres_and_sqlite() {
+        use crate::data::DatabaseType;
+        for db_type in [DatabaseType::PostgreSQL, DatabaseType::SQLite] {
+            let result = sample_result();
+            let mut state = DataGridState::default();
+            let mut actions = DataGridActions::default();
+
+            state.modified_cells.insert((0, 1), "bob".to_string());
+
+            generate_save_sql(&result, &mut state, "users", &mut actions, Some(db_type));
+
+            assert_eq!(actions.sql_to_execute.len(), 1);
+            let sql = &actions.sql_to_execute[0];
+            assert!(
+                sql.contains("\"users\"") && sql.contains("\"name\""),
+                "{db_type:?} save must use double-quoted identifiers: {sql}"
+            );
+            assert!(
+                !sql.contains('`'),
+                "{db_type:?} save must not use backticks: {sql}"
+            );
+        }
+    }
 }

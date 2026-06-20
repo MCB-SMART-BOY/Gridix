@@ -9,9 +9,9 @@ use std::time::Instant;
 use crate::app::dialogs::host::DialogId;
 use crate::core::constants;
 use crate::data::{
-    ConnectResult, ConnectionConfig, DatabaseType, connect_database, drop_database, execute_query,
-    execute_query_cancellable, get_primary_key_column, get_tables_for_database,
-    ssh_tunnel::SSH_TUNNEL_MANAGER,
+    ConnectResult, ConnectionConfig, DatabaseType, connect_database, drop_database,
+    execute_import_batch, execute_query, execute_query_cancellable, get_primary_key_column,
+    get_tables_for_database, ssh_tunnel::SSH_TUNNEL_MANAGER,
 };
 use crate::ui;
 
@@ -623,6 +623,62 @@ impl DbManagerApp {
                 )
             }
         }
+    }
+
+    /// 将网格编辑保存为一个事务批次。
+    ///
+    /// 所有 UPDATE/DELETE/INSERT 语句通过 `execute_import_batch` 以单事务提交：
+    /// 要么全部成功，要么整体回滚。成功回包后由 `handle_grid_save_done` 清除编辑状态
+    /// 并刷新该表；失败时保留编辑（事务已回滚，DB 未变）。
+    ///
+    /// 修复审计 BLOCKER B1（保存后清编辑）、B2（原子性）、B3（按 db_type 引用标识符）。
+    pub(in crate::app) fn execute_grid_save(&mut self, table: String, statements: Vec<String>) {
+        if statements.is_empty() {
+            return;
+        }
+
+        let Some(active_name) = self.session.manager.active.clone() else {
+            self.session.notifications.warning("请先连接数据库");
+            return;
+        };
+        let Some(conn) = self.session.manager.connections.get(&active_name) else {
+            self.session.notifications.warning("请先连接数据库");
+            return;
+        };
+        let config = conn.config.clone();
+
+        let request_id = self.session.next_query_request_id();
+        self.session.pending_grid_save_request = Some(request_id);
+
+        let tx = self.session.tx.clone();
+        self.session.grid_save_executing = true;
+        self.session.refresh_executing_flag();
+        self.session.last_query_time_ms = None;
+
+        let statement_count = statements.len();
+
+        self.session.runtime.spawn(async move {
+            let start = Instant::now();
+            // use_transaction=true（原子性），stop_on_error=true（首错即回滚）
+            let result = execute_import_batch(&config, statements, true, true)
+                .await
+                .map_err(|e| e.to_string());
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+
+            if tx
+                .send(Message::GridSaveDone {
+                    result,
+                    table,
+                    request_id,
+                    elapsed_ms,
+                })
+                .is_err()
+            {
+                tracing::warn!("无法发送网格保存结果：接收端已关闭");
+            }
+        });
+
+        tracing::info!(connection = %active_name, statement_count, "开始网格保存批次");
     }
 }
 

@@ -36,6 +36,7 @@ pub use state::DataGridState;
 use view::{GridVirtualRow, GridVirtualRows};
 
 use crate::core::{Action, KeyBindings, constants};
+use crate::data::DatabaseType;
 use crate::data::QueryResult;
 use crate::ui::dialogs::{DialogHeader, DialogStyle, DialogWindow};
 use crate::ui::styles::{GRAY, theme_disabled_text, theme_text};
@@ -79,6 +80,7 @@ impl DataGrid {
         state: &mut DataGridState,
         table_name: Option<&str>,
         keybindings: &KeyBindings,
+        db_type: Option<DatabaseType>,
     ) -> (DataGridActions, (usize, usize)) {
         let mut actions = DataGridActions::default();
 
@@ -88,7 +90,15 @@ impl DataGrid {
         }
 
         // 显示模式状态栏和操作按钮
-        Self::show_mode_bar(ui, state, result, table_name, keybindings, &mut actions);
+        Self::show_mode_bar(
+            ui,
+            state,
+            result,
+            table_name,
+            keybindings,
+            &mut actions,
+            db_type,
+        );
 
         ui.add_space(2.0);
 
@@ -152,7 +162,7 @@ impl DataGrid {
         // 处理 Ctrl+S 保存请求
         if state.pending_save && state.has_changes() {
             if let Some(table) = table_name {
-                actions::generate_save_sql(result, state, table, &mut actions, None);
+                actions::generate_save_sql(result, state, table, &mut actions, db_type);
             }
             state.pending_save = false;
         } else if state.pending_save {
@@ -357,6 +367,7 @@ impl DataGrid {
         table_name: Option<&str>,
         keybindings: &KeyBindings,
         actions: &mut DataGridActions,
+        db_type: Option<DatabaseType>,
     ) {
         ui.horizontal(|ui| {
             // 模式指示器
@@ -516,7 +527,7 @@ impl DataGrid {
                     .clicked()
                     && let Some(table) = table_name
                 {
-                    actions::generate_save_sql(result, state, table, actions, None);
+                    actions::generate_save_sql(result, state, table, actions, db_type);
                 }
 
                 let discard_color = if has_changes {
@@ -949,6 +960,7 @@ mod tests {
                 state,
                 Some("users"),
                 &KeyBindings::default(),
+                None,
             );
             returned_actions = actions;
         });

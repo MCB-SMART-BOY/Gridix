@@ -478,6 +478,13 @@ impl DbManagerApp {
         self.state.grid_state.focused =
             self.state.focus_area == ui::FocusArea::DataGrid && !self.has_modal_dialog_open();
         let table_name = self.state.selected_table.as_deref();
+        let db_type = self
+            .session
+            .manager
+            .active
+            .as_ref()
+            .and_then(|name| self.session.manager.connections.get(name))
+            .map(|conn| conn.config.db_type);
         let (grid_actions, _) = ui::DataGrid::show_editable(
             ui,
             result,
@@ -488,6 +495,7 @@ impl DbManagerApp {
             &mut self.state.grid_state,
             table_name,
             &self.keybindings,
+            db_type,
         );
 
         if grid_actions.open_filter_panel {
@@ -516,8 +524,10 @@ impl DbManagerApp {
         if let Some(message) = grid_actions.message {
             self.session.notifications.info(message);
         }
-        for sql in grid_actions.sql_to_execute {
-            let _ = self.execute(sql);
+        if !grid_actions.sql_to_execute.is_empty() {
+            // 网格保存走事务化批量通道（修复 B1/B2/B3）：整批原子提交，成功后清编辑并刷新。
+            let save_table = self.state.selected_table.clone().unwrap_or_default();
+            self.execute_grid_save(save_table, grid_actions.sql_to_execute);
         }
         if let Some(tab) = grid_actions.switch_to_tab {
             let index = tab.saturating_sub(1);

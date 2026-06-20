@@ -30,6 +30,15 @@ pub enum Message {
     ),
     /// 导入执行完成 (执行报告, 耗时毫秒)
     ImportDone(Result<ImportExecutionReport, String>, u64),
+    /// 表格保存批次执行完成 (执行报告, 表名, 请求ID, 耗时毫秒)
+    ///
+    /// 网格编辑保存走事务化批量通道，成功后由 handler 清除编辑状态并刷新该表。
+    GridSaveDone {
+        result: Result<ImportExecutionReport, String>,
+        table: String,
+        request_id: u64,
+        elapsed_ms: u64,
+    },
     /// 主键列获取完成 (表名, 主键列名)
     PrimaryKeyFetched(String, Option<String>),
     /// 触发器列表获取完成 (连接名, 数据库名, 请求ID, 触发器列表结果)

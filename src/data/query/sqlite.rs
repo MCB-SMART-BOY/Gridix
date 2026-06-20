@@ -469,4 +469,34 @@ mod tests {
         assert_eq!(triggers[0].name, "trg");
         assert!(triggers[0].definition.contains("INSERT ON t"));
     }
+
+    #[test]
+    fn execute_batch_rolls_back_whole_batch_on_failure() {
+        // 验证 B2 原子性：事务批次中任一语句失败，整批回滚，表数据不变。
+        let db = NamedTempFile::new().unwrap();
+        let conn = rusqlite::Connection::open(db.path()).unwrap();
+        conn.execute(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO users (id, name) VALUES (1, 'alice')", [])
+            .unwrap();
+
+        let config = test_config_for_path(db.path().to_string_lossy().into_owned());
+        let statements = vec![
+            "UPDATE \"users\" SET \"name\" = 'bob' WHERE \"id\" = 1;".to_string(),
+            // 第二条违反 NOT NULL，必然失败 → 整批应回滚
+            "UPDATE \"users\" SET \"name\" = NULL WHERE \"id\" = 1;".to_string(),
+        ];
+
+        let result = execute_batch(&config, &statements, true, true);
+        assert!(result.is_err(), "batch with a failing statement must error");
+
+        // 第一条 UPDATE 也必须被回滚：name 仍为原值 alice。
+        let name: String = conn
+            .query_row("SELECT name FROM users WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(name, "alice", "transaction must roll back the whole batch");
+    }
 }

@@ -2,6 +2,14 @@
 
 From `docs/recovery/12-bug-ledger-4.1.0.md`. Current state: no active unblocked bugs.
 
+## Fixed 2026-06-21 (release audit grid-save BLOCKERs)
+
+| ID | symptom | root cause | fix |
+|---|---|---|---|
+| AUD-B1 | Grid edits stay "modified" after a successful save; re-save re-runs same writes | `QueryDone` save path cleared only `rows_to_delete`, never `modified_cells`/`new_rows` | Route save through `execute_grid_save`→`GridSaveDone`; `handle_grid_save_done` calls `clear_edits()` + refresh on a committed batch only |
+| AUD-B2 | Multi-statement save partially commits on error (some rows saved, some not) | Each statement fired as an independent async `execute()` (fire-and-forget) | Single transactional batch via existing `execute_import_batch(.., use_transaction=true, stop_on_error=true)`; all-or-nothing |
+| AUD-B3 | MySQL grid save fails: emits double-quoted identifiers in strict mode | `db_type` hardcoded `None` at `generate_save_sql` call (grid UI layer lacked it) | Thread `db_type` into `DataGrid::show_editable`→`generate_save_sql`; MySQL backticks, PG/SQLite double-quotes |
+
 ## Current observations (not bugs)
 
 **G41-B007** (observation): dialog horizontal overflow from fixed-width row content in narrow viewports. Major live verification completed. Remaining low-frequency surfaces: CreateDbDialog, CreateUserDialog, ExportDialog at narrow widths.

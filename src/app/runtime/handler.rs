@@ -69,6 +69,27 @@ fn should_record_active_query_time(
     !is_stale_for_existing_tab && target_tab_index == Some(active_index)
 }
 
+/// 网格保存批次回包的处置结果（纯决策，便于单测 B1 不变量）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GridSaveOutcome {
+    /// 整批成功：清除编辑状态并刷新该表。
+    CommittedClearEdits,
+    /// 整批回滚（部分失败或执行错误）：保留编辑，显示错误。
+    RolledBackKeepEdits,
+}
+
+/// 根据批量执行报告判定网格保存的处置方式。
+///
+/// 仅当整批成功（无失败语句）时才清除编辑；否则事务已回滚，DB 未变，保留编辑供重试。
+fn classify_grid_save_outcome(
+    result: &Result<crate::data::ImportExecutionReport, String>,
+) -> GridSaveOutcome {
+    match result {
+        Ok(report) if report.failed == 0 => GridSaveOutcome::CommittedClearEdits,
+        _ => GridSaveOutcome::RolledBackKeepEdits,
+    }
+}
+
 fn collect_er_foreign_key_columns(
     fks: &[crate::data::ForeignKeyInfo],
 ) -> HashSet<(String, String)> {
@@ -235,6 +256,14 @@ impl DbManagerApp {
                 }
                 Message::ImportDone(result, elapsed_ms) => {
                     self.handle_import_done(ctx, result, elapsed_ms);
+                }
+                Message::GridSaveDone {
+                    result,
+                    table,
+                    request_id,
+                    elapsed_ms,
+                } => {
+                    self.handle_grid_save_done(ctx, result, table, request_id, elapsed_ms);
                 }
                 Message::PrimaryKeyFetched(table_name, pk_column) => {
                     self.handle_primary_key_fetched(ctx, table_name, pk_column);
@@ -833,6 +862,63 @@ impl DbManagerApp {
         self.session.needs_repaint = true;
     }
 
+    /// 处理网格保存批次完成消息
+    ///
+    /// 成功（整批提交）→ 清除编辑状态并刷新该表（修复 B1）。
+    /// 失败（整批回滚）→ 保留编辑、显示错误，便于用户修正后重试。
+    fn handle_grid_save_done(
+        &mut self,
+        ctx: &egui::Context,
+        result: Result<crate::data::ImportExecutionReport, String>,
+        table: String,
+        request_id: u64,
+        elapsed_ms: u64,
+    ) {
+        self.session.grid_save_executing = false;
+        self.session.refresh_executing_flag();
+
+        // 过期回包保护：仅处理最新一次网格保存的结果。
+        if self.session.pending_grid_save_request != Some(request_id) {
+            tracing::debug!(request_id, "忽略过期网格保存回包");
+            self.session.needs_repaint = true;
+            return;
+        }
+        self.session.pending_grid_save_request = None;
+
+        match (classify_grid_save_outcome(&result), result) {
+            (GridSaveOutcome::CommittedClearEdits, Ok(report)) => {
+                self.session.notifications.success(format!(
+                    "已保存 {} 处修改到「{}」({}ms)",
+                    report.succeeded, table, elapsed_ms
+                ));
+                // 整批成功：清除编辑状态并刷新该表以反映数据库真实数据。
+                self.state.grid_state.clear_edits();
+                if self.state.selected_table.as_deref() == Some(table.as_str()) {
+                    self.dispatch_app_action(
+                        ctx,
+                        crate::app::action::action_system::AppAction::RefreshSelectedTable,
+                    );
+                }
+            }
+            (_, Ok(report)) => {
+                // 事务已回滚，DB 未变；保留编辑供用户修正后重试。
+                let detail = report.first_error.as_deref().unwrap_or("部分语句执行失败");
+                self.session.notifications.error(format!(
+                    "保存失败，已回滚（{} 条未提交）。错误: {}",
+                    report.total.saturating_sub(report.succeeded),
+                    detail
+                ));
+            }
+            (_, Err(e)) => {
+                self.session
+                    .notifications
+                    .error(format!("保存失败，已回滚: {}", e));
+            }
+        }
+
+        self.session.needs_repaint = true;
+    }
+
     /// 处理主键获取完成消息
     fn handle_primary_key_fetched(
         &mut self,
@@ -1055,13 +1141,15 @@ impl DbManagerApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        ErDiagramReadyKind, apply_default_er_diagram_layout, apply_ready_state_er_diagram_layout,
-        clamp_grid_cursor_for_result, collect_er_relationships_from_foreign_keys,
+        ErDiagramReadyKind, GridSaveOutcome, apply_default_er_diagram_layout,
+        apply_ready_state_er_diagram_layout, clamp_grid_cursor_for_result,
+        classify_grid_save_outcome, collect_er_relationships_from_foreign_keys,
         er_diagram_ready_message, is_cancelled_query_error, resolve_er_diagram_ready_state,
         select_ready_state_er_layout_strategy, should_drop_query_error_as_stale,
         should_record_active_query_time,
     };
     use crate::data::ForeignKeyInfo;
+    use crate::data::ImportExecutionReport;
     use crate::data::QueryResult;
     use crate::ui::{ERLayoutStrategy, ERTable, RelationType, Relationship, RelationshipOrigin};
 
@@ -1121,6 +1209,44 @@ mod tests {
         assert!(!should_record_active_query_time(Some(1), 2, false));
         assert!(!should_record_active_query_time(Some(2), 2, true));
         assert!(!should_record_active_query_time(None, 2, false));
+    }
+
+    #[test]
+    fn grid_save_clears_edits_only_when_whole_batch_commits() {
+        // B1: 整批成功 → 清编辑
+        let ok = Ok(ImportExecutionReport {
+            total: 3,
+            succeeded: 3,
+            failed: 0,
+            first_error: None,
+        });
+        assert_eq!(
+            classify_grid_save_outcome(&ok),
+            GridSaveOutcome::CommittedClearEdits
+        );
+    }
+
+    #[test]
+    fn grid_save_keeps_edits_on_partial_or_failed_batch() {
+        // B1/B2: 有失败语句 → 保留编辑（事务已回滚）
+        let partial = Ok(ImportExecutionReport {
+            total: 3,
+            succeeded: 1,
+            failed: 1,
+            first_error: Some("NOT NULL constraint failed".to_string()),
+        });
+        assert_eq!(
+            classify_grid_save_outcome(&partial),
+            GridSaveOutcome::RolledBackKeepEdits
+        );
+
+        // 执行层直接报错（事务回滚）→ 保留编辑
+        let err: Result<ImportExecutionReport, String> =
+            Err("事务已回滚，第 2 条语句执行失败".to_string());
+        assert_eq!(
+            classify_grid_save_outcome(&err),
+            GridSaveOutcome::RolledBackKeepEdits
+        );
     }
 
     #[test]

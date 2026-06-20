@@ -38,6 +38,7 @@ pub struct Session {
     pub connecting: bool,
     pub executing: bool,
     pub import_executing: bool,
+    pub grid_save_executing: bool,
 
     // ── 请求 ID 序列（私有：只能通过方法生成，保证单调递增）──
     next_connect_request_id: u64,
@@ -49,6 +50,8 @@ pub struct Session {
     pub pending_database_requests: HashMap<String, (String, u64)>,
     pub pending_triggers_request: Option<(String, Option<String>, u64)>,
     pub pending_routines_request: Option<(String, Option<String>, u64)>,
+    /// 最近一次网格保存批次的请求 ID（用于丢弃过期回包）
+    pub pending_grid_save_request: Option<u64>,
     pub pending_query_tasks: HashMap<u64, tokio::task::JoinHandle<()>>,
     pub pending_query_connections: HashMap<u64, String>,
     pub pending_query_cancellers:
@@ -92,6 +95,7 @@ impl Session {
             connecting: false,
             executing: false,
             import_executing: false,
+            grid_save_executing: false,
             next_connect_request_id: 0,
             next_query_request_id: 0,
             next_metadata_request_id: 0,
@@ -99,6 +103,7 @@ impl Session {
             pending_database_requests: HashMap::new(),
             pending_triggers_request: None,
             pending_routines_request: None,
+            pending_grid_save_request: None,
             pending_query_tasks: HashMap::new(),
             pending_query_connections: HashMap::new(),
             pending_query_cancellers: HashMap::new(),
@@ -179,7 +184,7 @@ impl Session {
 
     pub fn refresh_executing_flag(&mut self) {
         let query_executing = self.tab_manager.tabs.iter().any(|t| t.executing);
-        self.executing = self.import_executing || query_executing;
+        self.executing = self.import_executing || self.grid_save_executing || query_executing;
     }
 
     // ── 查询任务追踪 ──
