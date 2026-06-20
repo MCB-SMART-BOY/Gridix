@@ -744,6 +744,16 @@ mod tests {
     }
 
     #[test]
+    fn cancel_active_query_is_noop_when_nothing_running() {
+        // 审计 B4：没有在执行的查询时取消是安全的无操作。
+        let mut app = DbManagerApp::new_for_test();
+        assert!(
+            !app.cancel_active_query(),
+            "cancel must report false when no query is in flight"
+        );
+    }
+
+    #[test]
     fn prepare_tab_for_query_execution_clears_stale_result_and_sets_request_state() {
         let mut tab = QueryTab::from_sql("select 1");
         tab.result = Some(QueryResult::with_rows(

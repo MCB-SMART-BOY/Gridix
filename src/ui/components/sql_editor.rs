@@ -179,6 +179,7 @@ fn prev_word_pos(text: &str, cursor_pos: usize) -> usize {
 #[derive(Default)]
 pub struct SqlEditorActions {
     pub execute: bool,
+    pub cancel: bool,
     pub format: bool,
     pub clear: bool,
     pub explain: bool,
@@ -605,6 +606,9 @@ impl SqlEditor {
 
             if is_executing {
                 ui.spinner();
+                if icon_btn(ui, "⏹", true, "取消正在执行的查询") {
+                    actions.cancel = true;
+                }
             } else if icon_btn(
                 ui,
                 "▶",

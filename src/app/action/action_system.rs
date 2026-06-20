@@ -53,6 +53,7 @@ pub(in crate::app) enum AppAction {
     PrevQueryTab,
     CloseActiveQueryTab,
     RunCurrentSql,
+    CancelQuery,
     ClearCommandLine,
     ClearSearch,
     AddFilter,
@@ -171,6 +172,7 @@ pub(in crate::app) struct ActionContext {
     pub has_search_text: bool,
     pub grid_has_changes: bool,
     pub query_tab_count: usize,
+    pub is_executing: bool,
     pub focus_area: FocusArea,
     pub show_sidebar: bool,
     pub show_sql_editor: bool,
@@ -199,6 +201,7 @@ impl ActionContext {
             has_search_text: !app.state.search_text.trim().is_empty(),
             grid_has_changes: app.state.grid_state.has_changes(),
             query_tab_count: app.session.tab_manager.tabs.len(),
+            is_executing: app.session.executing,
             focus_area: app.state.focus_area,
             show_sidebar: app.state.show_sidebar,
             show_sql_editor: app.state.show_sql_editor,
@@ -604,6 +607,16 @@ const COMMANDS: &[CommandDescriptor] = &[
         AppAction::RunCurrentSql,
         None,
         &["run", "execute", "query", "sql", "current sql"],
+    ),
+    CommandDescriptor::new(
+        "cancel_query",
+        "取消查询",
+        "取消当前标签页正在执行的查询。",
+        "查询",
+        CommandScope::Editor,
+        AppAction::CancelQuery,
+        None,
+        &["cancel", "stop", "abort", "query", "取消", "停止"],
     ),
     CommandDescriptor::new(
         "query_selected_table",
@@ -1123,6 +1136,13 @@ fn availability_for_action(context: &ActionContext, action: AppAction) -> Action
                 ActionAvailability::disabled("SQL 编辑器里还没有可执行内容")
             }
         }
+        AppAction::CancelQuery => {
+            if context.is_executing {
+                ActionAvailability::enabled()
+            } else {
+                ActionAvailability::disabled("当前没有正在执行的查询")
+            }
+        }
         AppAction::ClearCommandLine => {
             if context.has_sql {
                 ActionAvailability::enabled()
@@ -1374,6 +1394,10 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::RunCurrentSql => vec![AppEffect::ExecuteSql(self.active_sql().to_string())],
+            AppAction::CancelQuery => {
+                self.cancel_active_query();
+                Vec::new()
+            }
             AppAction::ClearCommandLine => {
                 self.set_active_sql(String::new());
                 self.session.notifications.dismiss_all();
@@ -1623,6 +1647,7 @@ mod tests {
             has_search_text: false,
             grid_has_changes: false,
             query_tab_count: 1,
+            is_executing: false,
             focus_area: FocusArea::DataGrid,
             show_sidebar: false,
             show_sql_editor: false,

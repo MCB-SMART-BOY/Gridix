@@ -675,6 +675,11 @@ impl DbManagerApp {
             let _ = self.execute(active_sql.clone());
         }
 
+        // 取消正在执行的查询（修复审计 B4）
+        if actions.cancel {
+            self.cancel_active_query();
+        }
+
         // EXPLAIN 分析
         if actions.explain && !active_sql.is_empty() {
             let sql = active_sql.trim();

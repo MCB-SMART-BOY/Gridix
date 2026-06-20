@@ -29,7 +29,7 @@ cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings &&
 | Fix a build/startup/test error | `gridix-troubleshoot` skill |
 | Understand architecture | this file → module map + architecture sections |
 | Change a dialog | "Common change recipes" below + `~/.codex/references/dialog-audit.md` |
-| Change the ER diagram | `~/.codex/references/er-contracts.md` |
+| Change the ER diagram | `~/.codex/references/er-contracts.md` — preserve schema-canvas visual language |
 | Change database code | `src/data/` + `~/.codex/rules/database.md` |
 | Change session/connection code | `src/session/` + `~/.codex/rules/session.md` |
 | Change UI code | `src/ui/` + `~/.codex/rules/ui-egui.md` |
@@ -86,7 +86,7 @@ src/
 │       (pending: split into focus/sidebar/editor/dialogs/grid/er_diagram submodules)
 ├── app/                 # Transitional: DbManagerApp — being decomposed into Session + UiState
 │   ├── mod.rs           # DbManagerApp (~11 fields, target reached: ~11)
-│   ├── action/          # AppAction (57 variants) → AppEffect, command palette, CommandDescriptor registry
+│   ├── action/          # AppAction (58 variants) → AppEffect, command palette, CommandDescriptor registry
 │   ├── dialogs/host.rs  # DialogId (17 variants), active_dialog_owner
 │   ├── input/           # Keyboard routing (8-stage dispatch pipeline)
 │   │   ├── input_router.rs (~3400 lines)

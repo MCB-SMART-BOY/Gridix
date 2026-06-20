@@ -9,6 +9,25 @@ impl DbManagerApp {
         self.cancel_query_request_with_visibility(request_id, false);
     }
 
+    /// 取消当前活动标签页正在执行的查询（用户主动取消，会显示反馈）。
+    ///
+    /// 修复审计 B4：取消机制原本只有 silent 入口，没有任何用户可达的取消路径。
+    /// 返回是否确实存在一个在执行的查询被取消。
+    pub(in crate::app) fn cancel_active_query(&mut self) -> bool {
+        let Some(request_id) = self
+            .session
+            .tab_manager
+            .get_active()
+            .and_then(|tab| tab.pending_request_id)
+        else {
+            return false;
+        };
+        self.cancel_query_request_with_visibility(request_id, true);
+        self.session.notifications.warning("已取消查询");
+        self.session.needs_repaint = true;
+        true
+    }
+
     /// 检查是否有任何模态对话框打开
     /// 用于在对话框打开时禁用其他区域的键盘响应
     pub(in crate::app) fn has_modal_dialog_open(&self) -> bool {
