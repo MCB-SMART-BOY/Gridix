@@ -16,7 +16,9 @@ mod transfer;
 
 pub use autocomplete::{AutoComplete, CompletionKind};
 #[allow(unused_imports)] // 公开 API，供 UI 和 keymap 设置使用
-pub use commands::{ScopedCommand, ScopedCommandBinding, scoped_command, scoped_commands};
+pub use commands::{
+    MISSING_SCOPED_COMMAND, ScopedCommand, ScopedCommandBinding, scoped_command, scoped_commands,
+};
 pub use config::{
     AppConfig, BottomPanelConfig, BottomPanelTab, EditorAreaConfig, PrimarySidebarConfig,
     ResultPlacement, RightInspectorConfig, RightInspectorTab, StatusBarConfig, TableOpenMode,

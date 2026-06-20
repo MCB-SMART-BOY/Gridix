@@ -524,10 +524,19 @@ impl LocalShortcut {
 
     fn command(self) -> &'static crate::core::ScopedCommand {
         scoped_command(self.config_key()).unwrap_or_else(|| {
-            panic!(
+            // 缺失注册：开发期由 debug_assert 捕获；生产降级为无害占位，
+            // 不在每帧/每按键的热路径上 panic（修复审计 B7）。
+            debug_assert!(
+                false,
                 "LocalShortcut {:?} is missing from the scoped command registry",
                 self
-            )
+            );
+            tracing::error!(
+                shortcut = ?self,
+                config_key = self.config_key(),
+                "LocalShortcut 缺少 scoped command 注册项，使用占位回退"
+            );
+            &crate::core::MISSING_SCOPED_COMMAND
         })
     }
 }
@@ -681,8 +690,16 @@ fn scoped_command_bindings(command_id: &'static str) -> Vec<LocalBinding> {
         return bindings.clone();
     }
 
-    scoped_command(command_id)
-        .unwrap_or_else(|| panic!("missing scoped command registry entry for {command_id}"))
+    let Some(command) = scoped_command(command_id) else {
+        // 缺失注册：开发期由 debug_assert 捕获；生产返回空绑定而非 panic（修复审计 B7）。
+        debug_assert!(
+            false,
+            "missing scoped command registry entry for {command_id}"
+        );
+        tracing::error!(command_id, "缺少 scoped command 注册项，回退为空绑定");
+        return Vec::new();
+    };
+    command
         .default_bindings
         .iter()
         .copied()

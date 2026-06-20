@@ -34,6 +34,17 @@ const fn bind(key: KeyCode, modifiers: KeyModifiers) -> ScopedCommandBinding {
     ScopedCommandBinding::new(key, modifiers)
 }
 
+/// 当某个 command id 未在注册表中找到时使用的兜底项。
+///
+/// 用于把"缺失注册"从运行时 panic 降级为可见但无害的占位（无默认绑定），
+/// 避免每帧/每按键的热路径因一处漏注册而直接崩溃。开发期由 `debug_assert!` 捕获。
+pub const MISSING_SCOPED_COMMAND: ScopedCommand = ScopedCommand {
+    id: "<missing>",
+    description: "<未注册命令>",
+    category: "<missing>",
+    default_bindings: &[],
+};
+
 pub(crate) const SCOPED_COMMANDS: &[ScopedCommand] = &[
     ScopedCommand {
         id: "dialog.common.confirm",
