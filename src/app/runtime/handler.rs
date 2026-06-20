@@ -459,6 +459,12 @@ impl DbManagerApp {
                     self.session
                         .notifications
                         .error(format!("选择数据库失败: {}", e));
+                    // 切库失败：上一个库的补全/触发器/存储过程已不再适用，清除以免显示陈旧元数据（修复审计 B6）。
+                    self.session.autocomplete.clear();
+                    self.state.sidebar_panel_state.clear_triggers();
+                    self.state.sidebar_panel_state.clear_routines();
+                    self.state.sidebar_panel_state.loading_triggers = false;
+                    self.state.sidebar_panel_state.loading_routines = false;
                 }
             }
         }

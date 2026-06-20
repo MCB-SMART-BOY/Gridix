@@ -43,3 +43,4 @@ These features must not break during refactoring.
 | 7 | **Layer dependency** | Lower layers never import from higher: types ← core ← data ← session ← state ← ui/app |
 | 8 | **Session owns async** | `runtime`, `tx`, `rx` live in Session. DbManagerApp accesses via `self.session.rx.try_recv()` |
 | 9 | **Config immutability** | AppConfig loaded at startup. Runtime mutations via Session fields, persisted via `save_config()` |
+| 10 | **No zombie active** | A failed active connection must reset `manager.active=None` (`handle_connection_error`). A failed db-switch must clear the now-stale autocomplete/triggers/routines. |

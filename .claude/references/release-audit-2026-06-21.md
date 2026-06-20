@@ -41,7 +41,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 | ~~B2b (G2)~~ ✅ | Multi-statement save fire-and-forget | now single transactional `execute_import_batch` | FIXED |
 | B3 (G4) | Unsaved grid edits silently dropped on tab close / table switch | `app/runtime/request_lifecycle.rs:51-55`, `input_router.rs:1199-1230`; close path calls `remove_grid_workspaces_for_tab` with no warning | Closing a tab or switching tables silently destroys uncommitted cell edits, new rows, and delete marks |
 | B4 (Q1) | No user-visible way to cancel a running query | `app/runtime/request_lifecycle.rs:9` always passes `user_visible=false`; no `AppAction::CancelQuery`, no button/shortcut. User-cancel machinery exists but has no entry point | A slow/runaway query can only be escaped by waiting for the timeout or killing the app |
-| B5 (CONN-F4) | Zombie `manager.active` on connect failure | `app/runtime/database.rs:107` sets `manager.active` synchronously before async; error arms (`handler.rs:309-315, 365-370`) never reset it. `ConnectionManager::handle_connect_result` resets it but is `#[allow(dead_code)]` | After a failed/timed-out connect the UI still shows the connection as active; later SQL/db-select operate against a broken connection |
+| B5 (CONN-F4) | Zombie `manager.active` on connect failure | ~~`app/runtime/database.rs:107`~~ FIXED: `handle_connection_error` now resets `manager.active=None` when the failed connection is active | FIXED 2026-06-21 |
 | B6 (CONN-F3 + F8) | In-flight ER fetches are untracked + carry no connection identity | `session/message.rs:49-52` (`ForeignKeysFetched`/`ERTableColumnsFetched` carry no conn id/request id); `app/runtime/er_diagram.rs:91-128` tasks not registered in any cancellable set; `handler.rs:975-1051` applies results unconditionally | Disconnect from A while ER is loading, connect to B → B's ER view receives A's columns/FKs (cross-connection schema corruption) |
 | B7 (crash) | Hot-path panic on missing scoped-command registry entry | ~~`ui/shortcut_tooltip.rs:527, 685`~~ FIXED: graceful empty/sentinel fallback + debug_assert + tracing; `MISSING_SCOPED_COMMAND` sentinel in `core/commands.rs` | FIXED 2026-06-21 |
 | B8 (DLG) | WelcomeSetup bypasses modal input blocking | `app/surfaces/render.rs:407-408` renders Welcome when `active_dialog_id()==None`; `request_lifecycle.rs:14-15` `has_modal_dialog_open` returns false in that state | Workspace shortcuts (Ctrl+T/N…) fire through the WelcomeSetup overlay while it is visually foreground |
@@ -62,7 +62,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 | SM-9 | Re-expanding Triggers/Routines does not re-fetch | `sidebar/mod.rs:1051-1065`, `render.rs:1020-1021` | Collapse+expand shows cached pre-DDL data |
 | CONN-F1 | ER state not cleared on disconnect | `database.rs:218-273` never clears `er_diagram_state` | Stale schema diagram after disconnect |
 | CONN-F2 | ER state not cleared on switch connection | `render.rs:752-763`, `action_system.rs:1545` | Connection A's schema shown after switching to B |
-| CONN-F6 | Autocomplete not cleared on switch-db failure | `handler.rs:428-435` error arm omits `autocomplete.clear()` | After a failed DB switch, completion shows previous DB's tables |
+| CONN-F6 | Autocomplete not cleared on switch-db failure | ~~`handler.rs:428-435`~~ FIXED: error arm now clears autocomplete + triggers/routines | FIXED 2026-06-21 |
 
 ### Query / grid feedback
 

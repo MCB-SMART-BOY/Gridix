@@ -559,6 +559,12 @@ impl DbManagerApp {
         if let Some(conn) = self.session.manager.connections.get_mut(name) {
             conn.set_error(error);
         }
+        // 清除僵尸 active：连接失败后 manager.active 不能继续指向这个已断开的连接，
+        // 否则 execute()/select_database() 等会对一个 connected=false 的连接静默操作（修复审计 B5）。
+        if self.session.manager.active.as_deref() == Some(name) {
+            self.session.manager.active = None;
+            self.session.refresh_connecting_flag();
+        }
     }
 
     fn friendly_connection_error(config: &ConnectionConfig, raw_error: &str) -> String {
@@ -685,8 +691,54 @@ impl DbManagerApp {
 #[cfg(test)]
 mod tests {
     use super::prepare_tab_for_query_execution;
-    use crate::data::QueryResult;
+    use crate::app::DbManagerApp;
+    use crate::data::{ConnectionConfig, DatabaseType, QueryResult};
     use crate::ui::QueryTab;
+
+    #[test]
+    fn connection_error_clears_zombie_active() {
+        // 审计 B5：连接失败后 manager.active 不能继续指向失败的连接。
+        let mut app = DbManagerApp::new_for_test();
+        let config = ConnectionConfig {
+            name: "broken".to_string(),
+            db_type: DatabaseType::SQLite,
+            ..Default::default()
+        };
+        app.session.manager.add(config);
+        app.session.manager.active = Some("broken".to_string());
+
+        app.handle_connection_error("broken", "connection refused".to_string());
+
+        assert_eq!(
+            app.session.manager.active, None,
+            "active must be cleared after the active connection fails"
+        );
+    }
+
+    #[test]
+    fn connection_error_for_inactive_connection_keeps_active() {
+        // 仅清除失败的那个 active；其它连接保持 active 不受影响。
+        let mut app = DbManagerApp::new_for_test();
+        app.session.manager.add(ConnectionConfig {
+            name: "good".to_string(),
+            db_type: DatabaseType::SQLite,
+            ..Default::default()
+        });
+        app.session.manager.add(ConnectionConfig {
+            name: "broken".to_string(),
+            db_type: DatabaseType::SQLite,
+            ..Default::default()
+        });
+        app.session.manager.active = Some("good".to_string());
+
+        app.handle_connection_error("broken", "connection refused".to_string());
+
+        assert_eq!(
+            app.session.manager.active,
+            Some("good".to_string()),
+            "an unrelated connection's failure must not clear the active connection"
+        );
+    }
 
     #[test]
     fn prepare_tab_for_query_execution_clears_stale_result_and_sets_request_state() {
