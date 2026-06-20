@@ -31,7 +31,11 @@ impl DbManagerApp {
     /// 检查是否有任何模态对话框打开
     /// 用于在对话框打开时禁用其他区域的键盘响应
     pub(in crate::app) fn has_modal_dialog_open(&self) -> bool {
-        self.active_dialog_id().is_some() || self.state.grid_state.show_save_confirm
+        self.active_dialog_id().is_some()
+            || self.state.grid_state.show_save_confirm
+            // WelcomeSetup 可能在 active_dialog_owner 尚未协调的帧里就已可见；
+            // 直接把它的可见标志视为模态，避免工作区快捷键穿透覆盖层（修复审计 B8）。
+            || self.state.show_welcome_setup_dialog
     }
 
     /// 从当前活动 Tab 同步 SQL 和结果到主视图

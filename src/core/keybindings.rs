@@ -1090,6 +1090,32 @@ impl Default for KeyBindings {
         bindings.insert(Action::ZoomOut, KeyBinding::ctrl(KeyCode::Minus));
         bindings.insert(Action::ZoomReset, KeyBinding::ctrl(KeyCode::Num0));
 
+        // 键盘优先契约补全（修复审计 B9）：
+        // 快捷键设置面板此前没有任何默认键，只能靠命令面板或鼠标打开。
+        bindings.insert(
+            Action::OpenKeybindingsDialog,
+            KeyBinding::ctrl(KeyCode::Comma),
+        );
+        // 侧边栏分区跳转此前 router 已接线但无默认键，按惯例用 Ctrl+1..6。
+        bindings.insert(
+            Action::FocusSidebarConnections,
+            KeyBinding::ctrl(KeyCode::Num1),
+        );
+        bindings.insert(
+            Action::FocusSidebarDatabases,
+            KeyBinding::ctrl(KeyCode::Num2),
+        );
+        bindings.insert(Action::FocusSidebarTables, KeyBinding::ctrl(KeyCode::Num3));
+        bindings.insert(Action::FocusSidebarFilters, KeyBinding::ctrl(KeyCode::Num4));
+        bindings.insert(
+            Action::FocusSidebarTriggers,
+            KeyBinding::ctrl(KeyCode::Num5),
+        );
+        bindings.insert(
+            Action::FocusSidebarRoutines,
+            KeyBinding::ctrl(KeyCode::Num6),
+        );
+
         Self {
             bindings,
             local_bindings: HashMap::new(),
@@ -2156,6 +2182,26 @@ mod tests {
     use super::{Action, KeyBinding, KeyBindings, KeyCode, KeymapDiagnosticCode};
     use std::fs;
     use tempfile::tempdir;
+
+    #[test]
+    fn keyboard_first_actions_have_default_bindings() {
+        // 审计 B9：这些操作此前 router 已接线但缺少默认键，导致键盘不可达。
+        let bindings = KeyBindings::default();
+        for action in [
+            Action::OpenKeybindingsDialog,
+            Action::FocusSidebarConnections,
+            Action::FocusSidebarDatabases,
+            Action::FocusSidebarTables,
+            Action::FocusSidebarFilters,
+            Action::FocusSidebarTriggers,
+            Action::FocusSidebarRoutines,
+        ] {
+            assert!(
+                bindings.get(action).is_some(),
+                "{action:?} must have a default binding for keyboard reachability"
+            );
+        }
+    }
 
     #[test]
     fn missing_keymap_is_initialized_from_defaults_and_marks_legacy_migration() {

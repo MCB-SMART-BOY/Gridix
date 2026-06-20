@@ -44,8 +44,8 @@ individual symptoms — the symptoms are the test cases for the cascade.
 | B5 (CONN-F4) | Zombie `manager.active` on connect failure | ~~`app/runtime/database.rs:107`~~ FIXED: `handle_connection_error` now resets `manager.active=None` when the failed connection is active | FIXED 2026-06-21 |
 | B6 (CONN-F3 + F8) | In-flight ER fetches are untracked + carry no connection identity | ~~`session/message.rs:49-52`~~ FIXED: ER messages carry a monotonic `load_generation`; `ERDiagramState.clear()`/`begin_loading()` bump it; handlers drop mismatched generations; disconnect clears ER (also fixes CONN-F1) | FIXED 2026-06-21 |
 | B7 (crash) | Hot-path panic on missing scoped-command registry entry | ~~`ui/shortcut_tooltip.rs:527, 685`~~ FIXED: graceful empty/sentinel fallback + debug_assert + tracing; `MISSING_SCOPED_COMMAND` sentinel in `core/commands.rs` | FIXED 2026-06-21 |
-| B8 (DLG) | WelcomeSetup bypasses modal input blocking | `app/surfaces/render.rs:407-408` renders Welcome when `active_dialog_id()==None`; `request_lifecycle.rs:14-15` `has_modal_dialog_open` returns false in that state | Workspace shortcuts (Ctrl+T/N…) fire through the WelcomeSetup overlay while it is visually foreground |
-| B9 (DLG) | Keybindings dialog is keyboard-unreachable | `Action::OpenKeybindingsDialog` has no entry in `KeyBindings::default()` (`core/keybindings.rs:1038-1099`) | In a keyboard-first app, the only shortcut-customization surface can only be opened via command palette or mouse |
+| B8 (DLG) | WelcomeSetup bypasses modal input blocking | ~~`app/surfaces/render.rs:407-408`~~ FIXED: `has_modal_dialog_open()` now treats `show_welcome_setup_dialog` as modal directly | FIXED 2026-06-21 |
+| B9 (DLG) | Keybindings dialog is keyboard-unreachable | ~~`Action::OpenKeybindingsDialog` no default~~ FIXED: bound `Ctrl+,`; `FocusSidebar*` bound `Ctrl+1..6` | FIXED 2026-06-21 |
 
 ---
 
@@ -92,7 +92,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 | DLG-A2-2 | 6 form dialogs have no keyboard close | `input_router.rs:1349` falls through; Connection/Export/Import/Ddl/CreateDatabase/CreateUser | Must mouse-click the X; no Esc/Q route |
 | DLG-A3-1 | `open_dialog()` doesn't close other major dialogs | `dialogs/host.rs:160-183` | Two `show_*` bools can be true at once; transient owner inconsistency |
 | DLG-B1-1 | BottomPanel/RightInspector not in Tab focus cycle | `app/input/keyboard.rs:16-31` | No keyboard route to focus Results/Messages/Inspector |
-| DLG-B2-1b | All 6 `FocusSidebar*` actions have no default binding | `core/keybindings.rs:1038-1099` | Sidebar section jumps unreachable without customization |
+| DLG-B2-1b | All 6 `FocusSidebar*` actions have no default binding | ~~`core/keybindings.rs:1038-1099`~~ FIXED: bound `Ctrl+1..6` | FIXED 2026-06-21 |
 | DLG-B2-3 | `editor.insert.history_browse` shadows history_prev/next | `core/commands.rs:856-879` | Overlapping default keys; history_browse effectively unreachable |
 | A4-1 | No explicit focus-return after dialog dismiss | `dialogs/host.rs:186-210` | Focus left implicit after cancel via X |
 
