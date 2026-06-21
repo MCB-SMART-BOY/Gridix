@@ -114,7 +114,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 |---|---|---|---|---|
 | NV-01/02 (SP-01) | CreateUserDialog has no responsive row system | `create_user_dialog.rs:446-534` | GAP | Overflow/clip at narrow width (G41-B007 fixed only in CreateDbDialog) |
 | FO-01 | No focus ring/stripe on active surface | `ui/workbench/surface.rs` (absent) | GAP | User can't tell which panel owns keyboard input |
-| MX-01 | Emoji 😊 avatar in text-glyph chrome | `toolbar/mod.rs:147` | GAP | Mixed icon language; OS-dependent rasterization |
+| MX-01 | Emoji 😊 avatar in text-glyph chrome | ~~`toolbar/mod.rs:147`~~ FIXED: replaced color emoji with monochrome brand glyph "G" (button opens About) | FIXED 2026-06-21 |
 
 ---
 

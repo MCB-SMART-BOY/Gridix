@@ -143,14 +143,14 @@ impl Toolbar {
 
                         ui.painter().circle_filled(center, radius, bg_color);
 
-                        // 绘制笑脸图标
-                        let text = "😊";
+                        // 品牌字形 "G"：此按钮打开"关于"，用单色字母代替彩色 emoji，
+                        // 统一图标语言并避免依赖 OS 字体光栅化——审计 MX-01。
                         let font_id = egui::FontId::proportional(14.0);
                         let text_color = Color32::WHITE;
                         ui.painter().text(
                             center,
                             egui::Align2::CENTER_CENTER,
-                            text,
+                            "G",
                             font_id,
                             text_color,
                         );
