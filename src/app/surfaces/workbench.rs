@@ -926,6 +926,21 @@ impl DbManagerApp {
     }
 
     fn render_bottom_panel_results(&mut self, ui: &mut egui::Ui) {
+        // 活动标签页正在执行查询时，显示执行中状态而不是"暂无结果"空态（修复审计 EL-02）。
+        let active_executing = self
+            .session
+            .tab_manager
+            .get_active()
+            .is_some_and(|tab| tab.executing);
+        if active_executing && self.state.result.is_none() {
+            ui::WorkbenchBottomPanel::show_loading_state(
+                ui,
+                "正在执行查询…",
+                "查询完成后结果会显示在这里，可点击工具栏 ⏹ 取消。",
+            );
+            return;
+        }
+
         let Some(result) = self.state.result.as_ref() else {
             ui::WorkbenchBottomPanel::show_empty_state(
                 ui,

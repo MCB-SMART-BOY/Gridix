@@ -80,6 +80,18 @@ impl WorkbenchBottomPanel {
             ui.label(egui::RichText::new(detail).color(ui.visuals().weak_text_color()));
         });
     }
+
+    /// 执行中状态：带 spinner，区别于"暂无结果"的空态（修复审计 EL-02）。
+    pub fn show_loading_state(ui: &mut egui::Ui, title: &str, detail: &str) {
+        ui.vertical_centered(|ui| {
+            ui.add_space(36.0);
+            ui.spinner();
+            ui.add_space(8.0);
+            ui.heading(title);
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new(detail).color(ui.visuals().weak_text_color()));
+        });
+    }
 }
 
 pub const fn bottom_panel_tabs() -> [BottomPanelTab; 5] {

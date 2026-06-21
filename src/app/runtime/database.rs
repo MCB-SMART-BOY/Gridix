@@ -30,6 +30,43 @@ fn prepare_tab_for_query_execution(tab: &mut crate::ui::QueryTab, sql: &str, req
     tab.update_title();
 }
 
+/// 连接错误是否应该打开「安装/初始化引导」。
+///
+/// 只有「需要安装或初始化」类错误（SQLite 文件缺失、目标数据库不存在/未初始化）才打开引导；
+/// 临时性错误（超时、连接被拒、认证失败）说明环境已配置好，弹引导只会干扰已上手的用户。
+/// 修复审计 CONN-F5。
+fn connection_error_warrants_onboarding(db_type: DatabaseType, raw_error: &str) -> bool {
+    let lower = raw_error.trim().to_ascii_lowercase();
+
+    // 明确属于「临时性/凭据」类的错误：不打开引导。
+    let transient = lower.contains("timeout")
+        || lower.contains("超时")
+        || lower.contains("refused")
+        || lower.contains("can't connect")
+        || lower.contains("could not connect")
+        || lower.contains("access denied")
+        || lower.contains("authentication failed")
+        || lower.contains("password authentication failed");
+    if transient {
+        return false;
+    }
+
+    match db_type {
+        DatabaseType::SQLite => {
+            // 文件不存在/不可访问 → 需要选择或创建数据库文件，引导有用。
+            lower.contains("unable to open database file")
+                || lower.contains("no such file")
+                || lower.contains("permission denied")
+        }
+        DatabaseType::PostgreSQL | DatabaseType::MySQL => {
+            // 目标数据库不存在/未初始化 → 引导有用。
+            lower.contains("unknown database")
+                || lower.contains("does not exist")
+                || (lower.contains("database") && lower.contains("不存在"))
+        }
+    }
+}
+
 impl DbManagerApp {
     /// 打开连接编辑对话框（预填当前配置）
     pub(in crate::app) fn open_connection_editor(&mut self, name: &str) {
@@ -599,11 +636,14 @@ impl DbManagerApp {
 
         self.session.notifications.error(friendly);
         if let Some(config) = conn_config {
-            self.open_welcome_setup_dialog(config.db_type);
-            self.session.notifications.info(format!(
-                "已打开 {} 安装与初始化引导",
-                config.db_type.display_name()
-            ));
+            // 只在「需要安装/初始化」类错误时打开引导，避免临时超时/认证失败也弹向导（修复审计 CONN-F5）。
+            if connection_error_warrants_onboarding(config.db_type, &error) {
+                self.open_welcome_setup_dialog(config.db_type);
+                self.session.notifications.info(format!(
+                    "已打开 {} 安装与初始化引导",
+                    config.db_type.display_name()
+                ));
+            }
         }
         self.session.autocomplete.clear();
         if let Some(conn) = self.session.manager.connections.get_mut(name) {
@@ -740,7 +780,44 @@ impl DbManagerApp {
 
 #[cfg(test)]
 mod tests {
+    use super::connection_error_warrants_onboarding;
     use super::prepare_tab_for_query_execution;
+
+    #[test]
+    fn onboarding_opens_only_for_setup_errors_not_transient() {
+        // 审计 CONN-F5：临时/凭据错误不弹引导；安装/初始化类才弹。
+        // 临时性 → 不打开
+        assert!(!connection_error_warrants_onboarding(
+            DatabaseType::PostgreSQL,
+            "connection timeout after 10s"
+        ));
+        assert!(!connection_error_warrants_onboarding(
+            DatabaseType::MySQL,
+            "connection refused"
+        ));
+        assert!(!connection_error_warrants_onboarding(
+            DatabaseType::PostgreSQL,
+            "password authentication failed for user"
+        ));
+        // 需要初始化 → 打开
+        assert!(connection_error_warrants_onboarding(
+            DatabaseType::MySQL,
+            "Unknown database 'shop'"
+        ));
+        assert!(connection_error_warrants_onboarding(
+            DatabaseType::PostgreSQL,
+            "database \"shop\" does not exist"
+        ));
+        assert!(connection_error_warrants_onboarding(
+            DatabaseType::SQLite,
+            "unable to open database file"
+        ));
+        // 即便 SQLite 文件类，但若是超时也不弹（临时优先）。
+        assert!(!connection_error_warrants_onboarding(
+            DatabaseType::SQLite,
+            "timeout opening file"
+        ));
+    }
     use crate::app::DbManagerApp;
     use crate::data::{ConnectionConfig, DatabaseType, QueryResult};
     use crate::ui::QueryTab;

@@ -74,7 +74,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 | G5 | Empty cell silently coerced to NULL | `ui/components/grid/actions.rs:116-124` | NOT NULL columns fail at DB with no pre-save hint |
 | G6 | No client-side type validation | `ui/components/grid/actions.rs` (absent) | Type errors only surface at save time |
 | Q2 | Tab-bar close skips `sync_from_active_tab` | `app/surfaces/render.rs:1211-1232` | Bottom panel/result/search stale one frame after × close |
-| EL-02 | Results panel shows no executing state | `app/surfaces/workbench.rs` (absent) | Long query: results area shows old/empty content, only toolbar spins |
+| EL-02 | Results panel shows no executing state | ~~`app/surfaces/workbench.rs`~~ FIXED: `render_bottom_panel_results` shows a spinner/loading card while the active tab is executing | FIXED 2026-06-21 |
 
 ### Metadata / error feedback
 
@@ -84,7 +84,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 | SM-3 | No table-list loading indicator | `sidebar/state.rs:293-377` (no `loading_tables`) | Blank table list during async connect looks like empty schema |
 | SM-6 | Trigger load error indistinguishable from empty | `handler.rs:908-918`, `trigger_panel.rs` no error branch | Network error looks identical to "no triggers" |
 | SM-7 | Routine load error indistinguishable from empty | `handler.rs:957-970`, `routine_panel.rs` no error branch | Same as SM-6 for routines |
-| CONN-F5 | Welcome setup dialog opens on every connect failure | `database.rs:551-556` | Momentary timeout pops onboarding repeatedly for experienced users |
+| CONN-F5 | Welcome setup dialog opens on every connect failure | ~~`database.rs:551-556`~~ FIXED: `connection_error_warrants_onboarding` gates the dialog to setup/init errors only (not timeout/refused/auth) | FIXED 2026-06-21 |
 | CONN-F7 | PostgreSQL pool task leaks on remove | `data/pool.rs:366-369` drops `Arc<Client>` without signalling bg task | Lingering PG server connections after disconnect |
 
 ### Keyboard / dialog contract
