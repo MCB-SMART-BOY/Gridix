@@ -4,8 +4,11 @@
 
 #![allow(dead_code)] // 公开 API，供未来使用
 
-use crate::ui::styles::theme_text;
-use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_LG, SPACING_MD, SPACING_SM, SUCCESS};
+use crate::ui::styles::{
+    DANGER, GRAY, MUTED, SPACING_LG, SPACING_MD, SPACING_SM, SUCCESS, contrasting_text,
+    theme_accent, theme_muted_text, theme_selection_fill, theme_subtle_stroke, theme_text,
+    theme_warn,
+};
 use crate::ui::{
     LocalShortcut, consume_scoped_command_with_text_priority, local_shortcut_tooltip,
     text_entry_has_priority,
@@ -309,7 +312,7 @@ impl DialogFooter {
         egui::Button::new(
             RichText::new(text.to_owned())
                 .strong()
-                .color(Color32::WHITE),
+                .color(contrasting_text(fill)),
         )
         .fill(if enabled {
             fill
@@ -434,19 +437,60 @@ impl DialogContent {
     const WORKSPACE_MIN_MIDDLE_WIDTH: f32 = 260.0;
     const WORKSPACE_MIN_RIGHT_WIDTH: f32 = 280.0;
 
+    fn blend(from: Color32, to: Color32, to_weight: f32) -> Color32 {
+        let to_weight = to_weight.clamp(0.0, 1.0);
+        let from_weight = 1.0 - to_weight;
+        let mix = |a: u8, b: u8| ((a as f32 * from_weight) + (b as f32 * to_weight)).round() as u8;
+
+        Color32::from_rgba_unmultiplied(
+            mix(from.r(), to.r()),
+            mix(from.g(), to.g()),
+            mix(from.b(), to.b()),
+            mix(from.a(), to.a()),
+        )
+    }
+
+    fn with_alpha(color: Color32, alpha: u8) -> Color32 {
+        Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha)
+    }
+
+    fn surface_fill(ui: &egui::Ui) -> Color32 {
+        let visuals = ui.visuals();
+        Self::blend(
+            visuals.window_fill,
+            visuals.faint_bg_color,
+            if visuals.dark_mode { 0.18 } else { 0.10 },
+        )
+    }
+
+    fn surface_fill_elevated(ui: &egui::Ui) -> Color32 {
+        let visuals = ui.visuals();
+        Self::blend(
+            visuals.window_fill,
+            visuals.extreme_bg_color,
+            if visuals.dark_mode { 0.12 } else { 0.04 },
+        )
+    }
+
+    fn surface_stroke(ui: &egui::Ui, alpha: u8) -> Color32 {
+        let stroke = theme_subtle_stroke(ui.visuals());
+        Self::with_alpha(stroke, alpha)
+    }
+
     fn card_frame(ui: &egui::Ui, tint: Option<Color32>) -> egui::Frame {
         let visuals = ui.visuals();
+        let base = Self::surface_fill(ui);
         let fill = tint
-            .unwrap_or(visuals.faint_bg_color)
-            .gamma_multiply(if visuals.dark_mode { 0.9 } else { 1.05 });
+            .map(|color| Self::blend(base, color, if visuals.dark_mode { 0.18 } else { 0.12 }))
+            .unwrap_or(base);
         let stroke_color = tint
-            .map(|color| color.gamma_multiply(0.45))
-            .unwrap_or_else(|| visuals.window_stroke.color.gamma_multiply(0.75));
+            .map(|color| Self::blend(Self::surface_stroke(ui, 128), color, 0.34))
+            .unwrap_or_else(|| Self::surface_stroke(ui, if visuals.dark_mode { 112 } else { 96 }));
 
         egui::Frame::NONE
             .fill(fill)
             .stroke(Stroke::new(1.0, stroke_color))
-            .corner_radius(CornerRadius::same(10))
+            .corner_radius(CornerRadius::same(9))
             .inner_margin(egui::Margin::same(10))
     }
 
@@ -462,20 +506,14 @@ impl DialogContent {
 
     /// 渲染用于摘要、筛选、模式切换等轻量控制区的工具条。
     pub fn toolbar(ui: &mut egui::Ui, content: impl FnOnce(&mut egui::Ui)) {
-        let tint = if ui.visuals().dark_mode {
-            Color32::from_rgba_unmultiplied(92, 104, 128, 18)
-        } else {
-            Color32::from_rgba_unmultiplied(110, 124, 150, 12)
-        };
+        let fill = Self::surface_fill_elevated(ui);
+        let stroke = Self::surface_stroke(ui, if ui.visuals().dark_mode { 84 } else { 70 });
 
         egui::Frame::NONE
-            .fill(tint)
-            .stroke(Stroke::new(
-                1.0,
-                ui.visuals().window_stroke.color.gamma_multiply(0.55),
-            ))
-            .corner_radius(CornerRadius::same(10))
-            .inner_margin(egui::Margin::symmetric(12, 10))
+            .fill(fill)
+            .stroke(Stroke::new(1.0, stroke))
+            .corner_radius(CornerRadius::same(8))
+            .inner_margin(egui::Margin::symmetric(10, 8))
             .show(ui, content);
     }
 
@@ -501,7 +539,7 @@ impl DialogContent {
     /// 渲染信息提示
     pub fn info_text(ui: &mut egui::Ui, text: &str) {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("ℹ").color(Color32::from_rgb(100, 150, 255)));
+            ui.label(RichText::new("ℹ").color(theme_accent(ui.visuals())));
             ui.label(RichText::new(text).small().color(MUTED));
         });
     }
@@ -509,12 +547,9 @@ impl DialogContent {
     /// 渲染警告提示
     pub fn warning_text(ui: &mut egui::Ui, text: &str) {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("⚠").color(Color32::from_rgb(255, 193, 7)));
-            ui.label(
-                RichText::new(text)
-                    .small()
-                    .color(Color32::from_rgb(255, 193, 7)),
-            );
+            let warn = theme_warn(ui.visuals());
+            ui.label(RichText::new("⚠").color(warn));
+            ui.label(RichText::new(text).small().color(warn));
         });
     }
 
@@ -628,14 +663,29 @@ impl DialogContent {
     /// 渲染快捷键提示
     pub fn shortcut_hint(ui: &mut egui::Ui, hints: &[(&str, &str)]) {
         ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
+            ui.spacing_mut().item_spacing = Vec2::new(8.0, 4.0);
 
-            for (i, (key, action)) in hints.iter().enumerate() {
-                if i > 0 {
-                    ui.label(RichText::new("·").small().color(MUTED));
-                }
-                ui.label(RichText::new(*key).small().color(GRAY));
-                ui.label(RichText::new(*action).small().color(MUTED));
+            for (key, action) in hints {
+                ui.horizontal(|ui| {
+                    egui::Frame::NONE
+                        .fill(ui.visuals().extreme_bg_color.gamma_multiply(0.72))
+                        .stroke(Stroke::new(1.0, Self::surface_stroke(ui, 72)))
+                        .corner_radius(CornerRadius::same(5))
+                        .inner_margin(egui::Margin::symmetric(6, 2))
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new(*key)
+                                    .small()
+                                    .monospace()
+                                    .color(theme_text(ui.visuals())),
+                            );
+                        });
+                    ui.label(
+                        RichText::new(*action)
+                            .small()
+                            .color(theme_muted_text(ui.visuals())),
+                    );
+                });
             }
         });
         ui.add_space(SPACING_SM);
@@ -800,29 +850,59 @@ impl DialogContent {
         description: &str,
         content: impl FnOnce(&mut egui::Ui),
     ) {
-        Self::card(ui, None, |ui| {
-            ui.label(RichText::new(title).strong().color(GRAY));
-            if !description.is_empty() {
-                ui.add_space(2.0);
-                ui.label(RichText::new(description).small().color(MUTED));
-            }
-            ui.add_space(SPACING_SM);
-            ui.separator();
-            ui.add_space(SPACING_SM);
-            content(ui);
-        });
+        Self::card_frame(ui, None)
+            .fill(Self::surface_fill_elevated(ui))
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(title)
+                        .strong()
+                        .color(theme_text(ui.visuals())),
+                );
+                if !description.is_empty() {
+                    ui.add_space(2.0);
+                    ui.label(
+                        RichText::new(description)
+                            .small()
+                            .color(theme_muted_text(ui.visuals())),
+                    );
+                }
+                ui.add_space(SPACING_SM);
+                let rect = egui::Rect::from_min_size(
+                    ui.cursor().min,
+                    Vec2::new(ui.available_width(), 1.0),
+                );
+                ui.painter().line_segment(
+                    [rect.left_center(), rect.right_center()],
+                    Stroke::new(1.0, Self::surface_stroke(ui, 70)),
+                );
+                ui.add_space(1.0);
+                ui.add_space(SPACING_SM);
+                content(ui);
+            });
     }
 
     /// 统一的鼠标交互提示。
     pub fn mouse_hint(ui: &mut egui::Ui, hints: &[(&str, &str)]) {
         ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
+            ui.spacing_mut().item_spacing = Vec2::new(8.0, 2.0);
             for (index, (gesture, desc)) in hints.iter().enumerate() {
                 if index > 0 {
-                    ui.label(RichText::new("·").small().color(MUTED));
+                    ui.label(
+                        RichText::new("·")
+                            .small()
+                            .color(theme_muted_text(ui.visuals())),
+                    );
                 }
-                ui.label(RichText::new(*gesture).small().color(GRAY));
-                ui.label(RichText::new(*desc).small().color(MUTED));
+                ui.label(
+                    RichText::new(*gesture)
+                        .small()
+                        .color(theme_text(ui.visuals())),
+                );
+                ui.label(
+                    RichText::new(*desc)
+                        .small()
+                        .color(theme_muted_text(ui.visuals())),
+                );
             }
         });
     }
@@ -836,10 +916,7 @@ impl DialogContent {
     ) -> egui::Response {
         let label = label.into();
         let fill = if selected {
-            ui.visuals()
-                .selection
-                .bg_fill
-                .gamma_multiply(if ui.visuals().dark_mode { 0.28 } else { 0.18 })
+            theme_selection_fill(ui.visuals(), if ui.visuals().dark_mode { 42 } else { 32 })
         } else {
             Color32::TRANSPARENT
         };
@@ -849,27 +926,44 @@ impl DialogContent {
             .stroke(Stroke::new(
                 1.0,
                 if selected {
-                    ui.visuals().selection.stroke.color.gamma_multiply(0.75)
+                    theme_accent(ui.visuals()).gamma_multiply(0.42)
                 } else {
                     Color32::TRANSPARENT
                 },
             ))
-            .corner_radius(CornerRadius::same(8))
-            .inner_margin(egui::Margin::symmetric(10, 8))
+            .corner_radius(CornerRadius::same(7))
+            .inner_margin(egui::Margin::symmetric(8, 7))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                ui.vertical(|ui| {
-                    ui.label(RichText::new(label).strong().color(if selected {
-                        ui.visuals().selection.stroke.color
-                    } else {
-                        ui.visuals().text_color()
-                    }));
-                    if let Some(meta) = meta
-                        && !meta.is_empty()
-                    {
-                        ui.add_space(2.0);
-                        ui.label(RichText::new(meta).small().color(MUTED));
+                ui.horizontal_top(|ui| {
+                    if selected {
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(
+                                ui.cursor().min + Vec2::new(0.0, 2.0),
+                                Vec2::new(2.0, 24.0),
+                            ),
+                            CornerRadius::same(255),
+                            theme_accent(ui.visuals()),
+                        );
                     }
+                    ui.add_space(8.0);
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new(label).strong().color(if selected {
+                            theme_accent(ui.visuals())
+                        } else {
+                            theme_text(ui.visuals())
+                        }));
+                        if let Some(meta) = meta
+                            && !meta.is_empty()
+                        {
+                            ui.add_space(2.0);
+                            ui.label(
+                                RichText::new(meta)
+                                    .small()
+                                    .color(theme_muted_text(ui.visuals())),
+                            );
+                        }
+                    });
                 });
             })
             .response
@@ -915,19 +1009,18 @@ impl DialogWindow {
 
     fn frame(ctx: &egui::Context, style: &DialogStyle) -> egui::Frame {
         let visuals = &ctx.global_style().visuals;
-        let shadow_alpha = if visuals.dark_mode { 72 } else { 28 };
+        let shadow_alpha = if visuals.dark_mode { 74 } else { 26 };
+        let window_fill = visuals.window_fill;
+        let stroke = theme_subtle_stroke(visuals).gamma_multiply(0.92);
 
         egui::Frame::NONE
-            .fill(visuals.window_fill)
-            .stroke(Stroke::new(
-                1.0,
-                visuals.window_stroke.color.gamma_multiply(0.95),
-            ))
+            .fill(window_fill)
+            .stroke(Stroke::new(1.0, stroke))
             .corner_radius(CornerRadius::same(style.radius))
             .inner_margin(egui::Margin::same(style.padding))
             .shadow(egui::epaint::Shadow {
                 offset: [0, 10],
-                blur: 28,
+                blur: 30,
                 spread: 0,
                 color: Color32::from_black_alpha(shadow_alpha),
             })
@@ -1095,30 +1188,51 @@ impl WorkspaceDialogShell {
         footer: impl FnOnce(&mut egui::Ui),
     ) {
         let shell_id = ui.id().with(id_source);
+        let top_rule = Stroke::new(
+            1.0,
+            DialogContent::surface_stroke(ui, if ui.visuals().dark_mode { 70 } else { 58 }),
+        );
 
         egui::Panel::bottom(shell_id.with("footer"))
-            .frame(egui::Frame::NONE)
+            .frame(
+                egui::Frame::NONE
+                    .fill(ui.visuals().window_fill)
+                    .stroke(top_rule)
+                    .inner_margin(egui::Margin::symmetric(0, 6)),
+            )
             .resizable(false)
             .show_inside(ui, |ui| {
                 footer(ui);
             });
 
         egui::Panel::top(shell_id.with("header"))
-            .frame(egui::Frame::NONE)
+            .frame(
+                egui::Frame::NONE
+                    .fill(ui.visuals().window_fill)
+                    .inner_margin(egui::Margin::same(0)),
+            )
             .resizable(false)
             .show_inside(ui, |ui| {
                 header(ui);
             });
 
         egui::Panel::top(shell_id.with("subheader"))
-            .frame(egui::Frame::NONE)
+            .frame(
+                egui::Frame::NONE
+                    .fill(ui.visuals().window_fill)
+                    .inner_margin(egui::Margin::same(0)),
+            )
             .resizable(false)
             .show_inside(ui, |ui| {
                 subheader(ui);
             });
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
+            .frame(
+                egui::Frame::NONE
+                    .fill(Color32::TRANSPARENT)
+                    .inner_margin(egui::Margin::same(0)),
+            )
             .show_inside(ui, |ui| {
                 body(ui);
             });

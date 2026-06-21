@@ -18,6 +18,7 @@ use crate::ui::components::{
     grid_command_shortcuts, normalize_grid_command_sequence,
 };
 use crate::ui::shortcut_tooltip::LocalShortcut;
+use crate::ui::styles::theme_warn;
 use eframe::egui::{self, Key, RichText};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1735,17 +1736,28 @@ impl KeyBindingsDialog {
                         ui,
                         header_layout,
                         |ui| {
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label("搜索:");
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut filter_input)
-                                        .desired_width(220.0)
-                                        .hint_text("输入功能或 keymap 路径..."),
+                            ui.vertical(|ui| {
+                                ui.label(RichText::new("快捷键设置").size(18.0).strong());
+                                ui.add_space(3.0);
+                                ui.label(
+                                    RichText::new("统一管理全局、作用域、局部命令和表格序列键位。")
+                                        .small()
+                                        .weak(),
                                 );
+                                ui.add_space(10.0);
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(RichText::new("搜索").small().weak());
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut filter_input)
+                                            .desired_width(260.0)
+                                            .hint_text("输入功能或 keymap 路径..."),
+                                    );
 
-                                if ui.button("重置全部为默认").clicked() {
-                                    header_actions.push(KeyBindingsDialogUiAction::ResetToDefaults);
-                                }
+                                    if ui.button("重置全部为默认").clicked() {
+                                        header_actions
+                                            .push(KeyBindingsDialogUiAction::ResetToDefaults);
+                                    }
+                                });
                             });
                         },
                         |ui| {
@@ -1980,7 +1992,7 @@ impl KeyBindingsDialog {
                                 ui.label(
                                     RichText::new(format!("{} 条作用域提醒", issues))
                                         .small()
-                                        .color(egui::Color32::from_rgb(245, 189, 130)),
+                                        .color(theme_warn(ui.visuals())),
                                 );
                             }
                             if !state.current_tree.is_global() && issues > 0 {
@@ -2002,7 +2014,7 @@ impl KeyBindingsDialog {
                     if !summary.is_empty() {
                         DialogContent::card(
                             ui,
-                            Some(egui::Color32::from_rgb(245, 189, 130)),
+                            Some(theme_warn(ui.visuals())),
                             |ui| {
                                 ui.label(RichText::new("冲突摘要").small().strong());
                                 ui.add_space(4.0);
@@ -2138,7 +2150,7 @@ impl KeyBindingsDialog {
                         if let Some(message) = state.migration_notice() {
                             DialogContent::card(
                                 ui,
-                                Some(egui::Color32::from_rgb(245, 189, 130)),
+                                Some(theme_warn(ui.visuals())),
                                 |ui| {
                                     ui.label(RichText::new("兼容迁移").small().strong());
                                     ui.add_space(4.0);
@@ -2159,7 +2171,7 @@ impl KeyBindingsDialog {
                         if let Some(msg) = &state.conflict_message {
                             DialogContent::card(
                                 ui,
-                                Some(egui::Color32::from_rgb(245, 189, 130)),
+                                Some(theme_warn(ui.visuals())),
                                 |ui| {
                                     DialogContent::warning_text(ui, msg);
                                 },
@@ -2393,19 +2405,19 @@ impl KeyBindingsDialog {
             return;
         }
 
-        DialogContent::card(ui, Some(egui::Color32::from_rgb(245, 189, 130)), |ui| {
+        DialogContent::card(ui, Some(theme_warn(ui.visuals())), |ui| {
             ui.label(
                 RichText::new("作用域分析")
                     .small()
                     .strong()
-                    .color(egui::Color32::from_rgb(245, 189, 130)),
+                    .color(theme_warn(ui.visuals())),
             );
             ui.add_space(4.0);
             for issue in issues {
                 ui.label(
                     RichText::new(format!("• {issue}"))
                         .small()
-                        .color(egui::Color32::from_rgb(245, 189, 130)),
+                        .color(theme_warn(ui.visuals())),
                 );
             }
         });

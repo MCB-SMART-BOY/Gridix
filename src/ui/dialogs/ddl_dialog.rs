@@ -7,6 +7,7 @@ use super::common::{
     DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow, FormDialogShell,
 };
 use crate::data::DatabaseType;
+use crate::ui::styles::{theme_accent, theme_muted_text, theme_selection_fill};
 use crate::ui::{LocalShortcut, local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text};
 use egui::{self, Color32, RichText, TextEdit};
 
@@ -649,7 +650,7 @@ impl DdlDialog {
                                             ),
                                         ))
                                         .small()
-                                        .color(Color32::from_rgb(120, 120, 120)),
+                                        .color(theme_muted_text(ui.visuals())),
                                     );
                                     if ui
                                         .button(format!(
@@ -820,7 +821,7 @@ impl DdlDialog {
     }
 
     fn show_table_info_input(ui: &mut egui::Ui, label: &str, value: &mut String, hint: &str) {
-        ui.label(RichText::new(format!("{}:", label)).color(Color32::from_gray(180)));
+        ui.label(RichText::new(format!("{}:", label)).color(theme_muted_text(ui.visuals())));
         ui.add_sized(
             [ui.available_width().min(280.0), 0.0],
             TextEdit::singleline(value).hint_text(hint),
@@ -859,12 +860,12 @@ impl DdlDialog {
         col_to_remove: &mut Option<usize>,
     ) -> egui::InnerResponse<()> {
         let fill = if layout.is_selected {
-            Color32::from_rgba_unmultiplied(100, 180, 255, 18)
+            theme_selection_fill(ui.visuals(), 18)
         } else {
             Color32::TRANSPARENT
         };
         let stroke = if layout.is_selected {
-            egui::Stroke::new(1.0, Color32::from_rgb(100, 180, 255))
+            egui::Stroke::new(1.0, theme_accent(ui.visuals()))
         } else {
             egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color)
         };
@@ -941,7 +942,7 @@ impl DdlDialog {
             ui.label(
                 RichText::new("默认值")
                     .small()
-                    .color(Color32::from_gray(170)),
+                    .color(theme_muted_text(ui.visuals())),
             );
             let width = ui.available_width().clamp(110.0, 180.0);
             ui.add_sized(
@@ -971,14 +972,14 @@ impl DdlDialog {
         });
 
         ui.add_space(4.0);
-        ui.label(RichText::new("列名").small().color(Color32::from_gray(170)));
+        ui.label(RichText::new("列名").small().color(theme_muted_text(ui.visuals())));
         ui.add_sized(
             [ui.available_width(), 0.0],
             TextEdit::singleline(&mut col.name).hint_text("列名"),
         );
 
         ui.add_space(4.0);
-        ui.label(RichText::new("类型").small().color(Color32::from_gray(170)));
+        ui.label(RichText::new("类型").small().color(theme_muted_text(ui.visuals())));
         Self::show_type_combo(ui, layout.idx, col, ui.available_width());
 
         ui.add_space(4.0);
@@ -1000,7 +1001,7 @@ impl DdlDialog {
 
     fn show_row_indicator(ui: &mut egui::Ui, is_selected: bool) {
         if is_selected {
-            ui.label(RichText::new(">").color(Color32::from_rgb(100, 180, 255)));
+            ui.label(RichText::new(">").color(theme_accent(ui.visuals())));
         } else {
             ui.label(RichText::new(" ").monospace());
         }

@@ -39,7 +39,7 @@ use crate::core::{Action, KeyBindings, constants};
 use crate::data::DatabaseType;
 use crate::data::QueryResult;
 use crate::ui::dialogs::{DialogHeader, DialogStyle, DialogWindow};
-use crate::ui::styles::{GRAY, theme_disabled_text, theme_text};
+use crate::ui::styles::{DANGER, GRAY, theme_accent, theme_disabled_text, theme_text, theme_warn};
 use crate::ui::{
     LocalShortcut, action_tooltip_with_extras, local_shortcut_pressed, local_shortcut_tooltip,
     shortcut_tooltip,
@@ -393,7 +393,7 @@ impl DataGrid {
                 ui.label(
                     RichText::new(&state.command_buffer)
                         .monospace()
-                        .color(Color32::YELLOW),
+                        .color(theme_warn(ui.visuals())),
                 );
             }
 
@@ -403,7 +403,7 @@ impl DataGrid {
                 ui.label(
                     RichText::new(format!("{}", count))
                         .monospace()
-                        .color(Color32::YELLOW),
+                        .color(theme_warn(ui.visuals())),
                 );
             }
 
@@ -418,7 +418,7 @@ impl DataGrid {
                 ui.label(
                     RichText::new(truncated_msg)
                         .small()
-                        .color(Color32::from_rgb(255, 165, 0)), // 橙色警告
+                        .color(theme_warn(ui.visuals())), // 主题警告色
                 )
                 .on_hover_text("结果集过大已被截断。建议在 SQL 中添加 LIMIT 子句限制返回行数。");
             }
@@ -439,7 +439,7 @@ impl DataGrid {
                     egui::Label::new(
                         RichText::new(filter_text)
                             .size(12.0)
-                            .color(Color32::from_rgb(130, 160, 200)),
+                            .color(theme_accent(ui.visuals()).gamma_multiply(0.8)),
                     )
                     .sense(egui::Sense::click()),
                 )
@@ -467,7 +467,7 @@ impl DataGrid {
                         egui::Label::new(
                             RichText::new("+ 行")
                                 .size(12.0)
-                                .color(Color32::from_rgb(130, 160, 200)),
+                                .color(theme_accent(ui.visuals()).gamma_multiply(0.8)),
                         )
                         .sense(egui::Sense::click()),
                     )
@@ -816,11 +816,7 @@ impl DataGrid {
                             .show(ui, |ui| {
                                 for (i, sql) in state.pending_sql.iter().enumerate() {
                                     let is_delete = sql.starts_with("DELETE");
-                                    let color = if is_delete {
-                                        Color32::from_rgb(200, 80, 80)
-                                    } else {
-                                        GRAY
-                                    };
+                                    let color = if is_delete { DANGER } else { GRAY };
                                     ui.label(
                                         RichText::new(format!("{}. {}", i + 1, sql))
                                             .small()
@@ -838,7 +834,7 @@ impl DataGrid {
                                 egui::Button::new(
                                     RichText::new("⚠ 确认执行")
                                         .size(13.0)
-                                        .color(Color32::from_rgb(255, 100, 100)),
+                                        .color(DANGER),
                                 )
                                 .frame(false)
                                 .min_size(Vec2::new(0.0, 24.0)),
