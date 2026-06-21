@@ -992,6 +992,12 @@ impl DbManagerApp {
                 DialogScope::ToolbarActionsMenu => self.close_dialog(DialogId::ToolbarActionsMenu),
                 DialogScope::ToolbarCreateMenu => self.close_dialog(DialogId::ToolbarCreateMenu),
                 DialogScope::ToolbarThemeMenu => self.close_dialog(DialogId::ToolbarThemeMenu),
+                DialogScope::Connection => self.close_dialog(DialogId::Connection),
+                DialogScope::Export => self.close_dialog(DialogId::Export),
+                DialogScope::Import => self.close_dialog(DialogId::Import),
+                DialogScope::Ddl => self.close_dialog(DialogId::Ddl),
+                DialogScope::CreateDatabase => self.close_dialog(DialogId::CreateDatabase),
+                DialogScope::CreateUser => self.close_dialog(DialogId::CreateUser),
                 _ => {}
             },
             RouterLocalAction::KeybindingsRecordingInput => {
@@ -1347,6 +1353,15 @@ fn resolve_dialog_shortcut_fallback_with(
                 None
             }
         }
+        // 表单类对话框：Esc 关闭，补全键盘契约（修复审计 DLG-A2-2）。
+        DialogScope::Connection
+        | DialogScope::Export
+        | DialogScope::Import
+        | DialogScope::Ddl
+        | DialogScope::CreateDatabase
+        | DialogScope::CreateUser => local_shortcut_triggered(LocalShortcut::Dismiss).then_some(
+            ResolvedInputAction::HandledLocal(RouterLocalAction::CloseDialog(scope)),
+        ),
         _ => None,
     }
 }
@@ -2728,6 +2743,34 @@ mod tests {
             resolve_event_with_keybindings(context, key_event(Key::Q), &KeyBindings::default()),
             ResolvedInputAction::NoOp
         );
+    }
+
+    #[test]
+    fn form_dialog_scopes_route_escape_to_close_dialog() {
+        // 审计 DLG-A2-2：表单类对话框在无文本焦点时 Esc 应关闭。
+        for scope in [
+            DialogScope::Connection,
+            DialogScope::Export,
+            DialogScope::Import,
+            DialogScope::Ddl,
+            DialogScope::CreateDatabase,
+            DialogScope::CreateUser,
+        ] {
+            let mut context = snapshot();
+            context.has_modal_dialog = true;
+            context.active_dialog = Some(scope);
+            context.focus_area = FocusArea::Dialog;
+
+            assert_eq!(
+                resolve_event_with_keybindings(
+                    context,
+                    key_event(Key::Escape),
+                    &KeyBindings::default()
+                ),
+                ResolvedInputAction::HandledLocal(RouterLocalAction::CloseDialog(scope)),
+                "scope {scope:?} must route Esc to CloseDialog"
+            );
+        }
     }
 
     #[test]
