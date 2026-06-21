@@ -85,7 +85,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 | SM-6 | Trigger load error indistinguishable from empty | ~~`handler.rs:908-918`~~ FIXED: `error_triggers` field + panel error branch | FIXED 2026-06-21 |
 | SM-7 | Routine load error indistinguishable from empty | ~~`handler.rs:957-970`~~ FIXED: `error_routines` field + panel error branch; SQLite "不支持" treated as empty not error | FIXED 2026-06-21 |
 | CONN-F5 | Welcome setup dialog opens on every connect failure | ~~`database.rs:551-556`~~ FIXED: `connection_error_warrants_onboarding` gates the dialog to setup/init errors only (not timeout/refused/auth) | FIXED 2026-06-21 |
-| CONN-F7 | PostgreSQL pool task leaks on remove | `data/pool.rs:366-369` drops `Arc<Client>` without signalling bg task | Lingering PG server connections after disconnect |
+| CONN-F7 | PostgreSQL pool task leaks on remove | ~~`data/pool.rs:366-369`~~ FIXED: pg_clients entry now stores the bg connection JoinHandle; remove_pool/health-check/LRU-evict/clear_all all abort it | FIXED 2026-06-21 |
 
 ### Keyboard / dialog contract
 
