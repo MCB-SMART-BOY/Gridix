@@ -210,6 +210,8 @@ pub struct ERDiagramState {
     /// 当前加载代号，单调递增。每次 begin_loading/clear 自增，用于丢弃过期连接的
     /// 异步 ER 回包，防止断开/切换后旧连接的列/外键写入新连接的 ER 状态（审计 B6-ER）。
     load_generation: u64,
+    /// ER 加载错误信息（用于在画布上显示错误卡，而不是静默退化为空——审计 ER-3）。
+    error: Option<String>,
 }
 
 impl ERDiagramState {
@@ -237,6 +239,7 @@ impl ERDiagramState {
         self.pending_column_tables.clear();
         self.foreign_key_columns.clear();
         self.foreign_keys_resolved = false;
+        self.error = None;
         // 使任何在途的旧回包失效。
         self.load_generation = self.load_generation.wrapping_add(1);
     }
@@ -244,6 +247,17 @@ impl ERDiagramState {
     /// 当前加载代号。异步 ER 任务捕获此值并随回包带回，handler 比对以丢弃过期回包。
     pub fn current_load_generation(&self) -> u64 {
         self.load_generation
+    }
+
+    /// 记录 ER 加载错误（在画布上显示错误卡——审计 ER-3）。同时结束加载态。
+    pub fn set_error(&mut self, error: String) {
+        self.error = Some(error);
+        self.loading = false;
+    }
+
+    /// 当前 ER 加载错误（供渲染层显示错误卡）。
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
     }
 
     /// 开始一轮新的 ER 数据加载。
@@ -1294,8 +1308,22 @@ mod tests {
     }
 
     #[test]
+    fn er_error_state_is_set_and_cleared_on_reload() {
+        // 审计 ER-3：加载失败要能记录错误，下一轮加载清除。
+        let mut state = ERDiagramState::new();
+        assert!(state.error().is_none());
+
+        state.set_error("fk fetch failed".to_string());
+        assert_eq!(state.error(), Some("fk fetch failed"));
+        assert!(!state.loading);
+
+        // 新一轮加载（begin_loading→clear）清除错误。
+        state.begin_loading(&["users".to_string()]);
+        assert!(state.error().is_none());
+    }
+
+    #[test]
     fn load_generation_advances_on_each_load_and_clear() {
-        // 审计 B6-ER：每轮加载/清空都推进代号，使旧连接的在途 ER 回包失效。
         let mut state = ERDiagramState::new();
         let g0 = state.current_load_generation();
 

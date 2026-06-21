@@ -1189,6 +1189,10 @@ impl DbManagerApp {
                 self.session
                     .notifications
                     .error(format!("加载外键关系失败: {}", e));
+                // 在画布上显示错误卡，而不是静默退化为空（审计 ER-3）。
+                self.state
+                    .er_diagram_state
+                    .set_error(format!("加载外键关系失败: {}", e));
                 self.finalize_er_diagram_load_if_ready();
             }
         }

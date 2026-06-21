@@ -80,7 +80,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 
 | ID | Title | Evidence | Symptom |
 |---|---|---|---|
-| ER-3 | ER load error never rendered in canvas | `er_diagram/state.rs` (no error field), `render.rs:602-614` (no error branch) | Failed ER load silently shows incomplete/empty diagram |
+| ER-3 | ER load error never rendered in canvas | ~~`er_diagram/state.rs`~~ STATE FIXED: `error` field + `set_error`/`clear` wiring + handler sets it on FK-fetch failure. Canvas error-card render branch is staged in working-tree `render.rs` (deferred to land with the in-flight ER visual redesign already modifying that file). | STATE FIXED 2026-06-21 (render pending) |
 | SM-3 | No table-list loading indicator | `sidebar/state.rs:293-377` (no `loading_tables`) | Blank table list during async connect looks like empty schema |
 | SM-6 | Trigger load error indistinguishable from empty | ~~`handler.rs:908-918`~~ FIXED: `error_triggers` field + panel error branch | FIXED 2026-06-21 |
 | SM-7 | Routine load error indistinguishable from empty | ~~`handler.rs:957-970`~~ FIXED: `error_routines` field + panel error branch; SQLite "不支持" treated as empty not error | FIXED 2026-06-21 |
