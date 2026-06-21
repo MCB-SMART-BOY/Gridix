@@ -3,7 +3,7 @@
 use super::{ConnectionList, SidebarActions, SidebarSelectionState, TableList};
 use crate::data::ConnectionManager;
 use crate::ui::SidebarSection;
-use crate::ui::styles::{MUTED, SPACING_LG};
+use crate::ui::styles::{MUTED, SPACING_LG, theme_accent, theme_selection_fill, theme_text};
 use egui::{self, Color32, CornerRadius, RichText};
 
 /// 数据库列表
@@ -38,9 +38,9 @@ impl DatabaseList {
 
             // 数据库项 - 整行可点击
             let db_bg = if is_nav_selected {
-                Color32::from_rgba_unmultiplied(100, 150, 255, 35) // 键盘导航选中（降低透明度）
+                theme_selection_fill(ui.visuals(), 35) // 键盘导航选中
             } else if is_selected {
-                Color32::from_rgba_unmultiplied(80, 140, 80, 30)
+                Color32::from_rgba_unmultiplied(80, 140, 80, 30) // 语义绿:当前活动库
             } else {
                 Color32::TRANSPARENT
             };
@@ -52,11 +52,11 @@ impl DatabaseList {
                     ui.horizontal(|ui| {
                         // 数据库名称
                         let db_color = if is_nav_selected {
-                            Color32::from_rgb(100, 180, 255)
+                            theme_accent(ui.visuals())
                         } else if is_selected {
-                            Color32::from_rgb(140, 220, 140)
+                            Color32::from_rgb(140, 220, 140) // 语义绿:当前活动库
                         } else {
-                            Color32::from_rgb(180, 180, 190)
+                            theme_text(ui.visuals())
                         };
                         let prefix = if is_nav_selected { "> " } else { "" };
                         ui.label(RichText::new(format!("{}{}", prefix, database)).color(db_color));

@@ -3,7 +3,10 @@
 use super::SidebarPanelState;
 use crate::data::{RoutineInfo, RoutineType};
 use crate::ui::SidebarSection;
-use crate::ui::styles::{GRAY, MARGIN_SM, MUTED, SPACING_LG, SPACING_SM, SUCCESS, theme_text};
+use crate::ui::styles::{
+    GRAY, MARGIN_SM, MUTED, SPACING_LG, SPACING_SM, SUCCESS, theme_accent, theme_selection_fill,
+    theme_text,
+};
 use egui::{self, Color32, CornerRadius, RichText, Vec2};
 
 /// 存储过程/函数面板
@@ -100,7 +103,7 @@ impl RoutinePanel {
         is_nav_selected: bool,
     ) -> egui::Response {
         let bg_color = if is_nav_selected {
-            Color32::from_rgba_unmultiplied(100, 150, 255, 35)
+            theme_selection_fill(ui.visuals(), 35)
         } else {
             Color32::TRANSPARENT
         };
@@ -120,9 +123,9 @@ impl RoutinePanel {
                     // 类型图标
                     let nav_icon = if is_nav_selected { ">" } else { " " };
                     let text_color = if is_nav_selected {
-                        Color32::from_rgb(100, 180, 255)
+                        theme_accent(ui.visuals())
                     } else {
-                        Color32::from_rgb(180, 180, 190)
+                        theme_text(ui.visuals())
                     };
 
                     ui.label(RichText::new(nav_icon).color(text_color));
