@@ -72,7 +72,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 |---|---|---|---|
 | G2 | Multi-statement grid save is fire-and-forget | ~~`app/surfaces/render.rs:519-521`~~ FIXED: grid save now routes through `execute_grid_save` → `execute_import_batch(use_transaction=true, stop_on_error=true)` — atomic, first-error rollback; `GridSaveDone` reports per-batch outcome | FIXED 2026-06-21 |
 | G5 | Empty cell silently coerced to NULL | ~~`ui/components/grid/actions.rs:116-124`~~ FIXED: save no longer silent — `generate_save_sql` counts empty→NULL coercions (edits + inserts) and appends "（其中 N 个空单元格将保存为 NULL）" to the user-facing message | FIXED 2026-06-21 |
-| G6 | No client-side type validation | `ui/components/grid/actions.rs` (absent) | Type errors only surface at save time |
+| G6 | No client-side type validation | ~~`ui/components/grid/actions.rs` (absent)~~ FIXED: `validate_cell` checks NOT-NULL emptiness + int/float/bool parse against cached `ColumnInfo`; issues folded into the save message (warn-but-allow). Column metadata fetched via upgraded `fetch_column_metadata` (replaces PK-only path). | FIXED 2026-06-21 |
 | Q2 | Tab-bar close skips `sync_from_active_tab` | ~~`app/surfaces/render.rs:1211-1232`~~ FIXED: `handle_tab_actions` calls `sync_from_active_tab` after any close (close_tab/others/right) | FIXED 2026-06-21 |
 | EL-02 | Results panel shows no executing state | ~~`app/surfaces/workbench.rs`~~ FIXED: `render_bottom_panel_results` shows a spinner/loading card while the active tab is executing | FIXED 2026-06-21 |
 

@@ -10,7 +10,7 @@ use crate::app::dialogs::host::DialogId;
 use crate::core::constants;
 use crate::data::{
     ConnectResult, ConnectionConfig, DatabaseType, connect_database, drop_database,
-    execute_import_batch, execute_query, execute_query_cancellable, get_primary_key_column,
+    execute_import_batch, execute_query, execute_query_cancellable, get_table_columns,
     get_tables_for_database, ssh_tunnel::SSH_TUNNEL_MANAGER,
 };
 use crate::ui;
@@ -600,7 +600,11 @@ impl DbManagerApp {
     }
 
     /// 异步获取表的主键列
-    pub(in crate::app) fn fetch_primary_key(&self, table_name: &str) {
+    /// 拉取当前表的完整列元数据(类型/可空性/主键)。
+    ///
+    /// 取代仅拉主键的旧路径:`ColumnInfo` 已含 `is_primary_key`,因此一次拉取既能刷新主键索引,
+    /// 又为网格保存前的客户端校验提供类型/可空性(审计 G6)。
+    pub(in crate::app) fn fetch_column_metadata(&self, table_name: &str) {
         let Some(conn) = self.session.manager.get_active() else {
             return;
         };
@@ -610,13 +614,12 @@ impl DbManagerApp {
         let tx = self.session.tx.clone();
 
         self.session.runtime.spawn(async move {
-            let pk_result = get_primary_key_column(&config, &table).await;
-            let pk_column = pk_result.ok().flatten();
+            let columns = get_table_columns(&config, &table).await.unwrap_or_default();
             if tx
-                .send(Message::PrimaryKeyFetched(table, pk_column))
+                .send(Message::ColumnMetadataFetched(table, columns))
                 .is_err()
             {
-                tracing::warn!("无法发送主键信息：接收端已关闭");
+                tracing::warn!("无法发送列元数据：接收端已关闭");
             }
         });
     }

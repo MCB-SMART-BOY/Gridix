@@ -43,8 +43,11 @@ pub enum Message {
         request_id: u64,
         elapsed_ms: u64,
     },
-    /// 主键列获取完成 (表名, 主键列名)
-    PrimaryKeyFetched(String, Option<String>),
+    /// 表列元数据获取完成 (表名, 列信息列表)
+    ///
+    /// 携带类型/可空性/主键,用于网格保存前的客户端校验(审计 G6),
+    /// 并顺带刷新主键索引(取代仅拉主键的旧路径）。
+    ColumnMetadataFetched(String, Vec<ColumnInfo>),
     /// 触发器列表获取完成 (连接名, 数据库名, 请求ID, 触发器列表结果)
     TriggersFetched(
         String,

@@ -276,7 +276,7 @@ pub(in crate::app) struct CommandMatch {
 pub(in crate::app) enum AppEffect {
     Connect(String),
     ExecuteSql(String),
-    FetchPrimaryKey(String),
+    FetchColumnMetadata(String),
     RefreshWelcomeEnvironment,
     EnsureLearningSample {
         reset: bool,
@@ -1560,7 +1560,7 @@ impl DbManagerApp {
         &mut self,
         reset_primary_key: bool,
         clear_sql: bool,
-        fetch_primary_key: bool,
+        fetch_column_metadata: bool,
     ) -> Vec<AppEffect> {
         let Some(table) = self.state.selected_table.clone() else {
             return Vec::new();
@@ -1589,8 +1589,8 @@ impl DbManagerApp {
         }
 
         let mut effects = vec![AppEffect::ExecuteSql(query_sql)];
-        if fetch_primary_key {
-            effects.push(AppEffect::FetchPrimaryKey(table));
+        if fetch_column_metadata {
+            effects.push(AppEffect::FetchColumnMetadata(table));
         }
         effects
     }
@@ -1616,8 +1616,8 @@ impl DbManagerApp {
                 AppEffect::ExecuteSql(sql) => {
                     let _ = self.execute(sql);
                 }
-                AppEffect::FetchPrimaryKey(table) => {
-                    self.fetch_primary_key(&table);
+                AppEffect::FetchColumnMetadata(table) => {
+                    self.fetch_column_metadata(&table);
                 }
                 AppEffect::RefreshWelcomeEnvironment => {
                     self.refresh_welcome_environment_status();

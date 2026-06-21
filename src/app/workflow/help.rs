@@ -74,7 +74,7 @@ impl DbManagerApp {
                 if let Some(table_name) = table {
                     self.switch_grid_workspace(Some(table_name.clone()));
                     self.state.grid_state.primary_key_column = None;
-                    self.fetch_primary_key(&table_name);
+                    self.fetch_column_metadata(&table_name);
                 }
 
                 if open_er_diagram {
@@ -221,7 +221,7 @@ impl DbManagerApp {
         if let Some(table_name) = preview_table {
             self.switch_grid_workspace(Some(table_name.clone()));
             self.state.grid_state.primary_key_column = None;
-            self.fetch_primary_key(&table_name);
+            self.fetch_column_metadata(&table_name);
         }
 
         let _ = self.execute(preview_sql.to_string());

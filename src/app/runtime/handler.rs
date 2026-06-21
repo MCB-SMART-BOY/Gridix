@@ -284,8 +284,8 @@ impl DbManagerApp {
                 } => {
                     self.handle_grid_save_done(ctx, result, table, request_id, elapsed_ms);
                 }
-                Message::PrimaryKeyFetched(table_name, pk_column) => {
-                    self.handle_primary_key_fetched(ctx, table_name, pk_column);
+                Message::ColumnMetadataFetched(table_name, columns) => {
+                    self.handle_column_metadata_fetched(ctx, table_name, columns);
                 }
                 Message::TriggersFetched(conn_name, db_name, request_id, result) => {
                     self.handle_triggers_fetched(ctx, conn_name, db_name, request_id, result);
@@ -1019,23 +1019,29 @@ impl DbManagerApp {
         self.session.needs_repaint = true;
     }
 
-    /// 处理主键获取完成消息
-    fn handle_primary_key_fetched(
+    /// 处理列元数据获取完成消息
+    ///
+    /// 缓存列元数据用于保存前校验,并由其中 `is_primary_key` 顺带刷新主键索引(审计 G6)。
+    fn handle_column_metadata_fetched(
         &mut self,
         _ctx: &egui::Context,
         table_name: String,
-        pk_column: Option<String>,
+        columns: Vec<crate::data::ColumnInfo>,
     ) {
+        // 过期保护:仅当回包仍对应当前选中表时落地。
         if self.state.selected_table.as_deref() == Some(&table_name) {
-            if let Some(pk_name) = pk_column {
-                if let Some(result) = &self.state.result
-                    && let Some(idx) = result.columns.iter().position(|c| c == &pk_name)
-                {
-                    self.state.grid_state.primary_key_column = Some(idx);
-                }
-            } else {
-                self.state.grid_state.primary_key_column = None;
-            }
+            // 从列元数据推导主键索引(取代旧的仅拉主键路径)。
+            let pk_name = columns
+                .iter()
+                .find(|c| c.is_primary_key)
+                .map(|c| c.name.clone());
+            self.state.grid_state.primary_key_column = pk_name.and_then(|name| {
+                self.state
+                    .result
+                    .as_ref()
+                    .and_then(|result| result.columns.iter().position(|c| c == &name))
+            });
+            self.state.grid_state.column_metadata = columns;
         }
         self.session.needs_repaint = true;
     }
@@ -1270,6 +1276,7 @@ mod tests {
         schema_invalidation_for, select_ready_state_er_layout_strategy,
         should_drop_query_error_as_stale, should_record_active_query_time,
     };
+    use crate::data::ColumnInfo;
     use crate::data::ForeignKeyInfo;
     use crate::data::ImportExecutionReport;
     use crate::data::QueryResult;
@@ -1869,5 +1876,47 @@ mod tests {
         assert_eq!(relationships[0].to_table, "customers");
         assert_eq!(relationships[0].to_column, "id");
         assert_eq!(relationships[0].relation_type, RelationType::OneToMany);
+    }
+
+    #[test]
+    fn column_metadata_fetch_caches_and_derives_primary_key() {
+        // 审计 G6：列元数据落地到 grid_state，并从 is_primary_key 推导主键索引。
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let ctx = egui::Context::default();
+        app.state.selected_table = Some("t".to_string());
+        app.state.result = Some(QueryResult::with_rows(
+            vec!["id".to_string(), "age".to_string()],
+            vec![vec!["1".to_string(), "30".to_string()]],
+        ));
+
+        let columns = vec![
+            ColumnInfo {
+                name: "id".to_string(),
+                data_type: "INTEGER".to_string(),
+                is_primary_key: true,
+                is_nullable: false,
+                default_value: None,
+            },
+            ColumnInfo {
+                name: "age".to_string(),
+                data_type: "INTEGER".to_string(),
+                is_primary_key: false,
+                is_nullable: false,
+                default_value: None,
+            },
+        ];
+        app.handle_column_metadata_fetched(&ctx, "t".to_string(), columns);
+
+        assert_eq!(app.state.grid_state.column_metadata.len(), 2);
+        assert_eq!(app.state.grid_state.primary_key_column, Some(0));
+
+        // 过期回包（表已切换）不应覆盖。
+        app.state.selected_table = Some("other".to_string());
+        app.handle_column_metadata_fetched(&ctx, "t".to_string(), Vec::new());
+        assert_eq!(
+            app.state.grid_state.column_metadata.len(),
+            2,
+            "过期回包不应清空当前表元数据"
+        );
     }
 }

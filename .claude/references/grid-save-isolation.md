@@ -41,6 +41,21 @@ It now routes through the existing transactional batch seam:
 - Stale-guard: `Session.pending_grid_save_request` tracks the latest save's `request_id`;
   late/superseded batch responses are dropped before touching edit state.
 
+## Pre-save client validation (G5 + G6)
+
+Before the SQL is dispatched, `generate_save_sql` surfaces likely problems in the
+user-facing message (warn-but-allow — it never blocks the save):
+
+- **G5**: counts empty cells coerced to NULL → "（其中 N 个空单元格将保存为 NULL）".
+- **G6**: `validate_cell(value, &ColumnInfo)` checks each edited/inserted cell against the
+  cached column metadata: empty in a NOT NULL column → `NotNull`; value unparsable for an
+  int/float/bool column → `TypeMismatch`. Issues are deduped + capped and appended as
+  "。请检查:…". Only fires when `grid_state.column_metadata` is populated.
+- Column metadata is fetched by `fetch_column_metadata(table)` (`app/runtime/database.rs`,
+  replaces the old PK-only `fetch_primary_key`) → `Message::ColumnMetadataFetched` →
+  `handle_column_metadata_fetched` caches it and derives `primary_key_column` from
+  `is_primary_key`. Stale-guarded on `selected_table`.
+
 ## Validation
 
 ```bash
