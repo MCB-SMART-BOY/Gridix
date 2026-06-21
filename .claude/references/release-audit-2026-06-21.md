@@ -95,7 +95,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 | DLG-A3-1 | `open_dialog()` doesn't close other major dialogs | `dialogs/host.rs:160-183` | Two `show_*` bools can be true at once; transient owner inconsistency |
 | DLG-B1-1 | BottomPanel/RightInspector not in Tab focus cycle | `app/input/keyboard.rs:16-31` | No keyboard route to focus Results/Messages/Inspector |
 | DLG-B2-1b | All 6 `FocusSidebar*` actions have no default binding | ~~`core/keybindings.rs:1038-1099`~~ FIXED: bound `Ctrl+1..6` | FIXED 2026-06-21 |
-| DLG-B2-3 | `editor.insert.history_browse` shadows history_prev/next | `core/commands.rs:856-879` | Overlapping default keys; history_browse effectively unreachable |
+| DLG-B2-3 | `editor.insert.history_browse` shadows history_prev/next | ~~`core/commands.rs:856-879`~~ FIXED: `history_browse` (never functionally consumed) now has no default bindings; help display repointed to `SqlHistoryPrev` | FIXED 2026-06-21 |
 | A4-1 | No explicit focus-return after dialog dismiss | `dialogs/host.rs:186-210` | Focus left implicit after cancel via X |
 
 ### Visual — broken under specific themes (G41-B013 family)

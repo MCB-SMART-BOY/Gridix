@@ -34,7 +34,7 @@ impl HelpDialog {
         let sql_execute = local_shortcut_text(LocalShortcut::SqlExecute);
         let sql_explain = local_shortcut_text(LocalShortcut::SqlExplain);
         let sql_autocomplete = local_shortcut_text(LocalShortcut::SqlAutocompleteTrigger);
-        let sql_history = local_shortcut_text(LocalShortcut::SqlHistoryBrowse);
+        let sql_history = local_shortcut_text(LocalShortcut::SqlHistoryPrev);
         let first_connection_step = format!(
             "按 {} 创建连接。SQLite 最适合快速验证，PostgreSQL / MySQL 适合连真实数据库。",
             new_connection

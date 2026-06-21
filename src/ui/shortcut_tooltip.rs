@@ -829,9 +829,9 @@ mod tests {
 
     #[test]
     fn local_shortcut_text_uses_actual_binding_order() {
-        let text = local_shortcut_text(LocalShortcut::SqlHistoryBrowse);
+        let text = local_shortcut_text(LocalShortcut::SqlHistoryPrev);
 
-        assert_eq!(text, "Shift+Up / Shift+Down / Shift+K / Shift+J");
+        assert_eq!(text, "Shift+Up / Shift+K");
     }
 
     #[test]
