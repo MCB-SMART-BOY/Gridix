@@ -69,6 +69,22 @@ fn should_record_active_query_time(
     !is_stale_for_existing_tab && target_tab_index == Some(active_index)
 }
 
+/// schema 变更失效级联需要执行哪些重载（纯决策，便于单测）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct SchemaInvalidation {
+    reload_tables: bool,
+    reload_triggers: bool,
+    reload_routines: bool,
+}
+
+fn schema_invalidation_for(hints: &crate::data::SqlUiHints) -> SchemaInvalidation {
+    SchemaInvalidation {
+        reload_tables: hints.is_table_schema_change,
+        reload_triggers: hints.is_trigger_change,
+        reload_routines: hints.is_routine_change,
+    }
+}
+
 /// 网格保存批次回包的处置结果（纯决策，便于单测 B1 不变量）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GridSaveOutcome {
@@ -240,6 +256,9 @@ impl DbManagerApp {
                 }
                 Message::TableDropped(conn_name, table_name, result) => {
                     self.handle_table_dropped(ctx, conn_name, table_name, result);
+                }
+                Message::ActiveTablesReloaded(conn_name, request_id, result) => {
+                    self.handle_active_tables_reloaded(ctx, conn_name, request_id, result);
                 }
                 Message::QueryDone(sql, conn_name, tab_id, request_id, result, elapsed_ms) => {
                     self.handle_query_done(
@@ -452,6 +471,10 @@ impl DbManagerApp {
                     self.load_routines();
                     self.switch_grid_workspace(None);
                     self.clear_result();
+                    // 切库后若 ER 图打开，重载为新库的 schema（修复审计 ER-6）。
+                    if self.state.show_er_diagram {
+                        self.load_er_diagram_data();
+                    }
                 }
             }
             Err(e) => {
@@ -560,6 +583,11 @@ impl DbManagerApp {
                 self.session
                     .notifications
                     .success(format!("表 '{}' 已删除", table_name));
+
+                // 侧栏删表后，若 ER 图打开则重载，避免显示已删除的表（修复审计 ER-5）。
+                if is_active && self.state.show_er_diagram {
+                    self.load_er_diagram_data();
+                }
             }
             Err(error) => {
                 self.session
@@ -568,6 +596,34 @@ impl DbManagerApp {
             }
         }
 
+        self.session.needs_repaint = true;
+    }
+
+    /// 处理静默表列表重载完成消息（schema 变更后失效重载）。
+    ///
+    /// 只在该连接仍是 active 时应用，静默刷新表列表与 autocomplete，不发连接提示。
+    fn handle_active_tables_reloaded(
+        &mut self,
+        _ctx: &egui::Context,
+        conn_name: String,
+        _request_id: u64,
+        result: Result<Vec<String>, String>,
+    ) {
+        if self.session.manager.active.as_deref() != Some(conn_name.as_str()) {
+            tracing::debug!(connection = %conn_name, "忽略过期表列表刷新（连接已切换）");
+            return;
+        }
+        match result {
+            Ok(tables) => {
+                if let Some(conn) = self.session.manager.connections.get_mut(&conn_name) {
+                    conn.tables = tables.clone();
+                }
+                self.session.autocomplete.set_tables(tables);
+            }
+            Err(e) => {
+                tracing::warn!(connection = %conn_name, error = %e, "刷新表列表失败");
+            }
+        }
         self.session.needs_repaint = true;
     }
 
@@ -749,6 +805,10 @@ impl DbManagerApp {
                         self.clear_result();
                     }
                 }
+
+                // 统一的 schema 失效级联：DDL 成功后重载受影响的派生视图
+                // （表列表/autocomplete/ER 图、触发器、存储过程）。修复审计 ER-4/ER-6/SM-8。
+                self.invalidate_after_schema_change(&sql_hints, &conn_name);
             }
             Err(e) => {
                 let is_cancelled = is_cancelled_query_error(&e);
@@ -835,6 +895,36 @@ impl DbManagerApp {
         self.session.refresh_executing_flag();
         self.session.needs_repaint = true;
     }
+
+    /// schema 变更失效级联：DDL 成功后重载受影响的派生视图。
+    ///
+    /// 仅对当前 active 连接生效（回包能走到这里已保证非 stale）。
+    /// 复用既有重载原语，不新增异步通道；各原语自带 request_id/generation stale-guard。
+    ///
+    /// 修复审计 ER-4（编辑器 CREATE/DROP/ALTER TABLE 后 ER 不刷新）、
+    /// ER-6（表结构变更后 ER 陈旧）、SM-8（CREATE/DROP TRIGGER/ROUTINE 后侧栏陈旧）。
+    fn invalidate_after_schema_change(&mut self, hints: &crate::data::SqlUiHints, conn_name: &str) {
+        if self.session.manager.active.as_deref() != Some(conn_name) {
+            return;
+        }
+
+        let invalidation = schema_invalidation_for(hints);
+        if invalidation.reload_tables {
+            // 重新拉取表列表（同时刷新 autocomplete）。
+            self.reload_active_tables();
+            // ER 图仅在打开时重载，避免无谓异步加载。
+            if self.state.show_er_diagram {
+                self.load_er_diagram_data();
+            }
+        }
+        if invalidation.reload_triggers {
+            self.load_triggers();
+        }
+        if invalidation.reload_routines {
+            self.load_routines();
+        }
+    }
+
     /// 处理导入完成消息
     fn handle_import_done(
         &mut self,
@@ -1163,13 +1253,45 @@ mod tests {
         apply_ready_state_er_diagram_layout, clamp_grid_cursor_for_result,
         classify_grid_save_outcome, collect_er_relationships_from_foreign_keys,
         er_diagram_ready_message, is_cancelled_query_error, resolve_er_diagram_ready_state,
-        select_ready_state_er_layout_strategy, should_drop_query_error_as_stale,
-        should_record_active_query_time,
+        schema_invalidation_for, select_ready_state_er_layout_strategy,
+        should_drop_query_error_as_stale, should_record_active_query_time,
     };
     use crate::data::ForeignKeyInfo;
     use crate::data::ImportExecutionReport;
     use crate::data::QueryResult;
+    use crate::data::analyze_sql_for_ui;
     use crate::ui::{ERLayoutStrategy, ERTable, RelationType, Relationship, RelationshipOrigin};
+
+    #[test]
+    fn schema_invalidation_maps_ddl_to_reloads() {
+        // 审计级联：CREATE TABLE → 重载表；CREATE TRIGGER → 重载触发器；
+        // CREATE FUNCTION → 重载存储过程；普通 DML/SELECT → 无重载。
+        let table = schema_invalidation_for(&analyze_sql_for_ui("CREATE TABLE t(id INT);"));
+        assert!(table.reload_tables);
+        assert!(!table.reload_triggers);
+        assert!(!table.reload_routines);
+
+        let alter = schema_invalidation_for(&analyze_sql_for_ui("ALTER TABLE t ADD c INT;"));
+        assert!(alter.reload_tables);
+
+        let trig = schema_invalidation_for(&analyze_sql_for_ui(
+            "CREATE TRIGGER g AFTER INSERT ON t BEGIN END;",
+        ));
+        assert!(trig.reload_triggers);
+        assert!(!trig.reload_tables);
+
+        let routine = schema_invalidation_for(&analyze_sql_for_ui(
+            "CREATE OR REPLACE FUNCTION f() RETURNS INT AS $$ $$;",
+        ));
+        assert!(routine.reload_routines);
+        assert!(!routine.reload_tables);
+
+        let dml = schema_invalidation_for(&analyze_sql_for_ui("UPDATE t SET v = 1;"));
+        assert!(!dml.reload_tables && !dml.reload_triggers && !dml.reload_routines);
+
+        let select = schema_invalidation_for(&analyze_sql_for_ui("SELECT * FROM t;"));
+        assert!(!select.reload_tables && !select.reload_triggers && !select.reload_routines);
+    }
 
     #[test]
     fn test_is_cancelled_query_error_chinese() {

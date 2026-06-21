@@ -57,10 +57,10 @@ individual symptoms — the symptoms are the test cases for the cascade.
 
 | ID | Title | Evidence | Symptom |
 |---|---|---|---|
-| ER-4 | ER stale after CREATE/DROP TABLE in SQL editor | `handler.rs:572-576` no `is_create_table`; `data/query/mod.rs:327-331` | ER diagram shows pre-DDL schema until manual refresh; CREATE TABLE undetected |
-| ER-5 | ER stale after sidebar DROP TABLE | `handler.rs:498-537` does not call `load_er_diagram_data()` | Dropped table card stays in an open ER diagram |
-| ER-6 | ER not reloaded on connection/db switch | `handler.rs:286-317, 405-437` no ER reload | Switching DB while ER open shows old schema |
-| SM-8 | Sidebar triggers/routines not refreshed after DDL | `handler.rs:572-800` never calls `load_triggers/routines` | CREATE/DROP TRIGGER leaves sidebar panel stale |
+| ER-4 | ER stale after CREATE/DROP TABLE in SQL editor | ~~`handler.rs:572-576`~~ FIXED: schema-invalidation cascade reloads tables + ER (if open) after table DDL | FIXED 2026-06-21 |
+| ER-5 | ER stale after sidebar DROP TABLE | ~~`handler.rs:498-537`~~ FIXED: `handle_table_dropped` reloads ER when open | FIXED 2026-06-21 |
+| ER-6 | ER not reloaded on connection/db switch | ~~`handler.rs:286-317, 405-437`~~ FIXED: editor DDL via cascade; db-switch reloads ER when open. (Switch-active-*connection* while ER open = CONN-F2, still open.) | FIXED 2026-06-21 |
+| SM-8 | Sidebar triggers/routines not refreshed after DDL | ~~`handler.rs:572-800`~~ FIXED: cascade calls `load_triggers/routines` after trigger/routine DDL | FIXED 2026-06-21 |
 | SM-9 | Re-expanding Triggers/Routines does not re-fetch | `sidebar/mod.rs:1051-1065`, `render.rs:1020-1021` | Collapse+expand shows cached pre-DDL data |
 | CONN-F1 | ER state not cleared on disconnect | ~~`database.rs:218-273`~~ FIXED: disconnect active-branch now clears `er_diagram_state` (also bumps load generation) | FIXED 2026-06-21 |
 | CONN-F2 | ER state not cleared on switch connection | `render.rs:752-763`, `action_system.rs:1545` | Connection A's schema shown after switching to B |

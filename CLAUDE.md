@@ -77,7 +77,7 @@ src/
 │   └── query/           # mod.rs orchestrator + sqlite.rs (sync), postgres.rs, mysql.rs (async)
 ├── session/             # Layer 2: connection lifecycle + tab management + async dispatch
 │   ├── mod.rs           # Session struct (~30 fields): runtime, mpsc, manager, tab_manager, request tracking
-│   ├── message.rs       # Message enum (13 variants, ALL carry request_id: u64)
+│   ├── message.rs       # Message enum (15 variants; most carry request_id/generation for stale-guard)
 │   └── tab.rs           # QueryTab (pure data), QueryTabManager (tabs + active index)
 │       (pending: migrate app/runtime/{database,handler,lifecycle,metadata,er_diagram}.rs)
 ├── state/               # Layer 3: UI state — no DB logic

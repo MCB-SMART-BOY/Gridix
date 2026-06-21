@@ -19,6 +19,10 @@ pub enum Message {
     DatabaseDropped(String, String, Result<(), String>),
     /// 表删除完成 (连接名, 表名, 删除结果)
     TableDropped(String, String, Result<(), String>),
+    /// schema 变更后的静默表列表重载完成 (连接名, 请求ID, 表列表结果)
+    ///
+    /// 与连接/选库不同：不发"已连接/已选库"提示，只静默刷新表列表与 autocomplete。
+    ActiveTablesReloaded(String, u64, Result<Vec<String>, String>),
     /// 查询执行完成 (SQL语句, 连接名, 目标Tab ID, 请求ID, 查询结果, 耗时毫秒)
     QueryDone(
         String,

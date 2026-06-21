@@ -330,6 +330,13 @@ pub(crate) struct SqlUiHints {
     pub is_drop_table: bool,
     pub is_create_database: bool,
     pub is_create_user_or_role: bool,
+    /// 任何会改变当前库表结构的 DDL：CREATE/DROP/ALTER TABLE。
+    /// 用于触发「表列表 + autocomplete + ER 图」失效重载。
+    pub is_table_schema_change: bool,
+    /// CREATE/DROP TRIGGER —— 触发侧栏触发器面板重载。
+    pub is_trigger_change: bool,
+    /// CREATE/DROP/REPLACE FUNCTION|PROCEDURE —— 触发侧栏存储过程面板重载。
+    pub is_routine_change: bool,
 }
 
 /// 分析 SQL 的主动作（忽略前导注释/空白，支持 WITH 主语句）
@@ -351,18 +358,44 @@ pub(crate) fn analyze_sql_for_ui(sql: &str) -> SqlUiHints {
         "insert" => hints.is_insert = true,
         "drop" => {
             i = skip_sql_ws_and_comments(sql, i);
+            if let Some(next_keyword) = read_sql_keyword(sql, &mut i) {
+                match next_keyword.as_str() {
+                    "table" => {
+                        hints.is_drop_table = true;
+                        hints.is_table_schema_change = true;
+                    }
+                    "trigger" => hints.is_trigger_change = true,
+                    "function" | "procedure" => hints.is_routine_change = true,
+                    _ => {}
+                }
+            }
+        }
+        "alter" => {
+            i = skip_sql_ws_and_comments(sql, i);
             if let Some(next_keyword) = read_sql_keyword(sql, &mut i)
                 && next_keyword == "table"
             {
-                hints.is_drop_table = true;
+                hints.is_table_schema_change = true;
             }
         }
         "create" => {
             i = skip_sql_ws_and_comments(sql, i);
-            if let Some(next_keyword) = read_sql_keyword(sql, &mut i) {
+            // 跳过 OR REPLACE / TEMP / TEMPORARY 等修饰词，定位到对象类型关键字。
+            let mut next_keyword = read_sql_keyword(sql, &mut i);
+            while matches!(
+                next_keyword.as_deref(),
+                Some("or") | Some("replace") | Some("temp") | Some("temporary") | Some("unique")
+            ) {
+                i = skip_sql_ws_and_comments(sql, i);
+                next_keyword = read_sql_keyword(sql, &mut i);
+            }
+            if let Some(next_keyword) = next_keyword {
                 match next_keyword.as_str() {
                     "database" | "schema" => hints.is_create_database = true,
                     "user" | "role" => hints.is_create_user_or_role = true,
+                    "table" => hints.is_table_schema_change = true,
+                    "trigger" => hints.is_trigger_change = true,
+                    "function" | "procedure" => hints.is_routine_change = true,
                     _ => {}
                 }
             }
@@ -834,6 +867,45 @@ mod tests {
         let hints = analyze_sql_for_ui("CREATE TABLE students(id INTEGER);");
         assert!(!hints.is_create_database);
         assert!(!hints.is_create_user_or_role);
+    }
+
+    #[test]
+    fn test_analyze_sql_for_ui_table_schema_changes() {
+        // CREATE TABLE / ALTER TABLE / DROP TABLE 都应标记 is_table_schema_change。
+        assert!(analyze_sql_for_ui("CREATE TABLE students(id INTEGER);").is_table_schema_change);
+        assert!(analyze_sql_for_ui("ALTER TABLE students ADD age INT;").is_table_schema_change);
+        let drop = analyze_sql_for_ui("DROP TABLE students;");
+        assert!(drop.is_table_schema_change);
+        assert!(
+            drop.is_drop_table,
+            "drop table must still set is_drop_table"
+        );
+        // 非表结构变更不应误标。
+        assert!(!analyze_sql_for_ui("SELECT * FROM students;").is_table_schema_change);
+        assert!(!analyze_sql_for_ui("CREATE DATABASE demo;").is_table_schema_change);
+    }
+
+    #[test]
+    fn test_analyze_sql_for_ui_trigger_changes() {
+        assert!(
+            analyze_sql_for_ui("CREATE TRIGGER trg AFTER INSERT ON t BEGIN END;").is_trigger_change
+        );
+        assert!(analyze_sql_for_ui("DROP TRIGGER trg;").is_trigger_change);
+        assert!(!analyze_sql_for_ui("CREATE TABLE t(id INT);").is_trigger_change);
+    }
+
+    #[test]
+    fn test_analyze_sql_for_ui_routine_changes() {
+        assert!(analyze_sql_for_ui("CREATE FUNCTION f() RETURNS INT AS $$ $$;").is_routine_change);
+        assert!(analyze_sql_for_ui("CREATE PROCEDURE p() BEGIN END;").is_routine_change);
+        // OR REPLACE 修饰词必须被跳过。
+        assert!(
+            analyze_sql_for_ui("CREATE OR REPLACE FUNCTION f() RETURNS INT AS $$ $$;")
+                .is_routine_change
+        );
+        assert!(analyze_sql_for_ui("DROP FUNCTION f;").is_routine_change);
+        assert!(analyze_sql_for_ui("DROP PROCEDURE p;").is_routine_change);
+        assert!(!analyze_sql_for_ui("CREATE TABLE t(id INT);").is_routine_change);
     }
 }
 

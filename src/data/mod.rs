@@ -38,7 +38,6 @@ pub use connection::{Connection, ConnectionManager};
 pub use pool::{POOL_MANAGER, PoolManager};
 
 // 查询
-pub(crate) use query::analyze_sql_for_ui;
 #[allow(unused_imports)] // get_primary_key_column 预留供将来使用
 pub use query::{
     ColumnInfo, ConnectResult, ForeignKeyInfo, ImportExecutionReport, RoutineInfo, RoutineType,
@@ -46,6 +45,7 @@ pub use query::{
     execute_query_cancellable, get_foreign_keys, get_primary_key_column, get_routines,
     get_table_columns, get_tables_for_database, get_triggers,
 };
+pub(crate) use query::{SqlUiHints, analyze_sql_for_ui};
 
 // SSH 隧道
 #[allow(unused_imports)] // SshTunnelConfig 公开 API

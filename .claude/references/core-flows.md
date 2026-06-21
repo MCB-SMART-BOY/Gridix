@@ -44,3 +44,4 @@ These features must not break during refactoring.
 | 8 | **Session owns async** | `runtime`, `tx`, `rx` live in Session. DbManagerApp accesses via `self.session.rx.try_recv()` |
 | 9 | **Config immutability** | AppConfig loaded at startup. Runtime mutations via Session fields, persisted via `save_config()` |
 | 10 | **No zombie active** | A failed active connection must reset `manager.active=None` (`handle_connection_error`). A failed db-switch must clear the now-stale autocomplete/triggers/routines. |
+| 11 | **Schema-change invalidation** | A successful DDL on the active connection must invalidate dependent views via `invalidate_after_schema_change`: table DDL → reload tables/autocomplete (+ ER if open); trigger/routine DDL → reload that sidebar panel. Detection is `analyze_sql_for_ui` → `SqlUiHints`. Reloads reuse existing primitives with their own stale-guards; table reload uses the quiet `ActiveTablesReloaded` path (no connect toast). |

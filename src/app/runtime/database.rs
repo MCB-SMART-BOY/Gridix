@@ -160,6 +160,53 @@ impl DbManagerApp {
         }
     }
 
+    /// 静默重新拉取当前活动连接的表列表（schema 变更后失效重载用）。
+    ///
+    /// 与 `connect()`/`select_database()` 不同：不发"已连接/已选库"提示，
+    /// 只在回包里静默刷新表列表与 autocomplete，避免每次 DDL 都弹连接提示。
+    /// 复用 `next_connect_request_id` 与 pending_database_requests 的 stale-guard。
+    pub(in crate::app) fn reload_active_tables(&mut self) {
+        let Some(active_name) = self.session.manager.active.clone() else {
+            return;
+        };
+        let Some(conn) = self.session.manager.connections.get(&active_name) else {
+            return;
+        };
+        let config = conn.config.clone();
+        // SQLite 用文件路径作为库名；多库用 selected_database。
+        let database = conn
+            .selected_database
+            .clone()
+            .unwrap_or_else(|| config.database.clone());
+        let tx = self.session.tx.clone();
+        let request_id = self.session.next_connect_request_id();
+
+        self.session.runtime.spawn(async move {
+            use tokio::time::{Duration, timeout};
+            let timeout_secs = constants::database::CONNECTION_TIMEOUT_SECS;
+            let result = timeout(
+                Duration::from_secs(timeout_secs),
+                get_tables_for_database(&config, &database),
+            )
+            .await;
+            let tables_result = match result {
+                Ok(Ok(tables)) => Ok(tables),
+                Ok(Err(e)) => Err(e.to_string()),
+                Err(_) => Err(format!("刷新表列表超时 ({}秒)", timeout_secs)),
+            };
+            if tx
+                .send(Message::ActiveTablesReloaded(
+                    active_name,
+                    request_id,
+                    tables_result,
+                ))
+                .is_err()
+            {
+                tracing::warn!("无法发送表列表刷新结果：接收端已关闭");
+            }
+        });
+    }
+
     /// 选择数据库（MySQL/PostgreSQL）
     pub(in crate::app) fn select_database(&mut self, database: String) {
         let Some(active_name) = self.session.manager.active.clone() else {
