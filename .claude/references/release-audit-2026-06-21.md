@@ -63,7 +63,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 | SM-8 | Sidebar triggers/routines not refreshed after DDL | ~~`handler.rs:572-800`~~ FIXED: cascade calls `load_triggers/routines` after trigger/routine DDL | FIXED 2026-06-21 |
 | SM-9 | Re-expanding Triggers/Routines does not re-fetch | `sidebar/mod.rs:1051-1065`, `render.rs:1020-1021` | Collapse+expand shows cached pre-DDL data |
 | CONN-F1 | ER state not cleared on disconnect | ~~`database.rs:218-273`~~ FIXED: disconnect active-branch now clears `er_diagram_state` (also bumps load generation) | FIXED 2026-06-21 |
-| CONN-F2 | ER state not cleared on switch connection | `render.rs:752-763`, `action_system.rs:1545` | Connection A's schema shown after switching to B |
+| CONN-F2 | ER state not cleared on switch connection | ~~`render.rs:752-763`~~ FIXED: switch-connection clears `er_diagram_state` (bumps generation); `handle_connected_with_tables` reloads ER when open | FIXED 2026-06-21 |
 | CONN-F6 | Autocomplete not cleared on switch-db failure | ~~`handler.rs:428-435`~~ FIXED: error arm now clears autocomplete + triggers/routines | FIXED 2026-06-21 |
 
 ### Query / grid feedback
@@ -73,7 +73,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 | G2 | Multi-statement grid save is fire-and-forget | `app/surfaces/render.rs:519-521` loops independent `execute()` calls | Partial failure: some rows commit, others fail, no per-row outcome |
 | G5 | Empty cell silently coerced to NULL | `ui/components/grid/actions.rs:116-124` | NOT NULL columns fail at DB with no pre-save hint |
 | G6 | No client-side type validation | `ui/components/grid/actions.rs` (absent) | Type errors only surface at save time |
-| Q2 | Tab-bar close skips `sync_from_active_tab` | `app/surfaces/render.rs:1211-1232` | Bottom panel/result/search stale one frame after × close |
+| Q2 | Tab-bar close skips `sync_from_active_tab` | ~~`app/surfaces/render.rs:1211-1232`~~ FIXED: `handle_tab_actions` calls `sync_from_active_tab` after any close (close_tab/others/right) | FIXED 2026-06-21 |
 | EL-02 | Results panel shows no executing state | ~~`app/surfaces/workbench.rs`~~ FIXED: `render_bottom_panel_results` shows a spinner/loading card while the active tab is executing | FIXED 2026-06-21 |
 
 ### Metadata / error feedback

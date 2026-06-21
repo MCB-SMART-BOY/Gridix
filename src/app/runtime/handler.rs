@@ -352,6 +352,10 @@ impl DbManagerApp {
                         .reset_for_connection_change();
                     self.load_triggers();
                     self.load_routines();
+                    // 连接后若 ER 图打开，为新连接重载 schema（修复审计 CONN-F2）。
+                    if self.state.show_er_diagram {
+                        self.load_er_diagram_data();
+                    }
                 }
             }
             Err(e) => {

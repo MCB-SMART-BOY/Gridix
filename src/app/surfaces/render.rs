@@ -778,6 +778,9 @@ impl DbManagerApp {
             self.state.sidebar_panel_state.clear_routines();
             self.state.sidebar_panel_state.loading_triggers = false;
             self.state.sidebar_panel_state.loading_routines = false;
+            // 清除上一个连接的 ER 图（并使其在途回包失效）；若 ER 打开则会随新连接 reveal 重载（修复审计 CONN-F2）。
+            self.state.er_diagram_state.clear();
+            self.state.er_diagram_state.loading = false;
         }
 
         // 数据库切换
@@ -1326,6 +1329,11 @@ impl DbManagerApp {
             for tab_id in closing_tab_ids {
                 self.remove_grid_workspaces_for_tab(&tab_id);
             }
+        }
+
+        // 任一关闭路径后同步主视图到新的活动标签，避免底部面板/结果/搜索陈旧一帧（修复审计 Q2）。
+        if tab_actions.close_tab.is_some() || tab_actions.close_others || tab_actions.close_right {
+            self.sync_from_active_tab();
         }
     }
 
