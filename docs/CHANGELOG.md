@@ -20,6 +20,8 @@ All notable changes to this project are documented in this file.
   将 ER 图 surface 重做为 schema-canvas 视觉系统：带边框和 glow 的画布、语义化表对象卡、accent rail、PK/FK 徽章、关键行高亮、关系线 halo/端点/基数标签、主题化加载/空状态卡片，并修正拖拽/平移命中语义。
 - Reorganized the application architecture around the new `data/` module, reduced duplicate app fields, removed dead code, cleaned hardcoded UI colors into theme-derived tokens, and refreshed the lockfile to the current dependency resolution.
   围绕新的 `data/` 模块重组应用架构，减少重复 app 字段，删除死代码，把硬编码 UI 颜色收敛为主题派生 token，并刷新 lockfile 到当前依赖解析结果。
+- Disabled the optional `russh` RSA feature to remove the `rsa` timing-sidechannel RustSec advisory from release builds; SSH password and non-RSA private-key flows remain on the supported path.
+  关闭可选的 `russh` RSA feature，以从发布构建中移除 `rsa` 计时侧信道 RustSec advisory；SSH 密码与非 RSA 私钥流程继续走受支持路径。
 - Refined workspace and dialog utility surfaces so Help, Keybindings, picker shells, toolbar action menus, and theme selection use shared modal/surface structure, productized rows, restrained selection rails, and keycap-style shortcut hints instead of ad-hoc egui windows.
   收紧 workspace 与 dialog 工具 surface：Help、Keybindings、picker shell、toolbar action menu 与主题选择现在使用共享 modal/surface 结构、产品化列表行、克制的选中 rail 和 keycap 风格快捷键提示，而不是临时的 egui 窗口。
 - Updated Gridix's AI/harness documentation and project memory to match the new workbench, ER, dialog, testing, and release-readiness boundaries.
