@@ -972,14 +972,22 @@ impl DdlDialog {
         });
 
         ui.add_space(4.0);
-        ui.label(RichText::new("列名").small().color(theme_muted_text(ui.visuals())));
+        ui.label(
+            RichText::new("列名")
+                .small()
+                .color(theme_muted_text(ui.visuals())),
+        );
         ui.add_sized(
             [ui.available_width(), 0.0],
             TextEdit::singleline(&mut col.name).hint_text("列名"),
         );
 
         ui.add_space(4.0);
-        ui.label(RichText::new("类型").small().color(theme_muted_text(ui.visuals())));
+        ui.label(
+            RichText::new("类型")
+                .small()
+                .color(theme_muted_text(ui.visuals())),
+        );
         Self::show_type_combo(ui, layout.idx, col, ui.available_width());
 
         ui.add_space(4.0);

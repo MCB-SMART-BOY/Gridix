@@ -47,7 +47,7 @@ Next:
 |---|---|---|
 | `render.rs` root | `CentralPanel + horizontal` manually lays out sidebar and main dock | `WorkbenchShell` owns all fixed regions |
 | `Toolbar` | Rendered once globally by `DbManagerApp::render_top_bar()` | Keep as global `TopBar`; visual redesign is separate |
-| `Sidebar` | ActivityBar selects Explorer, Filters, Objects, History, Help, or Settings; Explorer/Filters/Objects still adapt legacy panels | Continue replacing legacy stacked sidebar internals with first-class PrimarySidebar activities |
+| `Sidebar` | Explorer/Filters/Objects dock surfaces render real Sidebar content through a compatibility adapter; History/Help/Settings still use placeholder/dialog paths | Split independent navigation surface state and continue replacing fixed PrimarySidebar assumptions |
 | `DockTab::SqlDocument` | Primary SQL document tab backed by `QueryTabManager`; renders the SQL editor directly in EditorArea | Keep as the SQL document surface until stable document IDs replace index-based query tabs |
 | `DockTab::TableData` / `SchemaObject` / `Welcome` | Target document/view variants exist with conservative placeholder rendering where data identity is not implemented yet | Wire table/schema/welcome opening behavior as later EditorArea slices |
 | Query results | Rendered in `BottomPanel::Results` | Keep there and harden lifecycle/focus semantics |

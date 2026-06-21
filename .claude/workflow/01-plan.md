@@ -12,10 +12,10 @@
    - Identify risk level and affected users/code paths
 
 2. **Read workflow references**
-   - General: `.claude/references/modern-software-engineering-workflow.md`
-   - Rust: `.claude/references/rust-modern-engineering-playbook.md` when applicable
-   - Project rules: `.claude/references/roadmap.md`, `.claude/references/tech-debt.md`, `.claude/references/architecture/decisions.md`, local rules
-   - Gridix refactors: `.claude/references/project-refactor-execution-plan.md`
+   - General: `references/modern-software-engineering-workflow.md`
+   - Rust: `references/rust-modern-engineering-playbook.md` when applicable
+   - Project rules: roadmap, tech-debt, architecture decisions, local rules
+   - Gridix refactors: `references/project-refactor-execution-plan.md`
 
 3. **Explore codebase**
    - Locate entry points and ownership boundaries

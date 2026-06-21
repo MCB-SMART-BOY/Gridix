@@ -3,8 +3,9 @@ use super::common::{
     WorkspaceDialogShell,
 };
 use crate::core::ThemePreset;
+use crate::ui::styles::{theme_accent, theme_muted_text, theme_selection_fill, theme_text};
 use crate::ui::{LocalShortcut, local_shortcut_text, local_shortcuts_text};
-use eframe::egui::{self, RichText, ScrollArea};
+use eframe::egui::{self, CornerRadius, RichText, ScrollArea, Stroke, Vec2};
 use std::cell::Cell;
 
 const TOOLBAR_THEME_WIDTH: f32 = 420.0;
@@ -300,17 +301,16 @@ impl ToolbarThemeDialog {
         selected: bool,
         current: bool,
     ) -> egui::Response {
-        let selection_bg = ui.visuals().selection.bg_fill;
-        let selection_stroke = ui.visuals().selection.stroke.color;
+        let accent = theme_accent(ui.visuals());
         let fill = if selected {
-            selection_bg.gamma_multiply(0.22)
+            theme_selection_fill(ui.visuals(), if ui.visuals().dark_mode { 40 } else { 30 })
         } else {
             egui::Color32::TRANSPARENT
         };
         let stroke = if selected {
-            egui::Stroke::new(1.0, selection_stroke.gamma_multiply(0.7))
+            Stroke::new(1.0, accent.gamma_multiply(0.36))
         } else {
-            egui::Stroke::NONE
+            Stroke::NONE
         };
         let meta = if current {
             "当前主题"
@@ -323,16 +323,74 @@ impl ToolbarThemeDialog {
         egui::Frame::NONE
             .fill(fill)
             .stroke(stroke)
-            .corner_radius(egui::CornerRadius::same(8))
-            .inner_margin(egui::Margin::symmetric(10, 8))
+            .corner_radius(CornerRadius::same(7))
+            .inner_margin(egui::Margin::symmetric(8, 7))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    let indicator = if selected { ">" } else { " " };
-                    ui.label(RichText::new(indicator).monospace().color(selection_stroke));
+                ui.horizontal_top(|ui| {
+                    let swatch_fill = if theme.is_dark() {
+                        ui.visuals().extreme_bg_color
+                    } else {
+                        ui.visuals().faint_bg_color
+                    };
+                    egui::Frame::NONE
+                        .fill(swatch_fill)
+                        .stroke(Stroke::new(1.0, accent.gamma_multiply(0.28)))
+                        .corner_radius(CornerRadius::same(6))
+                        .inner_margin(egui::Margin::same(3))
+                        .show(ui, |ui| {
+                            let rect =
+                                egui::Rect::from_min_size(ui.cursor().min, Vec2::splat(22.0));
+                            ui.painter().rect_filled(
+                                rect,
+                                CornerRadius::same(5),
+                                if theme.is_dark() {
+                                    egui::Color32::from_rgb(35, 41, 58)
+                                } else {
+                                    egui::Color32::from_rgb(232, 238, 248)
+                                },
+                            );
+                            ui.painter().circle_filled(
+                                rect.left_center() + Vec2::new(8.0, 0.0),
+                                3.2,
+                                accent,
+                            );
+                            ui.allocate_space(rect.size());
+                        });
+                    ui.add_space(8.0);
                     ui.vertical(|ui| {
-                        ui.label(RichText::new(theme.display_name()).strong());
-                        ui.label(RichText::new(meta).small().weak());
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(
+                                RichText::new(theme.display_name())
+                                    .strong()
+                                    .color(theme_text(ui.visuals())),
+                            );
+                            if selected || current {
+                                egui::Frame::NONE
+                                    .fill(if current {
+                                        accent.gamma_multiply(0.12)
+                                    } else {
+                                        ui.visuals().extreme_bg_color.gamma_multiply(0.58)
+                                    })
+                                    .stroke(Stroke::new(1.0, accent.gamma_multiply(0.26)))
+                                    .corner_radius(CornerRadius::same(5))
+                                    .inner_margin(egui::Margin::symmetric(6, 2))
+                                    .show(ui, |ui| {
+                                        ui.label(
+                                            RichText::new(meta)
+                                                .small()
+                                                .color(theme_muted_text(ui.visuals())),
+                                        );
+                                    });
+                            }
+                        });
+                        if !selected && !current {
+                            ui.label(
+                                RichText::new(meta)
+                                    .small()
+                                    .color(theme_muted_text(ui.visuals())),
+                            );
+                        }
                     });
                 });
             })

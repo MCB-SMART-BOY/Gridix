@@ -10,18 +10,20 @@ The previous migration created useful pieces: global TopBar, ActivityBar, Primar
 
 ## Implementation Status
 
-Last updated: 2026-06-18.
+Last updated: 2026-06-19.
 
 - Phase A design pivot is complete: fixed ActivityBar/PrimarySidebar/BottomPanel/RightInspector are compatibility adapters, not the final model.
 - Phase B surface foundation is implemented in `src/state/workbench.rs`: `WorkbenchSurfaceKind`, `WorkbenchSurfaceRole`, `WorkbenchPlacement`, `WorkbenchSurfaceId`, descriptors, stable identity keys, default/allowed placements, icon keys, and command/tooltip metadata.
 - `src/ui/dock_tabs.rs` now exposes `DockTab::surface_kind()` as a transition bridge from legacy editor-area tabs to Workbench surfaces.
 - `src/ui/workbench/surface.rs` provides the shared `WorkbenchSurfaceHeader`, `SurfaceAction`, icon-only button helper, and tooltip contract foundation. BottomPanel and RightInspector close buttons already use it.
 - Phase C bridge has started: `WorkbenchFocus::Surface`, activity/bottom/inspector-to-surface mappings, `Explain` as an output surface, unified `DbManagerApp::render_workbench_surface_in_ui()`, and `DockTab::ui()` routed through that renderer are implemented.
-- Phase C seed layout is implemented: `DockTab::Surface` can carry `WorkbenchSurfaceKind` directly, `default_surface_layout()` seeds Explorer left / SQL center / Results bottom / Inspector right, and `ensure_surface_tab()` inserts surfaces by stable identity without duplicates.
+- Phase C seed layout is implemented with the April-shell correction: `DockTab::Surface` can carry `WorkbenchSurfaceKind` directly, `default_surface_layout()` seeds Query Results/data workspace center / SQL editor bottom / ER right, and Explorer remains in the stable PrimarySidebar by default. `ensure_surface_tab()` inserts explicit surfaces by stable identity without duplicates.
 - Phase C action wiring is implemented: Activity surfaces, BottomPanel surfaces, RightInspector surfaces, and ER reveal/open/focus paths route through `ensure_surface_tab()` via `DbManagerApp::reveal_workbench_surface()` while fixed regions remain fallback adapters.
 - Phase C fallback de-duplication is implemented: fixed PrimarySidebar, BottomPanel, and RightInspector fallback regions hide at layout level when their active equivalent docked surface exists.
 - Phase C runtime seed migration is implemented: app startup and render-time fallback dock creation use the `default_surface_layout()` surface seed.
-- Next phase is fixed-chrome reduction: migrate remaining fixed-region headers/tabs/controls into the shared surface shell while preserving compatibility fallback behavior.
+- Phase C navigation surface activation is implemented: Explorer, Filters, and Objects dock surfaces render real Sidebar content through a compatibility adapter instead of placeholder text.
+- Phase C visual/layout calibration is implemented: default dock split ratios are named in `src/ui/dock_tabs.rs` and locked to the user-approved 2026-06-19 April-shell screenshot (`280px` fixed PrimarySidebar, query/ER `0.73/0.27`, results/editor `0.69/0.31`); the duplicate left ActivityBar/SurfaceRail is not rendered by default, and TopBar sidebar visibility controls only the stable PrimarySidebar.
+- Next phase is navigation state split + fixed-chrome reduction: give navigation surfaces independent state, then migrate remaining fixed-region headers/tabs/controls into the shared surface shell while preserving compatibility fallback behavior.
 
 ## Reference Direction
 
@@ -315,13 +317,16 @@ Status:
 - Completed bridge pieces: surface focus, legacy region-to-surface mapping, unified surface renderer, DockTab rendering through surface kind, direct `DockTab::Surface`, default surface layout seeding, and idempotent surface insertion.
 - Completed fallback de-duplication: fixed left/bottom/right fallback regions stop reserving layout space when the active equivalent surface is present in the dock tree.
 - Completed runtime seed switch: new app state and render-time fallback dock creation use `default_surface_layout()`.
-- Remaining work: fixed ActivityBar/PrimarySidebar/BottomPanel/RightInspector chrome still exists as compatibility adapters and should be reduced or migrated into shared surface shell controls.
+- Completed navigation surface activation: Explorer/Filters/Objects surfaces render real Sidebar content through the compatibility adapter.
+- Completed visual/layout calibration: named dock split constants keep fixed Explorer compact, Results/data dominant in the center, SQL editor below, and ER secondary on the right; default runtime layout no longer reserves duplicate ActivityBar width.
+- Completed April-shell correction: `ToggleSidebar` and `SetPrimarySidebarVisible` no longer mutate the dock tree; default Explorer/Filters/Objects content belongs to the stable PrimarySidebar, while explicit docked navigation surfaces remain possible through `ensure_surface_tab()`.
+- Remaining work: fixed PrimarySidebar and explicit docked navigation surfaces still share one legacy `SidebarPanelState`; fixed BottomPanel/RightInspector chrome still exists as compatibility adapters and should be reduced or migrated into shared surface shell controls.
 
 Tasks:
 - Add a dock-tab type or adapter that stores `WorkbenchSurfaceKind` directly. Completed 2026-06-18.
 - Replace fixed central `EditorArea + BottomPanel + RightInspector` composition with one `DockState<WorkbenchSurface>` as fixed chrome is reduced.
 - Keep TopBar and StatusBar outside the dock.
-- Seed default layout with left Explorer, center SQL, bottom Results, right Inspector.
+- Seed default layout with fixed left PrimarySidebar, center Query Results/data workspace, bottom SQL editor, and right ER.
 - Preserve current render adapters.
 
 Acceptance:

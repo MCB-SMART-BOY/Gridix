@@ -378,11 +378,8 @@ impl Sidebar {
         let center = rect.center();
         let dot_color = theme_subtle_stroke(ui.visuals());
         for offset in [-12.0, 0.0, 12.0] {
-            ui.painter().circle_filled(
-                egui::pos2(center.x + offset, center.y),
-                2.0,
-                dot_color,
-            );
+            ui.painter()
+                .circle_filled(egui::pos2(center.x + offset, center.y), 2.0, dot_color);
         }
 
         // 处理拖动

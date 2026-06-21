@@ -832,9 +832,7 @@ impl DataGrid {
                         let confirm_clicked = ui
                             .add(
                                 egui::Button::new(
-                                    RichText::new("⚠ 确认执行")
-                                        .size(13.0)
-                                        .color(DANGER),
+                                    RichText::new("⚠ 确认执行").size(13.0).color(DANGER),
                                 )
                                 .frame(false)
                                 .min_size(Vec2::new(0.0, 24.0)),

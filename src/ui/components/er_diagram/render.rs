@@ -44,7 +44,12 @@ enum ERDiagramKeyAction {
 /// 渲染颜色配置
 struct RenderColors {
     background: Color32,
+    canvas_glow: Color32,
+    canvas_edge: Color32,
+    toolbar_bg: Color32,
+    toolbar_border: Color32,
     grid_line: Color32,
+    grid_axis: Color32,
     table_bg: Color32,
     table_header_bg: Color32,
     table_header_selected_bg: Color32,
@@ -52,15 +57,25 @@ struct RenderColors {
     table_related_border: Color32,
     table_selected_border: Color32,
     table_shadow: Color32,
+    table_accent: Color32,
+    table_related_accent: Color32,
+    table_selected_accent: Color32,
+    table_key_row_bg: Color32,
+    table_row_alt_bg: Color32,
     text_primary: Color32,
     text_secondary: Color32,
     text_type: Color32,
+    badge_bg: Color32,
     badge_text: Color32,
     pk_icon: Color32,
     fk_icon: Color32,
+    pk_badge_bg: Color32,
+    fk_badge_bg: Color32,
     relation_line_explicit: Color32,
     relation_line_inferred: Color32,
     relation_line_selected: Color32,
+    relation_line_halo: Color32,
+    relation_label_bg: Color32,
     row_separator: Color32,
 }
 
@@ -76,6 +91,10 @@ impl RenderColors {
             mix(from.b(), to.b()),
             mix(from.a(), to.a()),
         )
+    }
+
+    fn with_alpha(color: Color32, alpha: u8) -> Color32 {
+        Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha)
     }
 
     fn from_theme(theme: &ThemePreset, visuals: &egui::Visuals) -> Self {
@@ -94,6 +113,13 @@ impl RenderColors {
             border.g(),
             border.b(),
             if visuals.dark_mode { 24 } else { 20 },
+        );
+        let canvas_edge = Color32::from_rgba_unmultiplied(border.r(), border.g(), border.b(), 64);
+        let grid_axis = Color32::from_rgba_unmultiplied(
+            border.r(),
+            border.g(),
+            border.b(),
+            if visuals.dark_mode { 32 } else { 26 },
         );
         let table_shadow = visuals
             .window_shadow
@@ -130,16 +156,36 @@ impl RenderColors {
             palette.info,
             if visuals.dark_mode { 0.18 } else { 0.14 },
         );
+        let table_accent = Self::blend(palette.accent, palette.info, 0.30);
+        let table_related_accent = Self::blend(palette.info, palette.accent, 0.22);
+        let table_selected_accent = Self::blend(palette.accent, palette.warning, 0.12);
+        let badge_bg = Self::with_alpha(
+            Self::blend(palette.bg_tertiary, palette.bg_secondary, 0.24),
+            if visuals.dark_mode { 190 } else { 210 },
+        );
 
         Self {
-            background: palette.bg_primary,
+            background: Self::blend(palette.bg_primary, palette.bg_secondary, 0.18),
+            canvas_glow: Self::with_alpha(table_accent, if visuals.dark_mode { 28 } else { 20 }),
+            canvas_edge,
+            toolbar_bg: Self::with_alpha(
+                Self::blend(palette.bg_secondary, palette.bg_primary, 0.25),
+                if visuals.dark_mode { 228 } else { 240 },
+            ),
+            toolbar_border: Color32::from_rgba_unmultiplied(
+                border.r(),
+                border.g(),
+                border.b(),
+                if visuals.dark_mode { 88 } else { 72 },
+            ),
             grid_line,
-            table_bg: palette.bg_secondary,
-            table_header_bg: palette.bg_tertiary,
+            grid_axis,
+            table_bg: Self::blend(palette.bg_secondary, palette.bg_primary, 0.10),
+            table_header_bg: Self::blend(palette.bg_tertiary, palette.bg_secondary, 0.20),
             table_header_selected_bg: Self::blend(
                 palette.bg_tertiary,
                 palette.accent,
-                if visuals.dark_mode { 0.20 } else { 0.12 },
+                if visuals.dark_mode { 0.28 } else { 0.16 },
             ),
             table_border: border,
             table_related_border: Self::blend(
@@ -149,15 +195,37 @@ impl RenderColors {
             ),
             table_selected_border: visuals.selection.stroke.color,
             table_shadow,
+            table_accent,
+            table_related_accent,
+            table_selected_accent,
+            table_key_row_bg: Self::with_alpha(
+                Self::blend(palette.bg_tertiary, palette.info, 0.16),
+                if visuals.dark_mode { 74 } else { 48 },
+            ),
+            table_row_alt_bg: Self::with_alpha(
+                Self::blend(palette.bg_secondary, palette.bg_tertiary, 0.22),
+                if visuals.dark_mode { 52 } else { 34 },
+            ),
             text_primary,
             text_secondary,
             text_type,
+            badge_bg,
             badge_text,
             pk_icon,
             fk_icon,
+            pk_badge_bg: Self::with_alpha(pk_icon, if visuals.dark_mode { 48 } else { 38 }),
+            fk_badge_bg: Self::with_alpha(fk_icon, if visuals.dark_mode { 46 } else { 36 }),
             relation_line_explicit,
             relation_line_inferred,
             relation_line_selected,
+            relation_line_halo: Self::with_alpha(
+                Self::blend(palette.bg_primary, table_accent, 0.20),
+                if visuals.dark_mode { 150 } else { 110 },
+            ),
+            relation_label_bg: Self::with_alpha(
+                Self::blend(palette.bg_secondary, palette.bg_primary, 0.12),
+                if visuals.dark_mode { 228 } else { 238 },
+            ),
             row_separator,
         }
     }
@@ -280,232 +348,241 @@ impl ERDiagramState {
         let graph_summary = super::graph::build_er_graph(&self.tables, &self.relationships).summary;
 
         // 工具栏
-        ui.horizontal(|ui| {
-            let mode_label = if self.is_viewport_mode() {
-                "视口模式"
-            } else {
-                "浏览模式"
-            };
-            if ui
-                .add(
-                    egui::Button::new(RichText::new(mode_label).size(11.0))
-                        .frame(true)
-                        .frame_when_inactive(self.is_viewport_mode())
-                        .selected(self.is_viewport_mode())
-                        .fill(if self.is_viewport_mode() {
-                            theme_selection_fill(ui.visuals(), 56)
-                        } else {
-                            ui.visuals().widgets.inactive.bg_fill
-                        })
-                        .stroke(if self.is_viewport_mode() {
-                            Stroke::new(1.0, theme_accent(ui.visuals()))
-                        } else {
-                            Stroke::NONE
-                        }),
-                )
-                .on_hover_text(local_shortcut_tooltip(
-                    if self.is_viewport_mode() {
-                        "退出视口模式"
+        egui::Frame::NONE
+            .fill(colors.toolbar_bg)
+            .stroke(Stroke::new(1.0, colors.toolbar_border))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(egui::Margin::symmetric(8, 6))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let mode_label = if self.is_viewport_mode() {
+                        "视口模式"
                     } else {
-                        "进入视口模式"
-                    },
-                    LocalShortcut::ErDiagramViewportMode,
-                ))
-                .clicked()
-            {
-                self.toggle_interaction_mode();
-                response.request_focus = true;
-            }
+                        "浏览模式"
+                    };
+                    if ui
+                        .add(
+                            egui::Button::new(RichText::new(mode_label).size(11.0))
+                                .frame(true)
+                                .frame_when_inactive(self.is_viewport_mode())
+                                .selected(self.is_viewport_mode())
+                                .fill(if self.is_viewport_mode() {
+                                    theme_selection_fill(ui.visuals(), 56)
+                                } else {
+                                    ui.visuals().widgets.inactive.bg_fill
+                                })
+                                .stroke(if self.is_viewport_mode() {
+                                    Stroke::new(1.0, theme_accent(ui.visuals()))
+                                } else {
+                                    Stroke::NONE
+                                }),
+                        )
+                        .on_hover_text(local_shortcut_tooltip(
+                            if self.is_viewport_mode() {
+                                "退出视口模式"
+                            } else {
+                                "进入视口模式"
+                            },
+                            LocalShortcut::ErDiagramViewportMode,
+                        ))
+                        .clicked()
+                    {
+                        self.toggle_interaction_mode();
+                        response.request_focus = true;
+                    }
 
-            ui.add_space(10.0);
+                    ui.add_space(10.0);
 
-            if er_toolbar_button(
-                ui,
-                "🔄",
-                14.0,
-                Vec2::new(26.0, 26.0),
-                false,
-                local_shortcut_tooltip("刷新数据", LocalShortcut::ErDiagramRefresh),
-            )
-            .clicked()
-            {
-                response.refresh_requested = true;
-                response.request_focus = true;
-            }
+                    if er_toolbar_button(
+                        ui,
+                        "🔄",
+                        14.0,
+                        Vec2::new(26.0, 26.0),
+                        false,
+                        local_shortcut_tooltip("刷新数据", LocalShortcut::ErDiagramRefresh),
+                    )
+                    .clicked()
+                    {
+                        response.refresh_requested = true;
+                        response.request_focus = true;
+                    }
 
-            if er_toolbar_button(
-                ui,
-                "⊞",
-                14.0,
-                Vec2::new(26.0, 26.0),
-                false,
-                local_shortcut_tooltip("重新布局", LocalShortcut::ErDiagramLayout),
-            )
-            .clicked()
-            {
-                response.layout_requested = true;
-                response.request_focus = true;
-            }
+                    if er_toolbar_button(
+                        ui,
+                        "⊞",
+                        14.0,
+                        Vec2::new(26.0, 26.0),
+                        false,
+                        local_shortcut_tooltip("重新布局", LocalShortcut::ErDiagramLayout),
+                    )
+                    .clicked()
+                    {
+                        response.layout_requested = true;
+                        response.request_focus = true;
+                    }
 
-            if er_toolbar_button(
-                ui,
-                "⛶",
-                14.0,
-                Vec2::new(26.0, 26.0),
-                false,
-                local_shortcut_tooltip("适应视图", LocalShortcut::ErDiagramFitView),
-            )
-            .clicked()
-            {
-                response.fit_view_requested = true;
-                response.request_focus = true;
-            }
+                    if er_toolbar_button(
+                        ui,
+                        "⛶",
+                        14.0,
+                        Vec2::new(26.0, 26.0),
+                        false,
+                        local_shortcut_tooltip("适应视图", LocalShortcut::ErDiagramFitView),
+                    )
+                    .clicked()
+                    {
+                        response.fit_view_requested = true;
+                        response.request_focus = true;
+                    }
 
-            ui.add_space(10.0);
+                    ui.add_space(10.0);
 
-            if er_toolbar_chip(
-                ui,
-                RichText::new(format!("边: {}", self.edge_display_mode().label())).size(11.0),
-                self.edge_display_mode() != EREdgeDisplayMode::All,
-                "切换边显示模式：全部边 / 焦点边 / 显式边",
-            )
-            .clicked()
-            {
-                self.cycle_edge_display_mode();
-                response.request_focus = true;
-            }
+                    if er_toolbar_chip(
+                        ui,
+                        RichText::new(format!("边: {}", self.edge_display_mode().label()))
+                            .size(11.0),
+                        self.edge_display_mode() != EREdgeDisplayMode::All,
+                        "切换边显示模式：全部边 / 焦点边 / 显式边",
+                    )
+                    .clicked()
+                    {
+                        self.cycle_edge_display_mode();
+                        response.request_focus = true;
+                    }
 
-            if er_toolbar_chip(
-                ui,
-                RichText::new(format!("列: {}", self.card_display_mode().label())).size(11.0),
-                self.card_display_mode() == ERCardDisplayMode::KeysOnly,
-                "切换表卡信息密度：关键列 / 完整列",
-            )
-            .clicked()
-            {
-                let display_mode = self.toggle_card_display_mode();
-                for table in &mut self.tables {
-                    calculate_table_size_for_mode(table, display_mode);
-                }
-                response.layout_requested = true;
-                response.fit_view_requested = true;
-                response.request_focus = true;
-            }
+                    if er_toolbar_chip(
+                        ui,
+                        RichText::new(format!("列: {}", self.card_display_mode().label()))
+                            .size(11.0),
+                        self.card_display_mode() == ERCardDisplayMode::KeysOnly,
+                        "切换表卡信息密度：关键列 / 完整列",
+                    )
+                    .clicked()
+                    {
+                        let display_mode = self.toggle_card_display_mode();
+                        for table in &mut self.tables {
+                            calculate_table_size_for_mode(table, display_mode);
+                        }
+                        response.layout_requested = true;
+                        response.fit_view_requested = true;
+                        response.request_focus = true;
+                    }
 
-            ui.add_space(6.0);
+                    ui.add_space(6.0);
 
-            let strategy_label = match graph_summary.strategy {
-                ERLayoutStrategy::Grid => "网格完成态",
-                ERLayoutStrategy::Relation => "关系完成态",
-                ERLayoutStrategy::Component => "组件完成态",
-                ERLayoutStrategy::DenseGraph => "高密度完成态",
-                ERLayoutStrategy::StableIncremental => "稳定增量完成态",
-            };
-            ui.label(
-                RichText::new(strategy_label)
-                    .size(11.0)
-                    .color(colors.text_secondary),
-            );
-
-            if er_toolbar_button(
-                ui,
-                "+",
-                14.0,
-                Vec2::new(22.0, 22.0),
-                false,
-                local_shortcut_tooltip("放大视图", LocalShortcut::ErDiagramZoomIn),
-            )
-            .clicked()
-            {
-                self.zoom_by(1.2);
-                response.request_focus = true;
-            }
-
-            ui.label(
-                RichText::new(format!("{:.0}%", self.zoom * 100.0))
-                    .size(12.0)
-                    .color(colors.text_secondary),
-            );
-
-            if er_toolbar_button(
-                ui,
-                "−",
-                14.0,
-                Vec2::new(22.0, 22.0),
-                false,
-                local_shortcut_tooltip("缩小视图", LocalShortcut::ErDiagramZoomOut),
-            )
-            .clicked()
-            {
-                self.zoom_by(0.8);
-                response.request_focus = true;
-            }
-
-            if er_toolbar_button(
-                ui,
-                "↺",
-                14.0,
-                Vec2::new(26.0, 26.0),
-                false,
-                format!(
-                    "重置视图\n缩放: {} / {}",
-                    local_shortcut_text(LocalShortcut::ErDiagramZoomIn),
-                    local_shortcut_text(LocalShortcut::ErDiagramZoomOut),
-                ),
-            )
-            .clicked()
-            {
-                self.reset_view();
-                response.request_focus = true;
-            }
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(
-                    RichText::new(format!("{} 张表", graph_summary.table_count))
-                        .small()
-                        .color(colors.text_secondary),
-                );
-
-                ui.add_space(8.0);
-
-                ui.label(
-                    RichText::new(format!("{} 关系", graph_summary.relationship_count))
-                        .small()
-                        .color(colors.text_secondary),
-                );
-
-                if graph_summary.component_count > 1 {
-                    ui.add_space(8.0);
+                    let strategy_label = match graph_summary.strategy {
+                        ERLayoutStrategy::Grid => "网格完成态",
+                        ERLayoutStrategy::Relation => "关系完成态",
+                        ERLayoutStrategy::Component => "组件完成态",
+                        ERLayoutStrategy::DenseGraph => "高密度完成态",
+                        ERLayoutStrategy::StableIncremental => "稳定增量完成态",
+                    };
                     ui.label(
-                        RichText::new(format!("{} 组件", graph_summary.component_count))
-                            .small()
+                        RichText::new(strategy_label)
+                            .size(11.0)
                             .color(colors.text_secondary),
                     );
-                }
 
-                if graph_summary.inferred_relationship_count > 0 {
-                    ui.add_space(8.0);
+                    if er_toolbar_button(
+                        ui,
+                        "+",
+                        14.0,
+                        Vec2::new(22.0, 22.0),
+                        false,
+                        local_shortcut_tooltip("放大视图", LocalShortcut::ErDiagramZoomIn),
+                    )
+                    .clicked()
+                    {
+                        self.zoom_by(1.2);
+                        response.request_focus = true;
+                    }
+
                     ui.label(
-                        RichText::new(format!(
-                            "{} 推断",
-                            graph_summary.inferred_relationship_count
-                        ))
-                        .small()
-                        .color(colors.text_secondary),
+                        RichText::new(format!("{:.0}%", self.zoom * 100.0))
+                            .size(12.0)
+                            .color(colors.text_secondary),
                     );
-                }
 
-                ui.add_space(8.0);
+                    if er_toolbar_button(
+                        ui,
+                        "−",
+                        14.0,
+                        Vec2::new(22.0, 22.0),
+                        false,
+                        local_shortcut_tooltip("缩小视图", LocalShortcut::ErDiagramZoomOut),
+                    )
+                    .clicked()
+                    {
+                        self.zoom_by(0.8);
+                        response.request_focus = true;
+                    }
 
-                ui.label(
-                    RichText::new(format!("主簇 {}", graph_summary.largest_component_size))
-                        .small()
-                        .color(colors.text_secondary),
-                );
+                    if er_toolbar_button(
+                        ui,
+                        "↺",
+                        14.0,
+                        Vec2::new(26.0, 26.0),
+                        false,
+                        format!(
+                            "重置视图\n缩放: {} / {}",
+                            local_shortcut_text(LocalShortcut::ErDiagramZoomIn),
+                            local_shortcut_text(LocalShortcut::ErDiagramZoomOut),
+                        ),
+                    )
+                    .clicked()
+                    {
+                        self.reset_view();
+                        response.request_focus = true;
+                    }
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(format!("{} 张表", graph_summary.table_count))
+                                .small()
+                                .color(colors.text_secondary),
+                        );
+
+                        ui.add_space(8.0);
+
+                        ui.label(
+                            RichText::new(format!("{} 关系", graph_summary.relationship_count))
+                                .small()
+                                .color(colors.text_secondary),
+                        );
+
+                        if graph_summary.component_count > 1 {
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new(format!("{} 组件", graph_summary.component_count))
+                                    .small()
+                                    .color(colors.text_secondary),
+                            );
+                        }
+
+                        if graph_summary.inferred_relationship_count > 0 {
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} 推断",
+                                    graph_summary.inferred_relationship_count
+                                ))
+                                .small()
+                                .color(colors.text_secondary),
+                            );
+                        }
+
+                        ui.add_space(8.0);
+
+                        ui.label(
+                            RichText::new(format!("主簇 {}", graph_summary.largest_component_size))
+                                .small()
+                                .color(colors.text_secondary),
+                        );
+                    });
+                });
             });
-        });
 
-        ui.separator();
+        ui.add_space(6.0);
 
         // 画布区域
         let available = ui.available_rect_before_wrap();
@@ -522,23 +599,24 @@ impl ERDiagramState {
         // 绘制网格
         self.draw_grid(&painter, canvas_rect, &colors);
 
-        if self.loading {
-            // 加载中
-            painter.text(
-                canvas_rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "加载中...",
-                FontId::proportional(18.0),
-                colors.text_secondary,
+        if let Some(error) = self.error().filter(|_| self.tables.is_empty()) {
+            // 仅当没有任何可显示的表时才整屏报错；表已加载则保留图，错误以 toast 呈现。
+            draw_canvas_message(&painter, canvas_rect, &colors, "关系图加载失败", error);
+        } else if self.loading {
+            draw_canvas_message(
+                &painter,
+                canvas_rect,
+                &colors,
+                "正在构建关系图",
+                "读取表、主键和外键元数据",
             );
         } else if self.tables.is_empty() {
-            // 空状态
-            painter.text(
-                canvas_rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "无表数据\n选择数据库后刷新",
-                FontId::proportional(16.0),
-                colors.text_secondary,
+            draw_canvas_message(
+                &painter,
+                canvas_rect,
+                &colors,
+                "没有可显示的表",
+                "选择数据库后刷新 ER 图",
             );
         } else {
             // 先计算所有表格尺寸（关系线绘制依赖尺寸数据）
@@ -602,15 +680,65 @@ impl ERDiagramState {
         response
     }
 
-    /// 绘制背景网格（点状网格，更现代）
+    /// 绘制背景网格和画布深度层。
     fn draw_grid(&self, painter: &egui::Painter, rect: Rect, colors: &RenderColors) {
-        let grid_size = 24.0 * self.zoom;
-        let dot_size = 1.5 * self.zoom;
+        let canvas_panel = rect.shrink2(Vec2::new(8.0, 8.0));
+        painter.rect_stroke(
+            canvas_panel,
+            CornerRadius::same(14),
+            Stroke::new(1.0, colors.canvas_edge),
+            egui::StrokeKind::Inside,
+        );
+
+        painter.circle_filled(
+            Pos2::new(
+                rect.left() + rect.width() * 0.18,
+                rect.top() + rect.height() * 0.22,
+            ),
+            rect.width().min(rect.height()) * 0.22,
+            colors.canvas_glow,
+        );
+        painter.circle_filled(
+            Pos2::new(
+                rect.left() + rect.width() * 0.82,
+                rect.top() + rect.height() * 0.78,
+            ),
+            rect.width().min(rect.height()) * 0.18,
+            colors.canvas_glow.gamma_multiply(0.75),
+        );
+
+        let grid_size = (24.0 * self.zoom).max(8.0);
+        let dot_size = (1.25 * self.zoom).clamp(0.55, 1.75);
+        let major_grid_size = grid_size * 5.0;
 
         let offset_x = (self.pan_offset.x * self.zoom) % grid_size;
         let offset_y = (self.pan_offset.y * self.zoom) % grid_size;
+        let major_offset_x = (self.pan_offset.x * self.zoom) % major_grid_size;
+        let major_offset_y = (self.pan_offset.y * self.zoom) % major_grid_size;
 
-        // 绘制点状网格
+        let mut major_x = rect.left() + major_offset_x;
+        while major_x < rect.right() {
+            painter.line_segment(
+                [
+                    Pos2::new(major_x, rect.top()),
+                    Pos2::new(major_x, rect.bottom()),
+                ],
+                Stroke::new(1.0, colors.grid_axis),
+            );
+            major_x += major_grid_size;
+        }
+        let mut major_y = rect.top() + major_offset_y;
+        while major_y < rect.bottom() {
+            painter.line_segment(
+                [
+                    Pos2::new(rect.left(), major_y),
+                    Pos2::new(rect.right(), major_y),
+                ],
+                Stroke::new(1.0, colors.grid_axis),
+            );
+            major_y += major_grid_size;
+        }
+
         let mut x = rect.left() + offset_x;
         while x < rect.right() {
             let mut y = rect.top() + offset_y;
@@ -716,26 +844,94 @@ fn visible_column_indices(table: &ERTable, display_mode: ERCardDisplayMode) -> V
     }
 }
 
+fn table_accent_color(colors: &RenderColors, visual_state: TableVisualState) -> Color32 {
+    if visual_state.selected {
+        colors.table_selected_accent
+    } else if visual_state.related {
+        colors.table_related_accent
+    } else {
+        colors.table_accent
+    }
+}
+
+fn draw_text_pill(
+    painter: &egui::Painter,
+    rect: Rect,
+    fill: Color32,
+    stroke: Stroke,
+    text: impl Into<String>,
+    font: FontId,
+    text_color: Color32,
+) {
+    painter.rect_filled(rect, CornerRadius::same(255), fill);
+    if stroke.width > 0.0 {
+        painter.rect_stroke(
+            rect,
+            CornerRadius::same(255),
+            stroke,
+            egui::StrokeKind::Inside,
+        );
+    }
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        text.into(),
+        font,
+        text_color,
+    );
+}
+
+fn draw_canvas_message(
+    painter: &egui::Painter,
+    rect: Rect,
+    colors: &RenderColors,
+    title: &str,
+    detail: &str,
+) {
+    let panel_rect = Rect::from_center_size(rect.center(), Vec2::new(330.0, 112.0));
+    painter.rect_filled(panel_rect, CornerRadius::same(16), colors.relation_label_bg);
+    painter.rect_stroke(
+        panel_rect,
+        CornerRadius::same(16),
+        Stroke::new(1.0, colors.canvas_edge),
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        Pos2::new(panel_rect.center().x, panel_rect.center().y - 16.0),
+        egui::Align2::CENTER_CENTER,
+        title,
+        FontId::proportional(18.0),
+        colors.text_primary,
+    );
+    painter.text(
+        Pos2::new(panel_rect.center().x, panel_rect.center().y + 16.0),
+        egui::Align2::CENTER_CENTER,
+        detail,
+        FontId::proportional(12.0),
+        colors.text_secondary,
+    );
+}
+
 pub fn calculate_table_size(table: &mut ERTable) {
     calculate_table_size_for_mode(table, ERCardDisplayMode::Standard);
 }
 
 pub fn calculate_table_size_for_mode(table: &mut ERTable, display_mode: ERCardDisplayMode) {
-    let header_height = 42.0;
-    let row_height = 22.0;
-    let footer_height = 14.0;
-    let padding = 12.0;
-    let min_width = 190.0;
-    let max_width = 360.0;
-    let min_height = 92.0;
+    let header_height = 48.0;
+    let row_height = 24.0;
+    let footer_height = 16.0;
+    let padding = 14.0;
+    let min_width = 220.0;
+    let max_width = 390.0;
+    let min_height = 108.0;
     let char_width = 7.0;
-    let icon_width = 14.0;
-    let type_gap = 22.0;
-    let null_marker_width = 18.0;
+    let icon_width = 42.0;
+    let type_gap = 26.0;
+    let null_marker_width = 28.0;
 
     let visible_indices = visible_column_indices(table, display_mode);
     let hidden_column_count = table.columns.len().saturating_sub(visible_indices.len());
-    let header_width = table.name.len() as f32 * char_width + padding * 5.0 + 76.0;
+    let header_width = table.name.len() as f32 * char_width + padding * 5.0 + 112.0;
 
     let max_column_width = visible_indices
         .iter()
@@ -774,9 +970,9 @@ impl ERDiagramState {
         colors: &RenderColors,
         visual_state: TableVisualState,
     ) {
-        let padding = 12.0;
-        let header_height = 42.0;
-        let row_height = 22.0;
+        let padding = 14.0;
+        let header_height = 48.0;
+        let row_height = 24.0;
 
         // 计算屏幕位置
         let screen_pos = Pos2::new(
@@ -793,7 +989,7 @@ impl ERDiagramState {
             return;
         }
 
-        let corner_radius = (8.0 * render_context.zoom) as u8;
+        let corner_radius = (12.0 * render_context.zoom).clamp(4.0, 14.0) as u8;
         let table_fill = if visual_state.dimmed {
             RenderColors::blend(colors.table_bg, colors.background, 0.32)
         } else {
@@ -823,9 +1019,10 @@ impl ERDiagramState {
         } else {
             colors.text_secondary
         };
+        let accent = table_accent_color(colors, visual_state);
 
         // 绘制阴影
-        let shadow_offset = 3.0 * render_context.zoom;
+        let shadow_offset = 5.0 * render_context.zoom;
         let shadow_rect = Rect::from_min_size(
             screen_pos + Vec2::new(shadow_offset, shadow_offset),
             screen_size,
@@ -839,9 +1036,32 @@ impl ERDiagramState {
                 colors.table_shadow
             },
         );
+        let ambient_shadow = table_rect.expand(3.0 * render_context.zoom);
+        painter.rect_filled(
+            ambient_shadow.translate(Vec2::new(0.0, 2.0 * render_context.zoom)),
+            CornerRadius::same(corner_radius),
+            colors
+                .table_shadow
+                .gamma_multiply(if visual_state.dimmed { 0.18 } else { 0.28 }),
+        );
 
         // 绘制表格背景
         painter.rect_filled(table_rect, CornerRadius::same(corner_radius), table_fill);
+
+        let accent_rect = Rect::from_min_size(
+            table_rect.left_top(),
+            Vec2::new(4.0 * render_context.zoom, table_rect.height()),
+        );
+        painter.rect_filled(
+            accent_rect,
+            CornerRadius {
+                nw: corner_radius,
+                ne: 0,
+                sw: corner_radius,
+                se: 0,
+            },
+            accent,
+        );
 
         // 绘制边框
         painter.rect_stroke(
@@ -875,6 +1095,17 @@ impl ERDiagramState {
             },
             header_fill,
         );
+        painter.rect_filled(
+            Rect::from_min_max(
+                Pos2::new(
+                    header_rect.left() + 4.0 * render_context.zoom,
+                    header_rect.bottom() - 3.0 * render_context.zoom,
+                ),
+                Pos2::new(header_rect.right(), header_rect.bottom()),
+            ),
+            CornerRadius::ZERO,
+            accent.gamma_multiply(if visual_state.selected { 0.85 } else { 0.45 }),
+        );
 
         // 表头分隔线
         painter.line_segment(
@@ -888,19 +1119,19 @@ impl ERDiagramState {
                     screen_pos.y + header_height * render_context.zoom,
                 ),
             ],
-            Stroke::new(1.0, border_color),
+            Stroke::new(1.0, colors.row_separator),
         );
 
-        let font_size = 13.0 * render_context.zoom;
+        let font_size = 13.5 * render_context.zoom;
         let title_pos = Pos2::new(
-            screen_pos.x + padding * render_context.zoom,
-            header_rect.center().y - 6.0 * render_context.zoom,
+            screen_pos.x + (padding + 6.0) * render_context.zoom,
+            header_rect.center().y - 7.0 * render_context.zoom,
         );
         painter.text(
             title_pos,
             egui::Align2::LEFT_CENTER,
             &table.name,
-            FontId::proportional(font_size),
+            FontId::monospace(font_size),
             text_primary,
         );
 
@@ -914,28 +1145,66 @@ impl ERDiagramState {
             .iter()
             .filter(|column| column.is_foreign_key)
             .count();
-        let badge_text = format!(
-            "{} 列  {} PK  {} FK",
-            table.columns.len(),
-            primary_key_count,
-            foreign_key_count
+        let stats_text = format!("{} columns", table.columns.len());
+        let stats_width = (stats_text.len() as f32 * 5.8 + 16.0) * render_context.zoom;
+        let stats_rect = Rect::from_center_size(
+            Pos2::new(
+                screen_pos.x + screen_size.x - padding * render_context.zoom - stats_width / 2.0,
+                header_rect.center().y - 7.0 * render_context.zoom,
+            ),
+            Vec2::new(stats_width, 17.0 * render_context.zoom),
         );
-        let badge_pos = Pos2::new(
-            screen_pos.x + screen_size.x - padding * render_context.zoom,
-            header_rect.center().y + 6.0 * render_context.zoom,
-        );
-        painter.text(
-            badge_pos,
-            egui::Align2::RIGHT_CENTER,
-            badge_text,
+        draw_text_pill(
+            painter,
+            stats_rect,
+            colors.badge_bg,
+            Stroke::new(1.0, colors.row_separator),
+            stats_text,
             FontId::proportional(9.5 * render_context.zoom),
             colors.badge_text,
         );
 
+        let key_badge_y = header_rect.center().y + 10.0 * render_context.zoom;
+        let pk_text = format!("PK {}", primary_key_count);
+        let fk_text = format!("FK {}", foreign_key_count);
+        let pk_width = (pk_text.len() as f32 * 5.6 + 14.0) * render_context.zoom;
+        let fk_width = (fk_text.len() as f32 * 5.6 + 14.0) * render_context.zoom;
+        let pk_rect = Rect::from_center_size(
+            Pos2::new(
+                screen_pos.x + (padding + 6.0) * render_context.zoom + pk_width / 2.0,
+                key_badge_y,
+            ),
+            Vec2::new(pk_width, 16.0 * render_context.zoom),
+        );
+        draw_text_pill(
+            painter,
+            pk_rect,
+            colors.pk_badge_bg,
+            Stroke::NONE,
+            pk_text,
+            FontId::proportional(9.0 * render_context.zoom),
+            colors.pk_icon,
+        );
+        let fk_rect = Rect::from_center_size(
+            Pos2::new(
+                pk_rect.right() + 4.0 * render_context.zoom + fk_width / 2.0,
+                key_badge_y,
+            ),
+            Vec2::new(fk_width, 16.0 * render_context.zoom),
+        );
+        draw_text_pill(
+            painter,
+            fk_rect,
+            colors.fk_badge_bg,
+            Stroke::NONE,
+            fk_text,
+            FontId::proportional(9.0 * render_context.zoom),
+            colors.fk_icon,
+        );
+
         // 绘制列
-        let small_font_size = 11.0 * render_context.zoom;
+        let small_font_size = 11.2 * render_context.zoom;
         let tiny_font_size = 9.0 * render_context.zoom;
-        let icon_size = 12.0 * render_context.zoom;
         let visible_indices = visible_column_indices(table, render_context.display_mode);
         let hidden_column_count = table.columns.len().saturating_sub(visible_indices.len());
 
@@ -947,6 +1216,19 @@ impl ERDiagramState {
                 + (header_height + row_index as f32 * row_height) * render_context.zoom;
             let row_x = screen_pos.x + padding * render_context.zoom;
             let row_center_y = row_y + row_height * render_context.zoom / 2.0;
+            let row_rect = Rect::from_min_max(
+                Pos2::new(screen_pos.x + 4.0 * render_context.zoom, row_y),
+                Pos2::new(
+                    screen_pos.x + screen_size.x - 4.0 * render_context.zoom,
+                    row_y + row_height * render_context.zoom,
+                ),
+            );
+
+            if col.is_primary_key || col.is_foreign_key {
+                painter.rect_filled(row_rect, CornerRadius::same(5), colors.table_key_row_bg);
+            } else if row_index % 2 == 1 {
+                painter.rect_filled(row_rect, CornerRadius::same(5), colors.table_row_alt_bg);
+            }
 
             if row_index > 0 {
                 painter.line_segment(
@@ -962,35 +1244,45 @@ impl ERDiagramState {
             }
 
             // 图标区域
-            let mut icon_x = row_x;
+            let mut text_x = row_x + 2.0 * render_context.zoom;
 
             // 主键图标
             if col.is_primary_key {
-                painter.circle_filled(
-                    Pos2::new(icon_x + 4.0 * render_context.zoom, row_center_y),
-                    3.0 * render_context.zoom,
+                let badge_rect = Rect::from_center_size(
+                    Pos2::new(row_x + 11.0 * render_context.zoom, row_center_y),
+                    Vec2::new(21.0 * render_context.zoom, 13.0 * render_context.zoom),
+                );
+                draw_text_pill(
+                    painter,
+                    badge_rect,
+                    colors.pk_badge_bg,
+                    Stroke::new(1.0, colors.pk_icon.gamma_multiply(0.48)),
+                    "PK",
+                    FontId::proportional(7.5 * render_context.zoom),
                     colors.pk_icon,
                 );
-                icon_x += icon_size + 2.0 * render_context.zoom;
+                text_x = badge_rect.right() + 5.0 * render_context.zoom;
             }
 
             // 外键图标
             if col.is_foreign_key {
-                painter.circle_stroke(
-                    Pos2::new(icon_x + 4.0 * render_context.zoom, row_center_y),
-                    3.0 * render_context.zoom,
-                    Stroke::new(1.5 * render_context.zoom, colors.fk_icon),
+                let badge_rect = Rect::from_center_size(
+                    Pos2::new(text_x + 10.5 * render_context.zoom, row_center_y),
+                    Vec2::new(21.0 * render_context.zoom, 13.0 * render_context.zoom),
                 );
-                icon_x += icon_size + 2.0 * render_context.zoom;
+                draw_text_pill(
+                    painter,
+                    badge_rect,
+                    colors.fk_badge_bg,
+                    Stroke::new(1.0, colors.fk_icon.gamma_multiply(0.48)),
+                    "FK",
+                    FontId::proportional(7.5 * render_context.zoom),
+                    colors.fk_icon,
+                );
+                text_x = badge_rect.right() + 5.0 * render_context.zoom;
             }
 
             // 列名（如果非空则加粗显示）
-            let text_x = if col.is_primary_key || col.is_foreign_key {
-                icon_x
-            } else {
-                row_x
-            };
-
             let name_color = if !col.nullable {
                 text_primary
             } else {
@@ -1001,7 +1293,7 @@ impl ERDiagramState {
                 Pos2::new(text_x, row_center_y),
                 egui::Align2::LEFT_CENTER,
                 &col.name,
-                FontId::proportional(small_font_size),
+                FontId::monospace(small_font_size),
                 name_color,
             );
 
@@ -1016,9 +1308,9 @@ impl ERDiagramState {
             }
 
             if col.nullable {
-                markers.push('?');
+                markers.push('∅');
             } else {
-                markers.push('!');
+                markers.push_str("NN");
             }
 
             let marker_color = if col.default_value.is_some() {
@@ -1033,12 +1325,12 @@ impl ERDiagramState {
                 Pos2::new(right_x, row_center_y),
                 egui::Align2::RIGHT_CENTER,
                 &markers,
-                FontId::proportional(tiny_font_size),
+                FontId::monospace(tiny_font_size),
                 marker_color,
             );
 
             // 数据类型（在标记左边）
-            let markers_width = markers.len() as f32 * 6.0 * render_context.zoom;
+            let markers_width = markers.chars().count() as f32 * 6.0 * render_context.zoom;
             painter.text(
                 Pos2::new(
                     right_x - markers_width - 4.0 * render_context.zoom,
@@ -1046,7 +1338,7 @@ impl ERDiagramState {
                 ),
                 egui::Align2::RIGHT_CENTER,
                 &col.data_type,
-                FontId::proportional(small_font_size * 0.9),
+                FontId::monospace(small_font_size * 0.86),
                 colors.text_type,
             );
         }
@@ -1079,8 +1371,8 @@ impl ERDiagramState {
 
     /// 计算列在表格中的Y偏移（从表格顶部开始）
     fn get_column_y_offset(table: &ERTable, column_name: &str) -> f32 {
-        let header_height = 42.0;
-        let row_height = 22.0;
+        let header_height = 48.0;
+        let row_height = 24.0;
 
         // 查找列索引
         let col_idx = table
@@ -1429,22 +1721,30 @@ impl ERDiagramState {
             } else {
                 colors.relation_line_inferred
             };
-            let stroke = Stroke::new(
-                if highlight {
-                    2.3
-                } else if rel.origin == RelationshipOrigin::Explicit {
-                    1.8
-                } else {
-                    1.1
-                },
-                relation_color,
-            );
+            let width_scale = self.zoom.clamp(0.7, 1.4);
+            let line_width = if highlight {
+                2.6
+            } else if rel.origin == RelationshipOrigin::Explicit {
+                1.9
+            } else {
+                1.15
+            } * width_scale;
+            let stroke = Stroke::new(line_width, relation_color);
+            let halo_stroke =
+                Stroke::new(line_width + 4.0 * width_scale, colors.relation_line_halo);
 
             for window in points.windows(2) {
+                painter.line_segment([window[0], window[1]], halo_stroke);
                 painter.line_segment([window[0], window[1]], stroke);
             }
 
-            let arrow_size = 8.0 * self.zoom;
+            let endpoint_radius = if highlight { 4.0 } else { 3.0 } * self.zoom.clamp(0.75, 1.25);
+            painter.circle_filled(route.from_screen, endpoint_radius, colors.background);
+            painter.circle_stroke(route.from_screen, endpoint_radius, stroke);
+            painter.circle_filled(route.to_screen, endpoint_radius, colors.background);
+            painter.circle_stroke(route.to_screen, endpoint_radius, stroke);
+
+            let arrow_size = 8.5 * self.zoom;
             let tail = points[points.len() - 2];
             let angle = (route.to_screen.y - tail.y).atan2(route.to_screen.x - tail.x);
             let arrow_p1 = Pos2::new(
@@ -1465,8 +1765,22 @@ impl ERDiagramState {
                     RelationType::OneToMany => "1:N",
                     RelationType::ManyToMany => "N:M",
                 };
+                let label_size = Vec2::new(32.0 * self.zoom, 17.0 * self.zoom);
+                let label_rect =
+                    Rect::from_center_size(Pos2::new(mid.x, mid.y - 10.0 * self.zoom), label_size);
+                painter.rect_filled(
+                    label_rect,
+                    CornerRadius::same(255),
+                    colors.relation_label_bg,
+                );
+                painter.rect_stroke(
+                    label_rect,
+                    CornerRadius::same(255),
+                    Stroke::new(1.0, relation_color.gamma_multiply(0.55)),
+                    egui::StrokeKind::Inside,
+                );
                 painter.text(
-                    Pos2::new(mid.x, mid.y - 10.0 * self.zoom),
+                    label_rect.center(),
                     egui::Align2::CENTER_CENTER,
                     label,
                     FontId::proportional(10.0 * self.zoom),
@@ -1478,6 +1792,26 @@ impl ERDiagramState {
                 );
             }
         }
+    }
+
+    fn table_screen_rect(&self, table: &ERTable, canvas_rect: Rect) -> Rect {
+        let screen_pos = Pos2::new(
+            canvas_rect.left() + (table.position.x + self.pan_offset.x) * self.zoom,
+            canvas_rect.top() + (table.position.y + self.pan_offset.y) * self.zoom,
+        );
+        Rect::from_min_size(screen_pos, table.size * self.zoom)
+    }
+
+    fn table_index_at_screen_pos(&self, pos: Pos2, canvas_rect: Rect) -> Option<usize> {
+        self.tables
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(index, table)| {
+                self.table_screen_rect(table, canvas_rect)
+                    .contains(pos)
+                    .then_some(index)
+            })
     }
 
     /// 处理交互
@@ -1493,27 +1827,10 @@ impl ERDiagramState {
         if response.clicked()
             && let Some(pos) = response.interact_pointer_pos()
         {
-            let mut found = false;
-            for (i, table) in self.tables.iter().enumerate() {
-                let screen_pos = Pos2::new(
-                    canvas_rect.left() + (table.position.x + self.pan_offset.x) * self.zoom,
-                    canvas_rect.top() + (table.position.y + self.pan_offset.y) * self.zoom,
-                );
-                let screen_size = table.size * self.zoom;
-                let table_rect = Rect::from_min_size(screen_pos, screen_size);
-
-                if table_rect.contains(pos) {
-                    self.start_drag(i, pos);
-                    found = true;
-                    break;
-                }
-            }
-            if !found {
-                // 取消选择
-                self.selected_table = None;
-                for table in &mut self.tables {
-                    table.selected = false;
-                }
+            if let Some(index) = self.table_index_at_screen_pos(pos, canvas_rect) {
+                self.select_table(index);
+            } else {
+                self.clear_selection();
             }
         }
 
@@ -1523,33 +1840,19 @@ impl ERDiagramState {
         {
             if self.dragging_table.is_some() {
                 // 拖动表格
-                let delta = response.drag_delta() / self.zoom;
-                if let Some(idx) = self.dragging_table
-                    && let Some(table) = self.tables.get_mut(idx)
-                {
-                    table.position.x += delta.x;
-                    table.position.y += delta.y;
-                }
+                self.update_drag(pos, self.zoom);
+            } else if self.is_canvas_panning() {
+                self.update_canvas_pan(pos, self.zoom);
             } else {
-                // 检查是否开始拖动某个表
-                for (i, table) in self.tables.iter().enumerate() {
-                    let screen_pos = Pos2::new(
-                        canvas_rect.left() + (table.position.x + self.pan_offset.x) * self.zoom,
-                        canvas_rect.top() + (table.position.y + self.pan_offset.y) * self.zoom,
-                    );
-                    let screen_size = table.size * self.zoom;
-                    let table_rect = Rect::from_min_size(screen_pos, screen_size);
-
-                    if table_rect.contains(pos) {
-                        self.start_drag(i, pos);
-                        break;
-                    }
-                }
-
-                // 如果没有拖动表格，则平移画布
-                if self.dragging_table.is_none() {
-                    let delta = response.drag_delta() / self.zoom;
-                    self.pan_offset += delta;
+                let drag_origin = ui
+                    .input(|input| input.pointer.press_origin())
+                    .unwrap_or(pos);
+                if let Some(index) = self.table_index_at_screen_pos(drag_origin, canvas_rect) {
+                    self.start_drag(index, drag_origin);
+                    self.update_drag(pos, self.zoom);
+                } else {
+                    self.start_canvas_pan(drag_origin);
+                    self.update_canvas_pan(pos, self.zoom);
                 }
             }
         }
@@ -2143,5 +2446,11 @@ mod tests {
         assert_ne!(tokyo.relation_line_explicit, nord.relation_line_explicit);
         assert_ne!(tokyo.relation_line_inferred, nord.relation_line_inferred);
         assert_ne!(tokyo.text_type, nord.text_type);
+        assert_ne!(tokyo.table_accent, nord.table_accent);
+        assert_ne!(tokyo.table_selected_accent, nord.table_selected_accent);
+        assert_ne!(tokyo.relation_label_bg, Color32::TRANSPARENT);
+        assert!(tokyo.relation_line_halo.a() > tokyo.canvas_glow.a());
+        assert!(tokyo.toolbar_border.a() > tokyo.grid_axis.a());
+        assert!(tokyo.badge_bg.a() > tokyo.table_key_row_bg.a());
     }
 }

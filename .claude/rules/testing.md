@@ -6,7 +6,7 @@ paths:
 
 # Testing rules with Gridix overlay
 
-Use `.claude/references/modern-software-engineering-workflow.md` for the cross-project testing strategy and `.claude/references/rust-modern-engineering-playbook.md` for Rust-specific gates.
+Use `~/.codex/references/modern-software-engineering-workflow.md` for the cross-project testing strategy and `~/.codex/references/rust-modern-engineering-playbook.md` for Rust-specific gates.
 
 **Code is the source of truth.** Verify patterns against existing tests in `tests/` and `src/`. Update this file when test infrastructure changes.
 

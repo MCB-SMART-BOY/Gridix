@@ -2,8 +2,9 @@ use super::common::{
     DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow,
     WorkspaceDialogShell,
 };
+use crate::ui::styles::{theme_accent, theme_muted_text, theme_selection_fill, theme_text};
 use crate::ui::{LocalShortcut, local_shortcut_text, local_shortcuts_text};
-use eframe::egui::{self, RichText, ScrollArea};
+use eframe::egui::{self, CornerRadius, RichText, ScrollArea, Stroke};
 use std::cell::Cell;
 
 const TOOLBAR_MENU_WIDTH: f32 = 760.0;
@@ -351,40 +352,93 @@ impl ToolbarMenuDialog {
         entry: &ToolbarMenuDialogEntry,
         selected: bool,
     ) -> egui::Response {
+        let accent = theme_accent(ui.visuals());
+        let fill = if selected {
+            theme_selection_fill(ui.visuals(), if ui.visuals().dark_mode { 40 } else { 30 })
+        } else {
+            egui::Color32::TRANSPARENT
+        };
+        let stroke = if selected {
+            Stroke::new(1.0, accent.gamma_multiply(0.36))
+        } else {
+            Stroke::NONE
+        };
         let text_color = if entry.enabled {
-            ui.visuals().text_color()
+            theme_text(ui.visuals())
         } else {
             ui.visuals().weak_text_color()
         };
-        let fill = if selected {
-            ui.visuals().selection.bg_fill
-        } else {
-            ui.visuals().widgets.inactive.bg_fill
-        };
-        let suffix = if entry.shortcut.is_empty() {
-            String::new()
-        } else {
-            format!("    {}", entry.shortcut)
-        };
-        let disabled = entry
-            .disabled_reason
-            .as_deref()
-            .map(|reason| format!("\n{}", reason))
-            .unwrap_or_default();
-        let label = format!(
-            "{} {}{}\n{}{}",
-            entry.icon, entry.title, suffix, entry.description, disabled
-        );
 
-        ui.add_sized(
-            [ui.available_width(), 56.0],
-            egui::Button::new(
-                RichText::new(label)
-                    .color(text_color)
-                    .text_style(egui::TextStyle::Body),
-            )
-            .fill(fill),
-        )
+        egui::Frame::NONE
+            .fill(fill)
+            .stroke(stroke)
+            .corner_radius(CornerRadius::same(7))
+            .inner_margin(egui::Margin::symmetric(8, 7))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal_top(|ui| {
+                    if selected {
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(
+                                ui.cursor().min + egui::vec2(0.0, 2.0),
+                                egui::vec2(2.0, 34.0),
+                            ),
+                            CornerRadius::same(255),
+                            accent,
+                        );
+                    }
+                    ui.add_space(8.0);
+
+                    ui.label(RichText::new(entry.icon).size(16.0));
+
+                    ui.add_space(8.0);
+
+                    ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(entry.title).strong().color(text_color));
+                            if !entry.shortcut.is_empty() {
+                                egui::Frame::NONE
+                                    .fill(ui.visuals().extreme_bg_color.gamma_multiply(0.58))
+                                    .stroke(Stroke::new(
+                                        1.0,
+                                        ui.visuals()
+                                            .widgets
+                                            .noninteractive
+                                            .bg_stroke
+                                            .color
+                                            .gamma_multiply(0.34),
+                                    ))
+                                    .corner_radius(CornerRadius::same(5))
+                                    .inner_margin(egui::Margin::symmetric(6, 2))
+                                    .show(ui, |ui| {
+                                        ui.label(
+                                            RichText::new(entry.shortcut.as_str())
+                                                .small()
+                                                .monospace()
+                                                .color(theme_muted_text(ui.visuals())),
+                                        );
+                                    });
+                            }
+                        });
+                        ui.add_space(3.0);
+                        ui.label(
+                            RichText::new(entry.description)
+                                .small()
+                                .color(theme_muted_text(ui.visuals())),
+                        );
+                        if let Some(reason) = &entry.disabled_reason {
+                            ui.add_space(3.0);
+                            ui.label(
+                                RichText::new(reason)
+                                    .small()
+                                    .color(ui.visuals().warn_fg_color),
+                            );
+                        }
+                    });
+                });
+            })
+            .response
+            .interact(egui::Sense::click())
     }
 }
 

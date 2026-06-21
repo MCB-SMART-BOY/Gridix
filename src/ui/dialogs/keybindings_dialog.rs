@@ -2012,27 +2012,22 @@ impl KeyBindingsDialog {
 
                     ui.add_space(8.0);
                     if !summary.is_empty() {
-                        DialogContent::card(
-                            ui,
-                            Some(theme_warn(ui.visuals())),
-                            |ui| {
-                                ui.label(RichText::new("冲突摘要").small().strong());
-                                ui.add_space(4.0);
-                                for (selection, issues) in summary.iter().take(5) {
-                                    let label =
-                                        format!("{} · {} 条提醒", selection.label(), issues.len());
-                                    if ui
-                                        .small_button(label)
-                                        .on_hover_text(selection.detail())
-                                        .clicked()
-                                    {
-                                        actions.push(KeyBindingsDialogUiAction::SelectBinding(
-                                            *selection,
-                                        ));
-                                    }
+                        DialogContent::card(ui, Some(theme_warn(ui.visuals())), |ui| {
+                            ui.label(RichText::new("冲突摘要").small().strong());
+                            ui.add_space(4.0);
+                            for (selection, issues) in summary.iter().take(5) {
+                                let label =
+                                    format!("{} · {} 条提醒", selection.label(), issues.len());
+                                if ui
+                                    .small_button(label)
+                                    .on_hover_text(selection.detail())
+                                    .clicked()
+                                {
+                                    actions
+                                        .push(KeyBindingsDialogUiAction::SelectBinding(*selection));
                                 }
-                            },
-                        );
+                            }
+                        });
                         ui.add_space(8.0);
                     }
                 }

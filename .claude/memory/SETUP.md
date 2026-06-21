@@ -1,6 +1,6 @@
 # Memory System
 
-Gridix uses persistent memory notes. Primary store: `~/.codex/memory/` (Codex). Mirror: `.claude/memory/` (Claude Code).
+Gridix uses Codex-local memory notes at `~/.codex/memory/`.
 
 ## How it works
 
@@ -14,13 +14,13 @@ Gridix uses persistent memory notes. Primary store: `~/.codex/memory/` (Codex). 
 | type | purpose |
 |------|---------|
 | `user` | Who the user is, their preferences, expertise |
-| `feedback` | Guidance on how the AI agent should work, corrections |
+| `feedback` | Guidance on how Codex should work, corrections |
 | `project` | Ongoing work, goals, constraints |
 | `reference` | External resources, URLs, documentation links |
 
 ## When to save
 
 - User explicitly asks to remember something
-- User provides feedback on agent behavior
+- User provides feedback on Codex's behavior
 - A significant architectural decision is made
 - A new constraint or rule is established

@@ -17,17 +17,23 @@ This document complements `dockable-workbench-v2.md`. That file defines layout a
 
 ## Implementation Status
 
-Last updated: 2026-06-18.
+Last updated: 2026-06-20.
 
 - Surface foundation exists: `WorkbenchSurfaceKind` descriptors carry icon, title, description, command ID, role, default placement, allowed placements, singleton flag, and persistence key.
 - Unified surface shell foundation exists in `src/ui/workbench/surface.rs`: `WorkbenchSurfaceHeader`, `SurfaceAction`, icon-only button helper, and shared tooltip rendering.
 - BottomPanel and RightInspector close controls now use the shared icon-only action tooltip contract.
 - Phase C bridge exists: fixed-region clicks can set `WorkbenchFocus::Surface`, and editor dock tabs render through the unified surface renderer.
-- Phase C seed layout exists: `DockTab::Surface`, `default_surface_layout()`, and `ensure_surface_tab()` can place Explorer/Results/Inspector as peer dock items.
+- Phase C seed layout exists: `DockTab::Surface`, `default_surface_layout()`, and `ensure_surface_tab()` place Results center / SQL editor bottom / ER right as default peer dock items; Explorer remains in the stable PrimarySidebar by default and becomes a dock item only through explicit reveal.
 - Reveal/open actions now route into the surface dock for activity, output, inspector, and ER surfaces.
 - Fixed-region fallback de-duplication exists: PrimarySidebar, BottomPanel, and RightInspector no longer duplicate layout space when the active equivalent docked surface exists.
-- Runtime startup now uses the surface dock seed, so Explorer/SQL/Results/Inspector are peer surfaces by default.
-- Next step: migrate fixed-region headers/tabs into the shared surface shell, add a consistent core icon set, and then remove redundant fixed regions.
+- Runtime startup now uses the April-shell seed: fixed PrimarySidebar for Explorer-like navigation, plus Query Results/data workspace center, SQL editor bottom, and ER right in the dock workspace by default.
+- Explorer/Filters/Objects surfaces now render real Sidebar content through the compatibility adapter instead of placeholder text.
+- Runtime proportions now use named editor-first dock split constants in `src/ui/dock_tabs.rs` instead of anonymous split ratios, locked to the user-approved 2026-06-19 screenshot: fixed PrimarySidebar `280px`, query/ER `0.73/0.27`, results/editor `0.69/0.31`.
+- ER diagram visual system has been redesigned as a schema canvas: framed/glowing canvas background, major/minor grid, database object cards with semantic accent rails, PK/FK badges, key-row highlighting, relationship halos/endpoints/cardinality labels, and themed empty/loading state cards.
+- Dialog/workspace utility surfaces now share a proper visual foundation in `src/ui/dialogs/common.rs` and `src/ui/dialogs/picker_shell.rs`: clean themed modal frames, restrained elevated panes, simple selected-row rails, keycap-style shortcut hints, structured list rows, and redesigned toolbar action/theme menu entries.
+- Default runtime layout no longer renders the duplicate left ActivityBar/SurfaceRail; TopBar is the primary global launcher, and sidebar visibility controls the stable PrimarySidebar without mutating the dock tree.
+- The dormant ActivityBar widget still renders descriptor-driven icon glyph buttons if it is reintroduced later, but it must not duplicate TopBar in the default layout.
+- Next step: split navigation surface state, migrate fixed-region headers/tabs into the shared surface shell, replace temporary glyphs with a consistent core icon set, and then remove redundant fixed regions.
 
 ## Design Diagnosis
 
@@ -172,6 +178,21 @@ Rules:
 - Empty states use the same visual template.
 - Surface-specific controls live in the header, not TopBar.
 
+## Dialog And Utility Surface Anatomy
+
+Shortcut settings, Help/Learning, toolbar action menus, theme selection, and similar utility dialogs must feel like Gridix workspace surfaces, not temporary forms.
+
+Rules:
+
+- Use `DialogWindow` plus `WorkspaceDialogShell` for workspace-scale dialogs.
+- Use `PickerDialogShell` for navigator/items/detail flows.
+- Use `DialogContent::toolbar`, `workspace_pane`, `nav_item`, `shortcut_hint`, and `mouse_hint` instead of ad-hoc separators and raw labels.
+- Entries must be structured rows with icon/title/meta/detail/status areas; do not put multi-line command data into a plain `Button`.
+- Headers should include a productized title/subtitle and then command/search controls.
+- Shortcut affordances should render as small keycaps plus plain descriptions; mouse hints should stay inline and low-emphasis.
+- Do not overuse accent rails, dots, nested cards, or pills; selection should be visible but quiet.
+- Visual tokens should derive from `egui::Visuals` and existing theme helpers.
+
 ## Surface Classes
 
 ### Document Surfaces
@@ -233,6 +254,21 @@ Examples:
 - `Inspector::Row`
 - `Inspector::Cell`
 - `Inspector::Connection`
+
+### Schema Canvas Surfaces
+
+Examples:
+
+- `ErDiagram`
+
+Visual behavior:
+
+- use a canvas background, not a flat panel
+- relationships render beneath tables with halo strokes, endpoint anchors, and cardinality labels
+- table cards use semantic accent rails and PK/FK badges instead of plain dots
+- column data types stay right-aligned and monospace
+- selected and related tables are visibly different from unrelated dimmed tables
+- loading and empty states use centered canvas cards, not raw text
 - `Inspector::ErSelection`
 
 Visual behavior:
@@ -387,8 +423,8 @@ Keep these local to the surface header.
 
 Offer simple presets instead of forcing users to build from scratch:
 
-1. `Classic`: Explorer left, SQL center, Results bottom, Inspector right.
-2. `Minimal`: SQL center, Results hidden until query, SurfaceRail hidden.
+1. `Classic`: Explorer left, Results center, SQL editor bottom, ER right.
+2. `Minimal`: Results center, SQL editor bottom, ER hidden until requested.
 3. `Data Review`: Explorer left, TableData center, Inspector right, Messages bottom.
 4. `Schema`: Explorer left, ER center, Inspector right, Objects bottom/side.
 5. `Laptop`: single column center, surfaces grouped as tabs.
@@ -478,7 +514,7 @@ Do not:
 
 ### Priority 4: Visual Cleanup
 
-- replace text-heavy ActivityBar with SurfaceRail
+- keep SurfaceRail optional; do not render it beside TopBar until it has a distinct movable launcher role
 - remove redundant labels
 - add consistent icons
 - move surface-specific controls into headers

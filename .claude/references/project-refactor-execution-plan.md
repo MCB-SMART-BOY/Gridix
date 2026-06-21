@@ -155,7 +155,7 @@ Phase 15 Visual tokens and polish
 
 ## Execution Status
 
-Last updated: 2026-06-18.
+Last updated: 2026-06-19.
 
 Completed:
 - Phase 0 baseline and safety: format, clippy, full tests, and doc links pass after restoring missing default keybindings and fixing SQLite metadata tests to use a shared temporary database file instead of separate `:memory:` connections.
@@ -168,20 +168,24 @@ Completed:
 - Phase 7 RightInspector: `WorkbenchRightInspector` renders as a fixed right workbench region, `ToggleRightInspector`/`SetRightInspectorVisible`/`SetRightInspectorTab` are action-routed, schema inspection opens the Schema tab, ER selection opens the ER tab, Row/Cell views read current result selection, and visibility/tab/width persist through workbench config.
 - Dockable Workbench v2 Phase B foundation: `WorkbenchSurfaceKind`, `WorkbenchSurfaceRole`, `WorkbenchPlacement`, `WorkbenchSurfaceId`, descriptor metadata, tooltip contract, and `DockTab::surface_kind()` bridge are implemented. `src/ui/workbench/surface.rs` provides shared `WorkbenchSurfaceHeader` and `SurfaceAction`; BottomPanel and RightInspector close actions use the icon-only tooltip contract.
 - Dockable Workbench v2 Phase C bridge: `WorkbenchFocus::Surface` is available, legacy Activity/BottomPanel/RightInspector map to surface kinds, `Explain` is a first-class output surface, fixed BottomPanel/RightInspector/PrimarySidebar clicks set surface focus, and `DockTab::ui()` delegates rendering through `DbManagerApp::render_workbench_surface_in_ui()`.
-- Dockable Workbench v2 Phase C seed layout: `DockTab::Surface` can carry `WorkbenchSurfaceKind` directly, `default_surface_layout()` seeds Explorer left / SQL center / Results bottom / Inspector right, and `ensure_surface_tab()` inserts surfaces idempotently by stable surface identity. SQL sync now supports both legacy SQL tabs and surface SQL tabs, and the missing-tab path now focuses the target leaf before pushing.
+- Dockable Workbench v2 Phase C seed layout: `DockTab::Surface` can carry `WorkbenchSurfaceKind` directly, `default_surface_layout()` seeds Query Results/data workspace center / SQL editor bottom / ER right while Explorer stays in the stable 4月式 PrimarySidebar by default, and `ensure_surface_tab()` inserts explicit surfaces idempotently by stable surface identity. SQL sync now supports both legacy SQL tabs and surface SQL tabs, and the missing-tab path now focuses the target leaf before pushing.
 - Dockable Workbench v2 Phase C action wiring: `set_workbench_activity()`, BottomPanel tab/visible/query reveal, RightInspector tab/visible/inspect reveal, and ER open/focus now route through `ensure_surface_tab()` via `DbManagerApp::reveal_workbench_surface()` while preserving fixed-region fallback state.
 - Dockable Workbench v2 Phase C fallback de-duplication: fixed PrimarySidebar, BottomPanel, and RightInspector fallback regions now hide at layout level when their active equivalent surface exists in the dock tree; helper tests cover docked-equivalent detection.
 - Dockable Workbench v2 Phase C runtime seed switch: `DbManagerApp` now initializes `dock_state` from `default_surface_layout()`, and the render-time borrow-replacement fallback uses the same surface seed via `default_workbench_surface_layout()`.
+- Dockable Workbench v2 Phase C navigation surface activation: Explorer, Filters, and Objects dock surfaces now render real Sidebar content through a compatibility adapter instead of placeholder text, with tests covering surface-to-activity and panel visibility mapping.
+- Dockable Workbench v2 Phase C visual/layout calibration: default dock split ratios are named in `src/ui/dock_tabs.rs`, tuned to the user-approved 2026-06-19 April-shell screenshot (`280px` fixed PrimarySidebar, query/ER `0.73/0.27`, results/editor `0.69/0.31`), and the ActivityBar widget is dormant and not rendered in the default runtime layout.
+- Dockable Workbench v2 Phase C April-shell correction: default runtime layout no longer reserves or renders the duplicate left ActivityBar/SurfaceRail; `ToggleSidebar`/`SetPrimarySidebarVisible` control only the stable fixed PrimarySidebar and must not mutate the dock tree.
+- ER diagram visual redesign: `src/ui/components/er_diagram/render.rs` now uses schema-canvas styling, object-card table rendering, PK/FK badges, key-row highlighting, relation halos/endpoints/cardinality pills, and themed empty/loading cards while preserving existing layout/state/keyboard behavior.
 
 Current next phase:
-- Dockable Workbench v2 Phase C next slice before continuing Phase 8 Dialog Reduction. Migrate remaining fixed-region chrome into the shared surface shell, keep fixed regions as fallback adapters only, and continue replacing legacy `FocusArea` assumptions with surface-first focus/config routing.
+- Dockable Workbench v2 Phase C next slice before continuing Phase 8 Dialog Reduction. Split stable PrimarySidebar state from explicitly docked navigation surface state, migrate remaining fixed-region chrome into the shared surface shell, keep TopBar as the primary global launcher, and continue replacing legacy `FocusArea` assumptions with surface-first focus/config routing.
 
 Design pivot:
 - Reference: `~/.codex/references/dockable-workbench-v2.md`.
 - Visual system reference: `~/.codex/references/gridix-ui-visual-system-v2.md`.
 - Explorer/Filters/Objects/History/Settings/Results/Tables/Inspector should become movable `WorkbenchSurface` items.
 - TopBar remains global command/context chrome and should not duplicate content surfaces.
-- The next implementation slice should reduce fixed-region chrome and fallback adapter code, while preserving legacy `FocusArea` keyboard paths until surface focus routing is complete.
+- The next implementation slice should split navigation surface state and reduce fixed-region chrome/fallback adapter code, while preserving legacy `FocusArea` keyboard paths until surface focus routing is complete.
 
 ## Phase 0: Baseline And Safety
 

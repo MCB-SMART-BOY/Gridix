@@ -339,7 +339,7 @@ Goal: introduce stable workbench shell without moving major features yet.
 Tasks:
 - Create `WorkbenchShell` renderer in `src/app/surfaces/workbench.rs` or similar.
 - Move TopBar out of dock document content.
-- Add ActivityBar placeholder and StatusBar. Completed; ActivityBar now has activity switching.
+- Add ActivityBar placeholder and StatusBar. Completed historically; after the topbar-first correction, the ActivityBar widget is dormant and is not rendered in the default runtime layout.
 - Keep existing Sidebar and DockArea behavior mounted in the shell.
 - Persist sidebar width and bottom panel visibility/height in `AppConfig`.
 

@@ -36,6 +36,7 @@
 - [x] Dockable Workbench v2 Phase C 视觉/比例校准：默认 dock split 比例命名化并调整为 VS Code/Zed 式编辑器优先布局，默认运行布局移除重复左侧 ActivityBar/SurfaceRail
 - [x] Workbench April Shell v3 修正：默认布局基于 4 月稳定 PrimarySidebar，`default_surface_layout()` seed Results center / SQL editor bottom / ER right，顶栏侧边栏按钮不再增删 dock tabs
 - [x] Workbench April Shell v3 默认比例锁定：按用户 2026-06-19 截图固定 `280px` PrimarySidebar、dock 中心/右侧 `0.73/0.27`、上/下 `0.69/0.31`
+- [x] ER diagram 视觉重设计：schema canvas、对象卡、PK/FK 徽章、关系线 halo/端点/基数标签、空/加载状态卡片
 - [ ] Dockable Workbench v2：将 Explorer/Filters/Objects/History/Settings/Results/Tables/Inspector 统一为可拖拽 surface
 - [ ] UI Visual System v2：统一面板骨架、图标优先、tooltip/快捷键提示、极简默认布局
 - [ ] Phase 8 减少 Help/History/Settings 的阻塞式浮动面板

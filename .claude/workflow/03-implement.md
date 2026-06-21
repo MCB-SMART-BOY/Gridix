@@ -59,7 +59,11 @@ Workbench surface migration:
 7. Use `ensure_surface_tab()` for reveal/open migration and test duplicate reveal behavior by stable surface identity.
 8. Once reveal/open paths are dock-backed, de-duplicate fixed fallback rendering before deleting compatibility regions.
 9. After fallback de-duplication is implemented, switch runtime startup to the tested surface dock seed with startup/focus/config tests.
-10. After the runtime seed switch is verified, migrate remaining fixed-region chrome into the shared surface shell before deleting compatibility regions.
+10. After the runtime seed switch is verified, make default navigation surfaces render real content before reducing fixed chrome.
+11. Calibrate default dock proportions with named constants and avoid rendering duplicate TopBar + ActivityBar/SurfaceRail launcher chrome.
+12. Keep simple visibility toggles stable: sidebar expand/collapse must not add/remove dock tabs.
+13. Split fixed PrimarySidebar state from explicitly docked navigation surface state before expecting multiple navigation surfaces to behave independently.
+14. Migrate remaining fixed-region chrome into the shared surface shell before deleting compatibility regions.
 
 For Gridix project-wide refactors, finish each coherent phase by updating the relevant `~/.codex/` memory, workflow references, rules, and skills in the same local change set.
 

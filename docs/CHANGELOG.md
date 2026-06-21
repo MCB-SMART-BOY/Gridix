@@ -5,6 +5,36 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [7.0.0] - 2026-06-21
+
+### Added
+- Added the dockable workbench shell foundation with surface descriptors, stable surface identity, shared surface headers/actions, command-palette wiring, focus routing, and an April-style default workspace layout with Query Results in the center, the SQL editor at the bottom, ER on the right, and the stable PrimarySidebar kept as the default navigation region.
+  新增 dockable workbench shell 基础：surface 描述符、稳定 surface 身份、共享 surface 头部/动作、命令面板接线、焦点路由，以及 4 月式默认工作区布局：查询结果居中、SQL 编辑器在底部、ER 在右侧，并保留稳定 PrimarySidebar 作为默认导航区域。
+- Added a session/state architecture layer with `Session`, `UiState`, `QueryTabManager`, shared frame-effect types, and a centralized schema-change invalidation cascade so connection, tab, schema, query, and ER state can move through one clearer ownership model.
+  新增 `Session`、`UiState`、`QueryTabManager`、共享 frame-effect 类型和集中式 schema-change invalidation cascade，让连接、标签页、schema、查询与 ER 状态能沿着更清晰的所有权模型流转。
+- Added user-visible query cancellation, client-side grid cell validation before save, SQLite driver coverage, and stronger app-level error typing.
+  新增用户可见的查询取消、保存前客户端表格单元格校验、SQLite driver 覆盖，以及更明确的应用级错误类型。
+
+### Changed
+- Reworked the ER diagram surface into a schema-canvas visual system with framed canvas/glow styling, semantic table object cards, accent rails, PK/FK badges, key-row highlighting, relationship halos/endpoints/cardinality labels, themed loading/empty cards, and corrected drag/pan hit-testing semantics.
+  将 ER 图 surface 重做为 schema-canvas 视觉系统：带边框和 glow 的画布、语义化表对象卡、accent rail、PK/FK 徽章、关键行高亮、关系线 halo/端点/基数标签、主题化加载/空状态卡片，并修正拖拽/平移命中语义。
+- Reorganized the application architecture around the new `data/` module, reduced duplicate app fields, removed dead code, cleaned hardcoded UI colors into theme-derived tokens, and refreshed the lockfile to the current dependency resolution.
+  围绕新的 `data/` 模块重组应用架构，减少重复 app 字段，删除死代码，把硬编码 UI 颜色收敛为主题派生 token，并刷新 lockfile 到当前依赖解析结果。
+- Refined workspace and dialog utility surfaces so Help, Keybindings, picker shells, toolbar action menus, and theme selection use shared modal/surface structure, productized rows, restrained selection rails, and keycap-style shortcut hints instead of ad-hoc egui windows.
+  收紧 workspace 与 dialog 工具 surface：Help、Keybindings、picker shell、toolbar action menu 与主题选择现在使用共享 modal/surface 结构、产品化列表行、克制的选中 rail 和 keycap 风格快捷键提示，而不是临时的 egui 窗口。
+- Updated Gridix's AI/harness documentation and project memory to match the new workbench, ER, dialog, testing, and release-readiness boundaries.
+  更新 Gridix 的 AI/harness 文档与项目记忆，使其匹配新的 workbench、ER、dialog、测试与 release-readiness 边界。
+
+### Fixed
+- Fixed grid-save correctness and safety issues, including transactional save behavior, MySQL identifier quoting, empty-cell-to-NULL feedback, stale edit cleanup after save, and warnings before closing tabs with unsaved grid edits.
+  修复表格保存的正确性与安全性问题，包括事务化保存、MySQL 标识符引用、空单元格转 NULL 的反馈、保存后 stale 编辑清理，以及关闭含未保存表格编辑的标签页前警告。
+- Fixed connection, schema, and ER consistency issues by clearing zombie active connections, aborting PostgreSQL background connection tasks on removal, guarding ER fetches with load generations, clearing ER on connection switches, and syncing after tab-bar close.
+  修复连接、schema 与 ER 一致性问题：清理 zombie active connection、移除连接时中止 PostgreSQL 后台连接任务、用 load generation 保护 ER 拉取、切换连接时清空 ER，并在 tab-bar 关闭后同步状态。
+- Fixed dialog/input ownership holes by enforcing a single open-dialog path, making local dialog close shortcuts reliable, removing a history-browse binding conflict, closing keyboard-first focus/reveal gaps, and replacing hot-path shortcut-registry panics.
+  修复 dialog/input 所有权漏洞：强制单一 open-dialog 路径，稳定本地 dialog 关闭快捷键，移除 history-browse 绑定冲突，补齐 keyboard-first 焦点/显露缺口，并替换快捷键注册热路径 panic。
+- Fixed sidebar and toolbar polish regressions, including trigger/routine re-fetch on panel expansion, table-list loading/error states, contrast-critical and contrast-risk theme colors, and the old emoji toolbar avatar.
+  修复 sidebar 与 toolbar 的 polish 退化，包括展开面板时重新拉取 trigger/routine、表列表加载/错误状态、contrast-critical 与 contrast-risk 主题颜色，以及旧 emoji toolbar avatar。
+
 ## [6.1.0]
 
 ### Changed

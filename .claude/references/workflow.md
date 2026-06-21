@@ -11,7 +11,7 @@ For Gridix:
 - Check `references/tech-debt.md` for known issues.
 - If architecture changes, read `references/architecture/decisions.md`.
 - If project-wide refactor work, read `references/project-refactor-execution-plan.md`.
-- After each completed Gridix refactor phase, update `~/.codex/memory` and `.claude/memory`, relevant `references/`, `rules/`, and skills before final delivery.
+- After each completed Gridix refactor phase, update `~/.codex/memory`, relevant `references/`, `rules/`, and skills before final delivery.
 
 ## 2. Code
 
@@ -32,7 +32,7 @@ Gridix conventions:
 - `thiserror` for errors, `// =====...=====` section separators
 - Chinese `//!` module docs, English identifiers
 - Commit: `type(scope): description` format
-- Workbench UI: new dockable surfaces must define descriptor metadata, stable IDs, placement rules, command/tooltip metadata, unified renderer routing, idempotent `ensure_surface_tab()` behavior, and tests before being wired into layout
+- Workbench UI: new dockable surfaces must define descriptor metadata, stable IDs, placement rules, command/tooltip metadata, unified renderer routing, idempotent `ensure_surface_tab()` behavior, named dock split proportions, topbar-first launcher semantics, and tests before being wired into layout
 
 ## 3. Review
 
@@ -43,7 +43,7 @@ For Gridix, run the `gridix-code-review` skill or manually check:
 - Stale response guards on async handlers
 - `needs_repaint` pattern used
 - Config save uses `save_config_debounced()`
-- Workbench surface bridge stays consistent: descriptors, `DockTab::surface_kind()`, `DockTab::Surface`, `ensure_surface_tab()`, `DbManagerApp::reveal_workbench_surface()`, `DbManagerApp::render_workbench_surface_in_ui()`, surface focus, docked-equivalent fallback de-duplication, and icon-only tooltip contract
+- Workbench surface bridge stays consistent: descriptors, `DockTab::surface_kind()`, `DockTab::Surface`, `ensure_surface_tab()`, `DbManagerApp::reveal_workbench_surface()`, `DbManagerApp::render_workbench_surface_in_ui()`, surface focus, named split ratios, topbar-first launcher semantics, stable sidebar visibility that does not mutate dock tabs, docked-equivalent fallback de-duplication, and icon-only tooltip contract
 
 ## 4. Test
 
