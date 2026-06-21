@@ -744,6 +744,10 @@ pub enum Action {
     ToggleErDiagram,
     /// 聚焦 ER 关系图
     FocusErDiagram,
+    /// 显示并聚焦底部面板（结果/消息等）
+    FocusBottomPanel,
+    /// 显示并聚焦右侧检查器
+    FocusRightInspector,
     /// 显示帮助
     ShowHelp,
     /// 显示历史记录
@@ -823,6 +827,8 @@ impl Action {
             Action::ToggleEditor,
             Action::ToggleErDiagram,
             Action::FocusErDiagram,
+            Action::FocusBottomPanel,
+            Action::FocusRightInspector,
             Action::ShowHelp,
             Action::ShowHistory,
             Action::Export,
@@ -867,6 +873,8 @@ impl Action {
             Action::ToggleEditor => "切换 SQL 编辑器",
             Action::ToggleErDiagram => "切换 ER 关系图",
             Action::FocusErDiagram => "聚焦 ER 关系图",
+            Action::FocusBottomPanel => "聚焦底部面板",
+            Action::FocusRightInspector => "聚焦右侧检查器",
             Action::ShowHelp => "显示帮助",
             Action::ShowHistory => "显示历史记录",
             Action::Export => "导出数据",
@@ -909,6 +917,8 @@ impl Action {
             | Action::ToggleEditor
             | Action::ToggleErDiagram
             | Action::FocusErDiagram
+            | Action::FocusBottomPanel
+            | Action::FocusRightInspector
             | Action::ShowHelp
             | Action::ShowHistory
             | Action::Export
@@ -946,6 +956,8 @@ impl Action {
             Action::ToggleEditor => "toggle_editor",
             Action::ToggleErDiagram => "toggle_er_diagram",
             Action::FocusErDiagram => "focus_er_diagram",
+            Action::FocusBottomPanel => "focus_bottom_panel",
+            Action::FocusRightInspector => "focus_right_inspector",
             Action::ShowHelp => "show_help",
             Action::ShowHistory => "show_history",
             Action::Export => "export",
@@ -989,6 +1001,8 @@ impl Action {
             "toggle_editor" => Action::ToggleEditor,
             "toggle_er_diagram" => Action::ToggleErDiagram,
             "focus_er_diagram" => Action::FocusErDiagram,
+            "focus_bottom_panel" => Action::FocusBottomPanel,
+            "focus_right_inspector" => Action::FocusRightInspector,
             "show_help" => Action::ShowHelp,
             "show_history" => Action::ShowHistory,
             "export" => Action::Export,
@@ -1066,6 +1080,11 @@ impl Default for KeyBindings {
         bindings.insert(
             Action::FocusErDiagram,
             KeyBinding::new(KeyCode::R, KeyModifiers::ALT),
+        );
+        bindings.insert(Action::FocusBottomPanel, KeyBinding::ctrl_shift(KeyCode::J));
+        bindings.insert(
+            Action::FocusRightInspector,
+            KeyBinding::ctrl_shift(KeyCode::I),
         );
         bindings.insert(Action::ShowHelp, KeyBinding::key_only(KeyCode::F1));
         bindings.insert(Action::ShowHistory, KeyBinding::ctrl(KeyCode::H));
@@ -2195,6 +2214,9 @@ mod tests {
             Action::FocusSidebarFilters,
             Action::FocusSidebarTriggers,
             Action::FocusSidebarRoutines,
+            // 审计 DLG-B1-1：底部面板/右侧检查器的键盘可达入口。
+            Action::FocusBottomPanel,
+            Action::FocusRightInspector,
         ] {
             assert!(
                 bindings.get(action).is_some(),

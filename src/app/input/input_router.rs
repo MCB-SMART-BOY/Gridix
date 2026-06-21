@@ -296,6 +296,8 @@ const WORKSPACE_FALLBACK_ACTION_SHORTCUTS: &[Action] = &[
     Action::OpenThemeSelector,
     Action::OpenKeybindingsDialog,
     Action::FocusErDiagram,
+    Action::FocusBottomPanel,
+    Action::FocusRightInspector,
     Action::ToggleDarkMode,
     Action::FocusSidebarConnections,
     Action::FocusSidebarDatabases,
@@ -530,6 +532,8 @@ impl InputContextSnapshot {
             | Action::OpenToolbarCreateMenu
             | Action::OpenThemeSelector
             | Action::FocusErDiagram
+            | Action::FocusBottomPanel
+            | Action::FocusRightInspector
             | Action::ToggleDarkMode
             | Action::FocusSidebarConnections
             | Action::FocusSidebarDatabases
@@ -716,6 +720,14 @@ impl InputContextSnapshot {
                 && self.is_workspace_command_mode()
                 && self.show_er_diagram)
                 .then_some(ResolvedInputAction::HandledApp(AppAction::FocusErDiagram)),
+            Action::FocusBottomPanel => (self.can_dispatch_global_shortcut()
+                && self.is_workspace_command_mode())
+            .then_some(ResolvedInputAction::HandledApp(AppAction::FocusBottomPanel)),
+            Action::FocusRightInspector => {
+                (self.can_dispatch_global_shortcut() && self.is_workspace_command_mode()).then_some(
+                    ResolvedInputAction::HandledApp(AppAction::FocusRightInspector),
+                )
+            }
             Action::ToggleDarkMode => (self.can_dispatch_global_shortcut()
                 && self.is_workspace_command_mode())
             .then_some(ResolvedInputAction::HandledApp(AppAction::ToggleDarkMode)),
@@ -2789,6 +2801,25 @@ mod tests {
                 Some(Action::ZoomIn),
             ),
             ResolvedInputAction::PreservedTrueGlobalFallback(TrueGlobalFallbackAction::Zoom)
+        );
+    }
+
+    #[test]
+    fn ctrl_shift_j_and_i_route_to_panel_focus_app_actions() {
+        // 审计 DLG-B1-1：Ctrl+Shift+J / Ctrl+Shift+I 在工作区命令模式下解析为面板聚焦动作。
+        let context = snapshot(); // 默认 focus_area=DataGrid，即工作区命令模式
+        let mut mods = Modifiers::NONE;
+        mods.ctrl = true;
+        mods.shift = true;
+        let keys = KeyBindings::default();
+
+        assert_eq!(
+            resolve_event_with_keybindings(context, key_event_with_modifiers(Key::J, mods), &keys),
+            ResolvedInputAction::HandledApp(AppAction::FocusBottomPanel)
+        );
+        assert_eq!(
+            resolve_event_with_keybindings(context, key_event_with_modifiers(Key::I, mods), &keys),
+            ResolvedInputAction::HandledApp(AppAction::FocusRightInspector)
         );
     }
 

@@ -93,10 +93,10 @@ individual symptoms — the symptoms are the test cases for the cascade.
 |---|---|---|---|
 | DLG-A2-2 | 6 form dialogs have no keyboard close | ~~`input_router.rs:1349`~~ FIXED: `resolve_dialog_shortcut_fallback_with` + `CloseDialog` handler now route Esc→close for Connection/Export/Import/Ddl/CreateDatabase/CreateUser (blurs field first when typing, same as Help/History) | FIXED 2026-06-21 |
 | DLG-A3-1 | `open_dialog()` doesn't close other major dialogs | ~~`dialogs/host.rs:160-183`~~ FIXED: `close_other_modal_dialogs` closes all other standard dialogs (except WelcomeSetup overlay) before opening | FIXED 2026-06-21 |
-| DLG-B1-1 | BottomPanel/RightInspector not in Tab focus cycle | `app/input/keyboard.rs:16-31` | No keyboard route to focus Results/Messages/Inspector |
+| DLG-B1-1 | BottomPanel/RightInspector not in Tab focus cycle | ~~`app/input/keyboard.rs:16-31`~~ FIXED (minimal): `FocusBottomPanel` (Ctrl+Shift+J) reveals + focuses the panel (Results→DataGrid grid, fully usable); `FocusRightInspector` (Ctrl+Shift+I) reveals + marks `WorkbenchFocus`. Palette commands + rebindable. NOTE: true per-panel key handling for the read-only inspector + Tab-cycle integration + FO-01 focus ring remain the `WorkbenchFocus::Surface` migration slice (router routes off legacy `FocusArea`, which has no panel variants). | FIXED-minimal 2026-06-21 |
 | DLG-B2-1b | All 6 `FocusSidebar*` actions have no default binding | ~~`core/keybindings.rs:1038-1099`~~ FIXED: bound `Ctrl+1..6` | FIXED 2026-06-21 |
 | DLG-B2-3 | `editor.insert.history_browse` shadows history_prev/next | ~~`core/commands.rs:856-879`~~ FIXED: `history_browse` (never functionally consumed) now has no default bindings; help display repointed to `SqlHistoryPrev` | FIXED 2026-06-21 |
-| A4-1 | No explicit focus-return after dialog dismiss | `dialogs/host.rs:186-210` | Focus left implicit after cancel via X |
+| A4-1 | No explicit focus-return after dialog dismiss | ~~`dialogs/host.rs:186-210`~~ NOT A DEFECT: dialogs are gated by `InputOwner::Modal`; `focus_area` is never set to `Dialog` (variant is reserved/dead), so on close keyboard nav resumes on the prior content area. Result handlers that route to a meaningful area (e.g. trigger/routine def → `SqlEditor`, `dialogs.rs:396-448`) do so deliberately. No save/restore machinery needed. | CLOSED 2026-06-21 |
 
 ### Visual — broken under specific themes (G41-B013 family)
 

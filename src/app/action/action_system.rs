@@ -66,6 +66,8 @@ pub(in crate::app) enum AppAction {
     FocusEditor,
     FocusToolbar,
     FocusQueryTabs,
+    FocusBottomPanel,
+    FocusRightInspector,
     QuerySelectedTable,
     ShowSelectedTableSchema,
     RecheckEnvironment,
@@ -784,6 +786,26 @@ const COMMANDS: &[CommandDescriptor] = &[
         &["focus tabs", "query tabs", "tab bar"],
     ),
     CommandDescriptor::new(
+        "focus_bottom_panel",
+        "聚焦底部面板",
+        "显示并聚焦底部结果/消息面板。",
+        "焦点",
+        CommandScope::Grid,
+        AppAction::FocusBottomPanel,
+        Some(ShortcutAction::FocusBottomPanel),
+        &["focus bottom panel", "results", "messages", "panel"],
+    ),
+    CommandDescriptor::new(
+        "focus_right_inspector",
+        "聚焦右侧检查器",
+        "显示并聚焦右侧属性/结构检查器。",
+        "焦点",
+        CommandScope::Grid,
+        AppAction::FocusRightInspector,
+        Some(ShortcutAction::FocusRightInspector),
+        &["focus inspector", "right inspector", "properties", "schema"],
+    ),
+    CommandDescriptor::new(
         "open_history",
         "打开历史记录",
         "显示查询历史面板。",
@@ -938,6 +960,8 @@ impl AppAction {
             | ShortcutAction::OpenToolbarCreateMenu
             | ShortcutAction::OpenThemeSelector
             | ShortcutAction::FocusErDiagram
+            | ShortcutAction::FocusBottomPanel
+            | ShortcutAction::FocusRightInspector
             | ShortcutAction::FocusSidebarConnections
             | ShortcutAction::FocusSidebarDatabases
             | ShortcutAction::FocusSidebarTables
@@ -1068,6 +1092,8 @@ fn availability_for_action(context: &ActionContext, action: AppAction) -> Action
         | AppAction::FocusEditor
         | AppAction::FocusToolbar
         | AppAction::FocusQueryTabs
+        | AppAction::FocusBottomPanel
+        | AppAction::FocusRightInspector
         | AppAction::RecheckEnvironment
         | AppAction::OpenLearningSample
         | AppAction::EnsureLearningSample { .. } => ActionAvailability::enabled(),
@@ -1451,6 +1477,25 @@ impl DbManagerApp {
                 self.set_focus_area(FocusArea::QueryTabs);
                 Vec::new()
             }
+            AppAction::FocusBottomPanel => {
+                // 显示底部面板；Results 内容即结果表格，聚焦它走 DataGrid（键盘完全可用）。
+                // 其它 tab（消息/Explain/历史/任务）为只读输出，仅标记 workbench 焦点。
+                self.set_bottom_panel_visible(true);
+                if self.state.workbench.bottom_panel.active_tab
+                    == crate::core::BottomPanelTab::Results
+                {
+                    self.set_focus_area(FocusArea::DataGrid);
+                } else {
+                    self.state.workbench.focus = crate::state::WorkbenchFocus::BottomPanel;
+                }
+                Vec::new()
+            }
+            AppAction::FocusRightInspector => {
+                // 检查器是只读详情，无键盘交互；显示并标记 workbench 焦点。
+                self.set_right_inspector_visible(true);
+                self.state.workbench.focus = crate::state::WorkbenchFocus::RightInspector;
+                Vec::new()
+            }
             AppAction::QuerySelectedTable => self.selected_table_query_effects(true, true, true),
             AppAction::ShowSelectedTableSchema => {
                 let Some(table) = self.state.selected_table.clone() else {
@@ -1634,6 +1679,51 @@ impl DbManagerApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn focus_bottom_panel_reveals_and_focuses_results_grid() {
+        // 审计 DLG-B1-1：FocusBottomPanel 显示底部面板；Results tab 时聚焦结果表格。
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let ctx = egui::Context::default();
+        app.state.workbench.bottom_panel.visible = false;
+        app.state.workbench.bottom_panel.active_tab = crate::core::BottomPanelTab::Results;
+
+        app.dispatch_app_action(&ctx, AppAction::FocusBottomPanel);
+
+        assert!(app.state.workbench.bottom_panel.visible);
+        assert_eq!(app.state.focus_area, FocusArea::DataGrid);
+    }
+
+    #[test]
+    fn focus_bottom_panel_non_results_tab_marks_workbench_focus() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let ctx = egui::Context::default();
+        app.state.workbench.bottom_panel.visible = false;
+        app.state.workbench.bottom_panel.active_tab = crate::core::BottomPanelTab::Messages;
+
+        app.dispatch_app_action(&ctx, AppAction::FocusBottomPanel);
+
+        assert!(app.state.workbench.bottom_panel.visible);
+        assert_eq!(
+            app.state.workbench.focus,
+            crate::state::WorkbenchFocus::BottomPanel
+        );
+    }
+
+    #[test]
+    fn focus_right_inspector_reveals_and_marks_focus() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let ctx = egui::Context::default();
+        app.state.workbench.right_inspector.visible = false;
+
+        app.dispatch_app_action(&ctx, AppAction::FocusRightInspector);
+
+        assert!(app.state.workbench.right_inspector.visible);
+        assert_eq!(
+            app.state.workbench.focus,
+            crate::state::WorkbenchFocus::RightInspector
+        );
+    }
 
     fn base_context() -> ActionContext {
         ActionContext {

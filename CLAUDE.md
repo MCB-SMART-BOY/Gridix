@@ -56,7 +56,7 @@ src/
 ├── types.rs             # Layer -1: shared types — DatabaseType, PostgresSslMode, MySqlSslMode, QueryResult
 ├── core/                # Layer 0: pure functions, no side effects
 │   ├── config.rs        # AppConfig (TOML, atomic temp-file+rename, Unix 0o600)
-│   ├── keybindings.rs   # Action (38 variants), KeyBindings, keymap.toml engine
+│   ├── keybindings.rs   # Action (40 variants), KeyBindings, keymap.toml engine
 │   ├── commands.rs      # ~100 ScopedCommand entries with default_bindings
 │   ├── theme.rs         # ThemeManager, 18 ThemePresets, ThemeColors
 │   ├── syntax.rs        # SQL highlighting — custom tokenizer
@@ -86,7 +86,7 @@ src/
 │       (pending: split into focus/sidebar/editor/dialogs/grid/er_diagram submodules)
 ├── app/                 # Transitional: DbManagerApp — being decomposed into Session + UiState
 │   ├── mod.rs           # DbManagerApp (~11 fields, target reached: ~11)
-│   ├── action/          # AppAction (58 variants) → AppEffect, command palette, CommandDescriptor registry
+│   ├── action/          # AppAction (59 variants) → AppEffect, command palette, CommandDescriptor registry
 │   ├── dialogs/host.rs  # DialogId (17 variants), active_dialog_owner
 │   ├── input/           # Keyboard routing (8-stage dispatch pipeline)
 │   │   ├── input_router.rs (~3400 lines)
