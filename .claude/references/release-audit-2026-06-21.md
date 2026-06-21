@@ -61,7 +61,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 | ER-5 | ER stale after sidebar DROP TABLE | ~~`handler.rs:498-537`~~ FIXED: `handle_table_dropped` reloads ER when open | FIXED 2026-06-21 |
 | ER-6 | ER not reloaded on connection/db switch | ~~`handler.rs:286-317, 405-437`~~ FIXED: editor DDL via cascade; db-switch reloads ER when open. (Switch-active-*connection* while ER open = CONN-F2, still open.) | FIXED 2026-06-21 |
 | SM-8 | Sidebar triggers/routines not refreshed after DDL | ~~`handler.rs:572-800`~~ FIXED: cascade calls `load_triggers/routines` after trigger/routine DDL | FIXED 2026-06-21 |
-| SM-9 | Re-expanding Triggers/Routines does not re-fetch | `sidebar/mod.rs:1051-1065`, `render.rs:1020-1021` | Collapse+expand shows cached pre-DDL data |
+| SM-9 | Re-expanding Triggers/Routines does not re-fetch | ~~`sidebar/mod.rs:1051-1065`~~ FIXED: toggling a panel on now emits `request_load_triggers`/`request_load_routines`; app calls `load_triggers`/`load_routines` | FIXED 2026-06-21 |
 | CONN-F1 | ER state not cleared on disconnect | ~~`database.rs:218-273`~~ FIXED: disconnect active-branch now clears `er_diagram_state` (also bumps load generation) | FIXED 2026-06-21 |
 | CONN-F2 | ER state not cleared on switch connection | ~~`render.rs:752-763`~~ FIXED: switch-connection clears `er_diagram_state` (bumps generation); `handle_connected_with_tables` reloads ER when open | FIXED 2026-06-21 |
 | CONN-F6 | Autocomplete not cleared on switch-db failure | ~~`handler.rs:428-435`~~ FIXED: error arm now clears autocomplete + triggers/routines | FIXED 2026-06-21 |

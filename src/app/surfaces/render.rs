@@ -932,6 +932,14 @@ impl DbManagerApp {
             self.refresh_sidebar_section();
         }
 
+        // 展开触发器/存储过程面板时按需重新加载，避免显示 DDL 前的陈旧缓存（审计 SM-9）。
+        if actions.request_load_triggers {
+            self.load_triggers();
+        }
+        if actions.request_load_routines {
+            self.load_routines();
+        }
+
         // 数据库选择
         if let Some(db_name) = actions.select_database {
             self.select_database(db_name);

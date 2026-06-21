@@ -87,6 +87,10 @@ pub struct SidebarActions {
     pub focus_filter_input: Option<usize>,
     /// 切换筛选条件的列 (索引, true=下一个/false=上一个)
     pub cycle_filter_column: Option<(usize, bool)>,
+    /// 展开触发器面板时请求重新加载（避免显示 DDL 前的陈旧缓存——审计 SM-9）
+    pub request_load_triggers: bool,
+    /// 展开存储过程面板时请求重新加载（审计 SM-9）
+    pub request_load_routines: bool,
 }
 
 #[allow(dead_code)] // 公开 API，供外部使用

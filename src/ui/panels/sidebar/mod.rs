@@ -115,7 +115,7 @@ impl Sidebar {
         let ctx = ui.ctx().clone();
 
         // ====== 面板可见性控制工具栏 ======
-        Self::show_visibility_toolbar(ui, panel_state);
+        Self::show_visibility_toolbar(ui, panel_state, &mut actions);
 
         // 处理键盘导航
         let (item_count, selected_index) =
@@ -976,7 +976,11 @@ impl Sidebar {
     }
 
     /// 显示面板可见性控制工具栏
-    fn show_visibility_toolbar(ui: &mut egui::Ui, panel_state: &mut SidebarPanelState) {
+    fn show_visibility_toolbar(
+        ui: &mut egui::Ui,
+        panel_state: &mut SidebarPanelState,
+        actions: &mut SidebarActions,
+    ) {
         let toggle_chip = |ui: &mut egui::Ui,
                            label: &str,
                            active: bool,
@@ -1053,6 +1057,10 @@ impl Sidebar {
                     Color32::from_rgb(230, 180, 90),
                 ) {
                     panel_state.show_triggers = !panel_state.show_triggers;
+                    // 展开时请求重新加载，避免显示 DDL 前的陈旧缓存（审计 SM-9）。
+                    if panel_state.show_triggers {
+                        actions.request_load_triggers = true;
+                    }
                 }
 
                 if toggle_chip(
@@ -1063,6 +1071,9 @@ impl Sidebar {
                     Color32::from_rgb(170, 150, 220),
                 ) {
                     panel_state.show_routines = !panel_state.show_routines;
+                    if panel_state.show_routines {
+                        actions.request_load_routines = true;
+                    }
                 }
             });
         });
