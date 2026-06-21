@@ -92,7 +92,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 | ID | Title | Evidence | Symptom |
 |---|---|---|---|
 | DLG-A2-2 | 6 form dialogs have no keyboard close | ~~`input_router.rs:1349`~~ FIXED: `resolve_dialog_shortcut_fallback_with` + `CloseDialog` handler now route Esc→close for Connection/Export/Import/Ddl/CreateDatabase/CreateUser (blurs field first when typing, same as Help/History) | FIXED 2026-06-21 |
-| DLG-A3-1 | `open_dialog()` doesn't close other major dialogs | `dialogs/host.rs:160-183` | Two `show_*` bools can be true at once; transient owner inconsistency |
+| DLG-A3-1 | `open_dialog()` doesn't close other major dialogs | ~~`dialogs/host.rs:160-183`~~ FIXED: `close_other_modal_dialogs` closes all other standard dialogs (except WelcomeSetup overlay) before opening | FIXED 2026-06-21 |
 | DLG-B1-1 | BottomPanel/RightInspector not in Tab focus cycle | `app/input/keyboard.rs:16-31` | No keyboard route to focus Results/Messages/Inspector |
 | DLG-B2-1b | All 6 `FocusSidebar*` actions have no default binding | ~~`core/keybindings.rs:1038-1099`~~ FIXED: bound `Ctrl+1..6` | FIXED 2026-06-21 |
 | DLG-B2-3 | `editor.insert.history_browse` shadows history_prev/next | ~~`core/commands.rs:856-879`~~ FIXED: `history_browse` (never functionally consumed) now has no default bindings; help display repointed to `SqlHistoryPrev` | FIXED 2026-06-21 |

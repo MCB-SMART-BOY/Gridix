@@ -161,6 +161,9 @@ impl DbManagerApp {
         self.state.toolbar_create_menu_state.close();
         self.state.toolbar_theme_dialog_state.close();
         self.command_palette_state.close();
+        // 关闭其它主对话框，保证至多一个对话框持有输入（修复审计 DLG-A3-1）。
+        // 例外：WelcomeSetup 是引导覆盖层，连接等对话框常从其内部打开，不强制关闭。
+        self.close_other_modal_dialogs(id);
         match id {
             DialogId::Connection => self.state.show_connection_dialog = true,
             DialogId::Export => self.state.show_export_dialog = true,
@@ -181,6 +184,29 @@ impl DbManagerApp {
         }
 
         self.state.active_dialog_owner = Some(id);
+    }
+
+    /// 关闭除 `keep` 和 WelcomeSetup 之外的所有主对话框，保证至多一个对话框持有输入。
+    /// （toolbar 菜单 / command palette 已在 open_dialog 开头单独关闭。）
+    fn close_other_modal_dialogs(&mut self, keep: DialogId) {
+        let standard = [
+            DialogId::Connection,
+            DialogId::Export,
+            DialogId::Import,
+            DialogId::DeleteConfirm,
+            DialogId::Help,
+            DialogId::About,
+            DialogId::History,
+            DialogId::Ddl,
+            DialogId::CreateDatabase,
+            DialogId::CreateUser,
+            DialogId::Keybindings,
+        ];
+        for dialog in standard {
+            if dialog != keep && self.is_dialog_visible(dialog) {
+                self.close_dialog(dialog);
+            }
+        }
     }
 
     pub(in crate::app) fn close_dialog(&mut self, id: DialogId) {
@@ -228,6 +254,23 @@ impl DbManagerApp {
 #[cfg(test)]
 mod tests {
     use super::{DialogHostSnapshot, DialogId};
+    use crate::app::DbManagerApp;
+
+    #[test]
+    fn opening_a_dialog_closes_other_open_dialogs() {
+        // 审计 DLG-A3-1：同一时刻至多一个主对话框可见。
+        let mut app = DbManagerApp::new_for_test();
+        app.open_dialog(DialogId::Connection);
+        assert!(app.is_dialog_visible(DialogId::Connection));
+
+        app.open_dialog(DialogId::Export);
+        assert!(app.is_dialog_visible(DialogId::Export));
+        assert!(
+            !app.is_dialog_visible(DialogId::Connection),
+            "opening Export must close the previously-open Connection dialog"
+        );
+        assert_eq!(app.active_dialog_id(), Some(DialogId::Export));
+    }
 
     #[test]
     fn active_dialog_uses_stable_modal_priority() {
