@@ -64,6 +64,27 @@ Rules:
 - Next expected slice: split navigation surface state, then migrate remaining fixed-region chrome into the shared surface shell before reducing Help/History/Settings dialogs.
 - Do not add new permanent left/right/bottom content regions unless they are implemented as movable `WorkbenchSurface` items or explicitly marked as compatibility adapters.
 - New surface UI must follow `references/gridix-ui-visual-system-v2.md`: shared surface header/body/footer anatomy, icon-first repeated chrome, tooltip with function name and shortcut/command metadata, and no redundant text labels in rails/toolbars.
+- Dialog/workspace utility UI must follow `references/gridix-ui-visual-system-v2.md`: use shared `DialogContent`, `WorkspaceDialogShell`, and `PickerDialogShell` chrome for shortcut settings, Help/Learning, action menus, theme menus, and similar utility surfaces. Prefer restrained modal/list-row design with keycap hints and quiet selection states; do not reintroduce raw multi-line buttons, ad-hoc separators, default-looking egui utility lists, or decorative rail/pill/card stacking for these flows.
+- ER diagram rendering must follow `references/er-contracts.md`: schema-canvas background, themed database object cards, PK/FK badges, relationship halo/endpoints/cardinality labels, and no regression to plain boxes plus thin connector lines.
+- ER diagram pointer interaction must follow `references/er-contracts.md`: click only selects/clears, drag/pan uses per-frame pointer deltas scaled by zoom, and overlapping table hit-testing prefers the topmost drawn card.
+
+## Theme-derived colors (no hardcoded RGB in render paths)
+
+The G41-B013 family of bugs (text invisible under some of the 18 themes) all came from
+hardcoded `Color32::from_rgb(...)` / `Color32::WHITE` / `Color32::from_gray(...)` in render
+code. Rule: **render code must derive colors from the active theme**, not literals.
+
+Use the helpers in `ui/styles.rs` (all take `&egui::Visuals`, i.e. `ui.visuals()`):
+- `theme_text` / `theme_muted_text` / `theme_disabled_text` — foreground text
+- `theme_accent` — accent/links (maps to `ThemeColors.accent`)
+- `theme_warn` / `theme_error` / `theme_success` — semantic status colors
+- `theme_selection_fill(visuals, alpha)` — selection/hover backgrounds
+- `theme_subtle_stroke` — dividers/borders (never `from_gray(60)`)
+- `contrasting_text(fill)` — readable fg over a saturated fill (replaces hardcoded `WHITE`)
+
+Acceptable literals: truly theme-neutral muted markers (e.g. a NULL placeholder gray) and
+brand colors (DB-type chips). Everything that conveys text/state/selection must be theme-derived.
+`GridMode::color()` / `EditorMode::color()` remain hardcoded (no `Visuals` in scope) — tracked debt.
 
 ## Dialog shells
 

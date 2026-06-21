@@ -3,7 +3,7 @@
 //! 显示在左侧栏的筛选条件管理面板
 
 use crate::core::KeyBindings;
-use crate::ui::styles::{GRAY, MUTED, SUCCESS};
+use crate::ui::styles::{GRAY, MUTED, SUCCESS, theme_selection_fill, theme_subtle_stroke};
 use crate::ui::{
     ColumnFilter, FilterLogic, FilterOperator, LocalShortcut, SidebarPanelState, SidebarSection,
     consume_local_shortcut, local_shortcuts_tooltip,
@@ -136,7 +136,7 @@ impl FilterPanel {
                 egui::pos2(rect.left() + 4.0, rect.top()),
                 egui::pos2(rect.right() - 4.0, rect.top()),
             ],
-            egui::Stroke::new(1.0, Color32::from_gray(60)),
+            egui::Stroke::new(1.0, theme_subtle_stroke(ui.visuals())),
         );
         ui.add_space(4.0);
 
@@ -177,21 +177,27 @@ impl FilterPanel {
                             let is_input_selected =
                                 is_nav_selected && panel_state.filter_input_mode();
 
+                            let accent = crate::ui::styles::theme_accent(ui.visuals());
                             let bg_color = if is_input_selected {
-                                Color32::from_rgba_unmultiplied(70, 95, 125, 110)
+                                theme_selection_fill(ui.visuals(), 130)
                             } else if is_nav_selected {
-                                Color32::from_rgba_unmultiplied(60, 85, 110, 78)
+                                theme_selection_fill(ui.visuals(), 90)
                             } else if filter.enabled {
-                                Color32::from_rgba_unmultiplied(50, 70, 90, 50)
+                                theme_selection_fill(ui.visuals(), 45)
                             } else {
-                                Color32::from_rgba_unmultiplied(40, 40, 40, 30)
+                                theme_selection_fill(ui.visuals(), 20)
                             };
                             let stroke = if is_input_selected {
-                                egui::Stroke::new(1.0, Color32::from_rgb(120, 190, 255))
+                                egui::Stroke::new(1.0, accent)
                             } else if is_nav_selected {
                                 egui::Stroke::new(
                                     1.0,
-                                    Color32::from_rgba_unmultiplied(120, 180, 240, 160),
+                                    Color32::from_rgba_unmultiplied(
+                                        accent.r(),
+                                        accent.g(),
+                                        accent.b(),
+                                        160,
+                                    ),
                                 )
                             } else {
                                 egui::Stroke::NONE

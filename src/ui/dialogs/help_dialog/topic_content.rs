@@ -889,14 +889,14 @@ impl HelpDialog {
                         RichText::new(title)
                             .size(15.0)
                             .strong()
-                            .color(Color32::from_rgb(224, 228, 236)),
+                            .color(Self::body_text_color(ui)),
                     );
                 });
                 ui.add_space(6.0);
                 ui.label(
                     RichText::new(intro)
                         .small()
-                        .color(Color32::from_rgb(176, 180, 190)),
+                        .color(Self::muted_text_color(ui)),
                 );
                 ui.add_space(10.0);
                 for item in items {
@@ -927,8 +927,7 @@ impl HelpDialog {
                         ui.label(RichText::new(step_no).small().strong().color(accent));
                     });
                 ui.add(
-                    egui::Label::new(RichText::new(text).color(Color32::from_rgb(204, 208, 216)))
-                        .wrap(),
+                    egui::Label::new(RichText::new(text).color(Self::body_text_color(ui))).wrap(),
                 );
             });
             return;
@@ -937,10 +936,7 @@ impl HelpDialog {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing = Vec2::new(8.0, 6.0);
             ui.label(RichText::new("•").strong().color(accent));
-            ui.add(
-                egui::Label::new(RichText::new(item).color(Color32::from_rgb(204, 208, 216)))
-                    .wrap(),
-            );
+            ui.add(egui::Label::new(RichText::new(item).color(Self::body_text_color(ui))).wrap());
         });
     }
 
@@ -1014,26 +1010,26 @@ impl HelpDialog {
     }
 
     pub(super) fn action_button(ui: &mut egui::Ui, label: &str, primary: bool) -> bool {
-        let fill = if primary {
-            Color32::from_rgb(60, 112, 190)
+        let accent = theme_accent(ui.visuals());
+        let (fill, text_color) = if primary {
+            (accent, contrasting_text(accent))
         } else {
-            Color32::from_rgba_unmultiplied(120, 120, 130, 28)
+            (
+                theme_selection_fill(ui.visuals(), 28),
+                Self::body_text_color(ui),
+            )
         };
         let stroke = if primary {
-            Color32::from_rgba_unmultiplied(150, 205, 255, 48)
+            Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 90)
         } else {
-            Color32::from_rgba_unmultiplied(170, 176, 194, 24)
+            theme_subtle_stroke(ui.visuals())
         };
 
         ui.add(
-            egui::Button::new(
-                RichText::new(label)
-                    .strong()
-                    .color(Color32::from_rgb(245, 245, 248)),
-            )
-            .fill(fill)
-            .stroke(Stroke::new(1.0, stroke))
-            .corner_radius(egui::CornerRadius::same(8)),
+            egui::Button::new(RichText::new(label).strong().color(text_color))
+                .fill(fill)
+                .stroke(Stroke::new(1.0, stroke))
+                .corner_radius(egui::CornerRadius::same(8)),
         )
         .clicked()
     }

@@ -57,6 +57,32 @@ pub fn theme_warn(visuals: &Visuals) -> Color32 {
     visuals.warn_fg_color
 }
 
+/// 主题错误色（红）。`error_fg_color` 已由主题系统从 `ThemeColors.error` 映射。
+pub fn theme_error(visuals: &Visuals) -> Color32 {
+    visuals.error_fg_color
+}
+
+/// 主题成功色（绿）。egui Visuals 无专用槽，按明暗模式给出对比安全的绿色。
+pub fn theme_success(visuals: &Visuals) -> Color32 {
+    if visuals.dark_mode {
+        Color32::from_rgb(126, 211, 138)
+    } else {
+        Color32::from_rgb(39, 145, 75)
+    }
+}
+
+/// 在给定饱和填充色上保证可读的前景色（按相对亮度选黑或白）。
+/// 用于"白字压在危险红底"这类需要随主题填充色变化的场景。
+pub fn contrasting_text(fill: Color32) -> Color32 {
+    // Rec. 601 亮度近似，阈值 0.55 偏向深底用白字。
+    let luma = 0.299 * fill.r() as f32 + 0.587 * fill.g() as f32 + 0.114 * fill.b() as f32;
+    if luma > 140.0 {
+        Color32::from_rgb(20, 20, 24)
+    } else {
+        Color32::from_rgb(245, 245, 248)
+    }
+}
+
 pub fn theme_selection_fill(visuals: &Visuals, alpha: u8) -> Color32 {
     let color = visuals.selection.bg_fill;
     Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha)
@@ -88,5 +114,23 @@ mod tests {
                 42,
             )
         );
+    }
+
+    #[test]
+    fn theme_error_follows_visuals_and_success_varies_by_mode() {
+        let light = Visuals::light();
+        let dark = Visuals::dark();
+        assert_eq!(theme_error(&dark), dark.error_fg_color);
+        // 成功色随明暗模式不同，保证两种背景下都可读。
+        assert_ne!(theme_success(&light), theme_success(&dark));
+    }
+
+    #[test]
+    fn contrasting_text_picks_readable_foreground() {
+        // 浅底 → 深字；深底 → 浅字。
+        let on_light = contrasting_text(Color32::from_rgb(230, 230, 230));
+        let on_dark = contrasting_text(Color32::from_rgb(150, 50, 50));
+        assert!(on_light.r() < 60, "light fill must get dark text");
+        assert!(on_dark.r() > 200, "dark/saturated fill must get light text");
     }
 }

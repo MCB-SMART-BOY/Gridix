@@ -102,11 +102,11 @@ individual symptoms — the symptoms are the test cases for the cascade.
 
 | ID | Title | Evidence | Symptom |
 |---|---|---|---|
-| TC-03 / HC-05 | Notification toast text gray-220 | `ui/components/notifications.rs:89` | Near-invisible on all 6 light themes |
-| TC-04 / HC-06 | Help info-card near-white text | `help_dialog/topic_content.rs:892,899,930,941` | White-on-white on light themes |
-| HC-07 | Help action-button fixed dark-blue fill | `topic_content.rs:1018` | Clashes on warm/light themes |
-| TC-01 / HC-08 | Filter divider gray-60 + dark-only selection bg | `sidebar/filter_panel.rs:139,181-188` | Divider invisible on dark; wrong-direction tint on light |
-| HC-01..04 | Grid cell/mode/delete/filter colors hardcoded | `grid/mod.rs:59-62`, `grid/render.rs:39,66,82,90`, `grid/mode.rs:25-27`, `sql_editor.rs:44-45` | Selection/mode/delete states clash or vanish on non-blue themes |
+| TC-03 / HC-05 | Notification toast text gray-220 | ~~`ui/components/notifications.rs:89`~~ FIXED: uses `visuals().text_color()` + fade alpha | FIXED 2026-06-21 |
+| TC-04 / HC-06 | Help info-card near-white text | ~~`help_dialog/topic_content.rs`~~ FIXED: uses `body_text_color`/`muted_text_color` helpers | FIXED 2026-06-21 |
+| HC-07 | Help action-button fixed dark-blue fill | ~~`topic_content.rs:1018`~~ FIXED: `theme_accent` fill + `contrasting_text` label + `theme_selection_fill` secondary | FIXED 2026-06-21 |
+| TC-01 / HC-08 | Filter divider gray-60 + dark-only selection bg | ~~`sidebar/filter_panel.rs:139,181-188`~~ FIXED: `theme_subtle_stroke` divider + `theme_selection_fill`/`theme_accent` selection | FIXED 2026-06-21 |
+| HC-03/04 | Grid delete/filter colors hardcoded | ~~`grid/render.rs:39,66,82,90,146,186`~~ FIXED: `theme_error`/`theme_success`/`contrasting_text`. (HC-01/02 grid cell-selection + mode-indicator constants still hardcoded — need visuals threaded through `GridMode::color`, tracked.) | PARTIAL |
 
 ### Visual — layout / design-system
 

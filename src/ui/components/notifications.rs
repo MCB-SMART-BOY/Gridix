@@ -84,9 +84,14 @@ impl NotificationToast {
 
                     ui.add_space(8.0);
 
-                    // 消息文本
-                    let text_color =
-                        egui::Color32::from_rgba_unmultiplied(220, 220, 220, text_alpha);
+                    // 消息文本（使用主题文本色，浅色主题下不再近乎不可见——修复审计 TC-03/HC-05）
+                    let base_text = ui.visuals().text_color();
+                    let text_color = egui::Color32::from_rgba_unmultiplied(
+                        base_text.r(),
+                        base_text.g(),
+                        base_text.b(),
+                        text_alpha,
+                    );
                     ui.label(
                         egui::RichText::new(&notification.message)
                             .color(text_color)
