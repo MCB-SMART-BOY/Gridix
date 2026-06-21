@@ -249,6 +249,9 @@ impl DbManagerApp {
                                 .unwrap_or_default();
 
                             if self.active_activity_uses_legacy_sidebar() {
+                                // 同步表加载态，让侧栏区分"加载中"与"空 schema"（审计 SM-3）。
+                                self.state.sidebar_panel_state.loading_tables =
+                                    self.session.connecting;
                                 let (actions, filter_changed) = ui::Sidebar::show_in_ui(
                                     ui,
                                     &mut self.session.manager,

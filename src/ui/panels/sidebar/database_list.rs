@@ -24,6 +24,7 @@ impl DatabaseList {
         is_focused: bool,
         focused_section: SidebarSection,
         selection: &SidebarSelectionState,
+        loading_tables: bool,
     ) {
         // 数据库区域是否高亮
         let highlight_databases = is_focused && focused_section == SidebarSection::Databases;
@@ -107,18 +108,31 @@ impl DatabaseList {
             }
 
             // 如果此数据库被选中，显示其下的表列表
-            if is_selected && !tables.is_empty() {
-                ui.add_space(SPACING_LG / 2.0);
-                TableList::show_nested(
-                    ui,
-                    conn_name,
-                    tables,
-                    connection_manager,
-                    selected_table,
-                    actions,
-                    highlight_tables,
-                    selection.tables,
-                );
+            if is_selected {
+                if !tables.is_empty() {
+                    ui.add_space(SPACING_LG / 2.0);
+                    TableList::show_nested(
+                        ui,
+                        conn_name,
+                        tables,
+                        connection_manager,
+                        selected_table,
+                        actions,
+                        highlight_tables,
+                        selection.tables,
+                    );
+                } else {
+                    // 选中库但无表：区分"加载中"与"空库"（审计 SM-3）。
+                    ui.horizontal(|ui| {
+                        ui.add_space(SPACING_LG);
+                        if loading_tables {
+                            ui.spinner();
+                            ui.label(RichText::new("正在加载表…").italics().small().color(MUTED));
+                        } else {
+                            ui.label(RichText::new("暂无数据表").italics().small().color(MUTED));
+                        }
+                    });
+                }
             }
         }
     }

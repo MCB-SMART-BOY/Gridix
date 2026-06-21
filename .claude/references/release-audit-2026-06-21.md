@@ -81,7 +81,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 | ID | Title | Evidence | Symptom |
 |---|---|---|---|
 | ER-3 | ER load error never rendered in canvas | ~~`er_diagram/state.rs`~~ STATE FIXED: `error` field + `set_error`/`clear` wiring + handler sets it on FK-fetch failure. Canvas error-card render branch is staged in working-tree `render.rs` (deferred to land with the in-flight ER visual redesign already modifying that file). | STATE FIXED 2026-06-21 (render pending) |
-| SM-3 | No table-list loading indicator | `sidebar/state.rs:293-377` (no `loading_tables`) | Blank table list during async connect looks like empty schema |
+| SM-3 | No table-list loading indicator | ~~`sidebar/state.rs:293-377`~~ FIXED: `loading_tables` (from `session.connecting`) → spinner + "正在加载表…" in the empty table branch (SQLite + multi-db) | FIXED 2026-06-21 |
 | SM-6 | Trigger load error indistinguishable from empty | ~~`handler.rs:908-918`~~ FIXED: `error_triggers` field + panel error branch | FIXED 2026-06-21 |
 | SM-7 | Routine load error indistinguishable from empty | ~~`handler.rs:957-970`~~ FIXED: `error_routines` field + panel error branch; SQLite "不支持" treated as empty not error | FIXED 2026-06-21 |
 | CONN-F5 | Welcome setup dialog opens on every connect failure | ~~`database.rs:551-556`~~ FIXED: `connection_error_warrants_onboarding` gates the dialog to setup/init errors only (not timeout/refused/auth) | FIXED 2026-06-21 |

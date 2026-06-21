@@ -298,6 +298,8 @@ pub struct SidebarPanelState {
     pub show_connections: bool,
     /// 连接面板高度比例 (相对于可用空间)
     pub connections_ratio: f32,
+    /// 是否正在异步加载表列表（来自 `session.connecting`），用于区分"加载中"与"空 schema"——审计 SM-3
+    pub loading_tables: bool,
 
     // ===== 触发器面板 =====
     /// 触发器面板是否显示
@@ -352,6 +354,7 @@ impl Default for SidebarPanelState {
             // 连接面板 - 默认显示，占主要空间
             show_connections: true,
             connections_ratio: 0.65,
+            loading_tables: false,
 
             // 触发器面板 - 默认关闭，按需展开
             show_triggers: false,

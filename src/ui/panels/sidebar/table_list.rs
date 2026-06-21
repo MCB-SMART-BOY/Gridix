@@ -22,12 +22,18 @@ impl TableList {
         is_focused: bool,
         focused_section: SidebarSection,
         selection: &SidebarSelectionState,
+        loading_tables: bool,
     ) {
         let highlight_tables = is_focused && focused_section == SidebarSection::Tables;
         if tables.is_empty() {
             ui.horizontal(|ui| {
                 ui.add_space(SPACING_LG);
-                ui.label(RichText::new("暂无数据表").italics().small().color(MUTED));
+                if loading_tables {
+                    ui.spinner();
+                    ui.label(RichText::new("正在加载表…").italics().small().color(MUTED));
+                } else {
+                    ui.label(RichText::new("暂无数据表").italics().small().color(MUTED));
+                }
             });
             return;
         }

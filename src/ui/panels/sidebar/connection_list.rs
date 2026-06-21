@@ -199,6 +199,7 @@ impl ConnectionList {
                             focused_section,
                             is_nav_selected,
                             &panel_state.selection,
+                            panel_state.loading_tables,
                         );
                     }
                 }
@@ -350,6 +351,7 @@ impl ConnectionList {
         focused_section: SidebarSection,
         is_nav_selected: bool,
         selection: &SidebarSelectionState,
+        loading_tables: bool,
     ) {
         // 先提取需要的数据，避免借用冲突
         let conn_data = {
@@ -415,6 +417,7 @@ impl ConnectionList {
                             is_focused,
                             focused_section,
                             selection,
+                            loading_tables,
                         );
                     } else if conn_data.is_connected {
                         // SQLite 模式：直接显示表列表
@@ -428,6 +431,7 @@ impl ConnectionList {
                             is_focused,
                             focused_section,
                             selection,
+                            loading_tables,
                         );
                     }
 
