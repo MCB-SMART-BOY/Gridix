@@ -158,6 +158,8 @@ pub(crate) fn generate_save_sql(
 
     let mut sql_statements = Vec::new();
     let has_deletes = !state.rows_to_delete.is_empty();
+    // 统计被静默转成 NULL 的空单元格，保存时提示用户（审计 G5）。
+    let mut null_coercions: usize = 0;
 
     // 获取主键列索引
     // 优先使用已设置的主键，其次尝试查找 "id" 列
@@ -199,6 +201,9 @@ pub(crate) fn generate_save_sql(
             && let Some(col_name) = safe_columns.get(*col_idx)
         {
             let safe_value = escape_editor_input(new_value);
+            if new_value.is_empty() {
+                null_coercions += 1;
+            }
             let safe_pk_value = escape_result_cell(pk_value, result.is_null(*row_idx, pk_idx));
 
             let sql = format!(
@@ -226,6 +231,7 @@ pub(crate) fn generate_save_sql(
     // 生成 INSERT 语句
     for new_row in &state.new_rows {
         if new_row.iter().any(|v| !v.is_empty()) {
+            null_coercions += new_row.iter().filter(|v| v.is_empty()).count();
             let cols = safe_columns.join(", ");
             let vals: Vec<String> = new_row.iter().map(|v| escape_editor_input(v)).collect();
             let sql = format!(
@@ -243,20 +249,29 @@ pub(crate) fn generate_save_sql(
         return;
     }
 
+    // 空单元格会被保存为 NULL；提示用户以免在 NOT NULL 列上误存（审计 G5）。
+    let null_hint = if null_coercions > 0 {
+        format!("（其中 {} 个空单元格将保存为 NULL）", null_coercions)
+    } else {
+        String::new()
+    };
+
     // 如果包含删除操作，需要确认
     if has_deletes {
         state.pending_sql = sql_statements;
         state.show_save_confirm = true;
         actions.message = Some(format!(
-            "包含 {} 条删除操作，请确认",
-            state.rows_to_delete.len()
+            "包含 {} 条删除操作，请确认{}",
+            state.rows_to_delete.len(),
+            null_hint
         ));
     } else {
         // 没有删除操作，直接执行
         actions.sql_to_execute = sql_statements;
         actions.message = Some(format!(
-            "将执行 {} 条 SQL 语句",
-            actions.sql_to_execute.len()
+            "将执行 {} 条 SQL 语句{}",
+            actions.sql_to_execute.len(),
+            null_hint
         ));
     }
 }
@@ -302,6 +317,39 @@ mod tests {
         assert_eq!(actions.sql_to_execute.len(), 1);
         assert_eq!(state.modified_cells.get(&(0, 1)), Some(&"bob".to_string()));
         assert!(state.has_changes());
+    }
+
+    #[test]
+    fn generate_save_sql_warns_when_empty_cell_coerced_to_null() {
+        let result = sample_result();
+        let mut state = DataGridState::default();
+        let mut actions = DataGridActions::default();
+
+        // 把 name 编辑成空字符串 → 会被保存为 NULL。
+        state.modified_cells.insert((0, 1), String::new());
+
+        generate_save_sql(&result, &mut state, "users", &mut actions, None);
+
+        let msg = actions.message.expect("应有保存提示");
+        assert!(msg.contains("NULL"), "提示应说明空单元格转为 NULL: {msg}");
+        assert!(msg.contains('1'), "提示应包含被转换的数量: {msg}");
+        // SQL 本身仍写 NULL（行为不变）。
+        assert_eq!(actions.sql_to_execute.len(), 1);
+        assert!(actions.sql_to_execute[0].contains("NULL"));
+    }
+
+    #[test]
+    fn generate_save_sql_no_null_hint_for_normal_edit() {
+        let result = sample_result();
+        let mut state = DataGridState::default();
+        let mut actions = DataGridActions::default();
+
+        state.modified_cells.insert((0, 1), "bob".to_string());
+
+        generate_save_sql(&result, &mut state, "users", &mut actions, None);
+
+        let msg = actions.message.expect("应有保存提示");
+        assert!(!msg.contains("NULL"), "正常编辑不应出现 NULL 提示: {msg}");
     }
 
     #[test]
