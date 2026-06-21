@@ -53,7 +53,18 @@ impl TriggerPanel {
             .auto_shrink([false, false]) // 不自动收缩，保持固定宽度
             .show(ui, |ui| {
                 ui.set_max_width(scroll_width); // 限制内容最大宽度
-                if panel_state.triggers.is_empty() {
+                if let Some(error) = panel_state.error_triggers.clone() {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(SPACING_LG);
+                        ui.label(
+                            RichText::new("加载触发器失败")
+                                .small()
+                                .color(ui.visuals().error_fg_color),
+                        );
+                        ui.add_space(SPACING_SM);
+                        ui.label(RichText::new(error).small().color(MUTED));
+                    });
+                } else if panel_state.triggers.is_empty() {
                     ui.vertical_centered(|ui| {
                         ui.add_space(SPACING_LG);
                         ui.label(RichText::new("暂无触发器").small().color(MUTED));

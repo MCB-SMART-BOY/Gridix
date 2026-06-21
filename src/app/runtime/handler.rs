@@ -1096,6 +1096,8 @@ impl DbManagerApp {
                 self.session
                     .notifications
                     .error(format!("加载触发器失败: {}", e));
+                // 在面板内记录错误，区分"加载失败"与"确实没有触发器"（审计 SM-6）。
+                self.state.sidebar_panel_state.set_triggers_error(e);
             }
         }
         self.session.needs_repaint = true;
@@ -1142,11 +1144,15 @@ impl DbManagerApp {
                 self.state.sidebar_panel_state.set_routines(routines);
             }
             Err(e) => {
-                // 对于 SQLite 不显示错误，因为它不支持存储过程
-                if !e.contains("不支持") {
+                // SQLite 不支持存储过程：当作"确实没有"，不算错误。
+                if e.contains("不支持") {
+                    self.state.sidebar_panel_state.set_routines(Vec::new());
+                } else {
                     self.session
                         .notifications
                         .error(format!("加载存储过程失败: {}", e));
+                    // 在面板内记录错误，区分加载失败与空列表（审计 SM-7）。
+                    self.state.sidebar_panel_state.set_routines_error(e);
                 }
             }
         }

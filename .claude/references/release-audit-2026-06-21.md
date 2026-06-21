@@ -82,8 +82,8 @@ individual symptoms — the symptoms are the test cases for the cascade.
 |---|---|---|---|
 | ER-3 | ER load error never rendered in canvas | `er_diagram/state.rs` (no error field), `render.rs:602-614` (no error branch) | Failed ER load silently shows incomplete/empty diagram |
 | SM-3 | No table-list loading indicator | `sidebar/state.rs:293-377` (no `loading_tables`) | Blank table list during async connect looks like empty schema |
-| SM-6 | Trigger load error indistinguishable from empty | `handler.rs:908-918`, `trigger_panel.rs` no error branch | Network error looks identical to "no triggers" |
-| SM-7 | Routine load error indistinguishable from empty | `handler.rs:957-970`, `routine_panel.rs` no error branch | Same as SM-6 for routines |
+| SM-6 | Trigger load error indistinguishable from empty | ~~`handler.rs:908-918`~~ FIXED: `error_triggers` field + panel error branch | FIXED 2026-06-21 |
+| SM-7 | Routine load error indistinguishable from empty | ~~`handler.rs:957-970`~~ FIXED: `error_routines` field + panel error branch; SQLite "不支持" treated as empty not error | FIXED 2026-06-21 |
 | CONN-F5 | Welcome setup dialog opens on every connect failure | ~~`database.rs:551-556`~~ FIXED: `connection_error_warrants_onboarding` gates the dialog to setup/init errors only (not timeout/refused/auth) | FIXED 2026-06-21 |
 | CONN-F7 | PostgreSQL pool task leaks on remove | `data/pool.rs:366-369` drops `Arc<Client>` without signalling bg task | Lingering PG server connections after disconnect |
 
@@ -126,7 +126,7 @@ individual symptoms — the symptoms are the test cases for the cascade.
 - EL-01/03/04: unstyled empty states (grid/bottom/inspector/sidebar) — adopt one shared empty-state template.
 - A2-1/A2-4: WelcomeSetup & CommandPalette Esc handled widget-side, not via central router.
 - ER-7: no large-schema (100+ table) layout guard — synchronous O(n²) layout on UI thread.
-- SM-5: routine empty-state copy hardcoded "SQLite 不支持存储过程" shown on MySQL/PG.
+- SM-5: ~~routine empty-state copy hardcoded "SQLite 不支持存储过程"~~ FIXED 2026-06-21: generic "选择数据库后自动加载"; SQLite no-routine treated as empty.
 - CONN-F9: SSH tunnel stop fire-and-forget; port may take ~1s to free.
 - D5/D6/D7: drop-db cleanup skipped for non-active conn; delete-connection dialog text understates discard; no DROP USER confirm path (feature gap).
 - Q3/Q4: `was_user_cancelled` path unreachable (depends on B4); close-others/close-right skip sync.

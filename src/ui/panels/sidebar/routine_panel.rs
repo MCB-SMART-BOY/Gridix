@@ -60,12 +60,23 @@ impl RoutinePanel {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.set_max_width(scroll_width);
-                if panel_state.routines.is_empty() {
+                if let Some(error) = panel_state.error_routines.clone() {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(SPACING_LG);
+                        ui.label(
+                            RichText::new("加载存储过程失败")
+                                .small()
+                                .color(ui.visuals().error_fg_color),
+                        );
+                        ui.add_space(SPACING_SM);
+                        ui.label(RichText::new(error).small().color(MUTED));
+                    });
+                } else if panel_state.routines.is_empty() {
                     ui.vertical_centered(|ui| {
                         ui.add_space(SPACING_LG);
                         ui.label(RichText::new("暂无存储过程/函数").small().color(MUTED));
                         ui.add_space(SPACING_SM);
-                        ui.label(RichText::new("SQLite 不支持存储过程").small().color(GRAY));
+                        ui.label(RichText::new("选择数据库后自动加载").small().color(GRAY));
                     });
                 } else {
                     for (idx, routine) in panel_state.routines.iter().enumerate() {

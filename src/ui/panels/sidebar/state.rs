@@ -310,6 +310,8 @@ pub struct SidebarPanelState {
     pub trigger_selected_index: usize,
     /// 是否正在加载触发器
     pub loading_triggers: bool,
+    /// 触发器加载错误（用于区分"加载失败"与"确实没有触发器"——审计 SM-6）
+    pub error_triggers: Option<String>,
 
     // ===== 存储过程面板 =====
     /// 存储过程/函数面板是否显示
@@ -322,6 +324,8 @@ pub struct SidebarPanelState {
     pub routine_selected_index: usize,
     /// 是否正在加载存储过程
     pub loading_routines: bool,
+    /// 存储过程加载错误（区分"加载失败"与"确实没有"——审计 SM-7）
+    pub error_routines: Option<String>,
 
     // ===== 筛选面板 =====
     /// 筛选面板是否显示
@@ -355,6 +359,7 @@ impl Default for SidebarPanelState {
             triggers: Vec::new(),
             trigger_selected_index: 0,
             loading_triggers: false,
+            error_triggers: None,
 
             // 存储过程面板 - 默认关闭，按需展开
             show_routines: false,
@@ -362,6 +367,7 @@ impl Default for SidebarPanelState {
             routines: Vec::new(),
             routine_selected_index: 0,
             loading_routines: false,
+            error_routines: None,
 
             // 筛选面板 - 默认显示，和连接面板形成新手默认布局
             show_filters: true,
@@ -405,6 +411,7 @@ impl SidebarPanelState {
         self.triggers.clear();
         self.trigger_selected_index = 0;
         self.selection.triggers = 0;
+        self.error_triggers = None;
     }
 
     /// 设置触发器列表
@@ -413,6 +420,14 @@ impl SidebarPanelState {
         self.trigger_selected_index = 0;
         self.selection.triggers = 0;
         self.loading_triggers = false;
+        self.error_triggers = None;
+    }
+
+    /// 记录触发器加载错误（区分加载失败与空列表——审计 SM-6）
+    pub fn set_triggers_error(&mut self, error: String) {
+        self.triggers.clear();
+        self.loading_triggers = false;
+        self.error_triggers = Some(error);
     }
 
     /// 清空存储过程/函数列表
@@ -420,6 +435,7 @@ impl SidebarPanelState {
         self.routines.clear();
         self.routine_selected_index = 0;
         self.selection.routines = 0;
+        self.error_routines = None;
     }
 
     /// 设置存储过程/函数列表
@@ -428,6 +444,14 @@ impl SidebarPanelState {
         self.routine_selected_index = 0;
         self.selection.routines = 0;
         self.loading_routines = false;
+        self.error_routines = None;
+    }
+
+    /// 记录存储过程加载错误（区分加载失败与空列表——审计 SM-7）
+    pub fn set_routines_error(&mut self, error: String) {
+        self.routines.clear();
+        self.loading_routines = false;
+        self.error_routines = Some(error);
     }
 }
 
@@ -439,6 +463,28 @@ mod tests {
         reduce_sidebar_workflow,
     };
     use crate::ui::SidebarSection;
+
+    #[test]
+    fn trigger_routine_error_state_distinguishes_failure_from_empty() {
+        // 审计 SM-6/SM-7：加载失败要能与"确实为空"区分。
+        let mut state = SidebarPanelState::default();
+        assert!(state.error_triggers.is_none());
+
+        state.set_triggers_error("network down".to_string());
+        assert_eq!(state.error_triggers.as_deref(), Some("network down"));
+        assert!(state.triggers.is_empty());
+        assert!(!state.loading_triggers);
+
+        // 成功加载清除错误。
+        state.set_triggers(Vec::new());
+        assert!(state.error_triggers.is_none());
+
+        // routines 同理。
+        state.set_routines_error("timeout".to_string());
+        assert_eq!(state.error_routines.as_deref(), Some("timeout"));
+        state.clear_routines();
+        assert!(state.error_routines.is_none());
+    }
 
     fn flow(
         show_connections: bool,
