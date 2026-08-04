@@ -158,17 +158,19 @@ jobs:
           chmod +x appimagetool
           sudo mv appimagetool /usr/local/bin/
 
-      - name: Install cargo-appimage
-        run: cargo install cargo-appimage --locked
 
       - name: Prepare AppImage icon
         run: cp assets/branding/gridix-icon.png icon.png
 
-      - name: Build AppImage
+      - name: Build binary
+        run: cargo build --release --bin gridix
+
+      - name: Package AppImage
         run: |
-          cargo build --release --bin gridix
-          cargo appimage --bin gridix
-          mv target/appimage/gridix*.AppImage gridix.AppImage 2>/dev/null || mv "target/appimage/gridix.AppImage" gridix.AppImage
+          mkdir -p gridix.AppDir/usr/bin
+          cp target/release/gridix gridix.AppDir/usr/bin/
+          cp icon.png gridix.AppDir/gridix.png
+          appimagetool gridix.AppDir gridix.AppImage
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
