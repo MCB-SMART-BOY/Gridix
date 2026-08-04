@@ -51,7 +51,7 @@ fn test_widget() {
 ## Running
 
 ```bash
-cargo test                              # all tests (~530)
+cargo test                              # all tests (~619)
 cargo test -p gridix --lib              # unit tests only
 cargo test --test core_tests            # core module tests
 cargo test --test grid_tests            # grid-specific tests

@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [7.1.0] - 2026-08-04
+
+### Changed
+- Migrated TLS stack from native-tls/OpenSSL to rustls 0.23 across all database backends (PostgreSQL → tokio-postgres-rustls 0.14, MySQL → default-rustls feature). Removed openssl from flake.nix and nixpkgs-package.nix. The NixOS build now has zero OpenSSL dependency — rustls is pure Rust.
+  TLS 栈从 native-tls/OpenSSL 全面迁移至 rustls 0.23：PostgreSQL → tokio-postgres-rustls 0.14，MySQL → default-rustls feature。从 flake.nix 和 nixpkgs-package.nix 中移除 openssl。NixOS 构建不再依赖 OpenSSL — rustls 是纯 Rust 实现。
+- Consolidated all development into a single `main` branch. Deleted `origin/dev`, `origin/EDU`, and `origin/master` (zero unique content in dev/EDU; master fully merged).
+  将所有开发整合到单一 `main` 分支。删除了 `origin/dev`、`origin/EDU` 和 `origin/master`（dev/EDU 无独有内容；master 已完全合并）。
+- Merged v7.0.0 features: dockable workbench shell, ER diagram rewrite (graph model, layout, visual design), design token system for UI colors, 36 audit fixes (keyboard, dialogs, sidebar, grid, ER, session, pool), query cancellation, grid save fixes, and connection lifecycle fixes.
+  合并 v7.0.0 功能：可停靠 workbench shell、ER 图重写（图模型、布局、视觉设计）、设计 token 系统、36 项审计修复（键盘、对话框、侧边栏、表格、ER、会话、连接池）、查询取消、表格保存修复与连接生命周期修复。
+- Completed state migration: DbManagerApp fields migrated to UiState/Session architecture. Request ID privacy and needs_repaint decoupling.
+  完成状态迁移：DbManagerApp 字段迁移至 UiState/Session 架构。请求 ID 脱敏与 needs_repaint 解耦。
+- Extracted `sha256_hex` to `src/core/hash.rs`. Eliminated all f32-related compiler warnings.
+  将 `sha256_hex` 提取至 `src/core/hash.rs`。消除全部 f32 相关编译器警告。
+- 619 tests passing (up from 508 in v6.1.0). Clippy: 0 warnings with `-D warnings`. Compiler: 0 errors, 0 warnings.
+  619 个测试通过（v6.1.0 为 508 个）。Clippy 0 警告（`-D warnings`）。编译器 0 错误 0 警告。
+
 ## [7.0.0] - 2026-06-21
 
 ### Added

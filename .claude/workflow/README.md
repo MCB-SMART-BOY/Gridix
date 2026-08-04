@@ -1,6 +1,6 @@
 # Gridix Development Workflow
 
-## 7-Stage Lifecycle
+## 6-Stage Lifecycle
 
 ```
 Stage 1: PLAN     → Understand scope, explore, design approach, get approval
@@ -8,8 +8,7 @@ Stage 2: DESIGN    → Architecture decisions, risk assessment, dependency map
 Stage 3: IMPLEMENT → Code with layer awareness, incremental verification
 Stage 4: REVIEW    → Self-review checklist, cross-layer check, stale ref scan
 Stage 5: TEST      → Unit tests, integration tests, regression check
-Stage 6: RELEASE   → Version bump, changelog, tag, publish
-Stage 7: MONITOR   → Post-release verification, bug ledger update
+Stage 6: DELIVER   → Verify, release, monitor, update knowledge base
 ```
 
 ## Quality Gates

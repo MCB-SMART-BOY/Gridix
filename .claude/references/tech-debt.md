@@ -1,6 +1,6 @@
 # Technical debt & design gaps
 
-v6.3.0 — architecture migration complete. All logic paths verified.
+v7.1.0 — branch consolidation + rustls migration complete. All logic paths verified.
 
 ## ✅ Resolved
 

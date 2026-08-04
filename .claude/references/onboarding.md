@@ -20,7 +20,7 @@ Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y`
 git clone https://github.com/MCB-SMART-BOY/Gridix.git
 cd Gridix
 cargo build                           # ~30s debug
-cargo test                            # all ~530 tests pass
+cargo test                            # all ~619 tests pass
 cargo run --release                   # launch GUI
 ```
 

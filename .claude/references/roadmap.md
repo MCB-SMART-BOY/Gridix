@@ -15,6 +15,20 @@
 - [x] SQLite 驱动测试
 - [x] 文档同步
 
+## ✅ v7.1.0 — 合并与现代化
+
+- [x] rustls 迁移 — 替换 native-tls/openssl，全面使用 rustls 0.23 技术栈
+- [x] 分支整合 — dev、EDU、master 合并至唯一 main 分支
+- [x] 状态迁移完成 — DbManagerApp 字段迁移至 UiState/Session
+- [x] f32 类型修正 — 消除全部 f32 相关编译器警告
+- [x] 代码清理 — 删除 check_doc_links.py、driver.sh，提取 sha256_hex 至 core/hash.rs
+- [x] Workbench shell — 可停靠面板 (ActivityBar, BottomPanel, RightInspector, StatusBar)
+- [x] ER 图重写 — 图模型、布局、视觉设计全面重构
+- [x] Design token 系统 — UI 颜色主题化
+- [x] 36 项 audit 修复 — 键盘、对话框、侧边栏、网格、ER、会话、连接池
+- [x] 查询取消、网格保存修复、连接生命周期修复
+
+
 ## 短期 — 功能发布
 
 - [ ] 查询计划可视化 (EXPLAIN)

@@ -60,6 +60,7 @@ src/
 │   ├── commands.rs      # ~100 ScopedCommand entries with default_bindings
 │   ├── hash.rs           # sha256_hex — shared hash utilities
 │   ├── syntax.rs        # SQL highlighting — custom tokenizer
+│   ├── theme.rs          # Theme definition, design tokens, Color32 constants
 │   ├── autocomplete.rs  # SQL completion — keywords, functions, tables, columns
 │   ├── export.rs        # CSV/TSV/SQL/JSON export + import parsing
 │   ├── transfer.rs      # Unified TransferSession→Plan→Execution pipeline
@@ -68,7 +69,7 @@ src/
 │   ├── notification.rs  # Toast: Info(3s)/Success(3s)/Warning(5s)/Error(8s), max 5 visible
 │   ├── progress.rs      # ProgressTask with Arc<AtomicBool> cancel token
 │   └── constants.rs     # All magic numbers (pool sizes, timeouts, scale limits, cache sizes)
-├── database/            # Layer 1: database operations
+├── data/                # Layer 1: database operations
 │   ├── config.rs        # ConnectionConfig — AES-256-GCM, keyring, password migration
 │   ├── connection.rs    # ConnectionManager — HashMap registry, active tracking
 │   ├── pool.rs          # Manual pooling: MySQL (TTL+LRU), PG (health-check), SQLite none
@@ -81,8 +82,8 @@ src/
 │   └── tab.rs           # QueryTab (pure data), QueryTabManager (tabs + active index)
 │       (pending: migrate app/runtime/{database,handler,lifecycle,metadata,er_diagram}.rs)
 ├── state/               # Layer 3: UI state — no DB logic
-│   └── mod.rs           # UiState struct (~60 fields): focus, sidebar, editor, dialogs, ER, grid, theme
-│       (pending: split into focus/sidebar/editor/dialogs/grid/er_diagram submodules)
+│   ├── mod.rs           # UiState struct (~60 fields): focus, sidebar, editor, dialogs, ER, grid, theme
+│   └── workbench.rs     # WorkbenchState: activity bar, bottom panel, status bar, right inspector
 ├── app/                 # Transitional: DbManagerApp — being decomposed into Session + UiState
 │   ├── mod.rs           # DbManagerApp (~11 fields, target reached: ~11)
 │   ├── action/          # AppAction (44 variants) → AppEffect, command palette, CommandDescriptor registry
@@ -101,7 +102,7 @@ src/
 │   ├── surfaces/
 │   │   ├── render.rs    # run_frame() main loop
 │   │   ├── dialogs.rs   # render_dialogs() + handle_dialog_results()
-│   │   └── preferences.rs  # set_ui_scale (0.5–2.0), set_theme, save_config
+│   │   ├── workbench.rs # Workbench surface rendering orchestration
 │   └── workflow/        # export, import, help, welcome
 └── ui/                  # Layer 4: egui rendering — widgets, components, styling
     ├── dock_tabs.rs     # egui_dock integration — DockTab, WorkspaceViewer, sync_all()
@@ -113,6 +114,7 @@ src/
     │   ├── dialogs/     # connection, export, import, help, ddl, keybindings,
     │   │                   about, create_db, create_user, picker_shell, toolbar_menu, toolbar_theme
     │   └── panels/      # sidebar (8 files, ~4300 lines), history_panel
+    ├── workbench/       # Workbench UI: activity bar, bottom panel, right inspector, shell, status bar, surface
     └── surfaces/        # render.rs, dialogs.rs, preferences.rs (thin wrappers delegating to app/)
 ```
 
@@ -133,15 +135,12 @@ src/state/      (Layer 3)  — UI rendering state (~60 fields)
 src/app/ + ui/  (Layer 4)  — eframe App impl, rendering, input routing (DbManagerApp: ~11 fields)
 ```
 
-**Refactoring complete (v6.3.0):**
-- ✅ DbManagerApp: ~100 → ~11 fields (~89 migrated to Session/UiState)
-- ✅ Session: ~30 fields with request ID privacy, needs_repaint decoupling
-- ✅ UiState: ~60 fields with all UI rendering state
-- ✅ self.sql dual source eliminated
-- ✅ database/ → data/ renamed
-- ✅ Config versioning, throttling, security fixes
-- ✅ SQLite driver tests, AppError types, 3 audit fixes
-- ✅ 0 clippy errors, 0 compiler warnings, 508 tests passed (18 known pre-existing failures)
+**v7.1.0:**
+- ✅ master branch merged: workbench UI, ER diagram redesign, design tokens, 36 audit fixes
+- ✅ rustls migration: native-tls removed, rustls 0.23 for PostgreSQL + MySQL
+- ✅ State migration architecture
+- ✅ dev/EDU branches deleted (no unique content); only main branch remains
+- ✅ 0 clippy errors, 0 compiler warnings, 619 tests passed, 0 failed
 - ✅ 6 critical logic paths verified (needs_repaint, mirror sync, config debounce, handler guards, tab switch, connection guards)
 
 ## Architecture of `.claude/`

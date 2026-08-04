@@ -37,7 +37,7 @@ Shortcut changes → update the `gridix-keybindings` skill. Config changes → u
 ```bash
 git add Cargo.toml Cargo.lock docs/CHANGELOG.md
 git commit -m "release: vX.Y.Z"
-git push origin master
+git push origin main
 ```
 
 Wait for CI: `gh run list --workflow build.yml --limit 3`

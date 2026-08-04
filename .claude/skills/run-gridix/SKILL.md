@@ -12,13 +12,13 @@ Gridix is an egui/eframe desktop GUI app. All paths relative to repo root.
 
 ```bash
 # Ubuntu/Debian
-sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgtk-3-dev xdotool imagemagick xvfb
+sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgtk-3-dev xvfb
 
 # Arch
-sudo pacman -S --needed base-devel pkgconf gtk3 xdotool imagemagick xorg-server-xvfb
+sudo pacman -S --needed base-devel pkgconf gtk3 xorg-server-xvfb
 
 # Fedora
-sudo dnf install gtk3-devel xdotool ImageMagick xorg-x11-server-Xvfb
+sudo dnf install gtk3-devel xorg-x11-server-Xvfb
 ```
 
 Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y`

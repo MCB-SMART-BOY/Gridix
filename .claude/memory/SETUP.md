@@ -1,6 +1,13 @@
 # Memory System
 
-Gridix uses Claude Code's persistent memory system at `/root/.claude/projects/-root-autodl-tmp-gridix/memory/`.
+Gridix uses Claude Code's persistent memory system at `.claude/memory/` (project-relative).
+
+## Project State
+
+- **Version**: 7.1.0
+- **Branch**: `main` only
+- **TLS**: rustls built-in — no openssl required
+- **Tests**: 619 passed
 
 ## How it works
 

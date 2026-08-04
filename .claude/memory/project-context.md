@@ -7,6 +7,15 @@ metadata:
 
 # Gridix Project Context
 
+## Current State
+
+- **Version**: 7.1.0
+- **Branch**: `main` (sole branch — `dev`, `EDU`, `master` consolidated and deleted)
+- **TLS**: rustls 0.23 only — zero native-tls/openssl in dependency tree
+- **Test status**: 619 passed, 0 failed, 0 warnings
+- **Merge**: v6.1.0 core (rustls, state migration) + v7.0.0 features (workbench, ER rewrite, design tokens, 36 audit fixes)
+
+
 ## Architecture State
 
 - 6-layer unidirectional architecture: types(-1) ← core(0) ← data(1) ← session(2) ← state(3) ← ui/app(4)

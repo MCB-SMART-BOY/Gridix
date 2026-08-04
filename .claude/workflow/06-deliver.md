@@ -1,8 +1,8 @@
-# Stage 7: Deliver
+# Stage 6: Deliver
 
 ## Entry Criteria
 - [ ] All quality gates pass (clippy, fmt, test, check-doc-links)
-- [ ] Stage 6 (Verify) complete — behavior confirmed
+- [ ] Stage 5 (Test) complete — behavior confirmed
 - [ ] No unresolved review findings
 
 ## Activities

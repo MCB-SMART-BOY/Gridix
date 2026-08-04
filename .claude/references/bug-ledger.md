@@ -1,6 +1,6 @@
 # Bug ledger
 
-From `docs/recovery/12-bug-ledger-4.1.0.md`. Current state: no active unblocked bugs.
+From the v4.1.0 → v6.1.0 recovery audit. Current state: no active unblocked bugs.
 
 ## Fixed 2026-06-21 (release audit grid-save BLOCKERs)
 
