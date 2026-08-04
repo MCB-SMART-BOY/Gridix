@@ -154,10 +154,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev fuse libfuse2
-          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
-          chmod +x appimagetool
-          sudo mv appimagetool /usr/local/bin/
 
+      - name: Install cargo-appimage
+        run: cargo install cargo-appimage --locked
 
       - name: Prepare AppImage icon
         run: cp assets/branding/gridix-icon.png icon.png
@@ -167,17 +166,14 @@ jobs:
 
       - name: Package AppImage
         run: |
-          mkdir -p gridix.AppDir/usr/bin
-          cp target/release/gridix gridix.AppDir/usr/bin/
-          cp icon.png gridix.AppDir/gridix.png
-          appimagetool gridix.AppDir gridix.AppImage
+          cargo appimage --no-build --bin gridix
+          mv target/appimage/gridix*.AppImage gridix.AppImage 2>/dev/null || mv "target/appimage/gridix.AppImage" gridix.AppImage
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
           name: gridix.AppImage
           path: gridix.AppImage
-
   # ── Stage 3: Release ───────────────────────────────────────────────
   # 仅 push tag 时执行 — 直接下载 build stage 产物，不重复编译
   release:
