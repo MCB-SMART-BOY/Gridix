@@ -484,9 +484,9 @@ impl ConnectionDialog {
                 };
 
                 let stroke = if is_selected {
-                    egui::Stroke::new(2.0, color)
+                    egui::Stroke::new(2.0_f32, color)
                 } else {
-                    egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(150, 150, 160, 50))
+                    egui::Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(150, 150, 160, 50))
                 };
 
                 let shortcut = match db_type {

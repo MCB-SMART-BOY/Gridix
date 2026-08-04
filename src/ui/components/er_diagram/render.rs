@@ -213,7 +213,7 @@ struct ERToolbarButtonChrome {
 fn er_toolbar_button_chrome(visuals: &egui::Visuals, is_selected: bool) -> ERToolbarButtonChrome {
     ERToolbarButtonChrome {
         fill: is_selected.then(|| theme_selection_fill(visuals, 56)),
-        stroke: is_selected.then(|| Stroke::new(1.0, theme_accent(visuals))),
+        stroke: is_selected.then(|| Stroke::new(1.0_f32, theme_accent(visuals))),
         frame_when_inactive: is_selected,
         selected: is_selected,
     }
@@ -298,7 +298,7 @@ impl ERDiagramState {
                             ui.visuals().widgets.inactive.bg_fill
                         })
                         .stroke(if self.is_viewport_mode() {
-                            Stroke::new(1.0, theme_accent(ui.visuals()))
+                            Stroke::new(1.0_f32, theme_accent(ui.visuals()))
                         } else {
                             Stroke::NONE
                         }),
@@ -888,7 +888,7 @@ impl ERDiagramState {
                     screen_pos.y + header_height * render_context.zoom,
                 ),
             ],
-            Stroke::new(1.0, border_color),
+            Stroke::new(1.0_f32, border_color),
         );
 
         let font_size = 13.0 * render_context.zoom;
@@ -957,7 +957,7 @@ impl ERDiagramState {
                             row_y,
                         ),
                     ],
-                    Stroke::new(1.0, colors.row_separator),
+                    Stroke::new(1.0_f32, colors.row_separator),
                 );
             }
 
@@ -1064,7 +1064,7 @@ impl ERDiagramState {
                         row_y,
                     ),
                 ],
-                Stroke::new(1.0, colors.row_separator),
+                Stroke::new(1.0_f32, colors.row_separator),
             );
 
             painter.text(
@@ -1431,11 +1431,11 @@ impl ERDiagramState {
             };
             let stroke = Stroke::new(
                 if highlight {
-                    2.3
+                    2.3_f32
                 } else if rel.origin == RelationshipOrigin::Explicit {
-                    1.8
+                    1.8_f32
                 } else {
-                    1.1
+                    1.1_f32
                 },
                 relation_color,
             );
@@ -2059,7 +2059,7 @@ mod tests {
         assert_eq!(chrome.fill, Some(theme_selection_fill(&visuals, 56)));
         assert_eq!(
             chrome.stroke,
-            Some(Stroke::new(1.0, theme_accent(&visuals)))
+            Some(Stroke::new(1.0_f32, theme_accent(&visuals)))
         );
     }
 

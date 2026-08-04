@@ -71,11 +71,10 @@ Add `AppAction` variant → `CommandDescriptor` → availability → reduction a
 
 ### Verify a keybinding works
 ```bash
-source .claude/skills/run-gridix/driver.sh
-launch
-key Ctrl+N          # test shortcut
-ss result
-quit
+cargo run --bin gridix-driver -- launch
+cargo run --bin gridix-driver -- key Ctrl+N          # test shortcut
+cargo run --bin gridix-driver -- ss result
+cargo run --bin gridix-driver -- quit
 ```
 
 ## Doc vs code

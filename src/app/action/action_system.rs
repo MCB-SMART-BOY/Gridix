@@ -176,25 +176,25 @@ impl ActionContext {
             active_db_type: app.session.manager.get_active().map(|conn| conn.config.db_type),
             has_result: app.state.result.is_some(),
             result_has_rows: app
-                .result
+                .state.result
                 .as_ref()
                 .is_some_and(|result| !result.rows.is_empty()),
-            selected_table: app.selected_table.clone(),
+            selected_table: app.state.selected_table.clone(),
             has_sql: !app.active_sql().trim().is_empty(),
             has_search_text: !app.state.search_text.trim().is_empty(),
             grid_has_changes: app.state.grid_state.has_changes(),
             query_tab_count: app.session.tab_manager.tabs.len(),
             focus_area: app.state.focus_area,
             show_sidebar: app.state.show_sidebar,
-            show_sql_editor: app.show_sql_editor,
+            show_sql_editor: app.state.show_sql_editor,
             show_er_diagram: app.state.show_er_diagram,
             can_confirm_pending_delete: app.state.show_delete_confirm
-                && app.pending_delete_target.is_some(),
+                && app.state.pending_delete_target.is_some(),
         }
     }
 
     fn scope_bonus(&self, scope: CommandScope) -> usize {
-        match (scope, self.state.focus_area) {
+        match (scope, self.focus_area) {
             (CommandScope::Sidebar, FocusArea::Sidebar) => 18,
             (CommandScope::Grid, FocusArea::DataGrid) => 18,
             (CommandScope::Editor, FocusArea::SqlEditor) => 18,
@@ -213,8 +213,8 @@ impl ActionContext {
         } else {
             "无连接"
         };
-        let table = self.state.selected_table.as_deref().unwrap_or("无表");
-        let focus = match self.state.focus_area {
+        let table = self.selected_table.as_deref().unwrap_or("无表");
+        let focus = match self.focus_area {
             FocusArea::Toolbar => "工具栏",
             FocusArea::QueryTabs => "标签页",
             FocusArea::Sidebar => "侧边栏",
@@ -223,17 +223,17 @@ impl ActionContext {
             FocusArea::SqlEditor => "编辑器",
             FocusArea::Dialog => "对话框",
         };
-        let sidebar = if self.state.show_sidebar {
+        let sidebar = if self.show_sidebar {
             "侧边栏开"
         } else {
             "侧边栏关"
         };
-        let editor = if self.state.show_sql_editor {
+        let editor = if self.show_sql_editor {
             "编辑器开"
         } else {
             "编辑器关"
         };
-        let er_diagram = if self.state.show_er_diagram {
+        let er_diagram = if self.show_er_diagram {
             "ER 开"
         } else {
             "ER 关"

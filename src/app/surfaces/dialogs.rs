@@ -152,7 +152,7 @@ impl DbManagerApp {
         // 导出对话框
         if active_dialog == Some(DialogId::Export) {
             let table_name = self
-                .selected_table
+                .state.selected_table
                 .clone()
                 .unwrap_or_else(|| "result".to_string());
             let export_db_type = self
@@ -543,12 +543,12 @@ mod tests {
     #[test]
     fn confirm_pending_delete_database_target_hits_database_branch_and_clears_state() {
         let mut app = DbManagerApp::new_for_test();
-        app.pending_delete_target = Some(SidebarDeleteTarget::database("missing", "analytics"));
+        app.state.pending_delete_target = Some(SidebarDeleteTarget::database("missing", "analytics"));
         app.open_dialog(DialogId::DeleteConfirm);
 
         app.confirm_pending_delete();
 
-        assert!(app.pending_delete_target.is_none());
+        assert!(app.state.pending_delete_target.is_none());
         assert!(!app.state.show_delete_confirm);
         assert_eq!(app.active_dialog_id(), None);
         assert_eq!(app.session.notifications.latest_message(), Some("目标连接已失效"));
@@ -557,12 +557,12 @@ mod tests {
     #[test]
     fn confirm_pending_delete_table_target_hits_table_branch_and_clears_state() {
         let mut app = DbManagerApp::new_for_test();
-        app.pending_delete_target = Some(SidebarDeleteTarget::table("missing", "users"));
+        app.state.pending_delete_target = Some(SidebarDeleteTarget::table("missing", "users"));
         app.open_dialog(DialogId::DeleteConfirm);
 
         app.confirm_pending_delete();
 
-        assert!(app.pending_delete_target.is_none());
+        assert!(app.state.pending_delete_target.is_none());
         assert!(!app.state.show_delete_confirm);
         assert_eq!(app.active_dialog_id(), None);
         assert_eq!(app.session.notifications.latest_message(), Some("目标连接已失效"));
@@ -573,11 +573,11 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = DbManagerApp::new_for_test();
         prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
-        app.result = Some(QueryResult::with_rows(
+        app.state.result = Some(QueryResult::with_rows(
             vec!["id".to_string()],
             vec![vec!["1".to_string()]],
         ));
-        app.selected_table = Some("customers".to_string());
+        app.state.selected_table = Some("customers".to_string());
         app.set_focus_area(FocusArea::DataGrid);
 
         app.handle_dialog_results(
@@ -592,7 +592,7 @@ mod tests {
         assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
         assert!(!app.state.grid_state.focused);
         assert_eq!(
-            app.er_diagram_state.selected_table_name(),
+            app.state.er_diagram_state.selected_table_name(),
             Some("customers")
         );
     }

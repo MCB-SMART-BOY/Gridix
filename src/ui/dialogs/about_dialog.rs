@@ -128,7 +128,7 @@ impl AboutDialog {
 
         egui::Frame::NONE
             .fill(ABOUT_BRAND_ACCENT.gamma_multiply(0.16))
-            .stroke(Stroke::new(1.0, ABOUT_BRAND_ACCENT.gamma_multiply(0.26)))
+            .stroke(Stroke::new(1.0_f32, ABOUT_BRAND_ACCENT.gamma_multiply(0.26)))
             .corner_radius(CornerRadius::same(127))
             .inner_margin(Margin::symmetric(10, 4))
             .show(ui, |ui| {
@@ -152,7 +152,7 @@ impl AboutDialog {
     fn show_manifesto_card(ui: &mut egui::Ui, body_text: Color32, muted_text: Color32) {
         egui::Frame::NONE
             .fill(ABOUT_BRAND_ACCENT.gamma_multiply(0.08))
-            .stroke(Stroke::new(1.0, ABOUT_BRAND_ACCENT.gamma_multiply(0.24)))
+            .stroke(Stroke::new(1.0_f32, ABOUT_BRAND_ACCENT.gamma_multiply(0.24)))
             .corner_radius(CornerRadius::same(12))
             .inner_margin(Margin::symmetric(16, 14))
             .show(ui, |ui| {

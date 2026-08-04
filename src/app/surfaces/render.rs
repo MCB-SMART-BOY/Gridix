@@ -181,7 +181,7 @@ impl DbManagerApp {
 
                                 // 获取当前查询结果的列信息
                                 let columns: Vec<String> = self
-                                    .result
+                                    .state.result
                                     .as_ref()
                                     .map(|r| r.columns.clone())
                                     .unwrap_or_default();
@@ -1359,7 +1359,7 @@ mod tests {
 
         app.handle_sidebar_actions(&ctx, actions);
 
-        assert_eq!(app.pending_delete_target, Some(target));
+        assert_eq!(app.state.pending_delete_target, Some(target));
         assert!(app.state.show_delete_confirm);
         assert_eq!(app.active_dialog_id(), Some(DialogId::DeleteConfirm));
     }
@@ -1369,11 +1369,11 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = DbManagerApp::new_for_test();
         prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
-        app.result = Some(QueryResult::with_rows(
+        app.state.result = Some(QueryResult::with_rows(
             vec!["id".to_string()],
             vec![vec!["1".to_string()]],
         ));
-        app.selected_table = Some("customers".to_string());
+        app.state.selected_table = Some("customers".to_string());
         app.set_focus_area(FocusArea::DataGrid);
         app.state.grid_state.cursor = (0, 0);
         app.state.grid_state.focused = true;
@@ -1394,7 +1394,7 @@ mod tests {
         assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
         assert!(!app.state.grid_state.focused);
         assert_eq!(
-            app.er_diagram_state.selected_table_name(),
+            app.state.er_diagram_state.selected_table_name(),
             Some("customers")
         );
 
@@ -1413,7 +1413,7 @@ mod tests {
         assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
         assert!(!app.state.grid_state.focused);
         assert_eq!(app.state.grid_state.cursor, (0, 0));
-        assert_eq!(app.er_diagram_state.selected_table_name(), Some("orders"));
+        assert_eq!(app.state.er_diagram_state.selected_table_name(), Some("orders"));
     }
 
     #[test]
@@ -1421,11 +1421,11 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = DbManagerApp::new_for_test();
         prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
-        app.result = Some(QueryResult::with_rows(
+        app.state.result = Some(QueryResult::with_rows(
             vec!["id".to_string()],
             vec![vec!["1".to_string()]],
         ));
-        app.selected_table = Some("customers".to_string());
+        app.state.selected_table = Some("customers".to_string());
         app.set_focus_area(FocusArea::DataGrid);
 
         let actions = ToolbarActions {
@@ -1438,7 +1438,7 @@ mod tests {
         assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
         assert!(!app.state.grid_state.focused);
         assert_eq!(
-            app.er_diagram_state.selected_table_name(),
+            app.state.er_diagram_state.selected_table_name(),
             Some("customers")
         );
     }
@@ -1462,7 +1462,7 @@ mod tests {
                 modifiers: Modifiers::NONE,
             },
         );
-        assert!(app.er_diagram_state.is_viewport_mode());
+        assert!(app.state.er_diagram_state.is_viewport_mode());
 
         run_frame_with_event(
             &mut app,
@@ -1475,6 +1475,6 @@ mod tests {
                 modifiers: Modifiers::NONE,
             },
         );
-        assert!(!app.er_diagram_state.is_viewport_mode());
+        assert!(!app.state.er_diagram_state.is_viewport_mode());
     }
 }

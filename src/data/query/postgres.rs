@@ -8,6 +8,7 @@ use crate::core::constants;
 use crate::data::{
     ConnectionConfig, DatabaseType, DbError, POOL_MANAGER, PostgresSslMode, QueryResult,
 };
+use std::sync::Arc;
 use futures_util::StreamExt;
 use tokio::sync::oneshot;
 use tokio_postgres::SimpleQueryMessage;
@@ -310,18 +311,17 @@ async fn try_cancel_query(
 fn build_cancel_tls_connector(
     config: &ConnectionConfig,
     accept_invalid_certs: bool,
-) -> Result<postgres_native_tls::MakeTlsConnector, DbError> {
-    use native_tls::TlsConnector as NativeTlsConnector;
+) -> Result<tokio_postgres_rustls::MakeRustlsConnect, DbError> {
     use std::path::Path;
 
-    let mut builder = NativeTlsConnector::builder();
+    let config_builder = rustls::ClientConfig::builder();
 
-    if accept_invalid_certs {
-        builder.danger_accept_invalid_certs(true);
-        builder.danger_accept_invalid_hostnames(true);
-    }
-
-    if !config.ssl_ca_cert.is_empty() {
+    let tls_config = if accept_invalid_certs {
+        config_builder
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(crate::data::pool::SkipCertVerification))
+            .with_no_client_auth()
+    } else if !config.ssl_ca_cert.is_empty() {
         let ca_path = Path::new(&config.ssl_ca_cert);
         if !ca_path.exists() {
             return Err(DbError::Query(format!(
@@ -329,22 +329,31 @@ fn build_cancel_tls_connector(
                 config.ssl_ca_cert
             )));
         }
-
         let ca_data = std::fs::read(&config.ssl_ca_cert)
             .map_err(|e| DbError::Query(format!("取消查询读取 CA 证书失败: {}", e)))?;
-        let cert = native_tls::Certificate::from_pem(&ca_data)
+        let certs = rustls_pemfile::certs(&mut ca_data.as_slice())
+            .collect::<Result<Vec<_>, _>>()
             .map_err(|e| DbError::Query(format!("取消查询解析 CA 证书失败: {}", e)))?;
-        builder.add_root_certificate(cert);
-    }
 
-    if config.postgres_ssl_mode != PostgresSslMode::VerifyFull {
-        builder.danger_accept_invalid_hostnames(true);
-    }
+        let mut root_store = rustls::RootCertStore::empty();
+        for cert in certs {
+            root_store.add(cert)
+                .map_err(|e| DbError::Query(format!("取消查询添加 CA 证书失败: {}", e)))?;
+        }
 
-    let connector = builder
-        .build()
-        .map_err(|e| DbError::Query(format!("取消查询 TLS 构建失败: {}", e)))?;
-    Ok(postgres_native_tls::MakeTlsConnector::new(connector))
+        config_builder
+            .with_root_certificates(root_store)
+            .with_no_client_auth()
+    } else {
+        let root_store = rustls::RootCertStore::from_iter(
+            webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+        );
+        config_builder
+            .with_root_certificates(root_store)
+            .with_no_client_auth()
+    };
+
+    Ok(tokio_postgres_rustls::MakeRustlsConnect::new(tls_config))
 }
 
 /// 批量执行 PostgreSQL 语句（用于导入）

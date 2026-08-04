@@ -792,7 +792,7 @@ impl HelpDialog {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(95, 125, 180, 18))
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 Color32::from_rgba_unmultiplied(130, 170, 230, 36),
             ))
             .corner_radius(egui::CornerRadius::same(12))
@@ -862,7 +862,7 @@ impl HelpDialog {
         let width = ui.available_width();
         egui::Frame::NONE
             .fill(fill)
-            .stroke(egui::Stroke::new(1.0, stroke))
+            .stroke(egui::Stroke::new(1.0_f32, stroke))
             .corner_radius(egui::CornerRadius::same(10))
             .inner_margin(egui::Margin::symmetric(16, 14))
             .show(ui, |ui| {
@@ -877,7 +877,7 @@ impl HelpDialog {
                             26,
                         ))
                         .stroke(Stroke::new(
-                            1.0,
+                            1.0_f32,
                             Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 46),
                         ))
                         .corner_radius(egui::CornerRadius::same(255))
@@ -918,7 +918,7 @@ impl HelpDialog {
                         28,
                     ))
                     .stroke(Stroke::new(
-                        1.0,
+                        1.0_f32,
                         Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 44),
                     ))
                     .corner_radius(egui::CornerRadius::same(8))
@@ -970,7 +970,7 @@ impl HelpDialog {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(88, 108, 150, 14))
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 Color32::from_rgba_unmultiplied(130, 170, 230, 28),
             ))
             .corner_radius(egui::CornerRadius::same(10))
@@ -1032,7 +1032,7 @@ impl HelpDialog {
                     .color(Color32::from_rgb(245, 245, 248)),
             )
             .fill(fill)
-            .stroke(Stroke::new(1.0, stroke))
+            .stroke(Stroke::new(1.0_f32, stroke))
             .corner_radius(egui::CornerRadius::same(8)),
         )
         .clicked()

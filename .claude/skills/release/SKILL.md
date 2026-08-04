@@ -14,7 +14,7 @@ All commands from repo root.
 ## 1. Pre-release checks
 
 ```bash
-cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test && python scripts/check_doc_links.py
+cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test && cargo run --bin check-doc-links
 ```
 
 ## 2. Version bump

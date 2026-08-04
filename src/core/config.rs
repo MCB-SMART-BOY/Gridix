@@ -73,10 +73,7 @@ pub struct AppConfig {
     /// UI 缩放比例 (0.5 - 2.0)
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f32,
-    /// 兼容旧版本：从 config.toml 读取的内联快捷键绑定。
-    ///
-    /// TODO(v4 compatibility window): 保持只读一个兼容发布周期，后续迁移为
-    /// 显式导入流程并移除此字段。
+    /// 兼容旧版本的内联快捷键绑定（v4 兼容窗口已关闭，下次 breaking change 移除）
     #[serde(default, skip_serializing)]
     pub keybindings: KeyBindings,
     /// 首次启动引导进度

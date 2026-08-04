@@ -405,7 +405,7 @@ mod tests {
         let conn = rusqlite::Connection::open(":memory:").unwrap();
         conn.execute("CREATE TABLE a (id INTEGER)", []).unwrap();
         let config = test_config();
-        let fks = get_foreign_keys(&config, "a").unwrap();
+        let fks = get_foreign_keys(&config).unwrap();
         assert!(fks.is_empty());
     }
 

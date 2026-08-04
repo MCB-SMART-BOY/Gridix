@@ -37,17 +37,6 @@ fn escape_pg_param(s: &str) -> String {
     s.replace('\\', "\\\\").replace('\'', "\\'")
 }
 
-/// 计算字符串的 SHA-256 十六进制摘要
-fn sha256_hex(input: &str) -> String {
-    use ring::digest::{SHA256, digest};
-
-    let hash = digest(&SHA256, input.as_bytes());
-    let mut out = String::with_capacity(hash.as_ref().len() * 2);
-    for byte in hash.as_ref() {
-        out.push_str(&format!("{:02x}", byte));
-    }
-    out
-}
 
 const KEYRING_SERVICE: &str = "gridix";
 
@@ -311,7 +300,7 @@ impl ConnectionConfig {
         match self.db_type {
             DatabaseType::SQLite => {
                 let material = format!("sqlite:{}:{}", self.database, self.username);
-                format!("sqlite:{}", sha256_hex(&material))
+                format!("sqlite:{}", crate::core::hash::sha256_hex(&material))
             }
             DatabaseType::PostgreSQL => {
                 let material = format!(
@@ -323,7 +312,7 @@ impl ConnectionConfig {
                     self.postgres_ssl_mode,
                     self.ssl_ca_cert
                 );
-                format!("pg:{}", sha256_hex(&material))
+                format!("pg:{}", crate::core::hash::sha256_hex(&material))
             }
             DatabaseType::MySQL => {
                 let material = format!(
@@ -335,7 +324,7 @@ impl ConnectionConfig {
                     self.mysql_ssl_mode,
                     self.ssl_ca_cert
                 );
-                format!("mysql:{}", sha256_hex(&material))
+                format!("mysql:{}", crate::core::hash::sha256_hex(&material))
             }
         }
     }

@@ -33,16 +33,6 @@ pub enum SshError {
     Key(String),
 }
 
-fn sha256_hex(input: &str) -> String {
-    use ring::digest::{SHA256, digest};
-
-    let hash = digest(&SHA256, input.as_bytes());
-    let mut out = String::with_capacity(hash.as_ref().len() * 2);
-    for byte in hash.as_ref() {
-        out.push_str(&format!("{:02x}", byte));
-    }
-    out
-}
 
 // ============================================================================
 // SSH 隧道配置
@@ -137,7 +127,7 @@ impl SshTunnelConfig {
                 self.ssh_username, self.private_key_path, self.private_key_passphrase
             ),
         };
-        sha256_hex(&material)
+        crate::core::hash::sha256_hex(&material)
     }
 
     /// 获取隧道唯一名称（用于复用与回收）

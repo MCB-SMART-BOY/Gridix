@@ -35,8 +35,8 @@ pub fn default_layout() -> DockState<DockTab> {
 /// 同步 dock 布局与 app 状态（query tabs、ER 图、SQL 编辑器）
 pub fn sync_all(state: &mut DockState<DockTab>, app: &DbManagerApp) {
     sync_query_tabs(state, app.tab_manager());
-    sync_er_visibility(state, app.state.show_er_diagram());
-    sync_sql_editor_visibility(state, app.show_sql_editor());
+    sync_er_visibility(state, app.state.show_er_diagram);
+    sync_sql_editor_visibility(state, app.state.show_sql_editor);
 }
 
 fn sync_query_tabs(state: &mut DockState<DockTab>, tab_manager: &crate::ui::QueryTabManager) {

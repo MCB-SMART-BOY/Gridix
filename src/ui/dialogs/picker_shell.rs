@@ -443,7 +443,7 @@ impl PickerDialogShell {
             egui::Frame::NONE
                 .fill(fill)
                 .stroke(Stroke::new(
-                    1.0,
+                    1.0_f32,
                     if opened || selected {
                         ui.visuals().selection.stroke.color.gamma_multiply(0.45)
                     } else {

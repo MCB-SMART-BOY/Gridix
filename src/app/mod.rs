@@ -219,7 +219,6 @@ impl DbManagerApp {
         sidebar_panel_state.workflow.edge_transfer = app_config.sidebar.edge_transfer;
 
         let mut app = Self {
-            connection_dialog_show_advanced: app_config.connection_dialog_show_advanced,
             session,
             state: {
                 let mut s = crate::state::UiState::default();
@@ -227,16 +226,17 @@ impl DbManagerApp {
                 s.highlight_colors = highlight_colors;
                 s.ui_scale = ui_scale;
                 s.base_pixels_per_point = base_pixels_per_point;
+                s.connection_dialog_show_advanced = app_config.connection_dialog_show_advanced;
+                s.sidebar_width = 280.0;
+                s.ddl_dialog_state = DdlDialogState::default();
+                s.create_db_dialog_state = ui::CreateDbDialogState::new();
+                s.create_user_dialog_state = ui::CreateUserDialogState::new();
                 s
             },
             app_config,
             grid_workspaces: GridWorkspaceStore::default(),
             active_grid_workspace_enabled: false,
             dock_state: ui::dock_tabs::default_layout(),
-            sidebar_width: 280.0, // 默认侧边栏宽度
-            ddl_dialog_state: DdlDialogState::default(),
-            create_db_dialog_state: ui::CreateDbDialogState::new(),
-            create_user_dialog_state: ui::CreateUserDialogState::new(),
             keybindings,
             command_palette_state: CommandPaletteState::default(),
             pending_toggle_dark_mode: false,
@@ -255,14 +255,6 @@ impl DbManagerApp {
 
     pub(crate) fn tab_manager_mut(&mut self) -> &mut QueryTabManager {
         &mut self.session.tab_manager
-    }
-
-    pub(crate) fn show_er_diagram(&self) -> bool {
-        self.state.show_er_diagram
-    }
-
-    pub(crate) fn show_sql_editor(&self) -> bool {
-        self.state.show_sql_editor
     }
 
     /// Dock tab 关闭时的清理：持久化状态、取消查询、移除工作区
@@ -401,7 +393,7 @@ impl DbManagerApp {
 
     fn handle_export_with_config(&mut self, config: ExportConfig) {
         let table_name = self
-            .selected_table
+            .state.selected_table
             .clone()
             .unwrap_or_else(|| "query_result".to_string());
 

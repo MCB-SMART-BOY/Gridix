@@ -124,7 +124,7 @@ impl DbManagerApp {
     pub fn infer_relationships_from_columns(&self) -> Vec<ui::Relationship> {
         let mut relationships = Vec::new();
         let table_names: Vec<&str> = self
-            .er_diagram_state
+            .state.er_diagram_state
             .tables
             .iter()
             .map(|t| t.name.as_str())

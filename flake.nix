@@ -18,7 +18,6 @@
         pkgs = nixpkgs.legacyPackages.${system};
         cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
         commonBuildInputs = with pkgs; [
-          openssl
         ];
         linuxRuntimeLibs = with pkgs; [
           gtk3
@@ -106,7 +105,6 @@
             [
               rustup
               pkg-config
-              openssl
             ]
             ++ pkgs.lib.optionals pkgs.stdenv.isLinux linuxRuntimeLibs
             ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [

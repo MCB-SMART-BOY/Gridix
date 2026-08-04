@@ -1,5 +1,5 @@
 //! gridix-driver — headless driver for the Gridix egui desktop app.
-//! Replaces driver.sh. Uses X11 directly via x11rb for window ops and screenshots.
+//! Uses X11 directly via x11rb for window ops and screenshots.
 //! Keystrokes via XTEST extension.
 //!
 //! Usage:
@@ -167,7 +167,6 @@ fn print_help() {
     println!("  GRIDIX_SHOT_DIR     screenshot directory (default: /tmp/shots)");
     println!("  XVFB_MANAGED=1      skip Xvfb management");
     println!();
-    println!("Replaces: driver.sh");
 }
 
 // ── main ─────────────────────────────────────────────────────────────

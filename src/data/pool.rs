@@ -7,6 +7,51 @@ use crate::core::constants;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+
+/// 跳过所有 TLS 证书验证（仅用于开发/自签证书场景）
+#[derive(Debug)]
+pub(crate) struct SkipCertVerification;
+
+impl rustls::client::danger::ServerCertVerifier for SkipCertVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        vec![
+            rustls::SignatureScheme::RSA_PKCS1_SHA256,
+            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
+            rustls::SignatureScheme::RSA_PKCS1_SHA384,
+            rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
+        ]
+    }
+}
+
 use tokio::sync::RwLock;
 
 /// 全局连接池管理器
@@ -287,20 +332,16 @@ impl PoolManager {
         config: &ConnectionConfig,
         accept_invalid_certs: bool,
     ) -> Result<tokio_postgres::Client, DbError> {
-        use native_tls::TlsConnector as NativeTlsConnector;
-        use postgres_native_tls::MakeTlsConnector;
         use std::path::Path;
 
-        let mut builder = NativeTlsConnector::builder();
+        let config_builder = rustls::ClientConfig::builder();
 
-        // 配置证书验证
-        if accept_invalid_certs {
-            builder.danger_accept_invalid_certs(true);
-            builder.danger_accept_invalid_hostnames(true);
-        }
-
-        // 如果指定了 CA 证书
-        if !config.ssl_ca_cert.is_empty() {
+        let tls_config = if accept_invalid_certs {
+            config_builder
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(SkipCertVerification))
+                .with_no_client_auth()
+        } else if !config.ssl_ca_cert.is_empty() {
             let ca_path = Path::new(&config.ssl_ca_cert);
             if !ca_path.exists() {
                 return Err(DbError::Connection(format!(
@@ -308,26 +349,31 @@ impl PoolManager {
                     config.ssl_ca_cert
                 )));
             }
-
             let ca_data = std::fs::read(&config.ssl_ca_cert)
                 .map_err(|e| DbError::Connection(format!("读取 CA 证书失败: {}", e)))?;
-
-            let cert = native_tls::Certificate::from_pem(&ca_data)
+            let certs = rustls_pemfile::certs(&mut ca_data.as_slice())
+                .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| DbError::Connection(format!("解析 CA 证书失败: {}", e)))?;
 
-            builder.add_root_certificate(cert);
-        }
+            let mut root_store = rustls::RootCertStore::empty();
+            for cert in certs {
+                root_store.add(cert)
+                    .map_err(|e| DbError::Connection(format!("添加 CA 证书失败: {}", e)))?;
+            }
 
-        // 验证主机名（仅 VerifyFull 模式）
-        if config.postgres_ssl_mode != PostgresSslMode::VerifyFull {
-            builder.danger_accept_invalid_hostnames(true);
-        }
+            config_builder
+                .with_root_certificates(root_store)
+                .with_no_client_auth()
+        } else {
+            let root_store = rustls::RootCertStore::from_iter(
+                webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+            );
+            config_builder
+                .with_root_certificates(root_store)
+                .with_no_client_auth()
+        };
 
-        let connector = builder
-            .build()
-            .map_err(|e| DbError::Connection(format!("TLS 连接器构建失败: {}", e)))?;
-
-        let tls = MakeTlsConnector::new(connector);
+        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(tls_config);
 
         let (client, conn) = tokio_postgres::connect(&config.connection_string(), tls)
             .await

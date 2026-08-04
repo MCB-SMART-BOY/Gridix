@@ -1,8 +1,6 @@
 //! check-doc-links — validate local Markdown links in README.md and docs/*.md.
 //!
 //! Usage: cargo run --bin check-doc-links
-//! Replaces: scripts/check_doc_links.py
-
 use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;

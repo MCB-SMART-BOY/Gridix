@@ -293,7 +293,7 @@ impl DialogFooter {
         egui::Button::new(RichText::new(text.to_owned()).color(ui.visuals().text_color()))
             .fill(ui.visuals().faint_bg_color)
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 ui.visuals().window_stroke.color.gamma_multiply(0.7),
             ))
             .corner_radius(CornerRadius::same(style.button_radius))
@@ -445,7 +445,7 @@ impl DialogContent {
 
         egui::Frame::NONE
             .fill(fill)
-            .stroke(Stroke::new(1.0, stroke_color))
+            .stroke(Stroke::new(1.0_f32, stroke_color))
             .corner_radius(CornerRadius::same(10))
             .inner_margin(egui::Margin::same(10))
     }
@@ -471,7 +471,7 @@ impl DialogContent {
         egui::Frame::NONE
             .fill(tint)
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 ui.visuals().window_stroke.color.gamma_multiply(0.55),
             ))
             .corner_radius(CornerRadius::same(10))
@@ -847,7 +847,7 @@ impl DialogContent {
         egui::Frame::NONE
             .fill(fill)
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 if selected {
                     ui.visuals().selection.stroke.color.gamma_multiply(0.75)
                 } else {
@@ -920,7 +920,7 @@ impl DialogWindow {
         egui::Frame::NONE
             .fill(visuals.window_fill)
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 visuals.window_stroke.color.gamma_multiply(0.95),
             ))
             .corner_radius(CornerRadius::same(style.radius))

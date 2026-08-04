@@ -864,9 +864,9 @@ impl DdlDialog {
             Color32::TRANSPARENT
         };
         let stroke = if layout.is_selected {
-            egui::Stroke::new(1.0, Color32::from_rgb(100, 180, 255))
+            egui::Stroke::new(1.0_f32, Color32::from_rgb(100, 180, 255))
         } else {
-            egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color)
+            egui::Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color)
         };
 
         egui::Frame::NONE

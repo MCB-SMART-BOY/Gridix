@@ -401,7 +401,7 @@ impl HelpDialog {
     ) {
         egui::Frame::NONE
             .fill(fill)
-            .stroke(egui::Stroke::new(1.0, stroke))
+            .stroke(egui::Stroke::new(1.0_f32, stroke))
             .corner_radius(egui::CornerRadius::same(10))
             .inner_margin(egui::Margin::symmetric(16, 14))
             .show(ui, |ui| {
@@ -433,7 +433,7 @@ impl HelpDialog {
                 egui::Frame::NONE
                     .fill(Color32::from_rgba_unmultiplied(130, 180, 255, 20))
                     .stroke(egui::Stroke::new(
-                        1.0,
+                        1.0_f32,
                         Color32::from_rgba_unmultiplied(130, 180, 255, 42),
                     ))
                     .corner_radius(egui::CornerRadius::same(8))

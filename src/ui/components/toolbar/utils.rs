@@ -26,7 +26,7 @@ fn toolbar_button_chrome(
     };
 
     let fill = is_selected.then(|| theme_selection_fill(visuals, 56));
-    let stroke = is_selected.then(|| egui::Stroke::new(1.0, theme_accent(visuals)));
+    let stroke = is_selected.then(|| egui::Stroke::new(1.0_f32, theme_accent(visuals)));
 
     ToolbarButtonChrome {
         text_color,
@@ -99,7 +99,7 @@ pub fn separator(ui: &mut egui::Ui) {
     ui.painter().vline(
         rect.left(),
         (y_center - height / 2.0)..=(y_center + height / 2.0),
-        egui::Stroke::new(1.0, theme_subtle_stroke(ui.visuals())),
+        egui::Stroke::new(1.0_f32, theme_subtle_stroke(ui.visuals())),
     );
     ui.add_space(2.0);
 }

@@ -2,6 +2,7 @@
 
 mod autocomplete;
 mod commands;
+pub mod hash;
 mod config;
 pub mod constants;
 mod export;

@@ -232,7 +232,7 @@ impl Welcome {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(90, 140, 210, 18))
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 Color32::from_rgba_unmultiplied(120, 170, 230, 48),
             ))
             .corner_radius(CornerRadius::same(14))
@@ -366,7 +366,7 @@ impl Welcome {
                 15,
             ))
             .stroke(egui::Stroke::new(
-                1.0,
+                1.0_f32,
                 Color32::from_rgba_unmultiplied(
                     accent_color.r(),
                     accent_color.g(),
@@ -515,7 +515,7 @@ impl Welcome {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(92, 180, 118, 22))
             .stroke(egui::Stroke::new(
-                1.0,
+                1.0_f32,
                 Color32::from_rgba_unmultiplied(100, 190, 126, 52),
             ))
             .corner_radius(CornerRadius::same(8))
@@ -695,7 +695,7 @@ impl Welcome {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(128, 132, 146, 16))
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 Color32::from_rgba_unmultiplied(170, 176, 195, 40),
             ))
             .corner_radius(CornerRadius::same(8))

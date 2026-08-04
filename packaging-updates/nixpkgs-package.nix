@@ -10,7 +10,7 @@
   wrapGAppsHook3,
   gtk3,
   xdotool,
-  openssl,
+
 }:
 
 rustPlatform.buildRustPackage rec {
@@ -33,7 +33,6 @@ rustPlatform.buildRustPackage rec {
 
   buildInputs = [
     gtk3
-    openssl
     xdotool
   ];
 

@@ -363,9 +363,9 @@ impl DbManagerApp {
             ui.visuals().faint_bg_color
         };
         let stroke = if selected {
-            Stroke::new(1.5, ui.visuals().selection.stroke.color)
+            Stroke::new(1.5_f32, ui.visuals().selection.stroke.color)
         } else {
-            Stroke::new(1.0, ui.visuals().window_stroke.color.gamma_multiply(0.7))
+            Stroke::new(1.0_f32, ui.visuals().window_stroke.color.gamma_multiply(0.7))
         };
 
         egui::Button::new(RichText::new(text).color(ui.visuals().text_color()))
@@ -390,7 +390,7 @@ impl DbManagerApp {
         let actions = Self::welcome_setup_actions(db_type);
         if !actions.is_empty() {
             self.state.welcome_setup_action_index = self
-                .welcome_setup_action_index
+                .state.welcome_setup_action_index
                 .min(actions.len().saturating_sub(1));
         }
 

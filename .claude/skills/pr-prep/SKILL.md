@@ -51,11 +51,10 @@ cargo run --bin check-doc-links
 ## 6. Keybinding verification (if shortcuts changed)
 
 ```bash
-source .claude/skills/run-gridix/driver.sh
-launch
-key Ctrl+N
-ss check
-quit
+cargo run --bin gridix-driver -- launch
+cargo run --bin gridix-driver -- key Ctrl+N
+cargo run --bin gridix-driver -- ss check
+cargo run --bin gridix-driver -- quit
 ```
 
 ## One-liner

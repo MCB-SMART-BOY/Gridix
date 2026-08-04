@@ -309,7 +309,7 @@ impl HelpDialog {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(88, 108, 150, 14))
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 Color32::from_rgba_unmultiplied(130, 170, 230, 28),
             ))
             .corner_radius(egui::CornerRadius::same(10))
@@ -345,7 +345,7 @@ impl HelpDialog {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(95, 125, 180, 14))
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 Color32::from_rgba_unmultiplied(130, 170, 230, 34),
             ))
             .corner_radius(egui::CornerRadius::same(12))
@@ -420,7 +420,7 @@ impl HelpDialog {
                             egui::pos2(lane_rect.left() + 18.0, lane_rect.top() + 16.0),
                             egui::pos2(lane_rect.left() + 18.0, lane_rect.bottom() - 16.0),
                         ],
-                        Stroke::new(3.0, accent),
+                        Stroke::new(3.0_f32, accent),
                     );
                     painter.text(
                         egui::pos2(lane_rect.left() + 34.0, lane_rect.top() + 18.0),
@@ -450,7 +450,7 @@ impl HelpDialog {
                             egui::pos2(lane_rect.left() + 190.0, lane_rect.top() + 18.0),
                             egui::pos2(lane_rect.right() - 18.0, lane_rect.top() + 18.0),
                         ],
-                        Stroke::new(1.0, stroke),
+                        Stroke::new(1.0_f32, stroke),
                     );
                 }
 
@@ -485,7 +485,7 @@ impl HelpDialog {
 
                     painter.line_segment(
                         [from_pos, to_pos],
-                        Stroke::new(1.8, Color32::from_rgba_unmultiplied(130, 170, 230, 78)),
+                        Stroke::new(1.8_f32, Color32::from_rgba_unmultiplied(130, 170, 230, 78)),
                     );
                 }
 
@@ -503,7 +503,7 @@ impl HelpDialog {
                                 .color(Self::body_text_color(ui)),
                         )
                         .fill(fill)
-                        .stroke(Stroke::new(1.0, stroke))
+                        .stroke(Stroke::new(1.0_f32, stroke))
                         .corner_radius(egui::CornerRadius::same(10)),
                     );
                     let response = Self::topic_hover_preview(response, topic);
@@ -562,7 +562,7 @@ impl HelpDialog {
 
         egui::Frame::NONE
             .fill(fill)
-            .stroke(Stroke::new(1.0, stroke))
+            .stroke(Stroke::new(1.0_f32, stroke))
             .corner_radius(egui::CornerRadius::same(12))
             .inner_margin(egui::Margin::symmetric(18, 16))
             .show(ui, |ui| {
@@ -616,7 +616,7 @@ impl HelpDialog {
                     .color(Self::body_text_color(ui)),
             )
             .fill(fill)
-            .stroke(Stroke::new(1.0, stroke))
+            .stroke(Stroke::new(1.0_f32, stroke))
             .corner_radius(egui::CornerRadius::same(10)),
         );
         let response = Self::topic_hover_preview(response, definition.topic);
@@ -637,7 +637,7 @@ impl HelpDialog {
             egui::Frame::NONE
                 .fill(Color32::from_rgba_unmultiplied(34, 40, 56, 244))
                 .stroke(Stroke::new(
-                    1.0,
+                    1.0_f32,
                     Color32::from_rgba_unmultiplied(130, 170, 230, 56),
                 ))
                 .corner_radius(egui::CornerRadius::same(10))
@@ -690,7 +690,7 @@ impl HelpDialog {
 
         egui::Frame::NONE
             .fill(fill)
-            .stroke(Stroke::new(1.0, stroke))
+            .stroke(Stroke::new(1.0_f32, stroke))
             .corner_radius(egui::CornerRadius::same(255))
             .inner_margin(egui::Margin::symmetric(8, 4))
             .show(ui, |ui| {
@@ -708,7 +708,7 @@ impl HelpDialog {
 
         egui::Frame::NONE
             .fill(fill)
-            .stroke(Stroke::new(1.0, stroke))
+            .stroke(Stroke::new(1.0_f32, stroke))
             .corner_radius(egui::CornerRadius::same(255))
             .inner_margin(egui::Margin::symmetric(8, 4))
             .show(ui, |ui| {
@@ -726,7 +726,7 @@ impl HelpDialog {
 
         egui::Frame::NONE
             .fill(fill)
-            .stroke(Stroke::new(1.0, stroke))
+            .stroke(Stroke::new(1.0_f32, stroke))
             .corner_radius(egui::CornerRadius::same(255))
             .inner_margin(egui::Margin::symmetric(8, 4))
             .show(ui, |ui| {
@@ -760,7 +760,7 @@ impl HelpDialog {
                 accent.b(),
                 20,
             ))
-            .stroke(Stroke::new(1.0, stroke))
+            .stroke(Stroke::new(1.0_f32, stroke))
             .corner_radius(egui::CornerRadius::same(255))
             .inner_margin(egui::Margin::symmetric(8, 4))
             .show(ui, |ui| {
@@ -792,7 +792,7 @@ impl HelpDialog {
         let (fill, stroke, accent) = Self::stage_palette(definition.stage);
         egui::Frame::NONE
             .fill(fill)
-            .stroke(Stroke::new(1.0, stroke))
+            .stroke(Stroke::new(1.0_f32, stroke))
             .corner_radius(egui::CornerRadius::same(10))
             .inner_margin(egui::Margin::symmetric(16, 14))
             .show(ui, |ui| {
@@ -881,7 +881,7 @@ impl HelpDialog {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(95, 125, 180, 16))
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 Color32::from_rgba_unmultiplied(130, 170, 230, 34),
             ))
             .corner_radius(egui::CornerRadius::same(10))
@@ -917,7 +917,7 @@ impl HelpDialog {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(80, 100, 150, 14))
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 Color32::from_rgba_unmultiplied(130, 170, 230, 28),
             ))
             .corner_radius(egui::CornerRadius::same(10))
@@ -991,7 +991,7 @@ impl HelpDialog {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(84, 124, 210, 14))
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 Color32::from_rgba_unmultiplied(120, 160, 232, 36),
             ))
             .corner_radius(egui::CornerRadius::same(10))
@@ -1078,7 +1078,7 @@ impl HelpDialog {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(95, 125, 180, 16))
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 Color32::from_rgba_unmultiplied(130, 170, 230, 34),
             ))
             .corner_radius(egui::CornerRadius::same(12))
@@ -1116,7 +1116,7 @@ impl HelpDialog {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(120, 130, 160, 26))
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 Color32::from_rgba_unmultiplied(150, 170, 210, 34),
             ))
             .corner_radius(egui::CornerRadius::same(255))
@@ -1404,7 +1404,7 @@ impl HelpDialog {
         egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(95, 125, 180, 18))
             .stroke(egui::Stroke::new(
-                1.0,
+                1.0_f32,
                 Color32::from_rgba_unmultiplied(130, 170, 230, 40),
             ))
             .corner_radius(egui::CornerRadius::same(10))

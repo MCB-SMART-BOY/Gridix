@@ -56,7 +56,7 @@ impl NotificationToast {
 
         let frame = egui::Frame::NONE
             .fill(bg_color)
-            .stroke(egui::Stroke::new(2.0, border_color))
+            .stroke(egui::Stroke::new(2.0_f32, border_color))
             .inner_margin(egui::Margin::symmetric(12, 8))
             .corner_radius(egui::CornerRadius::same(6));
 

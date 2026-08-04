@@ -372,7 +372,7 @@ impl InputContextSnapshot {
     }
 
     fn sidebar_scope(self) -> SidebarFocusScope {
-        match self.state.sidebar_section {
+        match self.sidebar_section {
             ui::SidebarSection::Connections => SidebarFocusScope::Connections,
             ui::SidebarSection::Databases => SidebarFocusScope::Databases,
             ui::SidebarSection::Tables => SidebarFocusScope::Tables,
@@ -403,24 +403,24 @@ impl InputContextSnapshot {
             return FocusScope::Dialog(dialog_scope);
         }
 
-        if self.state.focus_area == ui::FocusArea::Sidebar {
+        if self.focus_area == ui::FocusArea::Sidebar {
             return FocusScope::Sidebar(self.sidebar_scope());
         }
 
         let editor_has_priority =
-            self.state.show_sql_editor && self.state.focus_area == ui::FocusArea::SqlEditor;
+            self.show_sql_editor && self.focus_area == ui::FocusArea::SqlEditor;
         if editor_has_priority {
-            return FocusScope::Editor(match self.state.editor_mode {
+            return FocusScope::Editor(match self.editor_mode {
                 EditorMode::Insert => EditorFocusScope::Insert,
                 EditorMode::Normal => EditorFocusScope::Normal,
             });
         }
 
-        if self.state.focus_area == ui::FocusArea::DataGrid {
+        if self.focus_area == ui::FocusArea::DataGrid {
             return FocusScope::Grid(self.grid_scope());
         }
 
-        if self.state.show_er_diagram && self.state.focus_area == ui::FocusArea::ErDiagram {
+        if self.show_er_diagram && self.focus_area == ui::FocusArea::ErDiagram {
             return FocusScope::ErDiagram(if self.er_diagram_viewport_mode {
                 ErDiagramFocusScope::Viewport
             } else {
@@ -432,7 +432,7 @@ impl InputContextSnapshot {
             return FocusScope::Global;
         }
 
-        match self.state.focus_area {
+        match self.focus_area {
             ui::FocusArea::Toolbar => FocusScope::Toolbar,
             ui::FocusArea::QueryTabs => FocusScope::QueryTabs,
             ui::FocusArea::Sidebar => FocusScope::Sidebar(self.sidebar_scope()),
@@ -474,7 +474,7 @@ impl InputContextSnapshot {
             return InputMode::Recording;
         }
 
-        if matches!(self.focus_scope(), FocusScope::Editor(_)) && !self.state.show_sql_editor {
+        if matches!(self.focus_scope(), FocusScope::Editor(_)) && !self.show_sql_editor {
             return InputMode::Disabled;
         }
 
@@ -490,7 +490,7 @@ impl InputContextSnapshot {
     }
 
     fn allows_focus_area_switch(self) -> bool {
-        !self.state.show_autocomplete
+        !self.show_autocomplete
             && !self.input_owner().is_modal()
             && !matches!(self.input_owner().mode(), InputMode::Disabled)
             && !self.text_entry_guard().is_active()
@@ -562,7 +562,7 @@ impl InputContextSnapshot {
         if input.key_pressed(egui::Key::Escape)
             && self.can_dispatch_global_shortcut()
             && !self.is_text_entry_scope()
-            && (self.state.show_help || self.state.show_history_panel || self.state.show_er_diagram)
+            && (self.show_help || self.show_history_panel || self.show_er_diagram)
         {
             if matches!(self.focus_scope(), FocusScope::ErDiagram(_)) {
                 return None;
@@ -714,7 +714,7 @@ impl InputContextSnapshot {
             }
             Action::FocusErDiagram => (self.can_dispatch_global_shortcut()
                 && self.is_workspace_command_mode()
-                && self.state.show_er_diagram)
+                && self.show_er_diagram)
                 .then_some(ResolvedInputAction::HandledApp(AppAction::FocusErDiagram)),
             Action::ToggleDarkMode => (self.can_dispatch_global_shortcut()
                 && self.is_workspace_command_mode())
@@ -941,7 +941,7 @@ impl DbManagerApp {
                     self.state.er_diagram_state
                         .ensure_selection(self.state.selected_table.as_deref());
                     if let Some(table_name) = self
-                        .er_diagram_state
+                        .state.er_diagram_state
                         .selected_table_name()
                         .map(str::to_owned)
                     {
@@ -3075,12 +3075,12 @@ mod tests {
 
         app.state.show_er_diagram = true;
         app.state.focus_area = FocusArea::ErDiagram;
-        app.selected_table = Some("main_workspace_table".to_string());
-        app.er_diagram_state.tables = vec![
+        app.state.selected_table = Some("main_workspace_table".to_string());
+        app.state.er_diagram_state.tables = vec![
             er_table("customers", 0.0, 0.0),
             er_table("orders", 240.0, 0.0),
         ];
-        assert!(app.er_diagram_state.select_table(0));
+        assert!(app.state.er_diagram_state.select_table(0));
 
         app.apply_router_local_action(
             &ctx,
@@ -3088,8 +3088,8 @@ mod tests {
             RouterLocalAction::ErDiagram(ErDiagramLocalAction::GeometryRight),
         );
 
-        assert_eq!(app.er_diagram_state.selected_table_name(), Some("orders"));
-        assert_eq!(app.selected_table.as_deref(), Some("main_workspace_table"));
+        assert_eq!(app.state.er_diagram_state.selected_table_name(), Some("orders"));
+        assert_eq!(app.state.selected_table.as_deref(), Some("main_workspace_table"));
     }
 
     #[test]
@@ -3293,10 +3293,10 @@ mod tests {
 
         app.set_focus_area(FocusArea::Sidebar);
         app.dispatch_app_action(&ctx, AppAction::FocusErDiagram);
-        app.er_diagram_state.toggle_interaction_mode();
+        app.state.er_diagram_state.toggle_interaction_mode();
 
         assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
-        assert!(app.er_diagram_state.is_viewport_mode());
+        assert!(app.state.er_diagram_state.is_viewport_mode());
         assert_eq!(app.state.last_non_er_workspace_focus, FocusArea::Sidebar);
 
         app.dispatch_app_action(&ctx, AppAction::ToggleErDiagram);
@@ -3319,10 +3319,10 @@ mod tests {
         app.set_focus_area(FocusArea::Sidebar);
         app.state.show_sidebar = false;
         app.dispatch_app_action(&ctx, AppAction::FocusErDiagram);
-        app.er_diagram_state.toggle_interaction_mode();
+        app.state.er_diagram_state.toggle_interaction_mode();
 
         assert_eq!(app.state.focus_area, FocusArea::ErDiagram);
-        assert!(app.er_diagram_state.is_viewport_mode());
+        assert!(app.state.er_diagram_state.is_viewport_mode());
         assert_eq!(app.state.last_non_er_workspace_focus, FocusArea::Sidebar);
 
         app.dispatch_app_action(&ctx, AppAction::ToggleErDiagram);
@@ -3359,11 +3359,11 @@ mod tests {
     fn opening_er_requests_fit_to_view_after_loading_starts() {
         let mut app = test_app();
         assert!(!app.state.show_er_diagram);
-        assert!(!app.er_diagram_state.has_pending_fit_to_view());
+        assert!(!app.state.er_diagram_state.has_pending_fit_to_view());
 
         app.set_er_diagram_visible(true);
 
         assert!(app.state.show_er_diagram);
-        assert!(app.er_diagram_state.has_pending_fit_to_view());
+        assert!(app.state.er_diagram_state.has_pending_fit_to_view());
     }
 }

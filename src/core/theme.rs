@@ -512,7 +512,7 @@ impl ThemeManager {
         visuals.code_bg_color = colors.bg_tertiary;
 
         // 窗口样式 - 更现代的外观
-        visuals.window_stroke = Stroke::new(1.0, colors.border);
+        visuals.window_stroke = Stroke::new(1.0_f32, colors.border);
         visuals.window_shadow = egui::epaint::Shadow {
             offset: [0, 4],
             blur: 12,
@@ -530,7 +530,7 @@ impl ThemeManager {
 
         // 选择/高亮
         visuals.selection.bg_fill = colors.selection;
-        visuals.selection.stroke = Stroke::new(1.0, colors.accent);
+        visuals.selection.stroke = Stroke::new(1.0_f32, colors.accent);
 
         // 超链接
         visuals.hyperlink_color = colors.accent;
@@ -545,35 +545,35 @@ impl ThemeManager {
         // 控件样式
         // 非交互
         visuals.widgets.noninteractive.bg_fill = colors.bg_secondary;
-        visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, colors.fg_secondary);
-        visuals.widgets.noninteractive.bg_stroke = Stroke::new(0.5, colors.border);
+        visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, colors.fg_secondary);
+        visuals.widgets.noninteractive.bg_stroke = Stroke::new(0.5_f32, colors.border);
         visuals.widgets.noninteractive.corner_radius = CornerRadius::same(6);
 
         // 非激活
         visuals.widgets.inactive.bg_fill = colors.bg_secondary;
-        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, colors.fg_primary);
-        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, colors.border);
+        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, colors.fg_primary);
+        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, colors.border);
         visuals.widgets.inactive.corner_radius = CornerRadius::same(6);
         visuals.widgets.inactive.expansion = 0.0;
 
         // 悬停 - 轻微放大效果
         visuals.widgets.hovered.bg_fill = colors.bg_tertiary;
-        visuals.widgets.hovered.fg_stroke = Stroke::new(1.5, colors.fg_primary);
-        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, colors.accent);
+        visuals.widgets.hovered.fg_stroke = Stroke::new(1.5_f32, colors.fg_primary);
+        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, colors.accent);
         visuals.widgets.hovered.corner_radius = CornerRadius::same(6);
         visuals.widgets.hovered.expansion = 1.0;
 
         // 激活
         visuals.widgets.active.bg_fill = colors.accent;
-        visuals.widgets.active.fg_stroke = Stroke::new(2.0, colors.bg_primary);
-        visuals.widgets.active.bg_stroke = Stroke::new(1.0, colors.accent_hover);
+        visuals.widgets.active.fg_stroke = Stroke::new(2.0_f32, colors.bg_primary);
+        visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, colors.accent_hover);
         visuals.widgets.active.corner_radius = CornerRadius::same(6);
         visuals.widgets.active.expansion = 0.0;
 
         // 打开(下拉菜单等)
         visuals.widgets.open.bg_fill = colors.bg_tertiary;
-        visuals.widgets.open.fg_stroke = Stroke::new(1.0, colors.fg_primary);
-        visuals.widgets.open.bg_stroke = Stroke::new(1.0, colors.accent);
+        visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, colors.fg_primary);
+        visuals.widgets.open.bg_stroke = Stroke::new(1.0_f32, colors.accent);
         visuals.widgets.open.corner_radius = CornerRadius::same(6);
 
         // 条纹表格背景

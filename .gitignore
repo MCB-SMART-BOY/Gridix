@@ -43,3 +43,6 @@ QWEN.md
 
 *.log
 _work_*
+
+# direnv
+.direnv/

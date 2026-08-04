@@ -136,7 +136,7 @@ impl FilterPanel {
                 egui::pos2(rect.left() + 4.0, rect.top()),
                 egui::pos2(rect.right() - 4.0, rect.top()),
             ],
-            egui::Stroke::new(1.0, Color32::from_gray(60)),
+            egui::Stroke::new(1.0_f32, Color32::from_gray(60)),
         );
         ui.add_space(4.0);
 
@@ -187,10 +187,10 @@ impl FilterPanel {
                                 Color32::from_rgba_unmultiplied(40, 40, 40, 30)
                             };
                             let stroke = if is_input_selected {
-                                egui::Stroke::new(1.0, Color32::from_rgb(120, 190, 255))
+                                egui::Stroke::new(1.0_f32, Color32::from_rgb(120, 190, 255))
                             } else if is_nav_selected {
                                 egui::Stroke::new(
-                                    1.0,
+                                    1.0_f32,
                                     Color32::from_rgba_unmultiplied(120, 180, 240, 160),
                                 )
                             } else {

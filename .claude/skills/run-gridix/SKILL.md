@@ -4,7 +4,6 @@ description: Build, run, and drive the Gridix desktop database management app. U
 paths:
   - src/**/*.rs
   - Cargo.toml
-  - .claude/skills/run-gridix/driver.sh
 ---
 
 Gridix is an egui/eframe desktop GUI app. All paths relative to repo root.
@@ -36,39 +35,11 @@ cargo build                    # ~30s debug
 ## Run (agent path — Rust driver)
 
 ```bash
-cargo run --bin gridix-driver -- launch &
+cargo run --bin gridix-driver -- launch
 cargo run --bin gridix-driver -- key Ctrl+N
 cargo run --bin gridix-driver -- ss landing
 cargo run --bin gridix-driver -- quit
 ```
-
-The Rust binary replaces `driver.sh`. It manages Xvfb and gridix process lifecycle.
-Needs `xdotool` and `imagemagick` (for `import`) on the system.
-
-### Shell driver (fallback)
-```bash
-source .claude/skills/run-gridix/driver.sh
-launch
-key Ctrl+N
-ss landing
-quit
-```
-
-### Tmux wrapping
-
-One-liner: source the driver then call `tmux_wrap`.
-```bash
-source .claude/skills/run-gridix/driver.sh && tmux_wrap
-```
-
-Manual setup:
-```bash
-tmux new-session -d -s gridix -x 200 -y 50
-tmux send-keys -t gridix 'source .claude/skills/run-gridix/driver.sh && launch' Enter
-timeout 40 bash -c 'until tmux capture-pane -t gridix -p | grep -q "ready"; do sleep 0.3; done'
-tmux send-keys -t gridix 'ss landing' Enter
-```
-
 ### Commands
 
 | cmd | does |

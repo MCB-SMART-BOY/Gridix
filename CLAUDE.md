@@ -58,7 +58,7 @@ src/
 │   ├── config.rs        # AppConfig (TOML, atomic temp-file+rename, Unix 0o600)
 │   ├── keybindings.rs   # Action (35 variants), KeyBindings, keymap.toml engine
 │   ├── commands.rs      # ~100 ScopedCommand entries with default_bindings
-│   ├── theme.rs         # ThemeManager, 18 ThemePresets, ThemeColors
+│   ├── hash.rs           # sha256_hex — shared hash utilities
 │   ├── syntax.rs        # SQL highlighting — custom tokenizer
 │   ├── autocomplete.rs  # SQL completion — keywords, functions, tables, columns
 │   ├── export.rs        # CSV/TSV/SQL/JSON export + import parsing
@@ -141,7 +141,7 @@ src/app/ + ui/  (Layer 4)  — eframe App impl, rendering, input routing (DbMana
 - ✅ database/ → data/ renamed
 - ✅ Config versioning, throttling, security fixes
 - ✅ SQLite driver tests, AppError types, 3 audit fixes
-- ✅ 0 clippy errors, 0 compiler warnings, 0 test failures
+- ✅ 0 clippy errors, 0 compiler warnings, 508 tests passed (18 known pre-existing failures)
 - ✅ 6 critical logic paths verified (needs_repaint, mirror sync, config debounce, handler guards, tab switch, connection guards)
 
 ## Architecture of `.claude/`

@@ -5,7 +5,7 @@ edition = "2024"
 description = "跨平台数据库管理工具，支持 SQLite/PostgreSQL/MySQL"
 authors = ["MCB-SMART-BOY"]
 license = "Apache-2.0"
-repository = "https://github.com/MCB-SMART-BOY/gridix"
+repository = "https://github.com/MCB-SMART-BOY/Gridix"
 keywords = ["database", "gui", "sqlite", "postgresql", "mysql"]
 categories = ["database", "gui"]
 
@@ -47,9 +47,11 @@ tokio = { version = "1", features = [
 # -----------------------------------------------------------------------------
 rusqlite = { version = "0.39", features = ["bundled"] }
 tokio-postgres = { version = "0.7.18", features = ["with-chrono-0_4"] }
-postgres-native-tls = "0.5"
-native-tls = "0.2"
-mysql_async = { version = "0.36", default-features = false, features = ["default"] }
+tokio-postgres-rustls = "0.14"
+rustls = "0.23"
+rustls-pemfile = "2"
+webpki-roots = "1"
+mysql_async = { version = "0.36", default-features = false, features = ["default-rustls"] }
 
 # -----------------------------------------------------------------------------
 # SSH 隧道支持

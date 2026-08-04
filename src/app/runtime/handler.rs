@@ -974,7 +974,7 @@ impl DbManagerApp {
                     .into_iter()
                     .map(|c| ui::ERColumn {
                         is_foreign_key: self
-                            .er_diagram_state
+                            .state.er_diagram_state
                             .is_foreign_key_column(&table_name, &c.name),
                         name: c.name,
                         data_type: c.data_type,
@@ -986,7 +986,7 @@ impl DbManagerApp {
 
                 let display_mode = self.state.er_diagram_state.card_display_mode();
                 if let Some(er_table) = self
-                    .er_diagram_state
+                    .state.er_diagram_state
                     .tables
                     .iter_mut()
                     .find(|t| t.name == table_name)
@@ -1228,29 +1228,29 @@ mod tests {
     #[test]
     fn finalize_er_diagram_load_restores_snapshot_when_table_names_match_exactly() {
         let mut app = crate::app::DbManagerApp::new_for_test();
-        app.er_diagram_state.tables = vec![
+        app.state.er_diagram_state.tables = vec![
             ERTable::new("customers".into()),
             ERTable::new("orders".into()),
         ];
-        app.er_diagram_state
+        app.state.er_diagram_state
             .set_pending_layout_restore(Some(std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(320.0, 140.0)),
                 ("orders".to_string(), egui::pos2(80.0, 420.0)),
             ])));
-        app.er_diagram_state.loading = false;
-        app.er_diagram_state.relationships = vec![relationship("orders", "customers")];
+        app.state.er_diagram_state.loading = false;
+        app.state.er_diagram_state.relationships = vec![relationship("orders", "customers")];
 
         app.finalize_er_diagram_load_if_ready();
 
         assert_eq!(
-            app.er_diagram_state.tables[0].position,
+            app.state.er_diagram_state.tables[0].position,
             egui::pos2(320.0, 140.0)
         );
         assert_eq!(
-            app.er_diagram_state.tables[1].position,
+            app.state.er_diagram_state.tables[1].position,
             egui::pos2(80.0, 420.0)
         );
-        assert!(!app.er_diagram_state.has_pending_layout_restore());
+        assert!(!app.state.er_diagram_state.has_pending_layout_restore());
     }
 
     #[test]
@@ -1278,39 +1278,39 @@ mod tests {
     #[test]
     fn finalize_er_diagram_load_restores_matching_snapshot_after_strategy_layout() {
         let mut app = crate::app::DbManagerApp::new_for_test();
-        app.er_diagram_state.tables = vec![
+        app.state.er_diagram_state.tables = vec![
             ERTable::new("customers".into()),
             ERTable::new("orders".into()),
             ERTable::new("invoices".into()),
         ];
-        app.er_diagram_state
+        app.state.er_diagram_state
             .set_pending_layout_restore(Some(std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(320.0, 140.0)),
                 ("orders".to_string(), egui::pos2(80.0, 420.0)),
                 ("legacy".to_string(), egui::pos2(920.0, 40.0)),
             ])));
-        app.er_diagram_state.loading = false;
-        app.er_diagram_state.relationships = vec![relationship("orders", "customers")];
+        app.state.er_diagram_state.loading = false;
+        app.state.er_diagram_state.relationships = vec![relationship("orders", "customers")];
 
         app.finalize_er_diagram_load_if_ready();
 
         assert_eq!(
-            app.er_diagram_state.tables[0].position,
+            app.state.er_diagram_state.tables[0].position,
             egui::pos2(320.0, 140.0)
         );
         assert_eq!(
-            app.er_diagram_state.tables[1].position,
+            app.state.er_diagram_state.tables[1].position,
             egui::pos2(80.0, 420.0)
         );
         assert_ne!(
-            app.er_diagram_state.tables[2].position,
+            app.state.er_diagram_state.tables[2].position,
             egui::pos2(320.0, 140.0)
         );
         assert_ne!(
-            app.er_diagram_state.tables[2].position,
+            app.state.er_diagram_state.tables[2].position,
             egui::pos2(80.0, 420.0)
         );
-        assert!(!app.er_diagram_state.has_pending_layout_restore());
+        assert!(!app.state.er_diagram_state.has_pending_layout_restore());
     }
 
     #[test]
@@ -1322,30 +1322,30 @@ mod tests {
         orders.size = egui::vec2(180.0, 200.0);
         let mut invoices = ERTable::new("invoices".into());
         invoices.size = egui::vec2(180.0, 200.0);
-        app.er_diagram_state.tables = vec![customers, orders, invoices];
-        app.er_diagram_state
+        app.state.er_diagram_state.tables = vec![customers, orders, invoices];
+        app.state.er_diagram_state
             .set_pending_layout_restore(Some(std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(540.0, 50.0)),
                 ("orders".to_string(), egui::pos2(300.0, 50.0)),
                 ("legacy".to_string(), egui::pos2(80.0, 420.0)),
             ])));
-        app.er_diagram_state.loading = false;
+        app.state.er_diagram_state.loading = false;
 
         app.finalize_er_diagram_load_if_ready();
 
-        let customers = app
+        let customers = app.state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "customers")
             .unwrap();
-        let orders = app
+        let orders = app.state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "orders")
             .unwrap();
-        let invoices = app
+        let invoices = app.state
             .er_diagram_state
             .tables
             .iter()
@@ -1356,7 +1356,7 @@ mod tests {
         assert_eq!(orders.position, egui::pos2(300.0, 50.0));
         assert!(!invoices.rect().intersects(customers.rect()));
         assert!(!invoices.rect().intersects(orders.rect()));
-        assert!(!app.er_diagram_state.has_pending_layout_restore());
+        assert!(!app.state.er_diagram_state.has_pending_layout_restore());
     }
 
     #[test]
@@ -1385,28 +1385,28 @@ mod tests {
         orders.size = egui::vec2(180.0, 200.0);
         let mut invoices = ERTable::new("invoices".into());
         invoices.size = egui::vec2(180.0, 200.0);
-        app.er_diagram_state.tables = vec![customers, orders, invoices];
+        app.state.er_diagram_state.tables = vec![customers, orders, invoices];
         let restored_orders = egui::pos2(660.0, 50.0);
-        app.er_diagram_state
+        app.state.er_diagram_state
             .set_pending_layout_restore(Some(std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(900.0, 50.0)),
                 ("orders".to_string(), restored_orders),
             ])));
-        app.er_diagram_state.loading = false;
-        app.er_diagram_state.relationships = relationships;
+        app.state.er_diagram_state.loading = false;
+        app.state.er_diagram_state.relationships = relationships;
 
         let strategy_distance =
             strategy_invoice.distance(restored_orders + egui::vec2(90.0, 100.0));
 
         app.finalize_er_diagram_load_if_ready();
 
-        let orders = app
+        let orders = app.state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "orders")
             .unwrap();
-        let invoices = app
+        let invoices = app.state
             .er_diagram_state
             .tables
             .iter()
@@ -1416,7 +1416,7 @@ mod tests {
 
         assert!(restored_distance < strategy_distance);
         assert!(!invoices.rect().intersects(orders.rect()));
-        assert!(!app.er_diagram_state.has_pending_layout_restore());
+        assert!(!app.state.er_diagram_state.has_pending_layout_restore());
     }
 
     #[test]
@@ -1429,24 +1429,24 @@ mod tests {
         let relationships = vec![relationship("invoices", "orders")];
 
         let mut app = crate::app::DbManagerApp::new_for_test();
-        app.er_diagram_state.tables = vec![orders, invoices];
-        app.er_diagram_state
+        app.state.er_diagram_state.tables = vec![orders, invoices];
+        app.state.er_diagram_state
             .set_pending_layout_restore(Some(std::collections::HashMap::from([(
                 "orders".to_string(),
                 egui::pos2(660.0, 50.0),
             )])));
-        app.er_diagram_state.loading = false;
-        app.er_diagram_state.relationships = relationships;
+        app.state.er_diagram_state.loading = false;
+        app.state.er_diagram_state.relationships = relationships;
 
         app.finalize_er_diagram_load_if_ready();
 
-        let orders = app
+        let orders = app.state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "orders")
             .unwrap();
-        let invoices = app
+        let invoices = app.state
             .er_diagram_state
             .tables
             .iter()
@@ -1455,7 +1455,7 @@ mod tests {
 
         assert!(invoices.rect().top() >= orders.rect().bottom() + 39.0);
         assert!(!invoices.rect().intersects(orders.rect()));
-        assert!(!app.er_diagram_state.has_pending_layout_restore());
+        assert!(!app.state.er_diagram_state.has_pending_layout_restore());
     }
 
     #[test]
@@ -1473,30 +1473,30 @@ mod tests {
         ];
 
         let mut app = crate::app::DbManagerApp::new_for_test();
-        app.er_diagram_state.tables = vec![customers, order_items, orders];
-        app.er_diagram_state
+        app.state.er_diagram_state.tables = vec![customers, order_items, orders];
+        app.state.er_diagram_state
             .set_pending_layout_restore(Some(std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(660.0, 50.0)),
                 ("order_items".to_string(), egui::pos2(940.0, 250.0)),
             ])));
-        app.er_diagram_state.loading = false;
-        app.er_diagram_state.relationships = relationships;
+        app.state.er_diagram_state.loading = false;
+        app.state.er_diagram_state.relationships = relationships;
 
         app.finalize_er_diagram_load_if_ready();
 
-        let customers = app
+        let customers = app.state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "customers")
             .unwrap();
-        let order_items = app
+        let order_items = app.state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "order_items")
             .unwrap();
-        let orders = app
+        let orders = app.state
             .er_diagram_state
             .tables
             .iter()
@@ -1507,7 +1507,7 @@ mod tests {
         assert!(orders.center().y < order_items.center().y);
         assert!(!orders.rect().intersects(customers.rect()));
         assert!(!orders.rect().intersects(order_items.rect()));
-        assert!(!app.er_diagram_state.has_pending_layout_restore());
+        assert!(!app.state.er_diagram_state.has_pending_layout_restore());
     }
 
     #[test]

@@ -308,7 +308,7 @@ impl ToolbarThemeDialog {
             egui::Color32::TRANSPARENT
         };
         let stroke = if selected {
-            egui::Stroke::new(1.0, selection_stroke.gamma_multiply(0.7))
+            egui::Stroke::new(1.0_f32, selection_stroke.gamma_multiply(0.7))
         } else {
             egui::Stroke::NONE
         };
