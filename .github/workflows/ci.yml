@@ -161,14 +161,11 @@ jobs:
       - name: Prepare AppImage icon
         run: cp assets/branding/gridix-icon.png icon.png
 
-      - name: Build binary
-        run: cargo build --release --bin gridix
-
-      - name: Package AppImage
+      - name: Build and package AppImage
         run: |
-          cargo appimage --no-build --bin gridix
+          cargo build --release --bin gridix
+          cargo appimage --no-build
           mv target/appimage/gridix*.AppImage gridix.AppImage 2>/dev/null || mv "target/appimage/gridix.AppImage" gridix.AppImage
-
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
