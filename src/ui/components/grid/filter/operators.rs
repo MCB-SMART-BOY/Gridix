@@ -179,7 +179,7 @@ pub fn check_filter_match(
 }
 
 /// 检查筛选条件是否匹配（带 SQL NULL 元信息）
-pub fn check_filter_match_with_null(
+pub(crate) fn check_filter_match_with_null(
     cell: &str,
     is_null: bool,
     operator: &FilterOperator,

@@ -19,6 +19,10 @@ pub enum Message {
     DatabaseDropped(String, String, Result<(), String>),
     /// 表删除完成 (连接名, 表名, 删除结果)
     TableDropped(String, String, Result<(), String>),
+    /// schema 变更后的静默表列表重载完成 (连接名, 请求ID, 表列表结果)
+    ///
+    /// 与连接/选库不同：不发"已连接/已选库"提示，只静默刷新表列表与 autocomplete。
+    ActiveTablesReloaded(String, u64, Result<Vec<String>, String>),
     /// 查询执行完成 (SQL语句, 连接名, 目标Tab ID, 请求ID, 查询结果, 耗时毫秒)
     QueryDone(
         String,
@@ -30,8 +34,20 @@ pub enum Message {
     ),
     /// 导入执行完成 (执行报告, 耗时毫秒)
     ImportDone(Result<ImportExecutionReport, String>, u64),
-    /// 主键列获取完成 (表名, 主键列名)
-    PrimaryKeyFetched(String, Option<String>),
+    /// 表格保存批次执行完成 (执行报告, 表名, 请求ID, 耗时毫秒)
+    ///
+    /// 网格编辑保存走事务化批量通道，成功后由 handler 清除编辑状态并刷新该表。
+    GridSaveDone {
+        result: Result<ImportExecutionReport, String>,
+        table: String,
+        request_id: u64,
+        elapsed_ms: u64,
+    },
+    /// 表列元数据获取完成 (表名, 列信息列表)
+    ///
+    /// 携带类型/可空性/主键,用于网格保存前的客户端校验(审计 G6),
+    /// 并顺带刷新主键索引(取代仅拉主键的旧路径）。
+    ColumnMetadataFetched(String, Vec<ColumnInfo>),
     /// 触发器列表获取完成 (连接名, 数据库名, 请求ID, 触发器列表结果)
     TriggersFetched(
         String,
@@ -46,8 +62,8 @@ pub enum Message {
         u64,
         Result<Vec<RoutineInfo>, String>,
     ),
-    /// 外键关系获取完成 (外键列表结果)
-    ForeignKeysFetched(Result<Vec<ForeignKeyInfo>, String>),
-    /// ER图表结构获取完成 (表名, 列信息列表)
-    ERTableColumnsFetched(String, Result<Vec<ColumnInfo>, String>),
+    /// 外键关系获取完成 (加载代号, 外键列表结果)
+    ForeignKeysFetched(u64, Result<Vec<ForeignKeyInfo>, String>),
+    /// ER图表结构获取完成 (加载代号, 表名, 列信息列表)
+    ERTableColumnsFetched(u64, String, Result<Vec<ColumnInfo>, String>),
 }

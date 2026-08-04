@@ -2,6 +2,7 @@
 
 use super::filter::{ColumnFilter, FilterCache};
 use super::mode::GridMode;
+use crate::data::ColumnInfo;
 use std::collections::HashMap;
 
 /// 列宽缓存
@@ -101,6 +102,8 @@ pub struct DataGridState {
     pub filter_cache: FilterCache,
     /// 主键列索引（None 表示未知，编辑功能将被禁用）
     pub primary_key_column: Option<usize>,
+    /// 当前表的列元数据（类型/可空性/主键），用于保存前客户端校验（审计 G6）。空=未知。
+    pub column_metadata: Vec<ColumnInfo>,
     /// 正则表达式错误信息（用于向用户显示正则匹配失败原因）
     #[allow(dead_code)] // 预留字段，待实现正则错误提示 UI
     pub regex_error: Option<String>,

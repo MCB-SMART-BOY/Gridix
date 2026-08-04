@@ -437,7 +437,11 @@ pub fn stabilize_incremental_layout_positions(
 ///
 /// 根据外键关系确定层次，被引用的表在上层
 #[allow(dead_code)]
-pub fn hierarchical_layout(tables: &mut [ERTable], relationships: &[Relationship], spacing: Vec2) {
+pub(crate) fn hierarchical_layout(
+    tables: &mut [ERTable],
+    relationships: &[Relationship],
+    spacing: Vec2,
+) {
     if tables.is_empty() {
         return;
     }

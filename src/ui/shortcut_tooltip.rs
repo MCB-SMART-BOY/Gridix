@@ -6,9 +6,9 @@ use crate::core::{
     Action, KeyBinding, KeyBindings, KeyCode, KeyModifiers, ScopedCommandBinding, scoped_command,
 };
 use egui::InputState;
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::OnceLock;
+use std::sync::RwLock;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LocalBinding {
@@ -487,6 +487,7 @@ impl LocalShortcut {
     pub fn bindings(self) -> Vec<LocalBinding> {
         if let Some(bindings) = current_local_shortcut_overrides()
             .read()
+            .unwrap_or_else(|e| e.into_inner())
             .get(self.config_key())
         {
             return bindings.clone();
@@ -523,10 +524,19 @@ impl LocalShortcut {
 
     fn command(self) -> &'static crate::core::ScopedCommand {
         scoped_command(self.config_key()).unwrap_or_else(|| {
-            panic!(
+            // 缺失注册：开发期由 debug_assert 捕获；生产降级为无害占位，
+            // 不在每帧/每按键的热路径上 panic（修复审计 B7）。
+            debug_assert!(
+                false,
                 "LocalShortcut {:?} is missing from the scoped command registry",
                 self
-            )
+            );
+            tracing::error!(
+                shortcut = ?self,
+                config_key = self.config_key(),
+                "LocalShortcut 缺少 scoped command 注册项，使用占位回退"
+            );
+            &crate::core::MISSING_SCOPED_COMMAND
         })
     }
 }
@@ -550,7 +560,9 @@ pub fn sync_runtime_local_shortcuts(keybindings: &KeyBindings) {
             }
         }
     }
-    *current_local_shortcut_overrides().write() = overrides;
+    *current_local_shortcut_overrides()
+        .write()
+        .unwrap_or_else(|e| e.into_inner()) = overrides;
 }
 
 /// 仅使用给定快捷键列表生成提示。
@@ -670,12 +682,24 @@ pub fn consume_scoped_command_with_text_priority(
 }
 
 fn scoped_command_bindings(command_id: &'static str) -> Vec<LocalBinding> {
-    if let Some(bindings) = current_local_shortcut_overrides().read().get(command_id) {
+    if let Some(bindings) = current_local_shortcut_overrides()
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(command_id)
+    {
         return bindings.clone();
     }
 
-    scoped_command(command_id)
-        .unwrap_or_else(|| panic!("missing scoped command registry entry for {command_id}"))
+    let Some(command) = scoped_command(command_id) else {
+        // 缺失注册：开发期由 debug_assert 捕获；生产返回空绑定而非 panic（修复审计 B7）。
+        debug_assert!(
+            false,
+            "missing scoped command registry entry for {command_id}"
+        );
+        tracing::error!(command_id, "缺少 scoped command 注册项，回退为空绑定");
+        return Vec::new();
+    };
+    command
         .default_bindings
         .iter()
         .copied()
@@ -805,9 +829,9 @@ mod tests {
 
     #[test]
     fn local_shortcut_text_uses_actual_binding_order() {
-        let text = local_shortcut_text(LocalShortcut::SqlHistoryBrowse);
+        let text = local_shortcut_text(LocalShortcut::SqlHistoryPrev);
 
-        assert_eq!(text, "Shift+Up / Shift+Down / Shift+K / Shift+J");
+        assert_eq!(text, "Shift+Up / Shift+K");
     }
 
     #[test]

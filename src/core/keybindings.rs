@@ -461,7 +461,10 @@ impl KeyModifiers {
         } else {
             self.ctrl == mods.ctrl
         };
-        ctrl_match && self.shift == mods.shift && self.alt == mods.alt && self.mac_cmd == mods.mac_cmd
+        ctrl_match
+            && self.shift == mods.shift
+            && self.alt == mods.alt
+            && self.mac_cmd == mods.mac_cmd
     }
 }
 
@@ -741,6 +744,10 @@ pub enum Action {
     ToggleErDiagram,
     /// 聚焦 ER 关系图
     FocusErDiagram,
+    /// 显示并聚焦底部面板（结果/消息等）
+    FocusBottomPanel,
+    /// 显示并聚焦右侧检查器
+    FocusRightInspector,
     /// 显示帮助
     ShowHelp,
     /// 显示历史记录
@@ -820,6 +827,8 @@ impl Action {
             Action::ToggleEditor,
             Action::ToggleErDiagram,
             Action::FocusErDiagram,
+            Action::FocusBottomPanel,
+            Action::FocusRightInspector,
             Action::ShowHelp,
             Action::ShowHistory,
             Action::Export,
@@ -864,6 +873,8 @@ impl Action {
             Action::ToggleEditor => "切换 SQL 编辑器",
             Action::ToggleErDiagram => "切换 ER 关系图",
             Action::FocusErDiagram => "聚焦 ER 关系图",
+            Action::FocusBottomPanel => "聚焦底部面板",
+            Action::FocusRightInspector => "聚焦右侧检查器",
             Action::ShowHelp => "显示帮助",
             Action::ShowHistory => "显示历史记录",
             Action::Export => "导出数据",
@@ -906,6 +917,8 @@ impl Action {
             | Action::ToggleEditor
             | Action::ToggleErDiagram
             | Action::FocusErDiagram
+            | Action::FocusBottomPanel
+            | Action::FocusRightInspector
             | Action::ShowHelp
             | Action::ShowHistory
             | Action::Export
@@ -943,6 +956,8 @@ impl Action {
             Action::ToggleEditor => "toggle_editor",
             Action::ToggleErDiagram => "toggle_er_diagram",
             Action::FocusErDiagram => "focus_er_diagram",
+            Action::FocusBottomPanel => "focus_bottom_panel",
+            Action::FocusRightInspector => "focus_right_inspector",
             Action::ShowHelp => "show_help",
             Action::ShowHistory => "show_history",
             Action::Export => "export",
@@ -986,6 +1001,8 @@ impl Action {
             "toggle_editor" => Action::ToggleEditor,
             "toggle_er_diagram" => Action::ToggleErDiagram,
             "focus_er_diagram" => Action::FocusErDiagram,
+            "focus_bottom_panel" => Action::FocusBottomPanel,
+            "focus_right_inspector" => Action::FocusRightInspector,
             "show_help" => Action::ShowHelp,
             "show_history" => Action::ShowHistory,
             "export" => Action::Export,
@@ -1037,24 +1054,86 @@ impl Default for KeyBindings {
         let mut bindings = HashMap::new();
 
         // 全局操作
+        bindings.insert(Action::NextFocusArea, KeyBinding::key_only(KeyCode::Tab));
+        bindings.insert(
+            Action::PrevFocusArea,
+            KeyBinding::new(KeyCode::Tab, KeyModifiers::SHIFT),
+        );
         bindings.insert(Action::NewConnection, KeyBinding::ctrl(KeyCode::N));
         bindings.insert(Action::CommandPalette, KeyBinding::ctrl(KeyCode::P));
+        bindings.insert(
+            Action::OpenToolbarActionsMenu,
+            KeyBinding::new(KeyCode::A, KeyModifiers::ALT),
+        );
+        bindings.insert(
+            Action::OpenToolbarCreateMenu,
+            KeyBinding::new(KeyCode::N, KeyModifiers::ALT),
+        );
+        bindings.insert(
+            Action::OpenThemeSelector,
+            KeyBinding::ctrl_shift(KeyCode::T),
+        );
         bindings.insert(Action::ToggleSidebar, KeyBinding::ctrl(KeyCode::B));
         bindings.insert(Action::ToggleDarkMode, KeyBinding::ctrl(KeyCode::D));
         bindings.insert(Action::ToggleEditor, KeyBinding::ctrl(KeyCode::J));
         bindings.insert(Action::ToggleErDiagram, KeyBinding::ctrl(KeyCode::R));
+        bindings.insert(
+            Action::FocusErDiagram,
+            KeyBinding::new(KeyCode::R, KeyModifiers::ALT),
+        );
+        bindings.insert(Action::FocusBottomPanel, KeyBinding::ctrl_shift(KeyCode::J));
+        bindings.insert(
+            Action::FocusRightInspector,
+            KeyBinding::ctrl_shift(KeyCode::I),
+        );
         bindings.insert(Action::ShowHelp, KeyBinding::key_only(KeyCode::F1));
         bindings.insert(Action::ShowHistory, KeyBinding::ctrl(KeyCode::H));
         bindings.insert(Action::Export, KeyBinding::ctrl(KeyCode::E));
         bindings.insert(Action::Import, KeyBinding::ctrl(KeyCode::I));
         bindings.insert(Action::Refresh, KeyBinding::key_only(KeyCode::F5));
+        bindings.insert(Action::ClearCommandLine, KeyBinding::ctrl(KeyCode::L));
+        bindings.insert(Action::ClearSearch, KeyBinding::ctrl(KeyCode::K));
         bindings.insert(Action::NewTab, KeyBinding::ctrl(KeyCode::T));
         bindings.insert(Action::CloseTab, KeyBinding::ctrl(KeyCode::W));
+        bindings.insert(
+            Action::NextTab,
+            KeyBinding::new(KeyCode::Tab, KeyModifiers::CTRL),
+        );
+        bindings.insert(
+            Action::PrevTab,
+            KeyBinding::new(KeyCode::Tab, KeyModifiers::CTRL_SHIFT),
+        );
         bindings.insert(Action::Save, KeyBinding::ctrl(KeyCode::S));
         bindings.insert(Action::GotoLine, KeyBinding::ctrl(KeyCode::G));
         bindings.insert(Action::ZoomIn, KeyBinding::ctrl(KeyCode::Plus));
         bindings.insert(Action::ZoomOut, KeyBinding::ctrl(KeyCode::Minus));
         bindings.insert(Action::ZoomReset, KeyBinding::ctrl(KeyCode::Num0));
+
+        // 键盘优先契约补全（修复审计 B9）：
+        // 快捷键设置面板此前没有任何默认键，只能靠命令面板或鼠标打开。
+        bindings.insert(
+            Action::OpenKeybindingsDialog,
+            KeyBinding::ctrl(KeyCode::Comma),
+        );
+        // 侧边栏分区跳转此前 router 已接线但无默认键，按惯例用 Ctrl+1..6。
+        bindings.insert(
+            Action::FocusSidebarConnections,
+            KeyBinding::ctrl(KeyCode::Num1),
+        );
+        bindings.insert(
+            Action::FocusSidebarDatabases,
+            KeyBinding::ctrl(KeyCode::Num2),
+        );
+        bindings.insert(Action::FocusSidebarTables, KeyBinding::ctrl(KeyCode::Num3));
+        bindings.insert(Action::FocusSidebarFilters, KeyBinding::ctrl(KeyCode::Num4));
+        bindings.insert(
+            Action::FocusSidebarTriggers,
+            KeyBinding::ctrl(KeyCode::Num5),
+        );
+        bindings.insert(
+            Action::FocusSidebarRoutines,
+            KeyBinding::ctrl(KeyCode::Num6),
+        );
 
         Self {
             bindings,
@@ -2122,6 +2201,29 @@ mod tests {
     use super::{Action, KeyBinding, KeyBindings, KeyCode, KeymapDiagnosticCode};
     use std::fs;
     use tempfile::tempdir;
+
+    #[test]
+    fn keyboard_first_actions_have_default_bindings() {
+        // 审计 B9：这些操作此前 router 已接线但缺少默认键，导致键盘不可达。
+        let bindings = KeyBindings::default();
+        for action in [
+            Action::OpenKeybindingsDialog,
+            Action::FocusSidebarConnections,
+            Action::FocusSidebarDatabases,
+            Action::FocusSidebarTables,
+            Action::FocusSidebarFilters,
+            Action::FocusSidebarTriggers,
+            Action::FocusSidebarRoutines,
+            // 审计 DLG-B1-1：底部面板/右侧检查器的键盘可达入口。
+            Action::FocusBottomPanel,
+            Action::FocusRightInspector,
+        ] {
+            assert!(
+                bindings.get(action).is_some(),
+                "{action:?} must have a default binding for keyboard reachability"
+            );
+        }
+    }
 
     #[test]
     fn missing_keymap_is_initialized_from_defaults_and_marks_legacy_migration() {

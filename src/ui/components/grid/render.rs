@@ -8,7 +8,7 @@ use super::{
     CELL_TRUNCATE_LEN, COLOR_CELL_EDITING, COLOR_CELL_MODIFIED, COLOR_CELL_SELECTED,
     COLOR_VISUAL_SELECT,
 };
-use crate::ui::styles::{GRAY, theme_text};
+use crate::ui::styles::{GRAY, contrasting_text, theme_error, theme_success, theme_text};
 use crate::ui::{LocalShortcut, consume_local_shortcut};
 use egui::{self, Color32, RichText, Sense, TextEdit, Vec2};
 
@@ -16,7 +16,7 @@ use egui::{self, Color32, RichText, Sense, TextEdit, Vec2};
 const COLOR_NULL: Color32 = Color32::from_rgb(120, 120, 140);
 
 /// 渲染列头
-pub fn render_column_header(
+pub(crate) fn render_column_header(
     ui: &mut egui::Ui,
     col_name: &str,
     col_idx: usize,
@@ -36,7 +36,7 @@ pub fn render_column_header(
         // 筛选按钮 - 无边框图标
         let filter_icon = if has_filter { "▼" } else { "·" };
         let btn_color = if has_filter {
-            Color32::from_rgb(150, 200, 100)
+            theme_success(ui.visuals())
         } else {
             GRAY
         };
@@ -63,14 +63,14 @@ fn column_header_text_color(
     if is_cursor_col {
         state.mode.color()
     } else if has_filter {
-        Color32::from_rgb(150, 200, 100)
+        theme_success(visuals)
     } else {
         theme_text(visuals)
     }
 }
 
 /// 渲染行号单元格
-pub fn render_row_number(
+pub(crate) fn render_row_number(
     ui: &mut egui::Ui,
     row_idx: usize,
     is_cursor_row: bool,
@@ -78,16 +78,18 @@ pub fn render_row_number(
     state: &mut DataGridState,
 ) {
     // 只在删除状态时设置背景色，普通行由表格的 set_selected 和 striped 效果处理
+    let error = theme_error(ui.visuals());
     let bg = if is_deleted {
-        Color32::from_rgb(150, 50, 50)
+        error
     } else {
         Color32::TRANSPARENT
     };
 
     egui::Frame::NONE.fill(bg).inner_margin(4.0).show(ui, |ui| {
         let text = if is_deleted {
+            // 删除徽标背景为饱和错误色，前景按亮度自动选黑/白以保证对比。
             RichText::new(format!("✕{}", row_idx + 1))
-                .color(Color32::WHITE)
+                .color(contrasting_text(error))
                 .small()
         } else if is_cursor_row {
             RichText::new(format!("{}", row_idx + 1))
@@ -143,7 +145,7 @@ pub fn render_row_number(
                 "🗑",
                 "标记删除",
                 "标记删除 (Space+d)",
-                Color32::from_rgb(255, 100, 100),
+                theme_error(ui.visuals()),
             ) {
                 if !state.rows_to_delete.contains(&row_idx) {
                     state.rows_to_delete.push(row_idx);
@@ -155,7 +157,7 @@ pub fn render_row_number(
 }
 
 /// 渲染可编辑的数据单元格
-pub fn render_editable_cell(
+pub(crate) fn render_editable_cell(
     ui: &mut egui::Ui,
     cell: &str,
     is_null: bool,
@@ -183,7 +185,8 @@ pub fn render_editable_cell(
 
     // 只在特殊单元格状态时设置背景色，行级别高亮由表格的 set_selected 处理
     let bg_color = if is_row_deleted {
-        Color32::from_rgba_unmultiplied(150, 50, 50, 100)
+        let e = theme_error(ui.visuals());
+        Color32::from_rgba_unmultiplied(e.r(), e.g(), e.b(), 100)
     } else if is_editing {
         COLOR_CELL_EDITING
     } else if is_selected {
@@ -384,7 +387,7 @@ mod header_tests {
 
         assert_eq!(
             column_header_text_color(&visuals, &state, false, true),
-            Color32::from_rgb(150, 200, 100)
+            theme_success(&visuals)
         );
     }
 }
@@ -393,7 +396,7 @@ mod header_tests {
 const COLOR_NEW_ROW: Color32 = Color32::from_rgba_premultiplied(48, 96, 48, 60);
 
 /// 渲染新增行的单元格
-pub fn render_new_row_cell(
+pub(crate) fn render_new_row_cell(
     ui: &mut egui::Ui,
     cell: &str,
     row_idx: usize,

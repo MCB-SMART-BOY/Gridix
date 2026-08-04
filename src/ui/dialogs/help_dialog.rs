@@ -13,7 +13,10 @@ use super::picker_shell::{
     PickerPaneMode,
 };
 use crate::core::Action;
-use crate::ui::styles::{theme_accent, theme_muted_text, theme_warn};
+use crate::ui::styles::{
+    contrasting_text, theme_accent, theme_muted_text, theme_selection_fill, theme_subtle_stroke,
+    theme_warn,
+};
 use crate::ui::{LocalShortcut, local_shortcuts_text};
 use egui::{self, Color32, RichText, ScrollArea, Vec2};
 
@@ -168,6 +171,14 @@ impl HelpDialog {
                         ui,
                         header_layout,
                         |ui| {
+                            ui.label(RichText::new("帮助与学习").size(18.0).strong());
+                            ui.add_space(3.0);
+                            ui.label(
+                                RichText::new("把工具说明、学习路线和可执行示例放在同一个工作台。")
+                                    .small()
+                                    .weak(),
+                            );
+                            ui.add_space(10.0);
                             ui.horizontal_wrapped(|ui| {
                                 ui.spacing_mut().item_spacing = Vec2::new(12.0, 0.0);
                                 let help_binding = context.keybindings.display(Action::ShowHelp);

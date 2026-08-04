@@ -22,10 +22,8 @@ use eframe::egui;
 use std::collections::HashMap;
 use std::sync::mpsc::channel;
 
-use crate::core::{
-    AppConfig, HighlightColors, KeyBindings, ThemeManager, constants,
-};
-use crate::ui::{self, DdlDialogState, ExportConfig, QueryTabManager};
+use crate::core::{AppConfig, HighlightColors, KeyBindings, ThemeManager, constants};
+use crate::ui::{self, ExportConfig, QueryTabManager};
 
 use action::command_palette::CommandPaletteState;
 
@@ -61,6 +59,13 @@ impl GridWorkspaceStore {
             .retain(|workspace_id, _| workspace_id.tab_id != tab_id);
     }
 
+    /// 该标签页是否存在任何未保存的网格编辑（修改单元格 / 新增行 / 待删除行）。
+    fn tab_has_unsaved_edits(&self, tab_id: &str) -> bool {
+        self.states
+            .iter()
+            .any(|(workspace_id, state)| workspace_id.tab_id == tab_id && state.has_changes())
+    }
+
     fn remove_table(
         &mut self,
         connection_name: &str,
@@ -89,12 +94,10 @@ impl GridWorkspaceStore {
 /// DB 连接、异步基础设施、请求追踪 → `self.session` (Session)
 /// 主题、缩放、高亮颜色 → `self.state` (UiState)
 ///
-/// # 剩余字段（待迁移）
+/// # 迁移状态
 ///
-/// 对话框状态、Grid 状态、搜索/选择、ER 图、UI 显示
-///
-/// 目标：4 字段 { session, state, config, keybindings }
-/// 当前：~47 字段（已迁移 ~53）
+/// 架构目标已达成：session (~28 fields) + state (~57 fields) 聚合
+/// 当前：11 字段（迁移完成）
 pub struct DbManagerApp {
     pub session: crate::session::Session,
     pub state: crate::state::UiState,
@@ -114,7 +117,8 @@ pub struct DbManagerApp {
 impl DbManagerApp {
     /// 获取当前活动 Tab 的 SQL（只读）
     pub(crate) fn active_sql(&self) -> &str {
-        self.session.tab_manager
+        self.session
+            .tab_manager
             .get_active()
             .map(|t| t.sql.as_str())
             .unwrap_or("")
@@ -156,8 +160,7 @@ impl DbManagerApp {
 
     /// Periodically flush dirty config (called each frame)
     pub(crate) fn tick_config_save(&mut self) {
-        if self.config_dirty
-            && self.last_config_save.elapsed() > std::time::Duration::from_secs(5)
+        if self.config_dirty && self.last_config_save.elapsed() > std::time::Duration::from_secs(5)
         {
             self.save_config();
             self.config_dirty = false;
@@ -216,33 +219,43 @@ impl DbManagerApp {
         }
 
         let mut sidebar_panel_state = ui::SidebarPanelState::default();
-        sidebar_panel_state.workflow.edge_transfer = app_config.sidebar.edge_transfer;
+        sidebar_panel_state.workflow.edge_transfer = app_config.workbench.sidebar.edge_transfer;
+        let workbench_state = crate::state::WorkbenchState::from_config(&app_config.workbench);
+        let initial_query_tab_id = session
+            .tab_manager
+            .get_active()
+            .map(|tab| tab.id.clone())
+            .unwrap_or_else(|| "query-0".to_string());
+        let dock_state = ui::dock_tabs::default_surface_layout(
+            initial_query_tab_id,
+            workbench_state.right_inspector.active_tab,
+        );
 
         let mut app = Self {
             session,
-            state: {
-                let mut s = crate::state::UiState::default();
-                s.theme_manager = theme_manager;
-                s.highlight_colors = highlight_colors;
-                s.ui_scale = ui_scale;
-                s.base_pixels_per_point = base_pixels_per_point;
-                s.connection_dialog_show_advanced = app_config.connection_dialog_show_advanced;
-                s.sidebar_width = 280.0;
-                s.ddl_dialog_state = DdlDialogState::default();
-                s.create_db_dialog_state = ui::CreateDbDialogState::new();
-                s.create_user_dialog_state = ui::CreateUserDialogState::new();
-                s
+            state: crate::state::UiState {
+                theme_manager,
+                highlight_colors,
+                ui_scale,
+                base_pixels_per_point,
+                connection_dialog_show_advanced: app_config.connection_dialog_show_advanced,
+                show_sidebar: app_config.workbench.sidebar.visible,
+                sidebar_width: app_config.workbench.sidebar.width,
+                show_er_diagram: true,
+                workbench: workbench_state,
+                ..Default::default()
             },
             app_config,
             grid_workspaces: GridWorkspaceStore::default(),
             active_grid_workspace_enabled: false,
-            dock_state: ui::dock_tabs::default_layout(),
+            dock_state,
             keybindings,
             command_palette_state: CommandPaletteState::default(),
             pending_toggle_dark_mode: false,
             config_dirty: false,
             last_config_save: std::time::Instant::now(),
         };
+        app.apply_workbench_activity_to_sidebar_panels();
         app.refresh_welcome_environment_status();
         app
     }
@@ -261,16 +274,23 @@ impl DbManagerApp {
     pub(crate) fn on_dock_tab_close(&mut self, tab_index: usize) {
         self.persist_active_tab_state_for_navigation();
         // Clone needed values before mutable operations
-        let pending_id = self.session.tab_manager.tabs
+        let pending_id = self
+            .session
+            .tab_manager
+            .tabs
             .get(tab_index)
             .and_then(|tab| tab.pending_request_id);
-        let tab_id = self.session.tab_manager.tabs
+        let tab_id = self
+            .session
+            .tab_manager
+            .tabs
             .get(tab_index)
             .map(|tab| tab.id.clone());
         if let Some(request_id) = pending_id {
             self.cancel_query_request_silently(request_id);
         }
         if let Some(ref id) = tab_id {
+            self.warn_if_tab_has_unsaved_grid_edits(id);
             self.remove_grid_workspaces_for_tab(id);
         }
         self.session.tab_manager.close_tab(tab_index);
@@ -290,7 +310,8 @@ impl DbManagerApp {
         let tab_id = self.session.tab_manager.get_active()?.id.clone();
         let connection_name = self.session.manager.active.clone()?;
         let database_name = self
-            .session.manager
+            .session
+            .manager
             .get_active()
             .and_then(|connection| connection.selected_database.clone());
         Some(GridWorkspaceId {
@@ -313,7 +334,8 @@ impl DbManagerApp {
         let Some(workspace_id) = self.active_grid_workspace_id() else {
             return;
         };
-        self.grid_workspaces.save(workspace_id, &self.state.grid_state);
+        self.grid_workspaces
+            .save(workspace_id, &self.state.grid_state);
     }
 
     fn sync_active_grid_focus(&mut self) {
@@ -364,12 +386,25 @@ impl DbManagerApp {
         self.grid_workspaces.remove_tab(tab_id);
     }
 
+    /// 关闭标签页前：若该标签页有未保存的网格编辑，发出明确警告，避免静默丢失（修复审计 B3-tabclose）。
+    ///
+    /// 在删除工作区前调用。先持久化当前活动工作区，确保 store 反映最新编辑。
+    pub(crate) fn warn_if_tab_has_unsaved_grid_edits(&mut self, tab_id: &str) {
+        self.persist_active_grid_workspace();
+        if self.grid_workspaces.tab_has_unsaved_edits(tab_id) {
+            self.session
+                .notifications
+                .warning("已关闭标签页，丢弃了其中未保存的表格修改（保存请用 Ctrl+S）");
+        }
+    }
+
     pub(in crate::app) fn remove_grid_workspace_for_table(&mut self, table_name: &str) {
         let Some(connection_name) = self.session.manager.active.clone() else {
             return;
         };
         let database_name = self
-            .session.manager
+            .session
+            .manager
             .get_active()
             .and_then(|connection| connection.selected_database.clone());
         self.grid_workspaces
@@ -393,7 +428,8 @@ impl DbManagerApp {
 
     fn handle_export_with_config(&mut self, config: ExportConfig) {
         let table_name = self
-            .state.selected_table
+            .state
+            .selected_table
             .clone()
             .unwrap_or_else(|| "query_result".to_string());
 
@@ -408,7 +444,8 @@ impl DbManagerApp {
             if let Some(path) = file_dialog.save_file() {
                 // 使用导出模块执行导出
                 let db_type = self
-                    .session.manager
+                    .session
+                    .manager
                     .get_active()
                     .map(|connection| connection.config.db_type)
                     .unwrap_or(crate::data::DatabaseType::SQLite);
@@ -448,9 +485,7 @@ impl eframe::App for DbManagerApp {
 
         // 清理连接池，确保所有数据库连接正确关闭
         self.session.runtime.block_on(async {
-            crate::data::ssh_tunnel::SSH_TUNNEL_MANAGER
-                .stop_all()
-                .await;
+            crate::data::ssh_tunnel::SSH_TUNNEL_MANAGER.stop_all().await;
             crate::data::POOL_MANAGER.clear_all().await;
         });
     }
@@ -505,6 +540,40 @@ mod tests {
         assert_eq!(restored_orders.new_rows.len(), 1);
         assert_eq!(restored_orders.new_rows[0].len(), 2);
         assert_eq!(restored_orders.cursor, (8, 1));
+    }
+
+    #[test]
+    fn tab_has_unsaved_edits_detects_pending_changes() {
+        // 审计 B3-tabclose：关闭标签页前需能检测到该标签页是否有未保存的网格编辑。
+        let mut store = GridWorkspaceStore::default();
+
+        let clean_state = DataGridState::new();
+        let mut dirty_state = DataGridState::new();
+        dirty_state
+            .modified_cells
+            .insert((0, 1), "edited".to_string());
+
+        store.save(
+            workspace("tab-1", "local", Some("main"), "users"),
+            &clean_state,
+        );
+        store.save(
+            workspace("tab-2", "local", Some("main"), "orders"),
+            &dirty_state,
+        );
+
+        assert!(
+            !store.tab_has_unsaved_edits("tab-1"),
+            "a tab with only clean grid state must report no unsaved edits"
+        );
+        assert!(
+            store.tab_has_unsaved_edits("tab-2"),
+            "a tab with modified cells must report unsaved edits"
+        );
+        assert!(
+            !store.tab_has_unsaved_edits("tab-unknown"),
+            "an unknown tab id must report no unsaved edits"
+        );
     }
 
     #[test]

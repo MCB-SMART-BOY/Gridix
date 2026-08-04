@@ -13,7 +13,7 @@
 #![allow(clippy::too_many_arguments)]
 
 mod actions;
-pub mod filter;
+pub(crate) mod filter;
 pub(crate) mod keyboard;
 mod mode;
 mod render;
@@ -36,9 +36,10 @@ pub use state::DataGridState;
 use view::{GridVirtualRow, GridVirtualRows};
 
 use crate::core::{Action, KeyBindings, constants};
+use crate::data::DatabaseType;
 use crate::data::QueryResult;
 use crate::ui::dialogs::{DialogHeader, DialogStyle, DialogWindow};
-use crate::ui::styles::{GRAY, theme_disabled_text, theme_text};
+use crate::ui::styles::{DANGER, GRAY, theme_accent, theme_disabled_text, theme_text, theme_warn};
 use crate::ui::{
     LocalShortcut, action_tooltip_with_extras, local_shortcut_pressed, local_shortcut_tooltip,
     shortcut_tooltip,
@@ -79,6 +80,7 @@ impl DataGrid {
         state: &mut DataGridState,
         table_name: Option<&str>,
         keybindings: &KeyBindings,
+        db_type: Option<DatabaseType>,
     ) -> (DataGridActions, (usize, usize)) {
         let mut actions = DataGridActions::default();
 
@@ -88,7 +90,15 @@ impl DataGrid {
         }
 
         // 显示模式状态栏和操作按钮
-        Self::show_mode_bar(ui, state, result, table_name, keybindings, &mut actions);
+        Self::show_mode_bar(
+            ui,
+            state,
+            result,
+            table_name,
+            keybindings,
+            &mut actions,
+            db_type,
+        );
 
         ui.add_space(2.0);
 
@@ -152,7 +162,7 @@ impl DataGrid {
         // 处理 Ctrl+S 保存请求
         if state.pending_save && state.has_changes() {
             if let Some(table) = table_name {
-                actions::generate_save_sql(result, state, table, &mut actions, None);
+                actions::generate_save_sql(result, state, table, &mut actions, db_type);
             }
             state.pending_save = false;
         } else if state.pending_save {
@@ -357,6 +367,7 @@ impl DataGrid {
         table_name: Option<&str>,
         keybindings: &KeyBindings,
         actions: &mut DataGridActions,
+        db_type: Option<DatabaseType>,
     ) {
         ui.horizontal(|ui| {
             // 模式指示器
@@ -382,7 +393,7 @@ impl DataGrid {
                 ui.label(
                     RichText::new(&state.command_buffer)
                         .monospace()
-                        .color(Color32::YELLOW),
+                        .color(theme_warn(ui.visuals())),
                 );
             }
 
@@ -392,7 +403,7 @@ impl DataGrid {
                 ui.label(
                     RichText::new(format!("{}", count))
                         .monospace()
-                        .color(Color32::YELLOW),
+                        .color(theme_warn(ui.visuals())),
                 );
             }
 
@@ -407,7 +418,7 @@ impl DataGrid {
                 ui.label(
                     RichText::new(truncated_msg)
                         .small()
-                        .color(Color32::from_rgb(255, 165, 0)), // 橙色警告
+                        .color(theme_warn(ui.visuals())), // 主题警告色
                 )
                 .on_hover_text("结果集过大已被截断。建议在 SQL 中添加 LIMIT 子句限制返回行数。");
             }
@@ -428,7 +439,7 @@ impl DataGrid {
                     egui::Label::new(
                         RichText::new(filter_text)
                             .size(12.0)
-                            .color(Color32::from_rgb(130, 160, 200)),
+                            .color(theme_accent(ui.visuals()).gamma_multiply(0.8)),
                     )
                     .sense(egui::Sense::click()),
                 )
@@ -456,7 +467,7 @@ impl DataGrid {
                         egui::Label::new(
                             RichText::new("+ 行")
                                 .size(12.0)
-                                .color(Color32::from_rgb(130, 160, 200)),
+                                .color(theme_accent(ui.visuals()).gamma_multiply(0.8)),
                         )
                         .sense(egui::Sense::click()),
                     )
@@ -516,7 +527,7 @@ impl DataGrid {
                     .clicked()
                     && let Some(table) = table_name
                 {
-                    actions::generate_save_sql(result, state, table, actions, None);
+                    actions::generate_save_sql(result, state, table, actions, db_type);
                 }
 
                 let discard_color = if has_changes {
@@ -805,11 +816,7 @@ impl DataGrid {
                             .show(ui, |ui| {
                                 for (i, sql) in state.pending_sql.iter().enumerate() {
                                     let is_delete = sql.starts_with("DELETE");
-                                    let color = if is_delete {
-                                        Color32::from_rgb(200, 80, 80)
-                                    } else {
-                                        GRAY
-                                    };
+                                    let color = if is_delete { DANGER } else { GRAY };
                                     ui.label(
                                         RichText::new(format!("{}. {}", i + 1, sql))
                                             .small()
@@ -825,9 +832,7 @@ impl DataGrid {
                         let confirm_clicked = ui
                             .add(
                                 egui::Button::new(
-                                    RichText::new("⚠ 确认执行")
-                                        .size(13.0)
-                                        .color(Color32::from_rgb(255, 100, 100)),
+                                    RichText::new("⚠ 确认执行").size(13.0).color(DANGER),
                                 )
                                 .frame(false)
                                 .min_size(Vec2::new(0.0, 24.0)),
@@ -949,6 +954,7 @@ mod tests {
                 state,
                 Some("users"),
                 &KeyBindings::default(),
+                None,
             );
             returned_actions = actions;
         });

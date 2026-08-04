@@ -1,0 +1,59 @@
+personality = "pragmatic"
+model = "gpt-5.4"
+model_reasoning_effort = "xhigh"
+[projects."/home/mcbgaruda/projects/Neve"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/nixos-config"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/verifier-rs"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/my_obsidian_doc/d2l_learning"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/d2l-study"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/Nevix"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/Gridix"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/isabelle-zed"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/isabelle_learning"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/下载/简历"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/万构界"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/rocq-zed"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/rust_learning/calculate_problem"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/jiangling/backend"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/jiangling"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/oil_planning"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/isabelle-rs"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/minif2f"]
+trust_level = "trusted"
+
+[projects."/home/mcbgaruda/projects/gridix"]
+trust_level = "trusted"

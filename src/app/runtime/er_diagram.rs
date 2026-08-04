@@ -3,6 +3,7 @@
 //! 处理 ER 图数据加载和关系推断。
 
 use super::{DbManagerApp, Message};
+use crate::core::constants;
 use crate::data::{Connection, ConnectionConfig};
 use crate::ui;
 
@@ -55,15 +56,18 @@ impl DbManagerApp {
             }
             ErDiagramLoadPlan::EmptyTables { db_name } => {
                 self.state.er_diagram_state.clear();
-                self.session.notifications
+                self.session
+                    .notifications
                     .warning(format!("数据库 {} 没有表，请先选择数据库", db_name));
                 self.state.er_diagram_state.loading = false;
             }
             ErDiagramLoadPlan::Load(load) => {
                 let layout_snapshot = self.state.er_diagram_state.capture_layout_snapshot();
-                self.state.er_diagram_state
+                self.state
+                    .er_diagram_state
                     .set_pending_layout_restore(layout_snapshot);
                 self.state.er_diagram_state.begin_loading(&load.tables);
+                let load_generation = self.state.er_diagram_state.current_load_generation();
 
                 // 创建 ER 表结构
                 for table_name in &load.tables {
@@ -84,18 +88,29 @@ impl DbManagerApp {
                     load.db_name
                 ));
 
-                // 异步加载每个表的列信息
+                // 异步加载每个表的列信息（带并发限制）
+                let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(
+                    constants::database::MAX_ER_CONCURRENT_TABLE_FETCHES,
+                ));
                 for table_name in &load.tables {
                     let tx = self.session.tx.clone();
                     let config_clone = load.config.clone();
                     let table_clone = table_name.clone();
+                    let permit = semaphore.clone();
                     self.session.runtime.spawn(async move {
+                        let _permit = permit.acquire().await;
                         let result =
                             crate::data::get_table_columns(&config_clone, &table_clone).await;
-                        let _ = tx.send(Message::ERTableColumnsFetched(
-                            table_clone,
-                            result.map_err(|e| e.to_string()),
-                        ));
+                        if tx
+                            .send(Message::ERTableColumnsFetched(
+                                load_generation,
+                                table_clone,
+                                result.map_err(|e| e.to_string()),
+                            ))
+                            .is_err()
+                        {
+                            tracing::warn!("无法发送 ER 表列数据：接收端已关闭");
+                        }
                     });
                 }
 
@@ -104,9 +119,15 @@ impl DbManagerApp {
                 let config = load.config.clone();
                 self.session.runtime.spawn(async move {
                     let result = crate::data::get_foreign_keys(&config).await;
-                    let _ = tx.send(Message::ForeignKeysFetched(
-                        result.map_err(|e| e.to_string()),
-                    ));
+                    if tx
+                        .send(Message::ForeignKeysFetched(
+                            load_generation,
+                            result.map_err(|e| e.to_string()),
+                        ))
+                        .is_err()
+                    {
+                        tracing::warn!("无法发送外键数据：接收端已关闭");
+                    }
                 });
             }
         }
@@ -124,7 +145,8 @@ impl DbManagerApp {
     pub fn infer_relationships_from_columns(&self) -> Vec<ui::Relationship> {
         let mut relationships = Vec::new();
         let table_names: Vec<&str> = self
-            .state.er_diagram_state
+            .state
+            .er_diagram_state
             .tables
             .iter()
             .map(|t| t.name.as_str())

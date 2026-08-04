@@ -78,8 +78,8 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn welcome_onboarding_status(&self) -> ui::WelcomeOnboardingStatus {
-        let connection_created =
-            self.app_config.onboarding.connection_created || !self.session.manager.connections.is_empty();
+        let connection_created = self.app_config.onboarding.connection_created
+            || !self.session.manager.connections.is_empty();
         let require_user_step = !matches!(self.onboarding_target_db_type(), DatabaseType::SQLite);
         ui::WelcomeOnboardingStatus {
             environment_checked: self.app_config.onboarding.environment_checked,
@@ -96,7 +96,9 @@ impl DbManagerApp {
             return;
         }
         self.app_config.onboarding.connection_created = true;
-        let _ = self.app_config.save();
+        if let Err(e) = self.app_config.save() {
+            tracing::warn!(%e, "保存配置失败");
+        }
     }
 
     pub(in crate::app) fn mark_onboarding_database_initialized(&mut self) {
@@ -104,7 +106,9 @@ impl DbManagerApp {
             return;
         }
         self.app_config.onboarding.database_initialized = true;
-        let _ = self.app_config.save();
+        if let Err(e) = self.app_config.save() {
+            tracing::warn!(%e, "保存配置失败");
+        }
     }
 
     pub(in crate::app) fn mark_onboarding_user_created(&mut self) {
@@ -112,7 +116,9 @@ impl DbManagerApp {
             return;
         }
         self.app_config.onboarding.user_created = true;
-        let _ = self.app_config.save();
+        if let Err(e) = self.app_config.save() {
+            tracing::warn!(%e, "保存配置失败");
+        }
     }
 
     pub(in crate::app) fn mark_onboarding_first_query_executed(&mut self) {
@@ -120,7 +126,9 @@ impl DbManagerApp {
             return;
         }
         self.app_config.onboarding.first_query_executed = true;
-        let _ = self.app_config.save();
+        if let Err(e) = self.app_config.save() {
+            tracing::warn!(%e, "保存配置失败");
+        }
     }
 
     fn mark_onboarding_environment_checked(&mut self) {
@@ -128,7 +136,9 @@ impl DbManagerApp {
             return;
         }
         self.app_config.onboarding.environment_checked = true;
-        let _ = self.app_config.save();
+        if let Err(e) = self.app_config.save() {
+            tracing::warn!(%e, "保存配置失败");
+        }
     }
 
     pub(in crate::app) fn handle_onboarding_step(&mut self, step: ui::WelcomeOnboardingStep) {
@@ -147,7 +157,8 @@ impl DbManagerApp {
             ui::WelcomeOnboardingStep::CreateUser => {
                 let db_type = self.onboarding_target_db_type();
                 if matches!(db_type, DatabaseType::SQLite) {
-                    self.session.notifications
+                    self.session
+                        .notifications
                         .info("SQLite 无需创建用户，此步骤自动跳过");
                     self.mark_onboarding_user_created();
                     return;
@@ -195,7 +206,8 @@ impl DbManagerApp {
 
     fn run_onboarding_first_query(&mut self) {
         if self.session.manager.active.is_none() {
-            self.session.notifications
+            self.session
+                .notifications
                 .warning("请先创建并连接数据库，再执行首条查询");
             self.open_connection_dialog_for(self.onboarding_target_db_type());
             return;
@@ -365,7 +377,10 @@ impl DbManagerApp {
         let stroke = if selected {
             Stroke::new(1.5_f32, ui.visuals().selection.stroke.color)
         } else {
-            Stroke::new(1.0_f32, ui.visuals().window_stroke.color.gamma_multiply(0.7))
+            Stroke::new(
+                1.0_f32,
+                ui.visuals().window_stroke.color.gamma_multiply(0.7),
+            )
         };
 
         egui::Button::new(RichText::new(text).color(ui.visuals().text_color()))
@@ -390,7 +405,8 @@ impl DbManagerApp {
         let actions = Self::welcome_setup_actions(db_type);
         if !actions.is_empty() {
             self.state.welcome_setup_action_index = self
-                .state.welcome_setup_action_index
+                .state
+                .welcome_setup_action_index
                 .min(actions.len().saturating_sub(1));
         }
 
@@ -400,7 +416,9 @@ impl DbManagerApp {
                     close_now = true;
                 }
                 WelcomeSetupKeyAction::ConfirmSelected => {
-                    if let Some(action) = actions.get(self.state.welcome_setup_action_index).copied() {
+                    if let Some(action) =
+                        actions.get(self.state.welcome_setup_action_index).copied()
+                    {
                         close_now = self.run_welcome_setup_action(ctx, action, db_type);
                     }
                 }
@@ -413,7 +431,8 @@ impl DbManagerApp {
                 WelcomeSetupKeyAction::FocusPrev => {
                     if !actions.is_empty() {
                         self.state.welcome_setup_action_index =
-                            (self.state.welcome_setup_action_index + actions.len() - 1) % actions.len();
+                            (self.state.welcome_setup_action_index + actions.len() - 1)
+                                % actions.len();
                     }
                 }
                 WelcomeSetupKeyAction::Trigger(action) => {
@@ -548,7 +567,8 @@ impl DbManagerApp {
         if self.session.manager.connections.contains_key(&candidate) {
             let mut idx = 2usize;
             while self
-                .session.manager
+                .session
+                .manager
                 .connections
                 .contains_key(&format!("{} {}", candidate, idx))
             {

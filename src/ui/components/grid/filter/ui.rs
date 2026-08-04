@@ -10,14 +10,14 @@ use egui::{self, Color32, RichText};
 
 /// 筛选栏状态
 #[allow(dead_code)] // 公开 API，供外部使用
-pub struct FilterBarState {
+pub(crate) struct FilterBarState {
     pub filters: Vec<ColumnFilter>,
 }
 
 /// 显示筛选状态栏（简洁版，只显示筛选数量）
 ///
 /// 返回是否有修改（用于使缓存失效）
-pub fn show_filter_bar(
+pub(crate) fn show_filter_bar(
     ui: &mut egui::Ui,
     _result: &QueryResult,
     filters: &mut Vec<ColumnFilter>,

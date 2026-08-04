@@ -3,15 +3,18 @@
 use super::SidebarPanelState;
 use crate::data::{RoutineInfo, RoutineType};
 use crate::ui::SidebarSection;
-use crate::ui::styles::{GRAY, MARGIN_SM, MUTED, SPACING_LG, SPACING_SM, SUCCESS, theme_text};
+use crate::ui::styles::{
+    GRAY, MARGIN_SM, MUTED, SPACING_LG, SPACING_SM, SUCCESS, theme_accent, theme_selection_fill,
+    theme_text,
+};
 use egui::{self, Color32, CornerRadius, RichText, Vec2};
 
 /// 存储过程/函数面板
-pub struct RoutinePanel;
+pub(crate) struct RoutinePanel;
 
 impl RoutinePanel {
     /// 显示存储过程/函数面板
-    pub fn show(
+    pub(crate) fn show(
         ui: &mut egui::Ui,
         is_focused: bool,
         focused_section: SidebarSection,
@@ -60,12 +63,23 @@ impl RoutinePanel {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.set_max_width(scroll_width);
-                if panel_state.routines.is_empty() {
+                if let Some(error) = panel_state.error_routines.clone() {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(SPACING_LG);
+                        ui.label(
+                            RichText::new("加载存储过程失败")
+                                .small()
+                                .color(ui.visuals().error_fg_color),
+                        );
+                        ui.add_space(SPACING_SM);
+                        ui.label(RichText::new(error).small().color(MUTED));
+                    });
+                } else if panel_state.routines.is_empty() {
                     ui.vertical_centered(|ui| {
                         ui.add_space(SPACING_LG);
                         ui.label(RichText::new("暂无存储过程/函数").small().color(MUTED));
                         ui.add_space(SPACING_SM);
-                        ui.label(RichText::new("SQLite 不支持存储过程").small().color(GRAY));
+                        ui.label(RichText::new("选择数据库后自动加载").small().color(GRAY));
                     });
                 } else {
                     for (idx, routine) in panel_state.routines.iter().enumerate() {
@@ -89,7 +103,7 @@ impl RoutinePanel {
         is_nav_selected: bool,
     ) -> egui::Response {
         let bg_color = if is_nav_selected {
-            Color32::from_rgba_unmultiplied(100, 150, 255, 35)
+            theme_selection_fill(ui.visuals(), 35)
         } else {
             Color32::TRANSPARENT
         };
@@ -109,9 +123,9 @@ impl RoutinePanel {
                     // 类型图标
                     let nav_icon = if is_nav_selected { ">" } else { " " };
                     let text_color = if is_nav_selected {
-                        Color32::from_rgb(100, 180, 255)
+                        theme_accent(ui.visuals())
                     } else {
-                        Color32::from_rgb(180, 180, 190)
+                        theme_text(ui.visuals())
                     };
 
                     ui.label(RichText::new(nav_icon).color(text_color));

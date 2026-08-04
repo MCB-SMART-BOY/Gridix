@@ -53,7 +53,6 @@ fn clamp_grid_cursor_for_result(
     )
 }
 
-
 fn should_drop_query_error_as_stale(
     is_stale_for_existing_tab: bool,
     is_cancelled: bool,
@@ -68,6 +67,43 @@ fn should_record_active_query_time(
     is_stale_for_existing_tab: bool,
 ) -> bool {
     !is_stale_for_existing_tab && target_tab_index == Some(active_index)
+}
+
+/// schema 变更失效级联需要执行哪些重载（纯决策，便于单测）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct SchemaInvalidation {
+    reload_tables: bool,
+    reload_triggers: bool,
+    reload_routines: bool,
+}
+
+fn schema_invalidation_for(hints: &crate::data::SqlUiHints) -> SchemaInvalidation {
+    SchemaInvalidation {
+        reload_tables: hints.is_table_schema_change,
+        reload_triggers: hints.is_trigger_change,
+        reload_routines: hints.is_routine_change,
+    }
+}
+
+/// 网格保存批次回包的处置结果（纯决策，便于单测 B1 不变量）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GridSaveOutcome {
+    /// 整批成功：清除编辑状态并刷新该表。
+    CommittedClearEdits,
+    /// 整批回滚（部分失败或执行错误）：保留编辑，显示错误。
+    RolledBackKeepEdits,
+}
+
+/// 根据批量执行报告判定网格保存的处置方式。
+///
+/// 仅当整批成功（无失败语句）时才清除编辑；否则事务已回滚，DB 未变，保留编辑供重试。
+fn classify_grid_save_outcome(
+    result: &Result<crate::data::ImportExecutionReport, String>,
+) -> GridSaveOutcome {
+    match result {
+        Ok(report) if report.failed == 0 => GridSaveOutcome::CommittedClearEdits,
+        _ => GridSaveOutcome::RolledBackKeepEdits,
+    }
 }
 
 fn collect_er_foreign_key_columns(
@@ -221,6 +257,9 @@ impl DbManagerApp {
                 Message::TableDropped(conn_name, table_name, result) => {
                     self.handle_table_dropped(ctx, conn_name, table_name, result);
                 }
+                Message::ActiveTablesReloaded(conn_name, request_id, result) => {
+                    self.handle_active_tables_reloaded(ctx, conn_name, request_id, result);
+                }
                 Message::QueryDone(sql, conn_name, tab_id, request_id, result, elapsed_ms) => {
                     self.handle_query_done(
                         ctx,
@@ -237,8 +276,16 @@ impl DbManagerApp {
                 Message::ImportDone(result, elapsed_ms) => {
                     self.handle_import_done(ctx, result, elapsed_ms);
                 }
-                Message::PrimaryKeyFetched(table_name, pk_column) => {
-                    self.handle_primary_key_fetched(ctx, table_name, pk_column);
+                Message::GridSaveDone {
+                    result,
+                    table,
+                    request_id,
+                    elapsed_ms,
+                } => {
+                    self.handle_grid_save_done(ctx, result, table, request_id, elapsed_ms);
+                }
+                Message::ColumnMetadataFetched(table_name, columns) => {
+                    self.handle_column_metadata_fetched(ctx, table_name, columns);
                 }
                 Message::TriggersFetched(conn_name, db_name, request_id, result) => {
                     self.handle_triggers_fetched(ctx, conn_name, db_name, request_id, result);
@@ -246,11 +293,11 @@ impl DbManagerApp {
                 Message::RoutinesFetched(conn_name, db_name, request_id, result) => {
                     self.handle_routines_fetched(ctx, conn_name, db_name, request_id, result);
                 }
-                Message::ForeignKeysFetched(result) => {
-                    self.handle_foreign_keys_fetched(ctx, result);
+                Message::ForeignKeysFetched(generation, result) => {
+                    self.handle_foreign_keys_fetched(ctx, generation, result);
                 }
-                Message::ERTableColumnsFetched(table_name, result) => {
-                    self.handle_er_table_columns_fetched(ctx, table_name, result);
+                Message::ERTableColumnsFetched(generation, table_name, result) => {
+                    self.handle_er_table_columns_fetched(ctx, generation, table_name, result);
                 }
             }
         }
@@ -269,7 +316,8 @@ impl DbManagerApp {
         result: Result<Vec<String>, String>,
     ) {
         let is_latest = self
-            .session.pending_connect_requests
+            .session
+            .pending_connect_requests
             .get(&name)
             .is_some_and(|id| *id == request_id);
         if !is_latest {
@@ -298,11 +346,16 @@ impl DbManagerApp {
                     ));
                     self.load_history_for_connection(&name);
                     self.session.autocomplete.set_tables(tables);
-                    self.state.sidebar_panel_state
+                    self.state
+                        .sidebar_panel_state
                         .selection
                         .reset_for_connection_change();
                     self.load_triggers();
                     self.load_routines();
+                    // 连接后若 ER 图打开，为新连接重载 schema（修复审计 CONN-F2）。
+                    if self.state.show_er_diagram {
+                        self.load_er_diagram_data();
+                    }
                 }
             }
             Err(e) => {
@@ -325,7 +378,8 @@ impl DbManagerApp {
         result: Result<Vec<String>, String>,
     ) {
         let is_latest = self
-            .session.pending_connect_requests
+            .session
+            .pending_connect_requests
             .get(&name)
             .is_some_and(|id| *id == request_id);
         if !is_latest {
@@ -354,7 +408,8 @@ impl DbManagerApp {
                     ));
                     self.load_history_for_connection(&name);
                     self.session.autocomplete.clear();
-                    self.state.sidebar_panel_state
+                    self.state
+                        .sidebar_panel_state
                         .selection
                         .reset_for_connection_change();
                 }
@@ -379,9 +434,13 @@ impl DbManagerApp {
         request_id: u64,
         result: Result<Vec<String>, String>,
     ) {
-        let is_latest = self.session.pending_database_requests.get(&conn_name).is_some_and(
-            |(pending_db, pending_id)| pending_db == &db_name && *pending_id == request_id,
-        );
+        let is_latest = self
+            .session
+            .pending_database_requests
+            .get(&conn_name)
+            .is_some_and(|(pending_db, pending_id)| {
+                pending_db == &db_name && *pending_id == request_id
+            });
         if !is_latest {
             tracing::debug!(
                 connection = %conn_name,
@@ -408,18 +467,31 @@ impl DbManagerApp {
                         tables.len()
                     ));
                     self.session.autocomplete.set_tables(tables);
-                    self.state.sidebar_panel_state
+                    self.state
+                        .sidebar_panel_state
                         .selection
                         .reset_for_database_change();
                     self.load_triggers();
                     self.load_routines();
                     self.switch_grid_workspace(None);
                     self.clear_result();
+                    // 切库后若 ER 图打开，重载为新库的 schema（修复审计 ER-6）。
+                    if self.state.show_er_diagram {
+                        self.load_er_diagram_data();
+                    }
                 }
             }
             Err(e) => {
                 if is_active {
-                    self.session.notifications.error(format!("选择数据库失败: {}", e));
+                    self.session
+                        .notifications
+                        .error(format!("选择数据库失败: {}", e));
+                    // 切库失败：上一个库的补全/触发器/存储过程已不再适用，清除以免显示陈旧元数据（修复审计 B6）。
+                    self.session.autocomplete.clear();
+                    self.state.sidebar_panel_state.clear_triggers();
+                    self.state.sidebar_panel_state.clear_routines();
+                    self.state.sidebar_panel_state.loading_triggers = false;
+                    self.state.sidebar_panel_state.loading_routines = false;
                 }
             }
         }
@@ -451,7 +523,8 @@ impl DbManagerApp {
 
                 self.remove_grid_workspaces_for_database(&db_name);
                 if is_active {
-                    self.state.sidebar_panel_state
+                    self.state
+                        .sidebar_panel_state
                         .selection
                         .reset_for_database_change();
                     if dropped_selected_database {
@@ -469,11 +542,13 @@ impl DbManagerApp {
                     }
                 }
 
-                self.session.notifications
+                self.session
+                    .notifications
                     .success(format!("数据库 '{}' 已删除", db_name));
             }
             Err(error) => {
-                self.session.notifications
+                self.session
+                    .notifications
                     .error(format!("删除数据库 '{}' 失败: {}", db_name, error));
             }
         }
@@ -509,15 +584,50 @@ impl DbManagerApp {
                     self.set_focus_area(ui::FocusArea::Sidebar);
                 }
 
-                self.session.notifications
+                self.session
+                    .notifications
                     .success(format!("表 '{}' 已删除", table_name));
+
+                // 侧栏删表后，若 ER 图打开则重载，避免显示已删除的表（修复审计 ER-5）。
+                if is_active && self.state.show_er_diagram {
+                    self.load_er_diagram_data();
+                }
             }
             Err(error) => {
-                self.session.notifications
+                self.session
+                    .notifications
                     .error(format!("删除表 '{}' 失败: {}", table_name, error));
             }
         }
 
+        self.session.needs_repaint = true;
+    }
+
+    /// 处理静默表列表重载完成消息（schema 变更后失效重载）。
+    ///
+    /// 只在该连接仍是 active 时应用，静默刷新表列表与 autocomplete，不发连接提示。
+    fn handle_active_tables_reloaded(
+        &mut self,
+        _ctx: &egui::Context,
+        conn_name: String,
+        _request_id: u64,
+        result: Result<Vec<String>, String>,
+    ) {
+        if self.session.manager.active.as_deref() != Some(conn_name.as_str()) {
+            tracing::debug!(connection = %conn_name, "忽略过期表列表刷新（连接已切换）");
+            return;
+        }
+        match result {
+            Ok(tables) => {
+                if let Some(conn) = self.session.manager.connections.get_mut(&conn_name) {
+                    conn.tables = tables.clone();
+                }
+                self.session.autocomplete.set_tables(tables);
+            }
+            Err(e) => {
+                tracing::warn!(connection = %conn_name, error = %e, "刷新表列表失败");
+            }
+        }
         self.session.needs_repaint = true;
     }
 
@@ -534,9 +644,17 @@ impl DbManagerApp {
         } = payload;
 
         self.finalize_query_task(request_id);
-        let was_user_cancelled = self.session.user_cancelled_query_requests.remove(&request_id);
+        let was_user_cancelled = self
+            .session
+            .user_cancelled_query_requests
+            .remove(&request_id);
 
-        let target_tab_index = self.session.tab_manager.tabs.iter().position(|t| t.id == tab_id);
+        let target_tab_index = self
+            .session
+            .tab_manager
+            .tabs
+            .iter()
+            .position(|t| t.id == tab_id);
         let is_stale_for_existing_tab = target_tab_index
             .and_then(|idx| self.session.tab_manager.tabs.get(idx))
             .is_some_and(|tab| tab.pending_request_id != Some(request_id));
@@ -552,7 +670,8 @@ impl DbManagerApp {
         let is_drop_table = sql_hints.is_drop_table;
 
         let db_type = self
-            .session.manager
+            .session
+            .manager
             .connections
             .get(&conn_name)
             .map(|c| c.config.db_type.display_name().to_string())
@@ -638,7 +757,8 @@ impl DbManagerApp {
 
                         // 根据 SQL 类型设置光标位置
                         if is_update_or_delete {
-                            self.state.grid_state.scroll_to_row = Some(self.state.grid_state.cursor.0);
+                            self.state.grid_state.scroll_to_row =
+                                Some(self.state.grid_state.cursor.0);
                         } else if is_insert {
                             let last_row = res.rows.len().saturating_sub(1);
                             self.state.grid_state.cursor = (last_row, 0);
@@ -653,12 +773,15 @@ impl DbManagerApp {
                         if let Some(table) = &self.state.selected_table
                             && !res.columns.is_empty()
                         {
-                            self.session.autocomplete
+                            self.session
+                                .autocomplete
                                 .set_columns(table.clone(), res.columns.clone());
                         }
 
                         self.state.result = Some(res.clone());
-
+                        self.reveal_bottom_panel_for_query(crate::core::BottomPanelTab::Results);
+                        // 清除过期行删除标记，防止新数据行数变化后误删
+                        self.state.grid_state.rows_to_delete.clear();
                     }
                 } else {
                     tracing::debug!(tab_id = %tab_id, "查询回包对应的标签页已不存在");
@@ -678,12 +801,18 @@ impl DbManagerApp {
                         }
                     }
 
-                    if is_current_active && self.state.selected_table.as_deref() == Some(&dropped_table) {
+                    if is_current_active
+                        && self.state.selected_table.as_deref() == Some(&dropped_table)
+                    {
                         self.switch_grid_workspace(None);
                         self.remove_grid_workspace_for_table(&dropped_table);
                         self.clear_result();
                     }
                 }
+
+                // 统一的 schema 失效级联：DDL 成功后重载受影响的派生视图
+                // （表列表/autocomplete/ER 图、触发器、存储过程）。修复审计 ER-4/ER-6/SM-8。
+                self.invalidate_after_schema_change(&sql_hints, &conn_name);
             }
             Err(e) => {
                 let is_cancelled = is_cancelled_query_error(&e);
@@ -755,6 +884,9 @@ impl DbManagerApp {
                         }
                         if !is_cancelled {
                             self.clear_result();
+                            self.reveal_bottom_panel_for_query(
+                                crate::core::BottomPanelTab::Messages,
+                            );
                         }
                     }
                 }
@@ -767,6 +899,36 @@ impl DbManagerApp {
         self.session.refresh_executing_flag();
         self.session.needs_repaint = true;
     }
+
+    /// schema 变更失效级联：DDL 成功后重载受影响的派生视图。
+    ///
+    /// 仅对当前 active 连接生效（回包能走到这里已保证非 stale）。
+    /// 复用既有重载原语，不新增异步通道；各原语自带 request_id/generation stale-guard。
+    ///
+    /// 修复审计 ER-4（编辑器 CREATE/DROP/ALTER TABLE 后 ER 不刷新）、
+    /// ER-6（表结构变更后 ER 陈旧）、SM-8（CREATE/DROP TRIGGER/ROUTINE 后侧栏陈旧）。
+    fn invalidate_after_schema_change(&mut self, hints: &crate::data::SqlUiHints, conn_name: &str) {
+        if self.session.manager.active.as_deref() != Some(conn_name) {
+            return;
+        }
+
+        let invalidation = schema_invalidation_for(hints);
+        if invalidation.reload_tables {
+            // 重新拉取表列表（同时刷新 autocomplete）。
+            self.reload_active_tables();
+            // ER 图仅在打开时重载，避免无谓异步加载。
+            if self.state.show_er_diagram {
+                self.load_er_diagram_data();
+            }
+        }
+        if invalidation.reload_triggers {
+            self.load_triggers();
+        }
+        if invalidation.reload_routines {
+            self.load_routines();
+        }
+    }
+
     /// 处理导入完成消息
     fn handle_import_done(
         &mut self,
@@ -800,23 +962,86 @@ impl DbManagerApp {
         self.session.needs_repaint = true;
     }
 
-    /// 处理主键获取完成消息
-    fn handle_primary_key_fetched(
+    /// 处理网格保存批次完成消息
+    ///
+    /// 成功（整批提交）→ 清除编辑状态并刷新该表（修复 B1）。
+    /// 失败（整批回滚）→ 保留编辑、显示错误，便于用户修正后重试。
+    fn handle_grid_save_done(
+        &mut self,
+        ctx: &egui::Context,
+        result: Result<crate::data::ImportExecutionReport, String>,
+        table: String,
+        request_id: u64,
+        elapsed_ms: u64,
+    ) {
+        self.session.grid_save_executing = false;
+        self.session.refresh_executing_flag();
+
+        // 过期回包保护：仅处理最新一次网格保存的结果。
+        if self.session.pending_grid_save_request != Some(request_id) {
+            tracing::debug!(request_id, "忽略过期网格保存回包");
+            self.session.needs_repaint = true;
+            return;
+        }
+        self.session.pending_grid_save_request = None;
+
+        match (classify_grid_save_outcome(&result), result) {
+            (GridSaveOutcome::CommittedClearEdits, Ok(report)) => {
+                self.session.notifications.success(format!(
+                    "已保存 {} 处修改到「{}」({}ms)",
+                    report.succeeded, table, elapsed_ms
+                ));
+                // 整批成功：清除编辑状态并刷新该表以反映数据库真实数据。
+                self.state.grid_state.clear_edits();
+                if self.state.selected_table.as_deref() == Some(table.as_str()) {
+                    self.dispatch_app_action(
+                        ctx,
+                        crate::app::action::action_system::AppAction::RefreshSelectedTable,
+                    );
+                }
+            }
+            (_, Ok(report)) => {
+                // 事务已回滚，DB 未变；保留编辑供用户修正后重试。
+                let detail = report.first_error.as_deref().unwrap_or("部分语句执行失败");
+                self.session.notifications.error(format!(
+                    "保存失败，已回滚（{} 条未提交）。错误: {}",
+                    report.total.saturating_sub(report.succeeded),
+                    detail
+                ));
+            }
+            (_, Err(e)) => {
+                self.session
+                    .notifications
+                    .error(format!("保存失败，已回滚: {}", e));
+            }
+        }
+
+        self.session.needs_repaint = true;
+    }
+
+    /// 处理列元数据获取完成消息
+    ///
+    /// 缓存列元数据用于保存前校验,并由其中 `is_primary_key` 顺带刷新主键索引(审计 G6)。
+    fn handle_column_metadata_fetched(
         &mut self,
         _ctx: &egui::Context,
         table_name: String,
-        pk_column: Option<String>,
+        columns: Vec<crate::data::ColumnInfo>,
     ) {
+        // 过期保护:仅当回包仍对应当前选中表时落地。
         if self.state.selected_table.as_deref() == Some(&table_name) {
-            if let Some(pk_name) = pk_column {
-                if let Some(result) = &self.state.result
-                    && let Some(idx) = result.columns.iter().position(|c| c == &pk_name)
-                {
-                    self.state.grid_state.primary_key_column = Some(idx);
-                }
-            } else {
-                self.state.grid_state.primary_key_column = None;
-            }
+            // 从列元数据推导主键索引(取代旧的仅拉主键路径)。
+            let pk_name = columns
+                .iter()
+                .find(|c| c.is_primary_key)
+                .map(|c| c.name.clone());
+            self.state.grid_state.primary_key_column = pk_name.and_then(|name| {
+                self.state
+                    .result
+                    .as_ref()
+                    .and_then(|result| result.columns.iter().position(|c| c == &name))
+            });
+            self.state.grid_state.column_metadata = columns;
         }
         self.session.needs_repaint = true;
     }
@@ -878,7 +1103,11 @@ impl DbManagerApp {
                 self.state.sidebar_panel_state.set_triggers(triggers);
             }
             Err(e) => {
-                self.session.notifications.error(format!("加载触发器失败: {}", e));
+                self.session
+                    .notifications
+                    .error(format!("加载触发器失败: {}", e));
+                // 在面板内记录错误，区分"加载失败"与"确实没有触发器"（审计 SM-6）。
+                self.state.sidebar_panel_state.set_triggers_error(e);
             }
         }
         self.session.needs_repaint = true;
@@ -925,9 +1154,15 @@ impl DbManagerApp {
                 self.state.sidebar_panel_state.set_routines(routines);
             }
             Err(e) => {
-                // 对于 SQLite 不显示错误，因为它不支持存储过程
-                if !e.contains("不支持") {
-                    self.session.notifications.error(format!("加载存储过程失败: {}", e));
+                // SQLite 不支持存储过程：当作"确实没有"，不算错误。
+                if e.contains("不支持") {
+                    self.state.sidebar_panel_state.set_routines(Vec::new());
+                } else {
+                    self.session
+                        .notifications
+                        .error(format!("加载存储过程失败: {}", e));
+                    // 在面板内记录错误，区分加载失败与空列表（审计 SM-7）。
+                    self.state.sidebar_panel_state.set_routines_error(e);
                 }
             }
         }
@@ -938,12 +1173,19 @@ impl DbManagerApp {
     fn handle_foreign_keys_fetched(
         &mut self,
         _ctx: &egui::Context,
+        generation: u64,
         result: Result<Vec<crate::data::ForeignKeyInfo>, String>,
     ) {
+        // 丢弃过期连接/上一轮加载的外键回包（审计 B6-ER）。
+        if generation != self.state.er_diagram_state.current_load_generation() {
+            tracing::debug!(generation, "忽略过期 ER 外键回包");
+            return;
+        }
         match result {
             Ok(fks) => {
                 let foreign_key_columns = collect_er_foreign_key_columns(&fks);
-                self.state.er_diagram_state
+                self.state
+                    .er_diagram_state
                     .set_foreign_key_columns(foreign_key_columns);
 
                 let relationships = collect_er_relationships_from_foreign_keys(fks);
@@ -954,7 +1196,13 @@ impl DbManagerApp {
             }
             Err(e) => {
                 self.state.er_diagram_state.mark_foreign_keys_resolved();
-                self.session.notifications.error(format!("加载外键关系失败: {}", e));
+                self.session
+                    .notifications
+                    .error(format!("加载外键关系失败: {}", e));
+                // 在画布上显示错误卡，而不是静默退化为空（审计 ER-3）。
+                self.state
+                    .er_diagram_state
+                    .set_error(format!("加载外键关系失败: {}", e));
                 self.finalize_er_diagram_load_if_ready();
             }
         }
@@ -965,16 +1213,23 @@ impl DbManagerApp {
     fn handle_er_table_columns_fetched(
         &mut self,
         _ctx: &egui::Context,
+        generation: u64,
         table_name: String,
         result: Result<Vec<crate::data::ColumnInfo>, String>,
     ) {
+        // 丢弃过期连接/上一轮加载的列回包（审计 B6-ER）。
+        if generation != self.state.er_diagram_state.current_load_generation() {
+            tracing::debug!(generation, table = %table_name, "忽略过期 ER 列回包");
+            return;
+        }
         match result {
             Ok(columns) => {
                 let er_columns: Vec<ui::ERColumn> = columns
                     .into_iter()
                     .map(|c| ui::ERColumn {
                         is_foreign_key: self
-                            .state.er_diagram_state
+                            .state
+                            .er_diagram_state
                             .is_foreign_key_column(&table_name, &c.name),
                         name: c.name,
                         data_type: c.data_type,
@@ -986,7 +1241,8 @@ impl DbManagerApp {
 
                 let display_mode = self.state.er_diagram_state.card_display_mode();
                 if let Some(er_table) = self
-                    .state.er_diagram_state
+                    .state
+                    .er_diagram_state
                     .tables
                     .iter_mut()
                     .find(|t| t.name == table_name)
@@ -997,11 +1253,13 @@ impl DbManagerApp {
                 }
             }
             Err(e) => {
-                self.session.notifications
+                self.session
+                    .notifications
                     .warning(format!("获取表 {} 结构失败: {}", table_name, e));
             }
         }
-        self.state.er_diagram_state
+        self.state
+            .er_diagram_state
             .mark_table_request_resolved(&table_name);
         self.finalize_er_diagram_load_if_ready();
         self.session.needs_repaint = true;
@@ -1011,15 +1269,50 @@ impl DbManagerApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        ErDiagramReadyKind, apply_default_er_diagram_layout, apply_ready_state_er_diagram_layout,
-        clamp_grid_cursor_for_result, collect_er_relationships_from_foreign_keys,
-        er_diagram_ready_message, is_cancelled_query_error,
-        resolve_er_diagram_ready_state, select_ready_state_er_layout_strategy,
+        ErDiagramReadyKind, GridSaveOutcome, apply_default_er_diagram_layout,
+        apply_ready_state_er_diagram_layout, clamp_grid_cursor_for_result,
+        classify_grid_save_outcome, collect_er_relationships_from_foreign_keys,
+        er_diagram_ready_message, is_cancelled_query_error, resolve_er_diagram_ready_state,
+        schema_invalidation_for, select_ready_state_er_layout_strategy,
         should_drop_query_error_as_stale, should_record_active_query_time,
     };
+    use crate::data::ColumnInfo;
     use crate::data::ForeignKeyInfo;
+    use crate::data::ImportExecutionReport;
     use crate::data::QueryResult;
+    use crate::data::analyze_sql_for_ui;
     use crate::ui::{ERLayoutStrategy, ERTable, RelationType, Relationship, RelationshipOrigin};
+
+    #[test]
+    fn schema_invalidation_maps_ddl_to_reloads() {
+        // 审计级联：CREATE TABLE → 重载表；CREATE TRIGGER → 重载触发器；
+        // CREATE FUNCTION → 重载存储过程；普通 DML/SELECT → 无重载。
+        let table = schema_invalidation_for(&analyze_sql_for_ui("CREATE TABLE t(id INT);"));
+        assert!(table.reload_tables);
+        assert!(!table.reload_triggers);
+        assert!(!table.reload_routines);
+
+        let alter = schema_invalidation_for(&analyze_sql_for_ui("ALTER TABLE t ADD c INT;"));
+        assert!(alter.reload_tables);
+
+        let trig = schema_invalidation_for(&analyze_sql_for_ui(
+            "CREATE TRIGGER g AFTER INSERT ON t BEGIN END;",
+        ));
+        assert!(trig.reload_triggers);
+        assert!(!trig.reload_tables);
+
+        let routine = schema_invalidation_for(&analyze_sql_for_ui(
+            "CREATE OR REPLACE FUNCTION f() RETURNS INT AS $$ $$;",
+        ));
+        assert!(routine.reload_routines);
+        assert!(!routine.reload_tables);
+
+        let dml = schema_invalidation_for(&analyze_sql_for_ui("UPDATE t SET v = 1;"));
+        assert!(!dml.reload_tables && !dml.reload_triggers && !dml.reload_routines);
+
+        let select = schema_invalidation_for(&analyze_sql_for_ui("SELECT * FROM t;"));
+        assert!(!select.reload_tables && !select.reload_triggers && !select.reload_routines);
+    }
 
     #[test]
     fn test_is_cancelled_query_error_chinese() {
@@ -1077,6 +1370,44 @@ mod tests {
         assert!(!should_record_active_query_time(Some(1), 2, false));
         assert!(!should_record_active_query_time(Some(2), 2, true));
         assert!(!should_record_active_query_time(None, 2, false));
+    }
+
+    #[test]
+    fn grid_save_clears_edits_only_when_whole_batch_commits() {
+        // B1: 整批成功 → 清编辑
+        let ok = Ok(ImportExecutionReport {
+            total: 3,
+            succeeded: 3,
+            failed: 0,
+            first_error: None,
+        });
+        assert_eq!(
+            classify_grid_save_outcome(&ok),
+            GridSaveOutcome::CommittedClearEdits
+        );
+    }
+
+    #[test]
+    fn grid_save_keeps_edits_on_partial_or_failed_batch() {
+        // B1/B2: 有失败语句 → 保留编辑（事务已回滚）
+        let partial = Ok(ImportExecutionReport {
+            total: 3,
+            succeeded: 1,
+            failed: 1,
+            first_error: Some("NOT NULL constraint failed".to_string()),
+        });
+        assert_eq!(
+            classify_grid_save_outcome(&partial),
+            GridSaveOutcome::RolledBackKeepEdits
+        );
+
+        // 执行层直接报错（事务回滚）→ 保留编辑
+        let err: Result<ImportExecutionReport, String> =
+            Err("事务已回滚，第 2 条语句执行失败".to_string());
+        assert_eq!(
+            classify_grid_save_outcome(&err),
+            GridSaveOutcome::RolledBackKeepEdits
+        );
     }
 
     #[test]
@@ -1232,11 +1563,12 @@ mod tests {
             ERTable::new("customers".into()),
             ERTable::new("orders".into()),
         ];
-        app.state.er_diagram_state
-            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+        app.state.er_diagram_state.set_pending_layout_restore(Some(
+            std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(320.0, 140.0)),
                 ("orders".to_string(), egui::pos2(80.0, 420.0)),
-            ])));
+            ]),
+        ));
         app.state.er_diagram_state.loading = false;
         app.state.er_diagram_state.relationships = vec![relationship("orders", "customers")];
 
@@ -1283,12 +1615,13 @@ mod tests {
             ERTable::new("orders".into()),
             ERTable::new("invoices".into()),
         ];
-        app.state.er_diagram_state
-            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+        app.state.er_diagram_state.set_pending_layout_restore(Some(
+            std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(320.0, 140.0)),
                 ("orders".to_string(), egui::pos2(80.0, 420.0)),
                 ("legacy".to_string(), egui::pos2(920.0, 40.0)),
-            ])));
+            ]),
+        ));
         app.state.er_diagram_state.loading = false;
         app.state.er_diagram_state.relationships = vec![relationship("orders", "customers")];
 
@@ -1323,29 +1656,33 @@ mod tests {
         let mut invoices = ERTable::new("invoices".into());
         invoices.size = egui::vec2(180.0, 200.0);
         app.state.er_diagram_state.tables = vec![customers, orders, invoices];
-        app.state.er_diagram_state
-            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+        app.state.er_diagram_state.set_pending_layout_restore(Some(
+            std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(540.0, 50.0)),
                 ("orders".to_string(), egui::pos2(300.0, 50.0)),
                 ("legacy".to_string(), egui::pos2(80.0, 420.0)),
-            ])));
+            ]),
+        ));
         app.state.er_diagram_state.loading = false;
 
         app.finalize_er_diagram_load_if_ready();
 
-        let customers = app.state
+        let customers = app
+            .state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "customers")
             .unwrap();
-        let orders = app.state
+        let orders = app
+            .state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "orders")
             .unwrap();
-        let invoices = app.state
+        let invoices = app
+            .state
             .er_diagram_state
             .tables
             .iter()
@@ -1387,11 +1724,12 @@ mod tests {
         invoices.size = egui::vec2(180.0, 200.0);
         app.state.er_diagram_state.tables = vec![customers, orders, invoices];
         let restored_orders = egui::pos2(660.0, 50.0);
-        app.state.er_diagram_state
-            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+        app.state.er_diagram_state.set_pending_layout_restore(Some(
+            std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(900.0, 50.0)),
                 ("orders".to_string(), restored_orders),
-            ])));
+            ]),
+        ));
         app.state.er_diagram_state.loading = false;
         app.state.er_diagram_state.relationships = relationships;
 
@@ -1400,13 +1738,15 @@ mod tests {
 
         app.finalize_er_diagram_load_if_ready();
 
-        let orders = app.state
+        let orders = app
+            .state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "orders")
             .unwrap();
-        let invoices = app.state
+        let invoices = app
+            .state
             .er_diagram_state
             .tables
             .iter()
@@ -1430,23 +1770,23 @@ mod tests {
 
         let mut app = crate::app::DbManagerApp::new_for_test();
         app.state.er_diagram_state.tables = vec![orders, invoices];
-        app.state.er_diagram_state
-            .set_pending_layout_restore(Some(std::collections::HashMap::from([(
-                "orders".to_string(),
-                egui::pos2(660.0, 50.0),
-            )])));
+        app.state.er_diagram_state.set_pending_layout_restore(Some(
+            std::collections::HashMap::from([("orders".to_string(), egui::pos2(660.0, 50.0))]),
+        ));
         app.state.er_diagram_state.loading = false;
         app.state.er_diagram_state.relationships = relationships;
 
         app.finalize_er_diagram_load_if_ready();
 
-        let orders = app.state
+        let orders = app
+            .state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "orders")
             .unwrap();
-        let invoices = app.state
+        let invoices = app
+            .state
             .er_diagram_state
             .tables
             .iter()
@@ -1474,29 +1814,33 @@ mod tests {
 
         let mut app = crate::app::DbManagerApp::new_for_test();
         app.state.er_diagram_state.tables = vec![customers, order_items, orders];
-        app.state.er_diagram_state
-            .set_pending_layout_restore(Some(std::collections::HashMap::from([
+        app.state.er_diagram_state.set_pending_layout_restore(Some(
+            std::collections::HashMap::from([
                 ("customers".to_string(), egui::pos2(660.0, 50.0)),
                 ("order_items".to_string(), egui::pos2(940.0, 250.0)),
-            ])));
+            ]),
+        ));
         app.state.er_diagram_state.loading = false;
         app.state.er_diagram_state.relationships = relationships;
 
         app.finalize_er_diagram_load_if_ready();
 
-        let customers = app.state
+        let customers = app
+            .state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "customers")
             .unwrap();
-        let order_items = app.state
+        let order_items = app
+            .state
             .er_diagram_state
             .tables
             .iter()
             .find(|table| table.name == "order_items")
             .unwrap();
-        let orders = app.state
+        let orders = app
+            .state
             .er_diagram_state
             .tables
             .iter()
@@ -1532,5 +1876,47 @@ mod tests {
         assert_eq!(relationships[0].to_table, "customers");
         assert_eq!(relationships[0].to_column, "id");
         assert_eq!(relationships[0].relation_type, RelationType::OneToMany);
+    }
+
+    #[test]
+    fn column_metadata_fetch_caches_and_derives_primary_key() {
+        // 审计 G6：列元数据落地到 grid_state，并从 is_primary_key 推导主键索引。
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let ctx = egui::Context::default();
+        app.state.selected_table = Some("t".to_string());
+        app.state.result = Some(QueryResult::with_rows(
+            vec!["id".to_string(), "age".to_string()],
+            vec![vec!["1".to_string(), "30".to_string()]],
+        ));
+
+        let columns = vec![
+            ColumnInfo {
+                name: "id".to_string(),
+                data_type: "INTEGER".to_string(),
+                is_primary_key: true,
+                is_nullable: false,
+                default_value: None,
+            },
+            ColumnInfo {
+                name: "age".to_string(),
+                data_type: "INTEGER".to_string(),
+                is_primary_key: false,
+                is_nullable: false,
+                default_value: None,
+            },
+        ];
+        app.handle_column_metadata_fetched(&ctx, "t".to_string(), columns);
+
+        assert_eq!(app.state.grid_state.column_metadata.len(), 2);
+        assert_eq!(app.state.grid_state.primary_key_column, Some(0));
+
+        // 过期回包（表已切换）不应覆盖。
+        app.state.selected_table = Some("other".to_string());
+        app.handle_column_metadata_fetched(&ctx, "t".to_string(), Vec::new());
+        assert_eq!(
+            app.state.grid_state.column_metadata.len(),
+            2,
+            "过期回包不应清空当前表元数据"
+        );
     }
 }

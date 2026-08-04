@@ -2,7 +2,7 @@
 
 use gridix::core::{
     Action, AutoComplete, HighlightColors, KeyBinding, KeyBindings, KeyCode, NotificationManager,
-    ProgressManager, SessionState, SqlHighlighter, TabState, format_sql,
+    ProgressManager, SqlHighlighter, format_sql,
 };
 use std::sync::atomic::Ordering;
 
@@ -132,75 +132,6 @@ fn test_find_conflicts() {
 }
 
 // ============================================================================
-// Session 测试
-// ============================================================================
-
-#[test]
-fn test_tab_state() {
-    let tab = TabState::new("Query 1", "SELECT * FROM users");
-    assert_eq!(tab.title, "Query 1");
-    assert_eq!(tab.sql, "SELECT * FROM users");
-    assert!(tab.associated_table.is_none());
-
-    let tab = TabState::with_table("Users", "SELECT * FROM users", "users");
-    assert!(tab.associated_table.is_some());
-    assert_eq!(tab.associated_table.unwrap(), "users");
-}
-
-#[test]
-fn test_session_state_tabs() {
-    let mut session = SessionState::new();
-    assert_eq!(session.tab_count(), 0);
-
-    session.add_tab(TabState::new("Tab 1", ""));
-    assert_eq!(session.tab_count(), 1);
-    assert_eq!(session.active_tab_index, 0);
-
-    session.add_tab(TabState::new("Tab 2", ""));
-    assert_eq!(session.tab_count(), 2);
-    assert_eq!(session.active_tab_index, 1);
-
-    session.remove_tab(0);
-    assert_eq!(session.tab_count(), 1);
-    assert_eq!(session.active_tab_index, 0);
-}
-
-#[test]
-fn test_session_state_update() {
-    let mut session = SessionState::new();
-    session.add_tab(TabState::new("Tab 1", ""));
-
-    session.update_tab(0, "SELECT 1".to_string());
-    assert_eq!(session.tabs[0].sql, "SELECT 1");
-}
-
-#[test]
-fn test_session_state_location() {
-    let mut session = SessionState::new();
-    session.record_last_location(
-        Some("my_conn".to_string()),
-        Some("my_db".to_string()),
-        Some("my_table".to_string()),
-    );
-
-    assert_eq!(session.last_connection, Some("my_conn".to_string()));
-    assert_eq!(session.last_database, Some("my_db".to_string()));
-    assert_eq!(session.last_table, Some("my_table".to_string()));
-}
-
-#[test]
-fn test_has_valid_session() {
-    let mut session = SessionState::new();
-    assert!(!session.has_valid_session());
-
-    session.add_tab(TabState::new("Tab", ""));
-    assert!(session.has_valid_session());
-
-    session = SessionState::new();
-    session.last_connection = Some("conn".to_string());
-    assert!(session.has_valid_session());
-}
-
 // ============================================================================
 // Autocomplete 测试
 // ============================================================================

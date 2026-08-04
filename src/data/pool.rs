@@ -2,8 +2,8 @@
 
 use super::config::ConnectionConfig;
 use super::error::DbError;
-use super::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
 use crate::core::constants;
+use crate::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -60,9 +60,17 @@ use tokio::sync::RwLock;
 pub struct PoolManager {
     /// MySQL 连接池缓存
     mysql_pools: RwLock<HashMap<String, (mysql_async::Pool, Instant)>>,
-    /// PostgreSQL 客户端缓存（tokio-postgres 使用长连接）
-    pg_clients: RwLock<HashMap<String, (Arc<tokio_postgres::Client>, Instant)>>,
+    /// PostgreSQL 客户端缓存（tokio-postgres 使用长连接）。
+    /// 元组第三项是后台连接任务句柄，断开时中止以免泄漏连接（审计 CONN-F7）。
+    pg_clients: RwLock<HashMap<String, PgClientEntry>>,
 }
+
+/// PostgreSQL 客户端缓存条目：客户端、最近使用时间、后台连接任务句柄。
+type PgClientEntry = (
+    Arc<tokio_postgres::Client>,
+    Instant,
+    tokio::task::JoinHandle<()>,
+);
 
 impl PoolManager {
     /// 创建新的连接池管理器
@@ -248,18 +256,20 @@ impl PoolManager {
         // 检查缓存并验证连接健康 — 在写锁内原子执行
         {
             let mut clients = self.pg_clients.write().await;
-            if let Some((client, last_used)) = clients.get_mut(&key) {
+            if let Some((client, last_used, _handle)) = clients.get_mut(&key) {
                 if !client.is_closed() {
                     *last_used = Instant::now();
                     return Ok(client.clone());
                 }
-                // 连接已关闭 — 移除
-                clients.remove(&key);
+                // 连接已关闭 — 移除并中止其后台任务
+                if let Some((_, _, handle)) = clients.remove(&key) {
+                    handle.abort();
+                }
             }
         }
 
         // 创建新连接（根据 SSL 模式选择连接方式）
-        let client = Self::connect_pg_with_ssl(config).await?;
+        let (client, conn_handle) = Self::connect_pg_with_ssl(config).await?;
         let client = Arc::new(client);
 
         // 存入缓存（限制缓存数量，防止内存溢出）
@@ -270,22 +280,23 @@ impl PoolManager {
             if clients.len() >= constants::database::pool::MAX_POSTGRES_CLIENTS
                 && let Some(oldest_key) = clients
                     .iter()
-                    .min_by_key(|(_, (_, last_used))| *last_used)
+                    .min_by_key(|(_, (_, last_used, _))| *last_used)
                     .map(|(key, _)| key.clone())
+                && let Some((_, _, handle)) = clients.remove(&oldest_key)
             {
-                clients.remove(&oldest_key);
+                handle.abort();
             }
 
-            clients.insert(key, (client.clone(), Instant::now()));
+            clients.insert(key, (client.clone(), Instant::now(), conn_handle));
         }
 
         Ok(client)
     }
 
-    /// 根据 SSL 模式连接 PostgreSQL
+    /// 根据 SSL 模式连接 PostgreSQL。返回客户端及其后台连接任务句柄。
     async fn connect_pg_with_ssl(
         config: &ConnectionConfig,
-    ) -> Result<tokio_postgres::Client, DbError> {
+    ) -> Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>), DbError> {
         let conn_string = config.connection_string();
 
         match config.postgres_ssl_mode {
@@ -295,13 +306,13 @@ impl PoolManager {
                     .await
                     .map_err(|e| DbError::Connection(format!("PostgreSQL 连接失败: {}", e)))?;
 
-                Self::spawn_pg_connection(conn, &config.pool_key());
-                Ok(client)
+                let handle = Self::spawn_pg_connection(conn, &config.pool_key());
+                Ok((client, handle))
             }
             PostgresSslMode::Prefer => {
                 // 优先使用 TLS，失败则回退到非 TLS
                 match Self::connect_pg_tls(config, true).await {
-                    Ok(client) => Ok(client),
+                    Ok(pair) => Ok(pair),
                     Err(_) => {
                         // TLS 失败，尝试非 TLS
                         let (client, conn) =
@@ -311,8 +322,8 @@ impl PoolManager {
                                     DbError::Connection(format!("PostgreSQL 连接失败: {}", e))
                                 })?;
 
-                        Self::spawn_pg_connection(conn, &config.pool_key());
-                        Ok(client)
+                        let handle = Self::spawn_pg_connection(conn, &config.pool_key());
+                        Ok((client, handle))
                     }
                 }
             }
@@ -327,11 +338,11 @@ impl PoolManager {
         }
     }
 
-    /// 使用 TLS 连接 PostgreSQL
+    /// 使用 TLS 连接 PostgreSQL。返回客户端及其后台连接任务句柄。
     async fn connect_pg_tls(
         config: &ConnectionConfig,
         accept_invalid_certs: bool,
-    ) -> Result<tokio_postgres::Client, DbError> {
+    ) -> Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>), DbError> {
         use std::path::Path;
 
         let config_builder = rustls::ClientConfig::builder();
@@ -357,7 +368,8 @@ impl PoolManager {
 
             let mut root_store = rustls::RootCertStore::empty();
             for cert in certs {
-                root_store.add(cert)
+                root_store
+                    .add(cert)
                     .map_err(|e| DbError::Connection(format!("添加 CA 证书失败: {}", e)))?;
             }
 
@@ -365,9 +377,8 @@ impl PoolManager {
                 .with_root_certificates(root_store)
                 .with_no_client_auth()
         } else {
-            let root_store = rustls::RootCertStore::from_iter(
-                webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
-            );
+            let root_store =
+                rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
             config_builder
                 .with_root_certificates(root_store)
                 .with_no_client_auth()
@@ -379,12 +390,15 @@ impl PoolManager {
             .await
             .map_err(|e| DbError::Connection(format!("PostgreSQL TLS 连接失败: {}", e)))?;
 
-        Self::spawn_pg_connection(conn, &config.pool_key());
-        Ok(client)
+        let handle = Self::spawn_pg_connection(conn, &config.pool_key());
+        Ok((client, handle))
     }
 
-    /// 在后台处理 PostgreSQL 连接
-    fn spawn_pg_connection<S, T>(conn: tokio_postgres::Connection<S, T>, key: &str)
+    /// 在后台处理 PostgreSQL 连接，返回任务句柄以便断开时中止（修复审计 CONN-F7）。
+    fn spawn_pg_connection<S, T>(
+        conn: tokio_postgres::Connection<S, T>,
+        key: &str,
+    ) -> tokio::task::JoinHandle<()>
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
         T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -394,7 +408,7 @@ impl PoolManager {
             if let Err(e) = conn.await {
                 tracing::warn!(connection = %conn_key, error = %e, "PostgreSQL 连接错误");
             }
-        });
+        })
     }
 
     /// 清除指定配置的连接池
@@ -411,7 +425,10 @@ impl PoolManager {
             }
             DatabaseType::PostgreSQL => {
                 let mut clients = self.pg_clients.write().await;
-                clients.remove(&key);
+                // 中止后台连接任务，及时关闭 TCP 连接，避免泄漏（修复审计 CONN-F7）。
+                if let Some((_, _, handle)) = clients.remove(&key) {
+                    handle.abort();
+                }
             }
             DatabaseType::SQLite => {
                 // SQLite 不需要连接池
@@ -429,7 +446,10 @@ impl PoolManager {
         }
         {
             let mut clients = self.pg_clients.write().await;
-            clients.clear();
+            // 中止所有后台连接任务，避免任务泄漏（审计 CONN-F7）。
+            for (_, (_, _, handle)) in clients.drain() {
+                handle.abort();
+            }
         }
     }
 }

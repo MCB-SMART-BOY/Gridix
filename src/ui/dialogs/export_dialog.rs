@@ -340,9 +340,7 @@ impl ExportDialog {
                 }
                 ExportKeyAction::ToggleAllColumns => {
                     let all_selected = config.all_columns_selected();
-                    for s in &mut config.selected_columns {
-                        *s = !all_selected;
-                    }
+                    config.selected_columns.fill(!all_selected);
                 }
             }
         }
@@ -635,9 +633,7 @@ impl ExportDialog {
                 .clicked()
             {
                 let new_state = !all_selected;
-                for selected in &mut config.selected_columns {
-                    *selected = new_state;
-                }
+                config.selected_columns.fill(new_state);
             }
 
             ui.label(

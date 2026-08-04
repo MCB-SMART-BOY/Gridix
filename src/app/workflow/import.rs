@@ -43,7 +43,8 @@ impl DbManagerApp {
 
         match preview_import_transfer(path, &session) {
             Ok(preview) => {
-                self.state.import_state.preview = Some(ui::ImportPreview::from_transfer_preview(preview));
+                self.state.import_state.preview =
+                    Some(ui::ImportPreview::from_transfer_preview(preview));
             }
             Err(error) => {
                 self.state.import_state.error = Some(error);
@@ -63,7 +64,8 @@ impl DbManagerApp {
         let plan = match plan_import_transfer(path, &session) {
             Ok(plan) => plan,
             Err(error) => {
-                self.session.notifications
+                self.session
+                    .notifications
                     .error(format!("导入计划生成失败: {}", error));
                 return;
             }

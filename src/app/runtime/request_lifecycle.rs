@@ -2,23 +2,45 @@
 //!
 //! 负责请求 ID、执行状态、取消信号与 pending 任务清理。
 
-
 use super::DbManagerApp;
 
 impl DbManagerApp {
-
     pub(in crate::app) fn cancel_query_request_silently(&mut self, request_id: u64) {
         self.cancel_query_request_with_visibility(request_id, false);
+    }
+
+    /// 取消当前活动标签页正在执行的查询（用户主动取消，会显示反馈）。
+    ///
+    /// 修复审计 B4：取消机制原本只有 silent 入口，没有任何用户可达的取消路径。
+    /// 返回是否确实存在一个在执行的查询被取消。
+    pub(in crate::app) fn cancel_active_query(&mut self) -> bool {
+        let Some(request_id) = self
+            .session
+            .tab_manager
+            .get_active()
+            .and_then(|tab| tab.pending_request_id)
+        else {
+            return false;
+        };
+        self.cancel_query_request_with_visibility(request_id, true);
+        self.session.notifications.warning("已取消查询");
+        self.session.needs_repaint = true;
+        true
     }
 
     /// 检查是否有任何模态对话框打开
     /// 用于在对话框打开时禁用其他区域的键盘响应
     pub(in crate::app) fn has_modal_dialog_open(&self) -> bool {
-        self.active_dialog_id().is_some() || self.state.grid_state.show_save_confirm
+        self.active_dialog_id().is_some()
+            || self.state.grid_state.show_save_confirm
+            // WelcomeSetup 可能在 active_dialog_owner 尚未协调的帧里就已可见；
+            // 直接把它的可见标志视为模态，避免工作区快捷键穿透覆盖层（修复审计 B8）。
+            || self.state.show_welcome_setup_dialog
     }
 
     /// 从当前活动 Tab 同步 SQL 和结果到主视图
     pub(crate) fn sync_from_active_tab(&mut self) {
+        let mut query_bottom_panel_tab = None;
         if let Some(tab) = self.session.tab_manager.get_active() {
             self.state.result = tab.result.clone();
             self.session.last_query_time_ms = tab.query_time_ms;
@@ -26,6 +48,13 @@ impl DbManagerApp {
             self.state.search_text = tab.search_text.clone();
             self.state.search_column = tab.search_column.clone();
             self.active_grid_workspace_enabled = tab.uses_grid_workspace;
+            query_bottom_panel_tab = if tab.last_error.is_some() {
+                Some(crate::core::BottomPanelTab::Messages)
+            } else if tab.result.is_some() {
+                Some(crate::core::BottomPanelTab::Results)
+            } else {
+                None
+            };
         } else {
             self.session.last_query_time_ms = None;
             self.state.selected_table = None;
@@ -36,6 +65,9 @@ impl DbManagerApp {
         self.state.selected_row = None;
         self.state.selected_cell = None;
         self.restore_grid_surface_from_active_tab();
+        if let Some(tab) = query_bottom_panel_tab {
+            self.reveal_bottom_panel_for_query(tab);
+        }
     }
 
     /// 在切换/打开其它 Tab 前持久化当前活动 Tab 的状态
@@ -63,7 +95,8 @@ impl DbManagerApp {
     /// 取消指定查询请求
     fn cancel_query_request_with_visibility(&mut self, request_id: u64, user_visible: bool) {
         let cancel_sent = self
-            .session.pending_query_cancellers
+            .session
+            .pending_query_cancellers
             .remove(&request_id)
             .is_some_and(|sender| {
                 sender
@@ -73,9 +106,13 @@ impl DbManagerApp {
                     .is_some_and(|cancel| cancel.send(()).is_ok())
             });
         if cancel_sent && user_visible {
-            self.session.user_cancelled_query_requests.insert(request_id);
+            self.session
+                .user_cancelled_query_requests
+                .insert(request_id);
         } else {
-            self.session.user_cancelled_query_requests.remove(&request_id);
+            self.session
+                .user_cancelled_query_requests
+                .remove(&request_id);
         }
         if !cancel_sent && let Some(handle) = self.session.pending_query_tasks.remove(&request_id) {
             handle.abort();
@@ -89,7 +126,8 @@ impl DbManagerApp {
     /// 取消某个连接关联的所有查询请求
     pub(in crate::app) fn cancel_queries_for_connection(&mut self, conn_name: &str) {
         let request_ids: Vec<u64> = self
-            .session.pending_query_connections
+            .session
+            .pending_query_connections
             .iter()
             .filter_map(|(request_id, request_conn)| {
                 if request_conn == conn_name {

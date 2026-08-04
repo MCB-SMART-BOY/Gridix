@@ -2,9 +2,7 @@
 use super::common::{
     DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow, FormDialogShell,
 };
-use crate::data::{
-    ConnectionConfig, DatabaseType, MySqlSslMode, PostgresSslMode, SshAuthMethod,
-};
+use crate::data::{ConnectionConfig, DatabaseType, MySqlSslMode, PostgresSslMode, SshAuthMethod};
 use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_MD, SPACING_SM, SUCCESS};
 use crate::ui::{LocalShortcut, local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text};
 use egui::{self, Color32, CornerRadius, RichText, TextEdit};

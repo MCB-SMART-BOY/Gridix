@@ -91,6 +91,9 @@ mod tests {
     #[test]
     fn test_project_root() {
         let root = project_root();
-        assert!(root.join("Cargo.toml").exists(), "root must contain Cargo.toml");
+        assert!(
+            root.join("Cargo.toml").exists(),
+            "root must contain Cargo.toml"
+        );
     }
 }

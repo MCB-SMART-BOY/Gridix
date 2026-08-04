@@ -10,8 +10,8 @@ pub mod tab;
 use crate::core::{AutoComplete, NotificationManager, ProgressManager, QueryHistory};
 use crate::data::{ConnectionManager, QueryResult};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 
 // ============================================================================
 // Session — 数据库会话管理
@@ -38,6 +38,7 @@ pub struct Session {
     pub connecting: bool,
     pub executing: bool,
     pub import_executing: bool,
+    pub grid_save_executing: bool,
 
     // ── 请求 ID 序列（私有：只能通过方法生成，保证单调递增）──
     next_connect_request_id: u64,
@@ -49,9 +50,12 @@ pub struct Session {
     pub pending_database_requests: HashMap<String, (String, u64)>,
     pub pending_triggers_request: Option<(String, Option<String>, u64)>,
     pub pending_routines_request: Option<(String, Option<String>, u64)>,
+    /// 最近一次网格保存批次的请求 ID（用于丢弃过期回包）
+    pub pending_grid_save_request: Option<u64>,
     pub pending_query_tasks: HashMap<u64, tokio::task::JoinHandle<()>>,
     pub pending_query_connections: HashMap<u64, String>,
-    pub pending_query_cancellers: HashMap<u64, Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>>,
+    pub pending_query_cancellers:
+        HashMap<u64, Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>>,
     pub user_cancelled_query_requests: HashSet<u64>,
 
     // ── 自动补全 ──
@@ -91,6 +95,7 @@ impl Session {
             connecting: false,
             executing: false,
             import_executing: false,
+            grid_save_executing: false,
             next_connect_request_id: 0,
             next_query_request_id: 0,
             next_metadata_request_id: 0,
@@ -98,6 +103,7 @@ impl Session {
             pending_database_requests: HashMap::new(),
             pending_triggers_request: None,
             pending_routines_request: None,
+            pending_grid_save_request: None,
             pending_query_tasks: HashMap::new(),
             pending_query_connections: HashMap::new(),
             pending_query_cancellers: HashMap::new(),
@@ -127,7 +133,9 @@ impl Session {
         if self.tab_manager.tabs.is_empty() {
             self.tab_manager.new_tab();
         }
-        self.tab_manager.get_active_mut().unwrap()
+        self.tab_manager
+            .get_active_mut()
+            .expect("active tab should exist after ensure_active_tab")
     }
 
     /// 设置编辑器 SQL（如无 tab 则自动创建）
@@ -137,7 +145,9 @@ impl Session {
 
     /// 检查活动 Tab 的查询结果
     pub fn active_result(&self) -> Option<&QueryResult> {
-        self.tab_manager.get_active().and_then(|t| t.result.as_ref())
+        self.tab_manager
+            .get_active()
+            .and_then(|t| t.result.as_ref())
     }
 
     // ── 请求 ID 生成 ──
@@ -174,7 +184,7 @@ impl Session {
 
     pub fn refresh_executing_flag(&mut self) {
         let query_executing = self.tab_manager.tabs.iter().any(|t| t.executing);
-        self.executing = self.import_executing || query_executing;
+        self.executing = self.import_executing || self.grid_save_executing || query_executing;
     }
 
     // ── 查询任务追踪 ──

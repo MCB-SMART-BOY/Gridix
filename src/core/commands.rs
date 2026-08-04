@@ -34,7 +34,18 @@ const fn bind(key: KeyCode, modifiers: KeyModifiers) -> ScopedCommandBinding {
     ScopedCommandBinding::new(key, modifiers)
 }
 
-pub const SCOPED_COMMANDS: &[ScopedCommand] = &[
+/// 当某个 command id 未在注册表中找到时使用的兜底项。
+///
+/// 用于把"缺失注册"从运行时 panic 降级为可见但无害的占位（无默认绑定），
+/// 避免每帧/每按键的热路径因一处漏注册而直接崩溃。开发期由 `debug_assert!` 捕获。
+pub const MISSING_SCOPED_COMMAND: ScopedCommand = ScopedCommand {
+    id: "<missing>",
+    description: "<未注册命令>",
+    category: "<missing>",
+    default_bindings: &[],
+};
+
+pub(crate) const SCOPED_COMMANDS: &[ScopedCommand] = &[
     ScopedCommand {
         id: "dialog.common.confirm",
         description: "确认",
@@ -871,12 +882,9 @@ pub const SCOPED_COMMANDS: &[ScopedCommand] = &[
         id: "editor.insert.history_browse",
         description: "打开 SQL 历史",
         category: "SQL 编辑器",
-        default_bindings: &[
-            bind(KeyCode::ArrowUp, KeyModifiers::SHIFT),
-            bind(KeyCode::ArrowDown, KeyModifiers::SHIFT),
-            bind(KeyCode::K, KeyModifiers::SHIFT),
-            bind(KeyCode::J, KeyModifiers::SHIFT),
-        ],
+        // 无默认绑定：此命令从未被功能消费，且其原绑定与 history_prev/next 完全重叠，
+        // 造成同 scope 冲突使 history_browse 永不可达。移除默认绑定消除冲突（审计 DLG-B2-3）。
+        default_bindings: &[],
     },
     ScopedCommand {
         id: "grid.insert.finish_edit",
@@ -1164,5 +1172,22 @@ mod tests {
             command.default_bindings[0].key_binding().display(),
             "Ctrl+Enter"
         );
+    }
+
+    #[test]
+    fn history_browse_has_no_bindings_shadowing_prev_next() {
+        // 审计 DLG-B2-3：history_browse 不能再与 prev/next 共享默认键。
+        let browse =
+            scoped_command("editor.insert.history_browse").expect("history_browse command");
+        assert!(
+            browse.default_bindings.is_empty(),
+            "history_browse must have no default bindings to avoid shadowing prev/next"
+        );
+
+        // prev/next 仍保有各自的键。
+        let prev = scoped_command("editor.insert.history_prev").expect("history_prev");
+        let next = scoped_command("editor.insert.history_next").expect("history_next");
+        assert!(!prev.default_bindings.is_empty());
+        assert!(!next.default_bindings.is_empty());
     }
 }

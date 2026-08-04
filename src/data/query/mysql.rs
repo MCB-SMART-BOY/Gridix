@@ -36,7 +36,7 @@ impl Drop for AbortOnDrop {
 }
 
 /// 获取 MySQL 数据库列表
-pub async fn get_databases(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
+pub(crate) async fn get_databases(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
     let pool = POOL_MANAGER.get_mysql_pool(config).await?;
 
     let mut conn = pool
@@ -62,7 +62,10 @@ pub async fn get_databases(config: &ConnectionConfig) -> Result<Vec<String>, DbE
 }
 
 /// 获取 MySQL 指定数据库的表列表
-pub async fn get_tables(config: &ConnectionConfig, database: &str) -> Result<Vec<String>, DbError> {
+pub(crate) async fn get_tables(
+    config: &ConnectionConfig,
+    database: &str,
+) -> Result<Vec<String>, DbError> {
     // 创建一个临时配置，连接到指定数据库
     let mut db_config = config.clone();
     db_config.database = database.to_string();
@@ -83,7 +86,10 @@ pub async fn get_tables(config: &ConnectionConfig, database: &str) -> Result<Vec
 }
 
 /// 删除 MySQL 数据库。
-pub async fn drop_database(config: &ConnectionConfig, database: &str) -> Result<(), DbError> {
+pub(crate) async fn drop_database(
+    config: &ConnectionConfig,
+    database: &str,
+) -> Result<(), DbError> {
     let sql = format!("DROP DATABASE {}", quote_mysql_identifier(database));
     let mut last_error = None;
 
@@ -133,7 +139,7 @@ fn mysql_maintenance_databases(config: &ConnectionConfig, target_database: &str)
 }
 
 /// 获取 MySQL 表的主键列名
-pub async fn get_primary_key(
+pub(crate) async fn get_primary_key(
     config: &ConnectionConfig,
     table: &str,
 ) -> Result<Option<String>, DbError> {
@@ -170,12 +176,12 @@ fn quote_mysql_identifier(name: &str) -> String {
 }
 
 /// 执行 MySQL 查询
-pub async fn execute(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbError> {
+pub(crate) async fn execute(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbError> {
     execute_with_connection_id(config, sql, None).await
 }
 
 /// 执行可取消的 MySQL 查询
-pub async fn execute_cancellable(
+pub(crate) async fn execute_cancellable(
     config: &ConnectionConfig,
     sql: &str,
     cancel_rx: oneshot::Receiver<()>,
@@ -419,7 +425,7 @@ async fn execute_with_connection(
 }
 
 /// 批量执行 MySQL 语句（用于导入）
-pub async fn execute_batch(
+pub(crate) async fn execute_batch(
     config: &ConnectionConfig,
     statements: &[String],
     use_transaction: bool,
@@ -549,7 +555,7 @@ fn value_to_string(val: mysql_async::Value) -> (String, bool) {
 }
 
 /// 获取 MySQL 触发器
-pub async fn get_triggers(config: &ConnectionConfig) -> Result<Vec<TriggerInfo>, DbError> {
+pub(crate) async fn get_triggers(config: &ConnectionConfig) -> Result<Vec<TriggerInfo>, DbError> {
     let pool = POOL_MANAGER.get_mysql_pool(config).await?;
 
     let mut conn = pool
@@ -603,7 +609,9 @@ pub async fn get_triggers(config: &ConnectionConfig) -> Result<Vec<TriggerInfo>,
 }
 
 /// 获取 MySQL 外键
-pub async fn get_foreign_keys(config: &ConnectionConfig) -> Result<Vec<ForeignKeyInfo>, DbError> {
+pub(crate) async fn get_foreign_keys(
+    config: &ConnectionConfig,
+) -> Result<Vec<ForeignKeyInfo>, DbError> {
     let pool = POOL_MANAGER.get_mysql_pool(config).await?;
 
     let mut conn = pool
@@ -642,7 +650,7 @@ pub async fn get_foreign_keys(config: &ConnectionConfig) -> Result<Vec<ForeignKe
 }
 
 /// 获取 MySQL 表的列信息
-pub async fn get_columns(
+pub(crate) async fn get_columns(
     config: &ConnectionConfig,
     table: &str,
 ) -> Result<Vec<ColumnInfo>, DbError> {
@@ -694,7 +702,7 @@ pub async fn get_columns(
 }
 
 /// 获取 MySQL 存储过程和函数
-pub async fn get_routines(config: &ConnectionConfig) -> Result<Vec<RoutineInfo>, DbError> {
+pub(crate) async fn get_routines(config: &ConnectionConfig) -> Result<Vec<RoutineInfo>, DbError> {
     let pool = POOL_MANAGER.get_mysql_pool(config).await?;
 
     let mut conn = pool

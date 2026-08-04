@@ -33,12 +33,17 @@ impl DbManagerApp {
                 .await
                 .map_err(|_| format!("加载触发器超时 ({}秒)", timeout_secs))
                 .and_then(|r| r.map_err(|e| e.to_string()));
-                let _ = tx.send(Message::TriggersFetched(
-                    active_name,
-                    database,
-                    request_id,
-                    result,
-                ));
+                if tx
+                    .send(Message::TriggersFetched(
+                        active_name,
+                        database,
+                        request_id,
+                        result,
+                    ))
+                    .is_err()
+                {
+                    tracing::warn!("无法发送触发器数据：接收端已关闭");
+                }
             });
         }
     }
@@ -68,12 +73,17 @@ impl DbManagerApp {
                 .await
                 .map_err(|_| format!("加载存储过程超时 ({}秒)", timeout_secs))
                 .and_then(|r| r.map_err(|e| e.to_string()));
-                let _ = tx.send(Message::RoutinesFetched(
-                    active_name,
-                    database,
-                    request_id,
-                    result,
-                ));
+                if tx
+                    .send(Message::RoutinesFetched(
+                        active_name,
+                        database,
+                        request_id,
+                        result,
+                    ))
+                    .is_err()
+                {
+                    tracing::warn!("无法发送存储过程数据：接收端已关闭");
+                }
             });
         }
     }

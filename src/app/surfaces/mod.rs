@@ -5,6 +5,7 @@
 pub(in crate::app) mod dialogs;
 pub(in crate::app) mod preferences;
 pub(in crate::app) mod render;
+pub(in crate::app) mod workbench;
 
 pub(in crate::app) use super::DbManagerApp;
 pub(in crate::app) use super::action::action_system;

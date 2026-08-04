@@ -5,7 +5,9 @@
 use eframe::egui;
 
 use crate::app::dialogs::host::DialogId;
-use crate::core::{Action as ShortcutAction, constants};
+use crate::core::{
+    Action as ShortcutAction, BottomPanelTab, RightInspectorTab, WorkbenchActivity, constants,
+};
 use crate::data::DatabaseType;
 use crate::ui::{self, FocusArea};
 
@@ -25,6 +27,14 @@ pub(in crate::app) enum AppAction {
     ToggleHelpPanel,
     OpenHistoryPanel,
     ToggleHistoryPanel,
+    SetWorkbenchActivity(WorkbenchActivity),
+    SetPrimarySidebarVisible(bool),
+    ToggleBottomPanel,
+    SetBottomPanelVisible(bool),
+    SetBottomPanelTab(BottomPanelTab),
+    ToggleRightInspector,
+    SetRightInspectorVisible(bool),
+    SetRightInspectorTab(RightInspectorTab),
     OpenAboutDialog,
     OpenKeybindingsDialog,
     ToggleSidebar,
@@ -43,6 +53,7 @@ pub(in crate::app) enum AppAction {
     PrevQueryTab,
     CloseActiveQueryTab,
     RunCurrentSql,
+    CancelQuery,
     ClearCommandLine,
     ClearSearch,
     AddFilter,
@@ -55,6 +66,8 @@ pub(in crate::app) enum AppAction {
     FocusEditor,
     FocusToolbar,
     FocusQueryTabs,
+    FocusBottomPanel,
+    FocusRightInspector,
     QuerySelectedTable,
     ShowSelectedTableSchema,
     RecheckEnvironment,
@@ -76,7 +89,7 @@ pub(in crate::app) enum CommandScope {
 }
 
 impl CommandScope {
-    pub const fn label(self) -> &'static str {
+    pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::Global => "全局",
             Self::Connection => "连接",
@@ -104,7 +117,7 @@ pub(in crate::app) struct CommandDescriptor {
 
 impl CommandDescriptor {
     #[allow(clippy::too_many_arguments)]
-    pub const fn new(
+    pub(crate) const fn new(
         id: &'static str,
         title: &'static str,
         subtitle: &'static str,
@@ -134,14 +147,14 @@ pub(in crate::app) struct ActionAvailability {
 }
 
 impl ActionAvailability {
-    pub const fn enabled() -> Self {
+    pub(crate) const fn enabled() -> Self {
         Self {
             enabled: true,
             reason: None,
         }
     }
 
-    pub const fn disabled(reason: &'static str) -> Self {
+    pub(crate) const fn disabled(reason: &'static str) -> Self {
         Self {
             enabled: false,
             reason: Some(reason),
@@ -161,6 +174,7 @@ pub(in crate::app) struct ActionContext {
     pub has_search_text: bool,
     pub grid_has_changes: bool,
     pub query_tab_count: usize,
+    pub is_executing: bool,
     pub focus_area: FocusArea,
     pub show_sidebar: bool,
     pub show_sql_editor: bool,
@@ -173,10 +187,15 @@ impl ActionContext {
         Self {
             has_any_connection: !app.session.manager.connections.is_empty(),
             has_active_connection: app.session.manager.active.is_some(),
-            active_db_type: app.session.manager.get_active().map(|conn| conn.config.db_type),
+            active_db_type: app
+                .session
+                .manager
+                .get_active()
+                .map(|conn| conn.config.db_type),
             has_result: app.state.result.is_some(),
             result_has_rows: app
-                .state.result
+                .state
+                .result
                 .as_ref()
                 .is_some_and(|result| !result.rows.is_empty()),
             selected_table: app.state.selected_table.clone(),
@@ -184,6 +203,7 @@ impl ActionContext {
             has_search_text: !app.state.search_text.trim().is_empty(),
             grid_has_changes: app.state.grid_state.has_changes(),
             query_tab_count: app.session.tab_manager.tabs.len(),
+            is_executing: app.session.executing,
             focus_area: app.state.focus_area,
             show_sidebar: app.state.show_sidebar,
             show_sql_editor: app.state.show_sql_editor,
@@ -256,7 +276,7 @@ pub(in crate::app) struct CommandMatch {
 pub(in crate::app) enum AppEffect {
     Connect(String),
     ExecuteSql(String),
-    FetchPrimaryKey(String),
+    FetchColumnMetadata(String),
     RefreshWelcomeEnvironment,
     EnsureLearningSample {
         reset: bool,
@@ -375,6 +395,172 @@ const COMMANDS: &[CommandDescriptor] = &[
         ],
     ),
     CommandDescriptor::new(
+        "workbench_show_primary_sidebar",
+        "显示 PrimarySidebar",
+        "显示当前 Workbench 活动对应的主侧边栏。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetPrimarySidebarVisible(true),
+        None,
+        &["sidebar", "show sidebar", "primary sidebar", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_hide_primary_sidebar",
+        "隐藏 PrimarySidebar",
+        "隐藏当前主导航 surface。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetPrimarySidebarVisible(false),
+        None,
+        &["sidebar", "hide sidebar", "primary sidebar", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_toggle_bottom_panel",
+        "切换 BottomPanel",
+        "显示或隐藏结果、消息和任务底部面板。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::ToggleBottomPanel,
+        None,
+        &["bottom panel", "results", "messages", "panel", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_show_bottom_panel",
+        "显示 BottomPanel",
+        "显示底部结果和消息面板。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::SetBottomPanelVisible(true),
+        None,
+        &["bottom panel", "show panel", "results", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_hide_bottom_panel",
+        "隐藏 BottomPanel",
+        "隐藏底部结果和消息面板。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::SetBottomPanelVisible(false),
+        None,
+        &["bottom panel", "hide panel", "results", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_bottom_results",
+        "打开 Results",
+        "在 BottomPanel 中显示查询结果。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::SetBottomPanelTab(BottomPanelTab::Results),
+        None,
+        &["results", "bottom panel", "grid", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_bottom_messages",
+        "打开 Messages",
+        "在 BottomPanel 中显示查询消息和错误。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::SetBottomPanelTab(BottomPanelTab::Messages),
+        None,
+        &["messages", "errors", "bottom panel", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_bottom_explain",
+        "打开 Explain",
+        "在 BottomPanel 中显示执行计划入口。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::SetBottomPanelTab(BottomPanelTab::Explain),
+        None,
+        &["explain", "plan", "bottom panel", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_bottom_history",
+        "打开 Bottom History",
+        "在 BottomPanel 中显示最近查询历史。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::SetBottomPanelTab(BottomPanelTab::History),
+        None,
+        &["history", "queries", "bottom panel", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_bottom_tasks",
+        "打开 Tasks",
+        "在 BottomPanel 中显示后台任务。",
+        "Workbench",
+        CommandScope::Grid,
+        AppAction::SetBottomPanelTab(BottomPanelTab::Tasks),
+        None,
+        &["tasks", "progress", "bottom panel", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_activity_explorer",
+        "打开 Explorer 活动",
+        "在 PrimarySidebar 中显示连接、数据库和表。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetWorkbenchActivity(WorkbenchActivity::Explorer),
+        None,
+        &["activity", "explorer", "connections", "tables", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_activity_filters",
+        "打开 Filters 活动",
+        "在 PrimarySidebar 中显示当前结果筛选条件。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetWorkbenchActivity(WorkbenchActivity::Filters),
+        None,
+        &["activity", "filters", "where", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_activity_objects",
+        "打开 Objects 活动",
+        "在 PrimarySidebar 中显示触发器和存储过程。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetWorkbenchActivity(WorkbenchActivity::Objects),
+        None,
+        &["activity", "objects", "triggers", "routines", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_activity_history",
+        "打开 History 活动",
+        "在 PrimarySidebar 中显示查询历史入口。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetWorkbenchActivity(WorkbenchActivity::History),
+        None,
+        &["activity", "history", "queries", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_activity_help",
+        "打开 Help 活动",
+        "在 PrimarySidebar 中显示帮助入口。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetWorkbenchActivity(WorkbenchActivity::Help),
+        None,
+        &["activity", "help", "docs", "learning", "workbench"],
+    ),
+    CommandDescriptor::new(
+        "workbench_activity_settings",
+        "打开 Settings 活动",
+        "在 PrimarySidebar 中显示设置入口。",
+        "Workbench",
+        CommandScope::Sidebar,
+        AppAction::SetWorkbenchActivity(WorkbenchActivity::Settings),
+        None,
+        &[
+            "activity",
+            "settings",
+            "preferences",
+            "keybindings",
+            "workbench",
+        ],
+    ),
+    CommandDescriptor::new(
         "toggle_editor",
         "切换 SQL 编辑器",
         "显示或隐藏底部 SQL 编辑器工作区。",
@@ -405,6 +591,16 @@ const COMMANDS: &[CommandDescriptor] = &[
         &["er", "diagram", "focus", "graph", "focus er"],
     ),
     CommandDescriptor::new(
+        "toggle_right_inspector",
+        "切换右侧检查器",
+        "显示或隐藏当前上下文的属性、结构、行、单元格和 ER 详情。",
+        "布局",
+        CommandScope::Global,
+        AppAction::ToggleRightInspector,
+        None,
+        &["inspector", "right panel", "properties", "schema", "cell"],
+    ),
+    CommandDescriptor::new(
         "run_current_sql",
         "执行当前 SQL",
         "执行当前编辑器里的 SQL 内容。",
@@ -413,6 +609,16 @@ const COMMANDS: &[CommandDescriptor] = &[
         AppAction::RunCurrentSql,
         None,
         &["run", "execute", "query", "sql", "current sql"],
+    ),
+    CommandDescriptor::new(
+        "cancel_query",
+        "取消查询",
+        "取消当前标签页正在执行的查询。",
+        "查询",
+        CommandScope::Editor,
+        AppAction::CancelQuery,
+        None,
+        &["cancel", "stop", "abort", "query", "取消", "停止"],
     ),
     CommandDescriptor::new(
         "query_selected_table",
@@ -580,6 +786,26 @@ const COMMANDS: &[CommandDescriptor] = &[
         &["focus tabs", "query tabs", "tab bar"],
     ),
     CommandDescriptor::new(
+        "focus_bottom_panel",
+        "聚焦底部面板",
+        "显示并聚焦底部结果/消息面板。",
+        "焦点",
+        CommandScope::Grid,
+        AppAction::FocusBottomPanel,
+        Some(ShortcutAction::FocusBottomPanel),
+        &["focus bottom panel", "results", "messages", "panel"],
+    ),
+    CommandDescriptor::new(
+        "focus_right_inspector",
+        "聚焦右侧检查器",
+        "显示并聚焦右侧属性/结构检查器。",
+        "焦点",
+        CommandScope::Grid,
+        AppAction::FocusRightInspector,
+        Some(ShortcutAction::FocusRightInspector),
+        &["focus inspector", "right inspector", "properties", "schema"],
+    ),
+    CommandDescriptor::new(
         "open_history",
         "打开历史记录",
         "显示查询历史面板。",
@@ -734,6 +960,8 @@ impl AppAction {
             | ShortcutAction::OpenToolbarCreateMenu
             | ShortcutAction::OpenThemeSelector
             | ShortcutAction::FocusErDiagram
+            | ShortcutAction::FocusBottomPanel
+            | ShortcutAction::FocusRightInspector
             | ShortcutAction::FocusSidebarConnections
             | ShortcutAction::FocusSidebarDatabases
             | ShortcutAction::FocusSidebarTables
@@ -840,6 +1068,14 @@ fn availability_for_action(context: &ActionContext, action: AppAction) -> Action
         | AppAction::ToggleHelpPanel
         | AppAction::OpenHistoryPanel
         | AppAction::ToggleHistoryPanel
+        | AppAction::SetWorkbenchActivity(_)
+        | AppAction::SetPrimarySidebarVisible(_)
+        | AppAction::ToggleBottomPanel
+        | AppAction::SetBottomPanelVisible(_)
+        | AppAction::SetBottomPanelTab(_)
+        | AppAction::ToggleRightInspector
+        | AppAction::SetRightInspectorVisible(_)
+        | AppAction::SetRightInspectorTab(_)
         | AppAction::OpenAboutDialog
         | AppAction::OpenKeybindingsDialog
         | AppAction::ToggleSidebar
@@ -856,6 +1092,8 @@ fn availability_for_action(context: &ActionContext, action: AppAction) -> Action
         | AppAction::FocusEditor
         | AppAction::FocusToolbar
         | AppAction::FocusQueryTabs
+        | AppAction::FocusBottomPanel
+        | AppAction::FocusRightInspector
         | AppAction::RecheckEnvironment
         | AppAction::OpenLearningSample
         | AppAction::EnsureLearningSample { .. } => ActionAvailability::enabled(),
@@ -922,6 +1160,13 @@ fn availability_for_action(context: &ActionContext, action: AppAction) -> Action
                 ActionAvailability::enabled()
             } else {
                 ActionAvailability::disabled("SQL 编辑器里还没有可执行内容")
+            }
+        }
+        AppAction::CancelQuery => {
+            if context.is_executing {
+                ActionAvailability::enabled()
+            } else {
+                ActionAvailability::disabled("当前没有正在执行的查询")
             }
         }
         AppAction::ClearCommandLine => {
@@ -1057,14 +1302,49 @@ impl DbManagerApp {
                 self.toggle_history_panel();
                 Vec::new()
             }
+            AppAction::SetWorkbenchActivity(activity) => {
+                self.set_workbench_activity(activity);
+                Vec::new()
+            }
+            AppAction::SetPrimarySidebarVisible(visible) => {
+                self.set_primary_sidebar_visible(visible);
+                Vec::new()
+            }
+            AppAction::ToggleBottomPanel => {
+                self.set_bottom_panel_visible(!self.state.workbench.bottom_panel.visible);
+                Vec::new()
+            }
+            AppAction::SetBottomPanelVisible(visible) => {
+                self.set_bottom_panel_visible(visible);
+                Vec::new()
+            }
+            AppAction::SetBottomPanelTab(tab) => {
+                self.set_bottom_panel_tab(tab);
+                self.set_bottom_panel_visible(true);
+                Vec::new()
+            }
+            AppAction::ToggleRightInspector => {
+                self.set_right_inspector_visible(!self.state.workbench.right_inspector.visible);
+                Vec::new()
+            }
+            AppAction::SetRightInspectorVisible(visible) => {
+                self.set_right_inspector_visible(visible);
+                Vec::new()
+            }
+            AppAction::SetRightInspectorTab(tab) => {
+                self.set_right_inspector_tab(tab);
+                self.set_right_inspector_visible(true);
+                Vec::new()
+            }
             AppAction::OpenAboutDialog => {
                 self.open_dialog(DialogId::About);
                 Vec::new()
             }
             AppAction::OpenKeybindingsDialog => {
-                self.state.keybindings_dialog_state
+                self.open_dialog(DialogId::Keybindings);
+                self.state
+                    .keybindings_dialog_state
                     .open_with_legacy(&self.keybindings, &self.app_config.keybindings);
-                self.mark_dialog_owner(DialogId::Keybindings);
                 Vec::new()
             }
             AppAction::ToggleSidebar => {
@@ -1081,6 +1361,7 @@ impl DbManagerApp {
             }
             AppAction::FocusErDiagram => {
                 if let Some(area) = resolve_focus_er_diagram_target(self.state.show_er_diagram) {
+                    self.reveal_workbench_surface(crate::state::WorkbenchSurfaceKind::ErDiagram);
                     self.set_focus_area(area);
                 }
                 Vec::new()
@@ -1096,7 +1377,8 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::RefreshActiveConnection => self
-                .session.manager
+                .session
+                .manager
                 .active
                 .clone()
                 .map(AppEffect::Connect)
@@ -1138,6 +1420,10 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::RunCurrentSql => vec![AppEffect::ExecuteSql(self.active_sql().to_string())],
+            AppAction::CancelQuery => {
+                self.cancel_active_query();
+                Vec::new()
+            }
             AppAction::ClearCommandLine => {
                 self.set_active_sql(String::new());
                 self.session.notifications.dismiss_all();
@@ -1173,6 +1459,8 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::FocusGrid => {
+                self.set_bottom_panel_visible(true);
+                self.set_bottom_panel_tab(BottomPanelTab::Results);
                 self.set_focus_area(FocusArea::DataGrid);
                 Vec::new()
             }
@@ -1189,12 +1477,33 @@ impl DbManagerApp {
                 self.set_focus_area(FocusArea::QueryTabs);
                 Vec::new()
             }
+            AppAction::FocusBottomPanel => {
+                // 显示底部面板；Results 内容即结果表格，聚焦它走 DataGrid（键盘完全可用）。
+                // 其它 tab（消息/Explain/历史/任务）为只读输出，仅标记 workbench 焦点。
+                self.set_bottom_panel_visible(true);
+                if self.state.workbench.bottom_panel.active_tab
+                    == crate::core::BottomPanelTab::Results
+                {
+                    self.set_focus_area(FocusArea::DataGrid);
+                } else {
+                    self.state.workbench.focus = crate::state::WorkbenchFocus::BottomPanel;
+                }
+                Vec::new()
+            }
+            AppAction::FocusRightInspector => {
+                // 检查器是只读详情，无键盘交互；显示并标记 workbench 焦点。
+                self.set_right_inspector_visible(true);
+                self.state.workbench.focus = crate::state::WorkbenchFocus::RightInspector;
+                Vec::new()
+            }
             AppAction::QuerySelectedTable => self.selected_table_query_effects(true, true, true),
             AppAction::ShowSelectedTableSchema => {
                 let Some(table) = self.state.selected_table.clone() else {
                     return Vec::new();
                 };
                 self.state.selected_table = Some(table.clone());
+                self.state.workbench.right_inspector.schema_table = Some(table.clone());
+                self.reveal_right_inspector_for_inspect(RightInspectorTab::Schema);
                 let Some(conn) = self.session.manager.get_active() else {
                     return Vec::new();
                 };
@@ -1251,7 +1560,7 @@ impl DbManagerApp {
         &mut self,
         reset_primary_key: bool,
         clear_sql: bool,
-        fetch_primary_key: bool,
+        fetch_column_metadata: bool,
     ) -> Vec<AppEffect> {
         let Some(table) = self.state.selected_table.clone() else {
             return Vec::new();
@@ -1268,7 +1577,9 @@ impl DbManagerApp {
                 constants::database::DEFAULT_QUERY_LIMIT
             ),
             Err(error) => {
-                self.session.notifications.error(format!("表名无效: {}", error));
+                self.session
+                    .notifications
+                    .error(format!("表名无效: {}", error));
                 return Vec::new();
             }
         };
@@ -1278,8 +1589,8 @@ impl DbManagerApp {
         }
 
         let mut effects = vec![AppEffect::ExecuteSql(query_sql)];
-        if fetch_primary_key {
-            effects.push(AppEffect::FetchPrimaryKey(table));
+        if fetch_column_metadata {
+            effects.push(AppEffect::FetchColumnMetadata(table));
         }
         effects
     }
@@ -1291,8 +1602,7 @@ impl DbManagerApp {
     }
 
     fn open_filter_workspace(&mut self) {
-        self.state.show_sidebar = true;
-        self.state.sidebar_panel_state.show_filters = true;
+        self.set_workbench_activity(WorkbenchActivity::Filters);
         self.state.sidebar_section = ui::SidebarSection::Filters;
         self.set_focus_area(FocusArea::Sidebar);
     }
@@ -1306,8 +1616,8 @@ impl DbManagerApp {
                 AppEffect::ExecuteSql(sql) => {
                     let _ = self.execute(sql);
                 }
-                AppEffect::FetchPrimaryKey(table) => {
-                    self.fetch_primary_key(&table);
+                AppEffect::FetchColumnMetadata(table) => {
+                    self.fetch_column_metadata(&table);
                 }
                 AppEffect::RefreshWelcomeEnvironment => {
                     self.refresh_welcome_environment_status();
@@ -1370,6 +1680,51 @@ impl DbManagerApp {
 mod tests {
     use super::*;
 
+    #[test]
+    fn focus_bottom_panel_reveals_and_focuses_results_grid() {
+        // 审计 DLG-B1-1：FocusBottomPanel 显示底部面板；Results tab 时聚焦结果表格。
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let ctx = egui::Context::default();
+        app.state.workbench.bottom_panel.visible = false;
+        app.state.workbench.bottom_panel.active_tab = crate::core::BottomPanelTab::Results;
+
+        app.dispatch_app_action(&ctx, AppAction::FocusBottomPanel);
+
+        assert!(app.state.workbench.bottom_panel.visible);
+        assert_eq!(app.state.focus_area, FocusArea::DataGrid);
+    }
+
+    #[test]
+    fn focus_bottom_panel_non_results_tab_marks_workbench_focus() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let ctx = egui::Context::default();
+        app.state.workbench.bottom_panel.visible = false;
+        app.state.workbench.bottom_panel.active_tab = crate::core::BottomPanelTab::Messages;
+
+        app.dispatch_app_action(&ctx, AppAction::FocusBottomPanel);
+
+        assert!(app.state.workbench.bottom_panel.visible);
+        assert_eq!(
+            app.state.workbench.focus,
+            crate::state::WorkbenchFocus::BottomPanel
+        );
+    }
+
+    #[test]
+    fn focus_right_inspector_reveals_and_marks_focus() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let ctx = egui::Context::default();
+        app.state.workbench.right_inspector.visible = false;
+
+        app.dispatch_app_action(&ctx, AppAction::FocusRightInspector);
+
+        assert!(app.state.workbench.right_inspector.visible);
+        assert_eq!(
+            app.state.workbench.focus,
+            crate::state::WorkbenchFocus::RightInspector
+        );
+    }
+
     fn base_context() -> ActionContext {
         ActionContext {
             has_any_connection: false,
@@ -1382,6 +1737,7 @@ mod tests {
             has_search_text: false,
             grid_has_changes: false,
             query_tab_count: 1,
+            is_executing: false,
             focus_area: FocusArea::DataGrid,
             show_sidebar: false,
             show_sql_editor: false,
@@ -1468,6 +1824,20 @@ mod tests {
         assert_eq!(
             resolve_focus_er_diagram_target(true),
             Some(FocusArea::ErDiagram)
+        );
+    }
+
+    #[test]
+    fn toggle_right_inspector_command_is_registered_and_available() {
+        let descriptor = command_descriptors()
+            .iter()
+            .find(|entry| entry.id == "toggle_right_inspector")
+            .expect("right inspector command should be registered");
+
+        assert_eq!(descriptor.action, AppAction::ToggleRightInspector);
+        assert_eq!(
+            availability_for_action(&base_context(), AppAction::ToggleRightInspector),
+            ActionAvailability::enabled()
         );
     }
 

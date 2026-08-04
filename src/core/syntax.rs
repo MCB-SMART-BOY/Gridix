@@ -4,9 +4,9 @@
 
 use super::theme::ThemeColors;
 use egui::{Color32, FontFamily, FontId, TextFormat, text::LayoutJob};
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::LazyLock;
+use std::sync::RwLock;
 
 // ============================================================================
 // 全局高亮缓存
@@ -473,7 +473,7 @@ impl SqlHighlighter {
     pub fn highlight(&self, text: &str) -> LayoutJob {
         // 尝试使用缓存
         {
-            let mut cache = HIGHLIGHT_CACHE.write();
+            let mut cache = HIGHLIGHT_CACHE.write().unwrap_or_else(|e| e.into_inner());
             if let Some(job) = cache.get(text, &self.colors.theme_name) {
                 return job;
             }
@@ -484,7 +484,7 @@ impl SqlHighlighter {
 
         // 存入缓存
         {
-            let mut cache = HIGHLIGHT_CACHE.write();
+            let mut cache = HIGHLIGHT_CACHE.write().unwrap_or_else(|e| e.into_inner());
             cache.insert(text, &self.colors.theme_name, job.clone());
         }
 
@@ -744,7 +744,7 @@ pub fn highlight_sql(text: &str, colors: &HighlightColors) -> LayoutJob {
 
 /// 清除高亮缓存（在主题切换时调用）
 pub fn clear_highlight_cache() {
-    let mut cache = HIGHLIGHT_CACHE.write();
+    let mut cache = HIGHLIGHT_CACHE.write().unwrap_or_else(|e| e.into_inner());
     cache.clear();
 }
 

@@ -8,7 +8,7 @@ use crate::core::{Action, KeyBindings};
 use crate::data::ConnectionManager;
 use crate::ui::styles::{
     DANGER, GRAY, MARGIN_MD, MARGIN_SM, MUTED, SPACING_LG, SPACING_MD, SPACING_SM, SUCCESS,
-    theme_text,
+    theme_accent, theme_success, theme_text,
 };
 use crate::ui::{SidebarSection, action_tooltip};
 use egui::{self, Color32, CornerRadius, Rect, RichText, Vec2};
@@ -44,7 +44,7 @@ struct ConnectionHeaderRender {
 }
 
 /// 连接列表
-pub struct ConnectionList;
+pub(crate) struct ConnectionList;
 
 impl ConnectionList {
     fn request_delete_target(actions: &mut SidebarActions, target: SidebarDeleteTarget) {
@@ -141,7 +141,7 @@ impl ConnectionList {
 
     /// 显示上部面板（连接/数据库/表）
     #[allow(clippy::too_many_arguments)]
-    pub fn show(
+    pub(crate) fn show(
         ui: &mut egui::Ui,
         connection_manager: &mut ConnectionManager,
         selected_table: &mut Option<String>,
@@ -199,6 +199,7 @@ impl ConnectionList {
                             focused_section,
                             is_nav_selected,
                             &panel_state.selection,
+                            panel_state.loading_tables,
                         );
                     }
                 }
@@ -350,6 +351,7 @@ impl ConnectionList {
         focused_section: SidebarSection,
         is_nav_selected: bool,
         selection: &SidebarSelectionState,
+        loading_tables: bool,
     ) {
         // 先提取需要的数据，避免借用冲突
         let conn_data = {
@@ -415,6 +417,7 @@ impl ConnectionList {
                             is_focused,
                             focused_section,
                             selection,
+                            loading_tables,
                         );
                     } else if conn_data.is_connected {
                         // SQLite 模式：直接显示表列表
@@ -428,6 +431,7 @@ impl ConnectionList {
                             is_focused,
                             focused_section,
                             selection,
+                            loading_tables,
                         );
                     }
 
@@ -500,6 +504,7 @@ impl ConnectionList {
                             is_active,
                             is_connected,
                             is_nav_selected,
+                            ui.visuals(),
                         ))
                         .sense(egui::Sense::click()),
                     );
@@ -546,14 +551,15 @@ impl ConnectionList {
         is_active: bool,
         is_connected: bool,
         is_nav_selected: bool,
+        visuals: &egui::Visuals,
     ) -> RichText {
         // 使用不同形状的图标来区分状态，而不仅依赖颜色
         let (icon, color) = if is_nav_selected {
-            (">", Color32::from_rgb(100, 180, 255)) // 键盘导航选中
+            (">", theme_accent(visuals)) // 键盘导航选中
         } else if is_active && is_connected {
             ("*", SUCCESS) // 星号表示活跃连接
         } else if is_connected {
-            ("+", Color32::from_rgb(100, 180, 100)) // 加号表示已连接但非活跃
+            ("+", theme_success(visuals)) // 加号表示已连接但非活跃
         } else {
             ("-", GRAY) // 减号表示未连接
         };

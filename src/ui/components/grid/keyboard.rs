@@ -885,7 +885,7 @@ fn move_vertical_by_page(state: &mut DataGridState, row_view: &GridVirtualRows<'
     }
 }
 
-pub fn handle_keyboard(
+pub(crate) fn handle_keyboard(
     ui: &mut egui::Ui,
     state: &mut DataGridState,
     result: &QueryResult,

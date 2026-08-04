@@ -1,25 +1,25 @@
 use super::common::{DialogContent, DialogShortcutContext};
 use crate::ui::LocalShortcut;
-use crate::ui::styles::theme_muted_text;
-use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
+use crate::ui::styles::{theme_accent, theme_muted_text, theme_selection_fill, theme_text};
+use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, Vec2};
 use std::hash::Hash;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PickerPaneMode {
+pub(crate) enum PickerPaneMode {
     Full,
     Compact,
     Hidden,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LayeredPickerLayout {
+pub(crate) struct LayeredPickerLayout {
     pub navigator: PickerPaneMode,
     pub items: PickerPaneMode,
     pub detail: PickerPaneMode,
 }
 
 impl LayeredPickerLayout {
-    pub const fn new(
+    pub(crate) const fn new(
         navigator: PickerPaneMode,
         items: PickerPaneMode,
         detail: PickerPaneMode,
@@ -33,7 +33,7 @@ impl LayeredPickerLayout {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct LayeredPickerWidths {
+pub(crate) struct LayeredPickerWidths {
     pub navigator_full: f32,
     pub navigator_compact: f32,
     pub items_full: f32,
@@ -41,7 +41,7 @@ pub struct LayeredPickerWidths {
 }
 
 impl LayeredPickerWidths {
-    pub const fn new(
+    pub(crate) const fn new(
         navigator_full: f32,
         navigator_compact: f32,
         items_full: f32,
@@ -57,7 +57,7 @@ impl LayeredPickerWidths {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum PickerPaneFocus {
+pub(crate) enum PickerPaneFocus {
     #[default]
     Navigator,
     Items,
@@ -65,7 +65,7 @@ pub enum PickerPaneFocus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PickerNavAction {
+pub(crate) enum PickerNavAction {
     MovePrev,
     MoveNext,
     Open,
@@ -75,12 +75,12 @@ pub enum PickerNavAction {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PickerHeaderBlocksLayout {
+pub(crate) enum PickerHeaderBlocksLayout {
     Inline,
     Stacked,
 }
 
-pub struct PickerDialogShell;
+pub(crate) struct PickerDialogShell;
 
 impl PickerDialogShell {
     const HEADER_BLOCKS_INLINE_MIN_WIDTH: f32 = 860.0;
@@ -105,7 +105,7 @@ impl PickerDialogShell {
         (left_width, middle_width, right_width)
     }
 
-    pub fn consume_nav_action(ctx: &egui::Context) -> Option<PickerNavAction> {
+    pub(crate) fn consume_nav_action(ctx: &egui::Context) -> Option<PickerNavAction> {
         DialogShortcutContext::new(ctx).resolve(&[
             (LocalShortcut::PickerFocusPrev, PickerNavAction::FocusPrev),
             (LocalShortcut::PickerFocusNext, PickerNavAction::FocusNext),
@@ -116,7 +116,7 @@ impl PickerDialogShell {
         ])
     }
 
-    pub fn consume_detail_nav_action(ctx: &egui::Context) -> Option<PickerNavAction> {
+    pub(crate) fn consume_detail_nav_action(ctx: &egui::Context) -> Option<PickerNavAction> {
         DialogShortcutContext::new(ctx).resolve(&[
             (LocalShortcut::PickerFocusPrev, PickerNavAction::FocusPrev),
             (LocalShortcut::PickerFocusNext, PickerNavAction::FocusNext),
@@ -124,7 +124,7 @@ impl PickerDialogShell {
         ])
     }
 
-    pub fn next_focus(current: PickerPaneFocus) -> PickerPaneFocus {
+    pub(crate) fn next_focus(current: PickerPaneFocus) -> PickerPaneFocus {
         match current {
             PickerPaneFocus::Navigator => PickerPaneFocus::Items,
             PickerPaneFocus::Items => PickerPaneFocus::Detail,
@@ -132,7 +132,7 @@ impl PickerDialogShell {
         }
     }
 
-    pub fn prev_focus(current: PickerPaneFocus) -> PickerPaneFocus {
+    pub(crate) fn prev_focus(current: PickerPaneFocus) -> PickerPaneFocus {
         match current {
             PickerPaneFocus::Navigator => PickerPaneFocus::Detail,
             PickerPaneFocus::Items => PickerPaneFocus::Navigator,
@@ -140,7 +140,7 @@ impl PickerDialogShell {
         }
     }
 
-    pub fn breadcrumb(ui: &mut egui::Ui, segments: &[String]) {
+    pub(crate) fn breadcrumb(ui: &mut egui::Ui, segments: &[String]) {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
             for (index, segment) in segments.iter().enumerate() {
@@ -152,7 +152,7 @@ impl PickerDialogShell {
         });
     }
 
-    pub fn header_blocks_layout(available_width: f32) -> PickerHeaderBlocksLayout {
+    pub(crate) fn header_blocks_layout(available_width: f32) -> PickerHeaderBlocksLayout {
         if available_width >= Self::HEADER_BLOCKS_INLINE_MIN_WIDTH {
             PickerHeaderBlocksLayout::Inline
         } else {
@@ -160,7 +160,7 @@ impl PickerDialogShell {
         }
     }
 
-    pub fn header_blocks(
+    pub(crate) fn header_blocks(
         ui: &mut egui::Ui,
         layout: PickerHeaderBlocksLayout,
         left: impl FnOnce(&mut egui::Ui),
@@ -272,7 +272,7 @@ impl PickerDialogShell {
         (left, middle, right)
     }
 
-    pub fn split_layered(
+    pub(crate) fn split_layered(
         ui: &mut egui::Ui,
         layout: LayeredPickerLayout,
         widths: LayeredPickerWidths,
@@ -347,7 +347,7 @@ impl PickerDialogShell {
         });
     }
 
-    pub fn pane(
+    pub(crate) fn pane(
         ui: &mut egui::Ui,
         title: &str,
         description: &str,
@@ -364,7 +364,7 @@ impl PickerDialogShell {
         );
     }
 
-    pub fn pane_with_mode(
+    pub(crate) fn pane_with_mode(
         ui: &mut egui::Ui,
         title: &str,
         description: &str,
@@ -376,17 +376,21 @@ impl PickerDialogShell {
             ui.visuals()
                 .selection
                 .bg_fill
-                .gamma_multiply(if ui.visuals().dark_mode { 0.14 } else { 0.09 })
+                .gamma_multiply(if ui.visuals().dark_mode { 0.10 } else { 0.07 })
         });
 
         DialogContent::card(ui, tint, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(title).strong());
+                ui.label(
+                    RichText::new(title)
+                        .strong()
+                        .color(theme_text(ui.visuals())),
+                );
                 if focused {
                     ui.label(
                         RichText::new("当前焦点")
                             .small()
-                            .color(ui.visuals().selection.stroke.color),
+                            .color(theme_accent(ui.visuals())),
                     );
                 }
             });
@@ -411,12 +415,12 @@ impl PickerDialogShell {
         });
     }
 
-    pub fn section_label(ui: &mut egui::Ui, label: &str) {
+    pub(crate) fn section_label(ui: &mut egui::Ui, label: &str) {
         ui.label(RichText::new(label).small().strong().weak());
         ui.add_space(4.0);
     }
 
-    pub fn entry(
+    pub(crate) fn entry(
         ui: &mut egui::Ui,
         id_source: impl Hash,
         opened: bool,
@@ -426,52 +430,46 @@ impl PickerDialogShell {
         detail: Option<&str>,
     ) -> egui::Response {
         ui.push_id(id_source, |ui| {
+            let accent = theme_accent(ui.visuals());
             let fill = if opened {
-                ui.visuals()
-                    .selection
-                    .bg_fill
-                    .gamma_multiply(if ui.visuals().dark_mode { 0.24 } else { 0.16 })
+                theme_selection_fill(ui.visuals(), if ui.visuals().dark_mode { 46 } else { 34 })
             } else if selected {
-                ui.visuals()
-                    .selection
-                    .bg_fill
-                    .gamma_multiply(if ui.visuals().dark_mode { 0.14 } else { 0.1 })
+                theme_selection_fill(ui.visuals(), if ui.visuals().dark_mode { 30 } else { 24 })
+            } else {
+                Color32::TRANSPARENT
+            };
+            let stroke_color = if opened {
+                accent.gamma_multiply(0.48)
+            } else if selected {
+                accent.gamma_multiply(0.28)
             } else {
                 Color32::TRANSPARENT
             };
 
             egui::Frame::NONE
                 .fill(fill)
-                .stroke(Stroke::new(
-                    1.0_f32,
-                    if opened || selected {
-                        ui.visuals().selection.stroke.color.gamma_multiply(0.45)
-                    } else {
-                        Color32::TRANSPARENT
-                    },
-                ))
-                .corner_radius(egui::CornerRadius::same(8))
-                .inner_margin(egui::Margin::symmetric(10, 9))
+                .stroke(Stroke::new(1.0_f32, stroke_color))
+                .corner_radius(CornerRadius::same(7))
+                .inner_margin(egui::Margin::symmetric(8, 7))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        let indicator = if opened {
-                            "▸"
-                        } else if selected {
-                            "•"
-                        } else {
-                            " "
-                        };
-                        ui.label(
-                            RichText::new(indicator)
-                                .small()
-                                .color(ui.visuals().selection.stroke.color),
-                        );
+                    ui.horizontal_top(|ui| {
+                        if opened || selected {
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_size(
+                                    ui.cursor().min + Vec2::new(0.0, 3.0),
+                                    Vec2::new(2.0, 28.0),
+                                ),
+                                CornerRadius::same(255),
+                                accent,
+                            );
+                        }
+                        ui.add_space(8.0);
                         ui.vertical(|ui| {
                             ui.label(RichText::new(title).strong().color(if opened {
-                                ui.visuals().selection.stroke.color
+                                accent
                             } else {
-                                ui.visuals().text_color()
+                                theme_text(ui.visuals())
                             }));
                             if let Some(meta) = meta
                                 && !meta.is_empty()
@@ -503,7 +501,7 @@ impl PickerDialogShell {
         .inner
     }
 
-    pub fn reveal_selected(response: &egui::Response, selected: bool) {
+    pub(crate) fn reveal_selected(response: &egui::Response, selected: bool) {
         if selected {
             response.scroll_to_me(Some(egui::Align::Center));
         }

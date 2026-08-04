@@ -6,6 +6,7 @@ pub mod dock_tabs;
 pub mod panels;
 mod shortcut_tooltip;
 pub mod styles;
+pub mod workbench;
 
 // 重新导出常用组件
 #[allow(unused_imports)] // 公开 API，供外部使用
@@ -117,6 +118,13 @@ pub use shortcut_tooltip::{
     local_shortcut_pressed, local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text,
     local_shortcuts_tooltip, scoped_command_text, shortcut_tooltip, sync_runtime_local_shortcuts,
     text_entry_has_priority,
+};
+pub use workbench::{
+    SurfaceAction, WorkbenchActivityBar, WorkbenchActivityBarResponse, WorkbenchBottomPanel,
+    WorkbenchBottomPanelResponse, WorkbenchRightInspector, WorkbenchRightInspectorResponse,
+    WorkbenchShell, WorkbenchStatusBarContent, WorkbenchSurfaceHeader,
+    WorkbenchSurfaceHeaderResponse, bottom_panel_tab_label, bottom_panel_tabs,
+    right_inspector_tab_label, right_inspector_tabs, surface_icon_button, surface_tooltip,
 };
 
 /// 全局焦点区域

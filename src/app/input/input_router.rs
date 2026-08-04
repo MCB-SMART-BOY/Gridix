@@ -296,6 +296,8 @@ const WORKSPACE_FALLBACK_ACTION_SHORTCUTS: &[Action] = &[
     Action::OpenThemeSelector,
     Action::OpenKeybindingsDialog,
     Action::FocusErDiagram,
+    Action::FocusBottomPanel,
+    Action::FocusRightInspector,
     Action::ToggleDarkMode,
     Action::FocusSidebarConnections,
     Action::FocusSidebarDatabases,
@@ -530,6 +532,8 @@ impl InputContextSnapshot {
             | Action::OpenToolbarCreateMenu
             | Action::OpenThemeSelector
             | Action::FocusErDiagram
+            | Action::FocusBottomPanel
+            | Action::FocusRightInspector
             | Action::ToggleDarkMode
             | Action::FocusSidebarConnections
             | Action::FocusSidebarDatabases
@@ -716,6 +720,14 @@ impl InputContextSnapshot {
                 && self.is_workspace_command_mode()
                 && self.show_er_diagram)
                 .then_some(ResolvedInputAction::HandledApp(AppAction::FocusErDiagram)),
+            Action::FocusBottomPanel => (self.can_dispatch_global_shortcut()
+                && self.is_workspace_command_mode())
+            .then_some(ResolvedInputAction::HandledApp(AppAction::FocusBottomPanel)),
+            Action::FocusRightInspector => {
+                (self.can_dispatch_global_shortcut() && self.is_workspace_command_mode()).then_some(
+                    ResolvedInputAction::HandledApp(AppAction::FocusRightInspector),
+                )
+            }
             Action::ToggleDarkMode => (self.can_dispatch_global_shortcut()
                 && self.is_workspace_command_mode())
             .then_some(ResolvedInputAction::HandledApp(AppAction::ToggleDarkMode)),
@@ -759,6 +771,7 @@ impl DbManagerApp {
         }
 
         self.state.focus_area = area;
+        self.state.workbench.set_focus_area(area);
         match area {
             ui::FocusArea::DataGrid => {
                 self.state.grid_state.focused = true;
@@ -779,7 +792,8 @@ impl DbManagerApp {
         }
 
         if area == ui::FocusArea::ErDiagram {
-            self.state.er_diagram_state
+            self.state
+                .er_diagram_state
                 .ensure_selection(self.state.selected_table.as_deref());
         }
     }
@@ -922,26 +936,32 @@ impl DbManagerApp {
                     self.state.er_diagram_state.select_next_related_table();
                 }
                 ErDiagramLocalAction::GeometryLeft => {
-                    self.state.er_diagram_state
+                    self.state
+                        .er_diagram_state
                         .select_geometric_neighbor(ui::GeometricDirection::Left);
                 }
                 ErDiagramLocalAction::GeometryDown => {
-                    self.state.er_diagram_state
+                    self.state
+                        .er_diagram_state
                         .select_geometric_neighbor(ui::GeometricDirection::Down);
                 }
                 ErDiagramLocalAction::GeometryUp => {
-                    self.state.er_diagram_state
+                    self.state
+                        .er_diagram_state
                         .select_geometric_neighbor(ui::GeometricDirection::Up);
                 }
                 ErDiagramLocalAction::GeometryRight => {
-                    self.state.er_diagram_state
+                    self.state
+                        .er_diagram_state
                         .select_geometric_neighbor(ui::GeometricDirection::Right);
                 }
                 ErDiagramLocalAction::OpenSelectedTable => {
-                    self.state.er_diagram_state
+                    self.state
+                        .er_diagram_state
                         .ensure_selection(self.state.selected_table.as_deref());
                     if let Some(table_name) = self
-                        .state.er_diagram_state
+                        .state
+                        .er_diagram_state
                         .selected_table_name()
                         .map(str::to_owned)
                     {
@@ -984,11 +1004,20 @@ impl DbManagerApp {
                 DialogScope::ToolbarActionsMenu => self.close_dialog(DialogId::ToolbarActionsMenu),
                 DialogScope::ToolbarCreateMenu => self.close_dialog(DialogId::ToolbarCreateMenu),
                 DialogScope::ToolbarThemeMenu => self.close_dialog(DialogId::ToolbarThemeMenu),
+                DialogScope::Connection => self.close_dialog(DialogId::Connection),
+                DialogScope::Export => self.close_dialog(DialogId::Export),
+                DialogScope::Import => self.close_dialog(DialogId::Import),
+                DialogScope::Ddl => self.close_dialog(DialogId::Ddl),
+                DialogScope::CreateDatabase => self.close_dialog(DialogId::CreateDatabase),
+                DialogScope::CreateUser => self.close_dialog(DialogId::CreateUser),
                 _ => {}
             },
             RouterLocalAction::KeybindingsRecordingInput => {
-                let _ =
-                    ctx.input(|input| self.state.keybindings_dialog_state.consume_recording_input(input));
+                let _ = ctx.input(|input| {
+                    self.state
+                        .keybindings_dialog_state
+                        .consume_recording_input(input)
+                });
             }
         }
     }
@@ -1012,7 +1041,10 @@ impl DbManagerApp {
             ui::SidebarSection::Routines => self.state.sidebar_panel_state.show_routines,
         };
 
-        if is_toggle_panel && self.state.show_sidebar && self.state.sidebar_section == section && panel_visible
+        if is_toggle_panel
+            && self.state.show_sidebar
+            && self.state.sidebar_section == section
+            && panel_visible
         {
             match section {
                 ui::SidebarSection::Connections => {
@@ -1060,6 +1092,9 @@ impl DbManagerApp {
 
     pub(in crate::app) fn set_sidebar_visible(&mut self, visible: bool) {
         self.state.show_sidebar = visible;
+        self.state.workbench.primary_sidebar.visible = visible;
+        self.app_config.workbench.sidebar.visible = visible;
+        self.save_config_debounced();
         let next_focus = focus_after_sidebar_visibility_change(self.state.focus_area, visible);
         if next_focus != self.state.focus_area {
             self.set_focus_area(next_focus);
@@ -1097,23 +1132,23 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn open_create_table_dialog(&mut self) {
-        let db_type = self
-            .session.manager
-            .get_active()
-            .map(|c| c.config.db_type)
-            .unwrap_or_default();
+        let Some(db_type) = self.session.manager.get_active().map(|c| c.config.db_type) else {
+            self.session.notifications.warning("请先连接数据库再创建表");
+            return;
+        };
+        self.open_dialog(DialogId::Ddl);
         self.state.ddl_dialog_state.open_create_table(db_type);
-        self.mark_dialog_owner(DialogId::Ddl);
     }
 
     pub(in crate::app) fn open_create_database_dialog(&mut self) {
-        let db_type = self
-            .session.manager
-            .get_active()
-            .map(|c| c.config.db_type)
-            .unwrap_or_default();
+        let Some(db_type) = self.session.manager.get_active().map(|c| c.config.db_type) else {
+            self.session
+                .notifications
+                .warning("请先连接数据库再创建数据库");
+            return;
+        };
+        self.open_dialog(DialogId::CreateDatabase);
         self.state.create_db_dialog_state.open(db_type);
-        self.mark_dialog_owner(DialogId::CreateDatabase);
     }
 
     pub(in crate::app) fn open_create_user_dialog(&mut self) {
@@ -1151,6 +1186,7 @@ impl DbManagerApp {
 
         self.state.show_er_diagram = visible;
         if self.state.show_er_diagram {
+            self.reveal_workbench_surface(crate::state::WorkbenchSurfaceKind::ErDiagram);
             self.load_er_diagram_data();
             self.state.er_diagram_state.request_fit_to_view();
         }
@@ -1191,10 +1227,15 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn close_active_query_tab(&mut self) {
-        let closing_tab_id = self.session.tab_manager.get_active().map(|tab| tab.id.clone());
+        let closing_tab_id = self
+            .session
+            .tab_manager
+            .get_active()
+            .map(|tab| tab.id.clone());
         if self.session.tab_manager.tabs.len() > 1
             && let Some(request_id) = self
-                .session.tab_manager
+                .session
+                .tab_manager
                 .get_active()
                 .and_then(|tab| tab.pending_request_id)
         {
@@ -1202,6 +1243,7 @@ impl DbManagerApp {
         }
         self.session.tab_manager.close_active_tab();
         if let Some(tab_id) = closing_tab_id {
+            self.warn_if_tab_has_unsaved_grid_edits(&tab_id);
             self.remove_grid_workspaces_for_tab(&tab_id);
         }
         self.sync_from_active_tab();
@@ -1323,6 +1365,15 @@ fn resolve_dialog_shortcut_fallback_with(
                 None
             }
         }
+        // 表单类对话框：Esc 关闭，补全键盘契约（修复审计 DLG-A2-2）。
+        DialogScope::Connection
+        | DialogScope::Export
+        | DialogScope::Import
+        | DialogScope::Ddl
+        | DialogScope::CreateDatabase
+        | DialogScope::CreateUser => local_shortcut_triggered(LocalShortcut::Dismiss).then_some(
+            ResolvedInputAction::HandledLocal(RouterLocalAction::CloseDialog(scope)),
+        ),
         _ => None,
     }
 }
@@ -2707,6 +2758,34 @@ mod tests {
     }
 
     #[test]
+    fn form_dialog_scopes_route_escape_to_close_dialog() {
+        // 审计 DLG-A2-2：表单类对话框在无文本焦点时 Esc 应关闭。
+        for scope in [
+            DialogScope::Connection,
+            DialogScope::Export,
+            DialogScope::Import,
+            DialogScope::Ddl,
+            DialogScope::CreateDatabase,
+            DialogScope::CreateUser,
+        ] {
+            let mut context = snapshot();
+            context.has_modal_dialog = true;
+            context.active_dialog = Some(scope);
+            context.focus_area = FocusArea::Dialog;
+
+            assert_eq!(
+                resolve_event_with_keybindings(
+                    context,
+                    key_event(Key::Escape),
+                    &KeyBindings::default()
+                ),
+                ResolvedInputAction::HandledLocal(RouterLocalAction::CloseDialog(scope)),
+                "scope {scope:?} must route Esc to CloseDialog"
+            );
+        }
+    }
+
+    #[test]
     fn resolved_input_action_preserves_zoom_true_global_fallback() {
         let mut context = snapshot();
         context.has_modal_dialog = true;
@@ -2722,6 +2801,25 @@ mod tests {
                 Some(Action::ZoomIn),
             ),
             ResolvedInputAction::PreservedTrueGlobalFallback(TrueGlobalFallbackAction::Zoom)
+        );
+    }
+
+    #[test]
+    fn ctrl_shift_j_and_i_route_to_panel_focus_app_actions() {
+        // 审计 DLG-B1-1：Ctrl+Shift+J / Ctrl+Shift+I 在工作区命令模式下解析为面板聚焦动作。
+        let context = snapshot(); // 默认 focus_area=DataGrid，即工作区命令模式
+        let mut mods = Modifiers::NONE;
+        mods.ctrl = true;
+        mods.shift = true;
+        let keys = KeyBindings::default();
+
+        assert_eq!(
+            resolve_event_with_keybindings(context, key_event_with_modifiers(Key::J, mods), &keys),
+            ResolvedInputAction::HandledApp(AppAction::FocusBottomPanel)
+        );
+        assert_eq!(
+            resolve_event_with_keybindings(context, key_event_with_modifiers(Key::I, mods), &keys),
+            ResolvedInputAction::HandledApp(AppAction::FocusRightInspector)
         );
     }
 
@@ -3088,8 +3186,14 @@ mod tests {
             RouterLocalAction::ErDiagram(ErDiagramLocalAction::GeometryRight),
         );
 
-        assert_eq!(app.state.er_diagram_state.selected_table_name(), Some("orders"));
-        assert_eq!(app.state.selected_table.as_deref(), Some("main_workspace_table"));
+        assert_eq!(
+            app.state.er_diagram_state.selected_table_name(),
+            Some("orders")
+        );
+        assert_eq!(
+            app.state.selected_table.as_deref(),
+            Some("main_workspace_table")
+        );
     }
 
     #[test]
@@ -3290,6 +3394,7 @@ mod tests {
         let mut app = test_app();
         app.state.show_sidebar = true;
         app.state.show_er_diagram = true;
+        app.state.sidebar_section = SidebarSection::Connections;
 
         app.set_focus_area(FocusArea::Sidebar);
         app.dispatch_app_action(&ctx, AppAction::FocusErDiagram);
@@ -3340,6 +3445,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = test_app();
         app.state.show_sidebar = true;
+        app.state.show_er_diagram = false;
 
         app.set_focus_area(FocusArea::Sidebar);
         assert_eq!(app.state.last_non_er_workspace_focus, FocusArea::Sidebar);
@@ -3358,6 +3464,7 @@ mod tests {
     #[test]
     fn opening_er_requests_fit_to_view_after_loading_starts() {
         let mut app = test_app();
+        app.state.show_er_diagram = false;
         assert!(!app.state.show_er_diagram);
         assert!(!app.state.er_diagram_state.has_pending_fit_to_view());
 

@@ -33,13 +33,19 @@ Focus: `FocusArea::ErDiagram` in the `Sidebar → DataGrid → ErDiagram → Sql
 - **Loaded graph**: `tables`, `relationships` (produced by `load_er_diagram_data()`)
 - **Viewport**: `viewport_offset`, `viewport_zoom` (viewport mode only)
 - **Selection**: `selected_table_index`, `interaction_mode` (Focused/Viewport)
-- **Lifecycle**: `loading`, `layout_snapshot` (for incremental stability)
+- **Lifecycle**: `loading`, `layout_snapshot` (for incremental stability), `load_generation`
+- **Stale-guard**: `load_generation` is monotonic, bumped by `begin_loading()`/`clear()`. Async ER fetches (`ERTableColumnsFetched`/`ForeignKeysFetched`) carry the generation; handlers drop mismatched responses so a disconnected/old connection's schema cannot write into a new connection's ER state (audit B6-ER). Disconnect clears `er_diagram_state`, which bumps the generation.
 
 ## Token map (visual design)
 
 ER uses theme-derived tokens, not private colors:
 - **Shared**: backgrounds, text, borders, selection, toolbar chrome → from `ThemeColors`
-- **ER-specific** (5 tokens): relation line color, key marker, empty state, loading indicator, canvas background
+- **Schema canvas**: canvas background, edge frame, low-alpha glow, minor/major grid
+- **Database object cards**: table body/header, semantic accent rail, selected/related/dimmed border states, shadow, key-row fill, alternating row fill
+- **Column affordances**: PK/FK badges, type text, nullable/default markers, hidden-column footer
+- **Relationship affordances**: explicit/inferred/selected line colors, halo stroke, endpoint anchors, cardinality label pill
+
+Do not regress ER rendering to plain boxes plus thin lines. `src/ui/components/er_diagram/render.rs` should keep the database-native schema-canvas language unless the user explicitly asks for another visual direction.
 
 ## Readability standards
 
@@ -50,6 +56,15 @@ ER uses theme-derived tokens, not private colors:
 5. Edge routing readable (lane separation, geometry-aware anchors)
 6. Canvas utilization ≥60% (no wasted space)
 7. Default completion state must look intentional, not like raw layout output
+8. Empty/loading states use the same canvas card language as loaded diagrams
+
+## Interaction correctness
+
+1. Click selection must only select/clear; it must not leave `dragging_table` active.
+2. Table dragging and canvas panning must use incremental pointer deltas from the previous frame, divided by current zoom.
+3. Do not repeatedly add egui's total `Response::drag_delta()` to model coordinates.
+4. Hit-testing should match draw order: when table cards overlap, choose the last-drawn/topmost table.
+5. Selection clearing must synchronize `selected_table`, `pending_selection_reveal`, and every table's `selected` flag.
 
 ## Entry matrix
 

@@ -74,7 +74,7 @@ impl DbManagerApp {
                 if let Some(table_name) = table {
                     self.switch_grid_workspace(Some(table_name.clone()));
                     self.state.grid_state.primary_key_column = None;
-                    self.fetch_primary_key(&table_name);
+                    self.fetch_column_metadata(&table_name);
                 }
 
                 if open_er_diagram {
@@ -147,12 +147,16 @@ impl DbManagerApp {
 
         if reset {
             if self
-                .session.manager
+                .session
+                .manager
                 .connections
                 .contains_key(LEARNING_CONNECTION_NAME)
             {
                 self.disconnect(LEARNING_CONNECTION_NAME.to_string());
-                self.session.manager.connections.remove(LEARNING_CONNECTION_NAME);
+                self.session
+                    .manager
+                    .connections
+                    .remove(LEARNING_CONNECTION_NAME);
             }
 
             if path.exists() {
@@ -217,7 +221,7 @@ impl DbManagerApp {
         if let Some(table_name) = preview_table {
             self.switch_grid_workspace(Some(table_name.clone()));
             self.state.grid_state.primary_key_column = None;
-            self.fetch_primary_key(&table_name);
+            self.fetch_column_metadata(&table_name);
         }
 
         let _ = self.execute(preview_sql.to_string());

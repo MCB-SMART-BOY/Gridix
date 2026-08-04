@@ -9,7 +9,7 @@ use crate::data::{ConnectionConfig, DatabaseType, DbError, QueryResult};
 use rusqlite::{Connection as SqliteConn, InterruptHandle, types::ValueRef};
 
 /// 连接 SQLite 并获取表列表
-pub fn connect(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
+pub(crate) fn connect(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
     let conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
 
@@ -26,7 +26,10 @@ pub fn connect(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
 }
 
 /// 获取 SQLite 表的主键列名
-pub fn get_primary_key(config: &ConnectionConfig, table: &str) -> Result<Option<String>, DbError> {
+pub(crate) fn get_primary_key(
+    config: &ConnectionConfig,
+    table: &str,
+) -> Result<Option<String>, DbError> {
     let conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
 
@@ -56,7 +59,7 @@ pub fn get_primary_key(config: &ConnectionConfig, table: &str) -> Result<Option<
 }
 
 /// 执行 SQLite 查询
-pub fn execute(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbError> {
+pub(crate) fn execute(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbError> {
     let conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
 
@@ -64,7 +67,7 @@ pub fn execute(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbEr
 }
 
 /// 执行 SQLite 查询并返回可用于中断的句柄
-pub fn execute_with_interrupt_handle(
+pub(crate) fn execute_with_interrupt_handle(
     config: &ConnectionConfig,
     sql: &str,
     interrupt_sender: Option<tokio::sync::oneshot::Sender<InterruptHandle>>,
@@ -125,7 +128,7 @@ fn execute_with_connection(conn: &SqliteConn, sql: &str) -> Result<QueryResult, 
 }
 
 /// 批量执行 SQLite 语句（用于导入）
-pub fn execute_batch(
+pub(crate) fn execute_batch(
     config: &ConnectionConfig,
     statements: &[String],
     use_transaction: bool,
@@ -197,7 +200,7 @@ fn value_to_string(
 }
 
 /// 获取 SQLite 触发器
-pub fn get_triggers(config: &ConnectionConfig) -> Result<Vec<TriggerInfo>, DbError> {
+pub(crate) fn get_triggers(config: &ConnectionConfig) -> Result<Vec<TriggerInfo>, DbError> {
     let conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
 
@@ -250,7 +253,7 @@ pub fn get_triggers(config: &ConnectionConfig) -> Result<Vec<TriggerInfo>, DbErr
 }
 
 /// 获取 SQLite 外键
-pub fn get_foreign_keys(config: &ConnectionConfig) -> Result<Vec<ForeignKeyInfo>, DbError> {
+pub(crate) fn get_foreign_keys(config: &ConnectionConfig) -> Result<Vec<ForeignKeyInfo>, DbError> {
     let conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
 
@@ -298,7 +301,10 @@ pub fn get_foreign_keys(config: &ConnectionConfig) -> Result<Vec<ForeignKeyInfo>
 }
 
 /// 获取 SQLite 表的列信息
-pub fn get_columns(config: &ConnectionConfig, table: &str) -> Result<Vec<ColumnInfo>, DbError> {
+pub(crate) fn get_columns(
+    config: &ConnectionConfig,
+    table: &str,
+) -> Result<Vec<ColumnInfo>, DbError> {
     let conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
 
@@ -334,13 +340,18 @@ pub fn get_columns(config: &ConnectionConfig, table: &str) -> Result<Vec<ColumnI
 mod tests {
     use super::*;
     use crate::data::ConnectionConfig;
+    use tempfile::NamedTempFile;
 
-    fn test_config() -> ConnectionConfig {
+    fn test_config_for_path(path: impl Into<String>) -> ConnectionConfig {
         ConnectionConfig {
             db_type: DatabaseType::SQLite,
-            database: ":memory:".to_string(),
+            database: path.into(),
             ..Default::default()
         }
+    }
+
+    fn test_config() -> ConnectionConfig {
+        test_config_for_path(":memory:")
     }
 
     #[test]
@@ -362,16 +373,24 @@ mod tests {
         let mut stmt = conn
             .prepare("SELECT name FROM sqlite_master WHERE type='table'")
             .unwrap();
-        let names: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().filter_map(|r| r.ok()).collect();
+        let names: Vec<String> = stmt
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
         assert!(names.contains(&"users".to_string()));
     }
 
     #[test]
     fn get_columns_returns_column_info() {
-        let conn = rusqlite::Connection::open(":memory:").unwrap();
-        conn.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age REAL)", [])
-            .unwrap();
-        let config = test_config();
+        let db = NamedTempFile::new().unwrap();
+        let conn = rusqlite::Connection::open(db.path()).unwrap();
+        conn.execute(
+            "CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age REAL)",
+            [],
+        )
+        .unwrap();
+        let config = test_config_for_path(db.path().to_string_lossy().into_owned());
         let columns = get_columns(&config, "test").unwrap();
         assert_eq!(columns.len(), 3);
         assert_eq!(columns[0].name, "id");
@@ -383,37 +402,42 @@ mod tests {
 
     #[test]
     fn get_primary_key_returns_none_for_no_pk() {
-        let conn = rusqlite::Connection::open(":memory:").unwrap();
-        conn.execute("CREATE TABLE nopk (a TEXT, b TEXT)", []).unwrap();
-        let config = test_config();
+        let db = NamedTempFile::new().unwrap();
+        let conn = rusqlite::Connection::open(db.path()).unwrap();
+        conn.execute("CREATE TABLE nopk (a TEXT, b TEXT)", [])
+            .unwrap();
+        let config = test_config_for_path(db.path().to_string_lossy().into_owned());
         let pk = get_primary_key(&config, "nopk").unwrap();
         assert!(pk.is_none());
     }
 
     #[test]
     fn get_primary_key_returns_pk_column() {
-        let conn = rusqlite::Connection::open(":memory:").unwrap();
+        let db = NamedTempFile::new().unwrap();
+        let conn = rusqlite::Connection::open(db.path()).unwrap();
         conn.execute("CREATE TABLE withpk (id INTEGER PRIMARY KEY, val TEXT)", [])
             .unwrap();
-        let config = test_config();
+        let config = test_config_for_path(db.path().to_string_lossy().into_owned());
         let pk = get_primary_key(&config, "withpk").unwrap();
         assert_eq!(pk, Some("id".to_string()));
     }
 
     #[test]
     fn get_foreign_keys_returns_empty_for_no_fk() {
-        let conn = rusqlite::Connection::open(":memory:").unwrap();
+        let db = NamedTempFile::new().unwrap();
+        let conn = rusqlite::Connection::open(db.path()).unwrap();
         conn.execute("CREATE TABLE a (id INTEGER)", []).unwrap();
-        let config = test_config();
+        let config = test_config_for_path(db.path().to_string_lossy().into_owned());
         let fks = get_foreign_keys(&config).unwrap();
         assert!(fks.is_empty());
     }
 
     #[test]
     fn get_triggers_returns_empty_for_no_triggers() {
-        let conn = rusqlite::Connection::open(":memory:").unwrap();
+        let db = NamedTempFile::new().unwrap();
+        let conn = rusqlite::Connection::open(db.path()).unwrap();
         conn.execute("CREATE TABLE t (x INTEGER)", []).unwrap();
-        let config = test_config();
+        let config = test_config_for_path(db.path().to_string_lossy().into_owned());
         let triggers = get_triggers(&config).unwrap();
         assert!(triggers.is_empty());
     }
@@ -431,14 +455,48 @@ mod tests {
 
     #[test]
     fn get_triggers_returns_trigger_info() {
-        let conn = rusqlite::Connection::open(":memory:").unwrap();
+        let db = NamedTempFile::new().unwrap();
+        let conn = rusqlite::Connection::open(db.path()).unwrap();
         conn.execute("CREATE TABLE t (x INTEGER)", []).unwrap();
-        conn.execute("CREATE TRIGGER trg AFTER INSERT ON t BEGIN UPDATE t SET x = x + 1; END", [])
-            .unwrap();
-        let config = test_config();
+        conn.execute(
+            "CREATE TRIGGER trg AFTER INSERT ON t BEGIN UPDATE t SET x = x + 1; END",
+            [],
+        )
+        .unwrap();
+        let config = test_config_for_path(db.path().to_string_lossy().into_owned());
         let triggers = get_triggers(&config).unwrap();
         assert_eq!(triggers.len(), 1);
         assert_eq!(triggers[0].name, "trg");
         assert!(triggers[0].definition.contains("INSERT ON t"));
+    }
+
+    #[test]
+    fn execute_batch_rolls_back_whole_batch_on_failure() {
+        // 验证 B2 原子性：事务批次中任一语句失败，整批回滚，表数据不变。
+        let db = NamedTempFile::new().unwrap();
+        let conn = rusqlite::Connection::open(db.path()).unwrap();
+        conn.execute(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO users (id, name) VALUES (1, 'alice')", [])
+            .unwrap();
+
+        let config = test_config_for_path(db.path().to_string_lossy().into_owned());
+        let statements = vec![
+            "UPDATE \"users\" SET \"name\" = 'bob' WHERE \"id\" = 1;".to_string(),
+            // 第二条违反 NOT NULL，必然失败 → 整批应回滚
+            "UPDATE \"users\" SET \"name\" = NULL WHERE \"id\" = 1;".to_string(),
+        ];
+
+        let result = execute_batch(&config, &statements, true, true);
+        assert!(result.is_err(), "batch with a failing statement must error");
+
+        // 第一条 UPDATE 也必须被回滚：name 仍为原值 alice。
+        let name: String = conn
+            .query_row("SELECT name FROM users WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(name, "alice", "transaction must roll back the whole batch");
     }
 }

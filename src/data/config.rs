@@ -1,7 +1,7 @@
 //! 数据库连接配置
 
 use super::ssh_tunnel::SshTunnelConfig;
-use super::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
+use crate::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -36,7 +36,6 @@ pub(crate) fn url_encode(s: &str) -> String {
 fn escape_pg_param(s: &str) -> String {
     s.replace('\\', "\\\\").replace('\'', "\\'")
 }
-
 
 const KEYRING_SERVICE: &str = "gridix";
 

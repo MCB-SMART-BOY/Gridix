@@ -10,7 +10,6 @@ mod connection_dialog;
 mod create_db_dialog;
 mod create_user_dialog;
 mod ddl_dialog;
-mod dialog_trait;
 mod export_dialog;
 mod help_dialog;
 mod import_dialog;
@@ -32,10 +31,6 @@ pub use create_db_dialog::{
 };
 pub use create_user_dialog::{CreateUserDialog, CreateUserDialogResult, CreateUserDialogState};
 pub use ddl_dialog::{ColumnDefinition, ColumnType, DdlDialog, DdlDialogState, TableDefinition};
-#[allow(unused_imports)] // 公开 API，供未来使用
-pub use dialog_trait::{
-    DataDialogState, DialogButtons, DialogResult, DialogSize, DialogState, SimpleDialogState,
-};
 pub use export_dialog::{ExportConfig, ExportDialog};
 pub use help_dialog::{
     HelpAction, HelpContext, HelpDialog, HelpOnboardingStep, HelpState, HelpTab, LearningTopic,

@@ -3,16 +3,16 @@
 use super::{ConnectionList, SidebarActions, SidebarSelectionState, TableList};
 use crate::data::ConnectionManager;
 use crate::ui::SidebarSection;
-use crate::ui::styles::{MUTED, SPACING_LG};
+use crate::ui::styles::{MUTED, SPACING_LG, theme_accent, theme_selection_fill, theme_text};
 use egui::{self, Color32, CornerRadius, RichText};
 
 /// 数据库列表
-pub struct DatabaseList;
+pub(crate) struct DatabaseList;
 
 impl DatabaseList {
     /// 显示数据库列表（MySQL/PostgreSQL）
     #[allow(clippy::too_many_arguments)]
-    pub fn show(
+    pub(crate) fn show(
         ui: &mut egui::Ui,
         conn_name: &str,
         databases: &[String],
@@ -24,6 +24,7 @@ impl DatabaseList {
         is_focused: bool,
         focused_section: SidebarSection,
         selection: &SidebarSelectionState,
+        loading_tables: bool,
     ) {
         // 数据库区域是否高亮
         let highlight_databases = is_focused && focused_section == SidebarSection::Databases;
@@ -37,9 +38,9 @@ impl DatabaseList {
 
             // 数据库项 - 整行可点击
             let db_bg = if is_nav_selected {
-                Color32::from_rgba_unmultiplied(100, 150, 255, 35) // 键盘导航选中（降低透明度）
+                theme_selection_fill(ui.visuals(), 35) // 键盘导航选中
             } else if is_selected {
-                Color32::from_rgba_unmultiplied(80, 140, 80, 30)
+                Color32::from_rgba_unmultiplied(80, 140, 80, 30) // 语义绿:当前活动库
             } else {
                 Color32::TRANSPARENT
             };
@@ -51,11 +52,11 @@ impl DatabaseList {
                     ui.horizontal(|ui| {
                         // 数据库名称
                         let db_color = if is_nav_selected {
-                            Color32::from_rgb(100, 180, 255)
+                            theme_accent(ui.visuals())
                         } else if is_selected {
-                            Color32::from_rgb(140, 220, 140)
+                            Color32::from_rgb(140, 220, 140) // 语义绿:当前活动库
                         } else {
-                            Color32::from_rgb(180, 180, 190)
+                            theme_text(ui.visuals())
                         };
                         let prefix = if is_nav_selected { "> " } else { "" };
                         ui.label(RichText::new(format!("{}{}", prefix, database)).color(db_color));
@@ -107,18 +108,31 @@ impl DatabaseList {
             }
 
             // 如果此数据库被选中，显示其下的表列表
-            if is_selected && !tables.is_empty() {
-                ui.add_space(SPACING_LG / 2.0);
-                TableList::show_nested(
-                    ui,
-                    conn_name,
-                    tables,
-                    connection_manager,
-                    selected_table,
-                    actions,
-                    highlight_tables,
-                    selection.tables,
-                );
+            if is_selected {
+                if !tables.is_empty() {
+                    ui.add_space(SPACING_LG / 2.0);
+                    TableList::show_nested(
+                        ui,
+                        conn_name,
+                        tables,
+                        connection_manager,
+                        selected_table,
+                        actions,
+                        highlight_tables,
+                        selection.tables,
+                    );
+                } else {
+                    // 选中库但无表：区分"加载中"与"空库"（审计 SM-3）。
+                    ui.horizontal(|ui| {
+                        ui.add_space(SPACING_LG);
+                        if loading_tables {
+                            ui.spinner();
+                            ui.label(RichText::new("正在加载表…").italics().small().color(MUTED));
+                        } else {
+                            ui.label(RichText::new("暂无数据表").italics().small().color(MUTED));
+                        }
+                    });
+                }
             }
         }
     }

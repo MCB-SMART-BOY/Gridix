@@ -7,7 +7,7 @@ mod utils;
 pub use actions::{ToolbarActions, ToolbarFocusTransfer};
 
 use crate::core::{Action, KeyBindings, ProgressManager, ThemeManager};
-use crate::ui::styles::{MARGIN_MD, MARGIN_SM};
+use crate::ui::styles::{ACCENT_BLUE, MARGIN_MD, MARGIN_SM};
 use crate::ui::{
     LocalShortcut, action_tooltip, action_tooltip_with_extras, consume_local_shortcut,
     shortcut_tooltip,
@@ -136,21 +136,21 @@ impl Toolbar {
                         let center = rect.center();
                         let radius = avatar_size / 2.0;
                         let bg_color = if response.hovered() {
-                            Color32::from_rgb(100, 149, 237) // 悬停时更亮
+                            ACCENT_BLUE
                         } else {
-                            Color32::from_rgb(70, 130, 180) // 钢蓝色
+                            ACCENT_BLUE.gamma_multiply(0.7) // 默认状态稍暗
                         };
 
                         ui.painter().circle_filled(center, radius, bg_color);
 
-                        // 绘制笑脸图标
-                        let text = "😊";
+                        // 品牌字形 "G"：此按钮打开"关于"，用单色字母代替彩色 emoji，
+                        // 统一图标语言并避免依赖 OS 字体光栅化——审计 MX-01。
                         let font_id = egui::FontId::proportional(14.0);
                         let text_color = Color32::WHITE;
                         ui.painter().text(
                             center,
                             egui::Align2::CENTER_CENTER,
-                            text,
+                            "G",
                             font_id,
                             text_color,
                         );

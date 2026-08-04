@@ -1,6 +1,6 @@
 //! 边缘回归测试：覆盖高风险输入与状态机边界。
 
-use gridix::core::{AutoComplete, CompletionKind, SessionState, TabState};
+use gridix::core::{AutoComplete, CompletionKind};
 use gridix::data::DatabaseType;
 use gridix::ui::{
     WelcomeOnboardingStatus, WelcomeOnboardingStep, WelcomeServiceState, WelcomeStatusSummary,
@@ -79,38 +79,6 @@ fn autocomplete_result_count_is_limited() {
 
     let completions = ac.get_completions("", 0);
     assert!(completions.len() <= 15);
-}
-
-#[test]
-fn session_remove_tab_with_invalid_index_keeps_state() {
-    let mut session = SessionState::new();
-    session.add_tab(TabState::new("A", "SELECT 1"));
-    session.add_tab(TabState::new("B", "SELECT 2"));
-
-    session.remove_tab(99);
-    assert_eq!(session.tab_count(), 2);
-    assert_eq!(session.active_tab_index, 1);
-}
-
-#[test]
-fn session_set_active_tab_out_of_range_is_ignored() {
-    let mut session = SessionState::new();
-    session.add_tab(TabState::new("A", "SELECT 1"));
-    session.add_tab(TabState::new("B", "SELECT 2"));
-    session.set_active_tab(0);
-
-    session.set_active_tab(999);
-    assert_eq!(session.active_tab_index, 0);
-}
-
-#[test]
-fn session_remove_last_tab_results_in_empty_session() {
-    let mut session = SessionState::new();
-    session.add_tab(TabState::new("Only", "SELECT 1"));
-
-    session.remove_tab(0);
-    assert_eq!(session.tab_count(), 0);
-    assert_eq!(session.active_tab_index, 0);
 }
 
 #[test]

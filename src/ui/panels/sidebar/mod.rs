@@ -34,7 +34,7 @@ mod trigger_panel;
 pub use actions::{
     SidebarActions, SidebarDeleteTarget, SidebarFilterInsertMode, SidebarFocusTransfer,
 };
-pub use filter_panel::FilterPanel;
+pub(crate) use filter_panel::FilterPanel;
 pub use state::{
     SidebarFilterWorkspaceMode, SidebarPanelState, SidebarSelectionState, SidebarWorkflowState,
 };
@@ -52,6 +52,7 @@ use trigger_panel::TriggerPanel;
 use crate::core::KeyBindings;
 use crate::data::ConnectionManager;
 use crate::ui::SidebarSection;
+use crate::ui::styles::{theme_muted_text, theme_selection_fill, theme_subtle_stroke};
 use crate::ui::{
     LocalShortcut, consume_local_shortcut_with_text_priority, shortcut_tooltip,
     text_entry_has_priority,
@@ -115,7 +116,7 @@ impl Sidebar {
         let ctx = ui.ctx().clone();
 
         // ====== 面板可见性控制工具栏 ======
-        Self::show_visibility_toolbar(ui, panel_state);
+        Self::show_visibility_toolbar(ui, panel_state, &mut actions);
 
         // 处理键盘导航
         let (item_count, selected_index) =
@@ -237,7 +238,7 @@ impl Sidebar {
                 ui.add_space(20.0);
                 ui.label(
                     egui::RichText::new("按 Ctrl+1 或 Ctrl+4 打开连接/筛选工作区")
-                        .color(Color32::GRAY),
+                        .color(theme_muted_text(ui.visuals())),
                 );
             });
         }
@@ -375,12 +376,10 @@ impl Sidebar {
 
         // 中间的拖动指示器（三个小点水平排列）
         let center = rect.center();
+        let dot_color = theme_subtle_stroke(ui.visuals());
         for offset in [-12.0, 0.0, 12.0] {
-            ui.painter().circle_filled(
-                egui::pos2(center.x + offset, center.y),
-                2.0,
-                Color32::from_gray(160),
-            );
+            ui.painter()
+                .circle_filled(egui::pos2(center.x + offset, center.y), 2.0, dot_color);
         }
 
         // 处理拖动
@@ -967,9 +966,7 @@ impl Sidebar {
                     ConnectionList::request_database_delete(&conn.config.name, database, actions);
                 }
             }
-            SidebarSection::Filters
-                if selected_index < filters.len() =>
-            {
+            SidebarSection::Filters if selected_index < filters.len() => {
                 filters.remove(selected_index);
                 actions.filter_changed = true;
             }
@@ -978,7 +975,11 @@ impl Sidebar {
     }
 
     /// 显示面板可见性控制工具栏
-    fn show_visibility_toolbar(ui: &mut egui::Ui, panel_state: &mut SidebarPanelState) {
+    fn show_visibility_toolbar(
+        ui: &mut egui::Ui,
+        panel_state: &mut SidebarPanelState,
+        actions: &mut SidebarActions,
+    ) {
         let toggle_chip = |ui: &mut egui::Ui,
                            label: &str,
                            active: bool,
@@ -988,12 +989,12 @@ impl Sidebar {
             let text_color = if active {
                 accent
             } else {
-                Color32::from_gray(130)
+                theme_muted_text(ui.visuals())
             };
             let fill = if active {
                 Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 36)
             } else {
-                Color32::from_rgba_unmultiplied(60, 60, 68, 20)
+                theme_selection_fill(ui.visuals(), 20)
             };
 
             ui.add(
@@ -1015,7 +1016,7 @@ impl Sidebar {
                 ui.label(
                     egui::RichText::new("工作区")
                         .small()
-                        .color(Color32::from_gray(120)),
+                        .color(theme_muted_text(ui.visuals())),
                 );
 
                 if toggle_chip(
@@ -1044,7 +1045,7 @@ impl Sidebar {
                 ui.label(
                     egui::RichText::new("高级")
                         .small()
-                        .color(Color32::from_gray(110)),
+                        .color(theme_muted_text(ui.visuals())),
                 );
 
                 if toggle_chip(
@@ -1055,6 +1056,10 @@ impl Sidebar {
                     Color32::from_rgb(230, 180, 90),
                 ) {
                     panel_state.show_triggers = !panel_state.show_triggers;
+                    // 展开时请求重新加载，避免显示 DDL 前的陈旧缓存（审计 SM-9）。
+                    if panel_state.show_triggers {
+                        actions.request_load_triggers = true;
+                    }
                 }
 
                 if toggle_chip(
@@ -1065,6 +1070,9 @@ impl Sidebar {
                     Color32::from_rgb(170, 150, 220),
                 ) {
                     panel_state.show_routines = !panel_state.show_routines;
+                    if panel_state.show_routines {
+                        actions.request_load_routines = true;
+                    }
                 }
             });
         });

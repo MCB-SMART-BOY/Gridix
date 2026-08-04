@@ -128,7 +128,9 @@ pub fn format_sql(sql: &str) -> String {
             // Compare case-insensitively using chars (avoid byte-index panic)
             if i + kw_len <= chars.len() {
                 let slice = &chars[i..i + kw_len];
-                let matches_kw = slice.iter().zip(kw_chars.iter())
+                let matches_kw = slice
+                    .iter()
+                    .zip(kw_chars.iter())
                     .all(|(a, b)| a.eq_ignore_ascii_case(b));
 
                 if matches_kw {

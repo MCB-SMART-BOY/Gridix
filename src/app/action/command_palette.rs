@@ -331,7 +331,8 @@ mod tests {
         connection.connected = true;
         connection.selected_database = Some("main".to_string());
         connection.tables = tables.iter().map(|name| (*name).to_string()).collect();
-        app.session.manager
+        app.session
+            .manager
             .connections
             .insert("demo".to_string(), connection);
         app.session.manager.active = Some("demo".to_string());
@@ -392,6 +393,7 @@ mod tests {
             vec![vec!["1".to_string()]],
         ));
         app.state.selected_table = Some("customers".to_string());
+        app.state.show_er_diagram = false;
         app.set_focus_area(FocusArea::DataGrid);
         app.open_dialog(DialogId::CommandPalette);
         app.command_palette_state.query = "toggle_er_diagram".to_string();
