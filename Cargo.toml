@@ -9,6 +9,7 @@ repository = "https://github.com/MCB-SMART-BOY/Gridix"
 keywords = ["database", "gui", "sqlite", "postgresql", "mysql"]
 categories = ["database", "gui"]
 
+default-run = "gridix"
 # =============================================================================
 # 依赖项 - 按功能分组
 # =============================================================================
@@ -96,6 +97,7 @@ rfd = "0.17.2"
 dirs = "6"                      # 配置目录
 hostname = "0.4"                # 主机名
 chrono = { version = "0.4", features = ["serde"] }  # 日期时间
+clap = { version = "4", features = ["derive"] }      # CLI 参数解析
 
 # -----------------------------------------------------------------------------
 # 并发与同步
