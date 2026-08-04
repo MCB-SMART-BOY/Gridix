@@ -166,9 +166,8 @@ jobs:
 
       - name: Build AppImage
         run: |
-          cargo appimage
-          mv target/appimage/gridix*.AppImage gridix.AppImage
-
+          cargo appimage --bin gridix
+          mv target/appimage/gridix*.AppImage gridix.AppImage 2>/dev/null || mv "target/appimage/gridix.AppImage" gridix.AppImage
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
