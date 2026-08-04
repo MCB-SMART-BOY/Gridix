@@ -3,7 +3,7 @@ name: Coverage
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 5 * * 1' # Every Monday 05:00 UTC
+    - cron: '0 5 * * 1'
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,13 +20,23 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-coverage-
+
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libxdo-dev
+          sudo apt-get install -y libgtk-3-dev
 
       - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
 
       - name: Generate coverage
         run: cargo tarpaulin --out Xml --output-dir coverage

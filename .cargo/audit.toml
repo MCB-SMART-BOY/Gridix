@@ -1,0 +1,14 @@
+# cargo-audit 配置 — 处理已知无法直接升级的传递依赖
+#
+# 策略：
+#   1. 优先在 Cargo.toml / Cargo.lock 中升级
+#   2. 仅对无法升级的传递依赖在此豁免
+
+[advisories]
+# paste 1.0.15 — egui_dock 的传递依赖（proc-macro，无运行时攻击面）
+# rustls-pemfile 2.2.0 — v3 尚未发布到 crates.io
+# crypto-bigint 0.7.4 — yanked，旧 russh 传递依赖
+ignore = [
+    "RUSTSEC-2024-0436",  # paste unmaintained
+    "RUSTSEC-2025-0134",  # rustls-pemfile unmaintained
+]
