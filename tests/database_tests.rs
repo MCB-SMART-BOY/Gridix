@@ -36,6 +36,7 @@ fn test_ssh_config_validation_password() {
         ssh_username: "user".to_string(),
         auth_method: SshAuthMethod::Password,
         ssh_password: "pass".to_string(),
+        password_ref: None,
         remote_host: "localhost".to_string(),
         remote_port: 3306,
         ..Default::default()
@@ -127,6 +128,7 @@ fn test_ssh_pool_key_is_stable_after_runtime_host_rewrite() {
             ssh_port: 22,
             ssh_username: "ssh-user".to_string(),
             ssh_password: "ssh-secret".to_string(),
+            password_ref: None,
             auth_method: SshAuthMethod::Password,
             remote_host: "db.internal".to_string(),
             remote_port: 5432,
@@ -141,9 +143,14 @@ fn test_ssh_pool_key_is_stable_after_runtime_host_rewrite() {
 
     assert_eq!(base.pool_key(), effective.pool_key());
 
+    // auth_fingerprint 不再包含密码 — 同一身份（host+port+user+auth_method）产生相同 pool_key
     let mut changed_ssh_password = base.clone();
     changed_ssh_password.ssh_config.ssh_password = "other-ssh-secret".to_string();
-    assert_ne!(base.pool_key(), changed_ssh_password.pool_key());
+    assert_eq!(
+        base.pool_key(),
+        changed_ssh_password.pool_key(),
+        "相同 SSH 身份的 pool_key 应一致（密码变更不影响 tunnel 身份）"
+    );
 }
 
 // ============================================================================
@@ -213,4 +220,76 @@ fn test_pool_key_includes_ssl_mode() {
     config.postgres_ssl_mode = PostgresSslMode::Require;
     let key_require_ssl = config.pool_key();
     assert_ne!(key_no_ssl, key_require_ssl);
+}
+
+// ============================================================================
+// Debug 输出不泄漏密码
+// ============================================================================
+
+#[test]
+fn test_connection_config_debug_redacts_password() {
+    let config = ConnectionConfig {
+        name: "test".to_string(),
+        db_type: DatabaseType::PostgreSQL,
+        host: "localhost".to_string(),
+        port: 5432,
+        username: "admin".to_string(),
+        password: "super-secret-123".to_string(),
+        database: "mydb".to_string(),
+        ..Default::default()
+    };
+    let debug_output = format!("{:?}", config);
+    assert!(
+        !debug_output.contains("super-secret-123"),
+        "Debug must not leak password: {debug_output}"
+    );
+    assert!(
+        debug_output.contains("<REDACTED>"),
+        "Debug should show <REDACTED>: {debug_output}"
+    );
+    // 确认非敏感字段仍然可见
+    assert!(debug_output.contains("admin"), "Username should be visible");
+    assert!(debug_output.contains("mydb"), "Database should be visible");
+}
+
+#[test]
+fn test_ssh_tunnel_config_debug_redacts_passwords() {
+    use gridix::data::SshTunnelConfig;
+    let config = SshTunnelConfig {
+        enabled: true,
+        ssh_host: "jump.example.com".to_string(),
+        ssh_port: 22,
+        ssh_username: "deployer".to_string(),
+        ssh_password: "ssh-secret-456".to_string(),
+        password_ref: None,
+        credential_revision: 0,
+        private_key_path: "/home/deployer/.ssh/id_rsa".to_string(),
+        private_key_passphrase: "key-pass-789".to_string(),
+        auth_method: gridix::data::SshAuthMethod::Password,
+        remote_host: "db.internal".to_string(),
+        remote_port: 5432,
+        local_port: 0,
+    };
+    let debug_output = format!("{:?}", config);
+    assert!(
+        !debug_output.contains("ssh-secret-456"),
+        "Debug must not leak SSH password: {debug_output}"
+    );
+    assert!(
+        !debug_output.contains("key-pass-789"),
+        "Debug must not leak key passphrase: {debug_output}"
+    );
+    assert!(
+        debug_output.contains("<REDACTED>"),
+        "Debug should show <REDACTED>: {debug_output}"
+    );
+    // 确认非敏感字段仍然可见
+    assert!(
+        debug_output.contains("deployer"),
+        "SSH username should be visible"
+    );
+    assert!(
+        debug_output.contains("jump.example.com"),
+        "SSH host should be visible"
+    );
 }

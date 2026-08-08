@@ -156,14 +156,13 @@ pub(crate) fn render_row_number(
     });
 }
 
-/// 渲染可编辑的数据单元格
+/// 渲染可编辑的数据单元格。
 pub(crate) fn render_editable_cell(
     ui: &mut egui::Ui,
-    cell: &str,
-    is_null: bool,
+    cell: &crate::domain::value::DbValue,
     row_idx: usize,
     col_idx: usize,
-    _is_cursor_row: bool, // 行级别高亮由 set_selected 处理
+    _is_cursor_row: bool,
     is_row_deleted: bool,
     state: &mut DataGridState,
 ) {
@@ -171,22 +170,22 @@ pub(crate) fn render_editable_cell(
     let is_editing = state.editing_cell == Some((row_idx, col_idx));
     let is_modified = state.modified_cells.contains_key(&(row_idx, col_idx));
     let is_selected = state.mode == GridMode::Select && state.is_in_selection(row_idx, col_idx);
-
+    let stored_value = cell.display();
+    let is_null = matches!(cell, crate::domain::value::DbValue::Null);
     let display_value = state
         .modified_cells
         .get(&(row_idx, col_idx))
         .cloned()
-        .unwrap_or_else(|| cell.to_string());
+        .unwrap_or_else(|| stored_value.clone());
     let display_is_null = state
         .modified_cells
         .get(&(row_idx, col_idx))
-        .is_some_and(|value| value.is_empty() || value.eq_ignore_ascii_case("null"))
-        || (!state.modified_cells.contains_key(&(row_idx, col_idx)) && is_null);
+        .is_some_and(|value| value.eq_ignore_ascii_case("null"))
+        || (!is_modified && is_null);
 
-    // 只在特殊单元格状态时设置背景色，行级别高亮由表格的 set_selected 处理
     let bg_color = if is_row_deleted {
-        let e = theme_error(ui.visuals());
-        Color32::from_rgba_unmultiplied(e.r(), e.g(), e.b(), 100)
+        let error = theme_error(ui.visuals());
+        Color32::from_rgba_unmultiplied(error.r(), error.g(), error.b(), 100)
     } else if is_editing {
         COLOR_CELL_EDITING
     } else if is_selected {
@@ -209,7 +208,7 @@ pub(crate) fn render_editable_cell(
                 render_display_cell(
                     ui,
                     state,
-                    cell,
+                    &stored_value,
                     &display_value,
                     display_is_null,
                     row_idx,

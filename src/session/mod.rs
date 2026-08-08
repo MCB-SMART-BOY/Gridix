@@ -5,13 +5,13 @@
 
 pub mod frame_effects;
 pub mod message;
+pub mod runtime_event;
 pub mod tab;
-
+pub mod task_registry;
 use crate::core::{AutoComplete, NotificationManager, ProgressManager, QueryHistory};
-use crate::data::{ConnectionManager, QueryResult};
+use crate::data::ConnectionManager;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex};
 
 // ============================================================================
 // Session — 数据库会话管理
@@ -48,16 +48,15 @@ pub struct Session {
     // ── 请求追踪 ──
     pub pending_connect_requests: HashMap<String, u64>,
     pub pending_database_requests: HashMap<String, (String, u64)>,
+    pub pending_active_tables_reload_requests: HashMap<String, u64>,
     pub pending_triggers_request: Option<(String, Option<String>, u64)>,
     pub pending_routines_request: Option<(String, Option<String>, u64)>,
-    /// 最近一次网格保存批次的请求 ID（用于丢弃过期回包）
-    pub pending_grid_save_request: Option<u64>,
-    pub pending_query_tasks: HashMap<u64, tokio::task::JoinHandle<()>>,
-    pub pending_query_connections: HashMap<u64, String>,
-    pub pending_query_cancellers:
-        HashMap<u64, Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>>,
     pub user_cancelled_query_requests: HashSet<u64>,
-
+    /// 统一任务注册表（逐步替代上方 pending_* 字段）
+    pub task_registry: task_registry::TaskRegistry,
+    /// Schema 目录缓存（按 (ConnectionId, database) 索引）
+    pub schema_catalogs:
+        HashMap<(crate::domain::ids::ConnectionId, String), crate::domain::metadata::SchemaCatalog>,
     // ── 自动补全 ──
     pub autocomplete: AutoComplete,
 
@@ -101,13 +100,12 @@ impl Session {
             next_metadata_request_id: 0,
             pending_connect_requests: HashMap::new(),
             pending_database_requests: HashMap::new(),
+            pending_active_tables_reload_requests: HashMap::new(),
             pending_triggers_request: None,
             pending_routines_request: None,
-            pending_grid_save_request: None,
-            pending_query_tasks: HashMap::new(),
-            pending_query_connections: HashMap::new(),
-            pending_query_cancellers: HashMap::new(),
             user_cancelled_query_requests: HashSet::new(),
+            task_registry: task_registry::TaskRegistry::default(),
+            schema_catalogs: HashMap::new(),
             query_history,
             last_query_time_ms: None,
             current_history_connection: None,
@@ -143,11 +141,11 @@ impl Session {
         self.ensure_active_tab().sql = sql;
     }
 
-    /// 检查活动 Tab 的查询结果
-    pub fn active_result(&self) -> Option<&QueryResult> {
+    /// 检查活动 Tab 的类型化查询结果
+    pub fn active_result_set(&self) -> Option<&std::sync::Arc<crate::domain::result::ResultSet>> {
         self.tab_manager
             .get_active()
-            .and_then(|t| t.result.as_ref())
+            .and_then(|t| t.result_set.as_ref())
     }
 
     // ── 请求 ID 生成 ──
@@ -188,19 +186,4 @@ impl Session {
     }
 
     // ── 查询任务追踪 ──
-
-    pub fn track_query_task(
-        &mut self,
-        request_id: u64,
-        conn_name: String,
-        handle: tokio::task::JoinHandle<()>,
-        cancel_sender: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
-    ) {
-        if let Some(prev_handle) = self.pending_query_tasks.insert(request_id, handle) {
-            prev_handle.abort();
-        }
-        self.pending_query_connections.insert(request_id, conn_name);
-        self.pending_query_cancellers
-            .insert(request_id, cancel_sender);
-    }
 }

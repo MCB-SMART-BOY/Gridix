@@ -257,7 +257,7 @@ pub(crate) fn check_filter_match_with_null(
     }
 }
 
-/// 比较值（支持数字和字符串）
+/// 比较两个 DbValue，用于类型化过滤路径的排序和匹配
 fn compare_values<F>(cell: &str, value: &str, cmp: F) -> bool
 where
     F: Fn(f64, f64) -> bool,
@@ -267,4 +267,69 @@ where
         .zip(value.parse::<f64>().ok())
         .map(|(a, b)| cmp(a, b))
         .unwrap_or_else(|| cell > value)
+}
+
+/// 检查类型化单元格是否匹配筛选条件。
+///
+/// 文本谓词沿用显示文本；比较谓词将用户输入按列类型解析，再使用
+/// `DbValue::cmp_semantic()`，避免 `"10"` 被排序在 `"2"` 前。
+pub(crate) fn check_filter_match_typed(
+    cell: &crate::domain::value::DbValue,
+    type_info: &crate::domain::value::DbTypeInfo,
+    operator: &FilterOperator,
+    value: &str,
+    value2: &str,
+    case_sensitive: bool,
+) -> bool {
+    use crate::domain::value::DbValue;
+
+    if matches!(
+        operator,
+        FilterOperator::IsNull
+            | FilterOperator::IsNotNull
+            | FilterOperator::IsEmpty
+            | FilterOperator::IsNotEmpty
+    ) {
+        return check_filter_match_with_null(
+            &cell.display(),
+            matches!(cell, DbValue::Null),
+            operator,
+            value,
+            value2,
+            case_sensitive,
+        );
+    }
+
+    if !matches!(
+        operator,
+        FilterOperator::GreaterThan
+            | FilterOperator::GreaterOrEqual
+            | FilterOperator::LessThan
+            | FilterOperator::LessOrEqual
+            | FilterOperator::Between
+            | FilterOperator::NotBetween
+    ) {
+        return check_filter_match_with_null(
+            &cell.display(),
+            matches!(cell, DbValue::Null),
+            operator,
+            value,
+            value2,
+            case_sensitive,
+        );
+    }
+
+    let first = crate::data::infer_value(value, type_info);
+    let second = crate::data::infer_value(value2, type_info);
+    let compare_first = cell.cmp_semantic(&first);
+    let compare_second = cell.cmp_semantic(&second);
+    match operator {
+        FilterOperator::GreaterThan => compare_first.is_gt(),
+        FilterOperator::GreaterOrEqual => compare_first.is_ge(),
+        FilterOperator::LessThan => compare_first.is_lt(),
+        FilterOperator::LessOrEqual => compare_first.is_le(),
+        FilterOperator::Between => compare_first.is_ge() && compare_second.is_le(),
+        FilterOperator::NotBetween => !(compare_first.is_ge() && compare_second.is_le()),
+        _ => false,
+    }
 }

@@ -1,5 +1,6 @@
 //! 数据库连接配置
 
+use super::secret::{KeyringStore, SecretStore};
 use super::ssh_tunnel::SshTunnelConfig;
 use crate::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
 use serde::{Deserialize, Serialize};
@@ -37,33 +38,25 @@ fn escape_pg_param(s: &str) -> String {
     s.replace('\\', "\\\\").replace('\'', "\\'")
 }
 
-const KEYRING_SERVICE: &str = "gridix";
-
-fn password_entry(secret_ref: &str) -> Result<keyring::Entry, String> {
-    keyring::Entry::new(KEYRING_SERVICE, secret_ref).map_err(|e| e.to_string())
-}
-
 pub(crate) fn load_password_secret(secret_ref: &str) -> Result<Option<String>, String> {
-    let entry = password_entry(secret_ref)?;
-    match entry.get_password() {
-        Ok(password) => Ok(Some(password)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
+    let store = KeyringStore;
+    store
+        .load(secret_ref)
+        .map(|opt| opt.map(|s| s.expose().to_string()))
+        .map_err(|e| e.to_string())
 }
 
 pub(crate) fn store_password_secret(secret_ref: &str, password: &str) -> Result<(), String> {
-    let entry = password_entry(secret_ref)?;
-    entry.set_password(password).map_err(|e| e.to_string())
+    use crate::data::secret::SecretString;
+    let store = KeyringStore;
+    store
+        .store(secret_ref, &SecretString::new(password.to_string()))
+        .map_err(|e| e.to_string())
 }
 
 pub(crate) fn delete_password_secret(secret_ref: &str) -> Result<(), String> {
-    let entry = password_entry(secret_ref)?;
-    match entry.delete_credential() {
-        Ok(()) => Ok(()),
-        Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e.to_string()),
-    }
+    let store = KeyringStore;
+    store.delete(secret_ref).map_err(|e| e.to_string())
 }
 
 // ============================================================================
@@ -199,7 +192,7 @@ pub(crate) fn decrypt_password(encrypted: &str) -> Result<String, String> {
 // ============================================================================
 
 /// 数据库连接配置
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct ConnectionConfig {
     pub name: String,
     pub db_type: DatabaseType,
@@ -227,6 +220,28 @@ pub struct ConnectionConfig {
     /// CA 证书路径（可选，用于 VerifyCa/VerifyIdentity 模式）
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub ssl_ca_cert: String,
+}
+
+impl std::fmt::Debug for ConnectionConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectionConfig")
+            .field("name", &self.name)
+            .field("db_type", &self.db_type)
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("username", &self.username)
+            .field("password", &"<REDACTED>")
+            .field(
+                "password_ref",
+                &self.password_ref.as_ref().map(|_| "<REDACTED>"),
+            )
+            .field("database", &self.database)
+            .field("ssh_config", &self.ssh_config)
+            .field("mysql_ssl_mode", &self.mysql_ssl_mode)
+            .field("postgres_ssl_mode", &self.postgres_ssl_mode)
+            .field("ssl_ca_cert", &self.ssl_ca_cert)
+            .finish()
+    }
 }
 
 #[allow(dead_code)] // 公开 API，供外部使用

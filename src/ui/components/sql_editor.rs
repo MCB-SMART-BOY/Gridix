@@ -137,44 +137,6 @@ fn get_line_bounds(text: &str, cursor_pos: usize) -> (usize, usize) {
     (start, end)
 }
 
-/// 移动到下一个单词（预留 Helix w 键）
-#[allow(dead_code)]
-fn next_word_pos(text: &str, cursor_pos: usize) -> usize {
-    let pos = cursor_pos.min(text.chars().count());
-    let chars: Vec<char> = text.chars().collect();
-    let mut i = pos;
-
-    // 跳过当前单词
-    while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
-        i += 1;
-    }
-    // 跳过空白
-    while i < chars.len() && chars[i].is_whitespace() {
-        i += 1;
-    }
-    i
-}
-
-/// 移动到上一个单词（预留 Helix b 键）
-#[allow(dead_code)]
-fn prev_word_pos(text: &str, cursor_pos: usize) -> usize {
-    let pos = cursor_pos.min(text.chars().count());
-    let chars: Vec<char> = text.chars().collect();
-    let mut i = pos;
-
-    // 跳过前面的空白
-    while i > 0 && chars[i.saturating_sub(1)].is_whitespace() {
-        i -= 1;
-    }
-    // 跳过单词
-    while i > 0
-        && (chars[i.saturating_sub(1)].is_alphanumeric() || chars[i.saturating_sub(1)] == '_')
-    {
-        i -= 1;
-    }
-    i
-}
-
 /// SQL 编辑器操作
 #[derive(Default)]
 pub struct SqlEditorActions {

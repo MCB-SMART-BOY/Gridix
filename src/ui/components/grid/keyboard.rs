@@ -44,7 +44,7 @@ use super::mode::GridMode;
 use super::state::DataGridState;
 use super::view::GridVirtualRows;
 use crate::core::{KeyBinding, KeyBindings, KeyCode, KeyModifiers};
-use crate::data::QueryResult;
+use crate::domain::result::ResultSet;
 use egui::{self, Key};
 use tracing::debug;
 
@@ -735,9 +735,7 @@ fn copy_current_row(
     actions: &mut DataGridActions,
 ) {
     if let Some(row) = row_view.row_at_row_key(state.cursor.0) {
-        let row_data = row.row_data();
-        let row_text = row_data.join("\t");
-        state.clipboard = Some(row_text);
+        state.clipboard = Some(row.display_row().join("\t"));
         let display_row = row_view
             .display_index_for_row_key(state.cursor.0)
             .map(|index| index + 1)
@@ -776,14 +774,18 @@ fn copy_selected_cells(state: &DataGridState, row_view: &GridVirtualRows<'_>) ->
     let mut text = String::new();
     for row_key in min_r..=max_r {
         if let Some(row) = row_view.row_at_row_key(row_key) {
-            let row_data = row.row_data();
-            let row_text: Vec<&str> = (min_c..=max_c)
-                .filter_map(|c| row_data.get(c).map(|s| s.as_str()))
-                .collect();
+            let row_data = row.display_row();
+            let row_text = row_data
+                .iter()
+                .skip(min_c)
+                .take(max_c - min_c + 1)
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join("\t");
             if !text.is_empty() {
                 text.push('\n');
             }
-            text.push_str(&row_text.join("\t"));
+            text.push_str(&row_text);
         }
     }
     Some(text)
@@ -888,7 +890,7 @@ fn move_vertical_by_page(state: &mut DataGridState, row_view: &GridVirtualRows<'
 pub(crate) fn handle_keyboard(
     ui: &mut egui::Ui,
     state: &mut DataGridState,
-    result: &QueryResult,
+    result: &ResultSet,
     row_view: &GridVirtualRows<'_>,
     keybindings: &KeyBindings,
     actions: &mut DataGridActions,
@@ -899,7 +901,7 @@ pub(crate) fn handle_keyboard(
     }
 
     let max_row = row_view.len();
-    let max_col = result.columns.len();
+    let max_col = result.column_count();
 
     if max_row == 0 || max_col == 0 {
         debug!(max_row, max_col, "DataGrid 为空，跳过键盘处理");
@@ -1018,7 +1020,7 @@ fn handle_number_input(i: &egui::InputState, cmd: &mut CmdBuffer) -> bool {
 fn handle_normal_mode(
     i: &egui::InputState,
     state: &mut DataGridState,
-    result: &QueryResult,
+    result: &ResultSet,
     row_view: &GridVirtualRows<'_>,
     keybindings: &KeyBindings,
     actions: &mut DataGridActions,
@@ -1067,7 +1069,7 @@ fn handle_detected_normal_action(
     sequence: &str,
     repeat: usize,
     state: &mut DataGridState,
-    result: &QueryResult,
+    result: &ResultSet,
     row_view: &GridVirtualRows<'_>,
     actions: &mut DataGridActions,
     max_row: usize,
@@ -1146,27 +1148,29 @@ fn handle_detected_normal_action(
             actions.open_filter_panel = true;
         }
         GridKeyAction::AddColumnFilter => {
-            if let Some(col_name) = result.columns.get(state.cursor.1)
-                && !state.filters.iter().any(|f| &f.column == col_name)
+            if let Some(column) = result.columns.get(state.cursor.1)
+                && !state
+                    .filters
+                    .iter()
+                    .any(|filter| filter.column == column.name)
             {
-                state.filters.push(ColumnFilter::new(col_name.clone()));
-                actions.message = Some(format!("为列 {} 添加筛选 (f)", col_name));
+                state.filters.push(ColumnFilter::new(column.name.clone()));
+                actions.message = Some(format!("为列 {} 添加筛选 (f)", column.name));
             }
         }
         GridKeyAction::AddRowBelow => {
-            let new_row = vec!["".to_string(); result.columns.len()];
+            let new_row = vec![String::new(); result.column_count()];
             state.new_rows.push(new_row);
-            let new_row_idx = result.rows.len() + state.new_rows.len() - 1;
-            state.cursor = (new_row_idx, 0);
-            state.scroll_to_row = Some(new_row_idx);
+            let new_row_index = result.row_count + state.new_rows.len() - 1;
+            state.cursor = (new_row_index, 0);
+            state.scroll_to_row = Some(new_row_index);
             actions.message = Some(format!("已添加新行 ({})", display_sequence(sequence, "o")));
         }
         GridKeyAction::AddRowAbove => {
-            let new_row = vec!["".to_string(); result.columns.len()];
+            let new_row = vec![String::new(); result.column_count()];
             state.new_rows.insert(0, new_row);
-            let new_row_idx = result.rows.len();
-            state.cursor = (new_row_idx, 0);
-            state.scroll_to_row = Some(new_row_idx);
+            state.cursor = (result.row_count, 0);
+            state.scroll_to_row = Some(result.row_count);
             actions.message = Some(format!(
                 "已在开头添加新行 ({})",
                 display_sequence(sequence, "O")
@@ -1187,20 +1191,47 @@ fn handle_detected_normal_action(
             actions.message = Some("刷新表格数据 (Ctrl+R)".to_string());
         }
         GridKeyAction::EnterInsert | GridKeyAction::AppendInsert => {
+            if state
+                .table_metadata
+                .as_ref()
+                .and_then(|tm| tm.primary_key.as_ref())
+                .is_some_and(|pk| pk.columns.len() > 1)
+            {
+                actions.message = Some("复合主键表暂不支持编辑".to_string());
+                return;
+            }
             enter_insert_mode(state, row_view);
         }
         GridKeyAction::ChangeCell => {
+            if state
+                .table_metadata
+                .as_ref()
+                .and_then(|tm| tm.primary_key.as_ref())
+                .is_some_and(|pk| pk.columns.len() > 1)
+            {
+                actions.message = Some("复合主键表暂不支持编辑".to_string());
+                return;
+            }
             state.mode = GridMode::Insert;
             state.editing_cell = Some(state.cursor);
             state.edit_text.clear();
             if let Some(row) = row_view.row_at_row_key(state.cursor.0)
-                && let Some(cell) = row.cell(state.cursor.1)
+                && let Some(cell) = row.display_cell(state.cursor.1)
             {
-                state.original_value = cell.to_string();
+                state.original_value = cell;
             }
             actions.message = Some("修改单元格 (c)".to_string());
         }
         GridKeyAction::ReplaceCell => {
+            if state
+                .table_metadata
+                .as_ref()
+                .and_then(|tm| tm.primary_key.as_ref())
+                .is_some_and(|pk| pk.columns.len() > 1)
+            {
+                actions.message = Some("复合主键表暂不支持编辑".to_string());
+                return;
+            }
             state.mode = GridMode::Insert;
             state.editing_cell = Some(state.cursor);
             state.edit_text.clear();
@@ -1347,16 +1378,15 @@ fn handle_select_mode(
 fn enter_insert_mode(state: &mut DataGridState, row_view: &GridVirtualRows<'_>) {
     state.mode = GridMode::Insert;
     state.editing_cell = Some(state.cursor);
-
     if let Some(row) = row_view.row_at_row_key(state.cursor.0)
-        && let Some(cell) = row.cell(state.cursor.1)
+        && let Some(cell) = row.display_cell(state.cursor.1)
     {
         state.edit_text = state
             .modified_cells
             .get(&state.cursor)
             .cloned()
-            .unwrap_or_else(|| cell.to_string());
-        state.original_value = cell.to_string();
+            .unwrap_or_else(|| cell.clone());
+        state.original_value = cell;
     }
 }
 
@@ -1367,7 +1397,9 @@ mod tests {
         has_pressed_key_event, should_clear_pending_command,
     };
     use crate::core::KeyBindings;
-    use crate::data::QueryResult;
+    use crate::domain::result::ResultSet;
+    use crate::domain::result::{ResultColumn, ResultCompleteness};
+    use crate::domain::value::{DbTypeFamily, DbTypeInfo, DbValue};
     use crate::ui::DataGridState;
     use crate::ui::components::grid::GridMode;
     use crate::ui::components::grid::actions::DataGridActions;
@@ -1394,40 +1426,53 @@ mod tests {
         }
     }
 
-    fn sample_result() -> QueryResult {
-        QueryResult {
-            columns: vec!["id".to_string(), "name".to_string(), "email".to_string()],
-            rows: vec![
-                vec![
-                    "1".to_string(),
-                    "alice".to_string(),
-                    "a@example.com".to_string(),
-                ],
-                vec![
-                    "2".to_string(),
-                    "bob".to_string(),
-                    "b@example.com".to_string(),
-                ],
-                vec![
-                    "3".to_string(),
-                    "carol".to_string(),
-                    "c@example.com".to_string(),
-                ],
+    fn sample_result() -> ResultSet {
+        ResultSet {
+            columns: std::sync::Arc::new([
+                ResultColumn {
+                    name: "id".into(),
+                    type_info: DbTypeInfo {
+                        family: DbTypeFamily::Text,
+                        native_name: String::new(),
+                        nullable: None,
+                    },
+                },
+                ResultColumn {
+                    name: "name".into(),
+                    type_info: DbTypeInfo {
+                        family: DbTypeFamily::Text,
+                        native_name: String::new(),
+                        nullable: None,
+                    },
+                },
+                ResultColumn {
+                    name: "email".into(),
+                    type_info: DbTypeInfo {
+                        family: DbTypeFamily::Text,
+                        native_name: String::new(),
+                        nullable: None,
+                    },
+                },
+            ]),
+            cells: vec![
+                DbValue::Text("1".into()),
+                DbValue::Text("alice".into()),
+                DbValue::Text("a@example.com".into()),
+                DbValue::Text("2".into()),
+                DbValue::Text("bob".into()),
+                DbValue::Text("b@example.com".into()),
+                DbValue::Text("3".into()),
+                DbValue::Text("carol".into()),
+                DbValue::Text("c@example.com".into()),
             ],
-            null_flags: vec![
-                vec![false, false, false],
-                vec![false, false, false],
-                vec![false, false, false],
-            ],
-            affected_rows: 0,
-            truncated: false,
-            original_row_count: None,
+            row_count: 3,
+            completeness: ResultCompleteness::Complete,
         }
     }
 
     fn send_key_with_bindings(
         state: &mut DataGridState,
-        result: &QueryResult,
+        result: &ResultSet,
         keybindings: &KeyBindings,
         event: Event,
     ) -> DataGridActions {
@@ -1441,9 +1486,9 @@ mod tests {
             modifiers,
             ..Default::default()
         };
-        let filtered_rows: Vec<(usize, &Vec<String>)> = result.rows.iter().enumerate().collect();
+        let filtered_rows: Vec<usize> = (0..result.row_count).collect();
         let new_rows_snapshot = state.new_rows.clone();
-        let row_view = GridVirtualRows::new(result.rows.len(), &filtered_rows, &new_rows_snapshot);
+        let row_view = GridVirtualRows::new(result, &filtered_rows, &new_rows_snapshot);
         let mut actions = DataGridActions::default();
 
         ctx.begin_pass(raw_input);
@@ -1455,7 +1500,7 @@ mod tests {
         actions
     }
 
-    fn send_key(state: &mut DataGridState, result: &QueryResult, event: Event) -> DataGridActions {
+    fn send_key(state: &mut DataGridState, result: &ResultSet, event: Event) -> DataGridActions {
         send_key_with_bindings(state, result, &KeyBindings::default(), event)
     }
 
@@ -1530,19 +1575,48 @@ mod tests {
         state.select_anchor = Some((0, 1));
         state.cursor = (1, 2);
 
-        let row1 = vec!["id".to_string(), "name".to_string(), "email".to_string()];
-        let row2 = vec![
-            "1".to_string(),
-            "alice".to_string(),
-            "a@example.com".to_string(),
-        ];
-        let filtered_rows = vec![(0usize, &row1), (1usize, &row2)];
+        let result = ResultSet {
+            columns: std::sync::Arc::new([
+                ResultColumn {
+                    name: "id".into(),
+                    type_info: DbTypeInfo {
+                        family: DbTypeFamily::Text,
+                        native_name: String::new(),
+                        nullable: None,
+                    },
+                },
+                ResultColumn {
+                    name: "name".into(),
+                    type_info: DbTypeInfo {
+                        family: DbTypeFamily::Text,
+                        native_name: String::new(),
+                        nullable: None,
+                    },
+                },
+                ResultColumn {
+                    name: "email".into(),
+                    type_info: DbTypeInfo {
+                        family: DbTypeFamily::Text,
+                        native_name: String::new(),
+                        nullable: None,
+                    },
+                },
+            ]),
+            cells: vec![
+                DbValue::Text("1".into()),
+                DbValue::Text("alice".into()),
+                DbValue::Text("a@example.com".into()),
+            ],
+            row_count: 1,
+            completeness: ResultCompleteness::Complete,
+        };
+        let filtered_rows = vec![0];
         let new_rows = Vec::new();
-        let row_view = GridVirtualRows::new(2, &filtered_rows, &new_rows);
+        let row_view = GridVirtualRows::new(&result, &filtered_rows, &new_rows);
 
         let copied = copy_selected_cells(&state, &row_view);
 
-        assert_eq!(copied.as_deref(), Some("name\temail\nalice\ta@example.com"));
+        assert_eq!(copied.as_deref(), Some("alice\ta@example.com"));
     }
 
     #[test]
@@ -1570,31 +1644,9 @@ mod tests {
     }
 
     #[test]
-    fn count_prefix_moves_exact_distance_in_larger_result_set() {
+    fn count_prefix_moves_exact_distance_in_result_set() {
         let mut state = DataGridState::new();
-        let mut result = sample_result();
-        result.rows.extend(vec![
-            vec![
-                "4".to_string(),
-                "dave".to_string(),
-                "d@example.com".to_string(),
-            ],
-            vec![
-                "5".to_string(),
-                "erin".to_string(),
-                "e@example.com".to_string(),
-            ],
-            vec![
-                "6".to_string(),
-                "frank".to_string(),
-                "f@example.com".to_string(),
-            ],
-        ]);
-        result.null_flags.extend(vec![
-            vec![false, false, false],
-            vec![false, false, false],
-            vec![false, false, false],
-        ]);
+        let result = sample_result();
 
         let _ = send_key(&mut state, &result, key_event(Key::Num2));
         let _ = send_key(&mut state, &result, key_event(Key::J));
@@ -1822,9 +1874,9 @@ mod tests {
             key_event_with_modifiers(Key::G, Modifiers::SHIFT),
         );
 
-        assert_eq!(state.cursor.0, result.rows.len() - 1);
+        assert_eq!(state.cursor.0, result.row_count - 1);
         assert!(state.command_buffer.is_empty());
-        assert_eq!(state.scroll_to_row, Some(result.rows.len() - 1));
+        assert_eq!(state.scroll_to_row, Some(result.row_count - 1));
     }
 
     #[test]

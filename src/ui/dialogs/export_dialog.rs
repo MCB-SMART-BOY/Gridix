@@ -18,7 +18,8 @@ use crate::core::{
     TransferJsonOptions, TransferMapping, TransferRowWindow, TransferSchema, TransferSession,
     TransferSqlOptions, preview_export_transfer,
 };
-use crate::data::{DatabaseType, QueryResult};
+use crate::data::DatabaseType;
+use crate::domain::result::ResultSet;
 use crate::ui::styles::{GRAY, MUTED, SPACING_SM};
 use crate::ui::{
     LocalShortcut, local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text,
@@ -100,13 +101,14 @@ impl ExportConfig {
         self.selected_columns.iter().filter(|&&s| s).count()
     }
 
-    /// 转换为统一传输会话，缺失的列选择按“选中”处理，避免旧配置静默丢列。
+    /// 转换为统一传输会话，缺失的列选择按"选中"处理，避免旧配置静默丢列。
     pub fn to_transfer_session(
         &self,
-        result: &QueryResult,
+        result: &ResultSet,
         table_name: &str,
         db_type: DatabaseType,
     ) -> TransferSession {
+        let column_names = result.column_names();
         let selected_columns: Vec<usize> = if self.selected_columns.is_empty() {
             (0..result.columns.len()).collect()
         } else {
@@ -121,10 +123,10 @@ impl ExportConfig {
             schema: TransferSchema::from_columns(
                 Some(table_name.to_string()),
                 Some(table_name.to_string()),
-                &result.columns,
-                Some(result.rows.len()),
+                &column_names,
+                Some(result.row_count),
             ),
-            mapping: TransferMapping::from_selection(&result.columns, &selected_columns),
+            mapping: TransferMapping::from_selection(&column_names, &selected_columns),
             row_window: TransferRowWindow {
                 start_row: self.start_row,
                 row_limit: self.row_limit,
@@ -280,7 +282,7 @@ impl ExportDialog {
         show: &mut bool,
         config: &mut ExportConfig,
         table_name: &str,
-        data: Option<&QueryResult>,
+        data: Option<&ResultSet>,
         db_type: DatabaseType,
         on_export: &mut Option<ExportConfig>,
         status_message: &Option<Result<String, String>>,
@@ -293,7 +295,7 @@ impl ExportDialog {
             config.init_columns(result.columns.len());
         }
 
-        let row_count = data.map(|d| d.rows.len()).unwrap_or(0);
+        let row_count = data.map(|d| d.row_count).unwrap_or(0);
         let col_count = data.map(|d| d.columns.len()).unwrap_or(0);
         let can_export = config.selected_column_count() > 0 && row_count > 0;
 
@@ -388,11 +390,13 @@ impl ExportDialog {
                     );
 
                     if let Some(result) = data {
+                        let column_names: Vec<String> =
+                            result.columns.iter().map(|c| c.name.clone()).collect();
                         DialogContent::section_with_description(
                             ui,
                             "列选择",
                             "保留导航高亮，避免列很多时失去上下文。",
-                            |ui| Self::show_column_selector(ui, config, &result.columns),
+                            |ui| Self::show_column_selector(ui, config, &column_names),
                         );
                     }
 
@@ -783,7 +787,7 @@ impl ExportDialog {
     fn show_preview(
         ui: &mut egui::Ui,
         config: &ExportConfig,
-        data: &QueryResult,
+        data: &ResultSet,
         table_name: &str,
         db_type: DatabaseType,
     ) {

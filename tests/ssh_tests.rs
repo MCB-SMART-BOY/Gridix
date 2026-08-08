@@ -46,30 +46,46 @@ fn test_auth_method_display() {
 }
 
 #[test]
-fn test_tunnel_name_changes_with_ssh_identity() {
+fn test_tunnel_name_password_identity_uses_ref_and_revision_without_secret() {
     let base = SshTunnelConfig {
         enabled: true,
         ssh_host: "jump.example.com".to_string(),
         ssh_port: 22,
         ssh_username: "alice".to_string(),
         ssh_password: "secret-a".to_string(),
+        password_ref: Some("ssh/alice".to_string()),
         auth_method: SshAuthMethod::Password,
         remote_host: "db.internal".to_string(),
         remote_port: 5432,
         ..Default::default()
     };
 
+    let mut changed_password = base.clone();
+    changed_password.ssh_password = "secret-b".to_string();
+    assert_eq!(base.tunnel_name(), changed_password.tunnel_name());
+
+    let mut edited_password = base.clone();
+    edited_password.mark_password_edited();
+    assert_ne!(base.tunnel_name(), edited_password.tunnel_name());
+
     let mut changed_user = base.clone();
     changed_user.ssh_username = "bob".to_string();
     assert_ne!(base.tunnel_name(), changed_user.tunnel_name());
-
-    let mut changed_password = base.clone();
-    changed_password.ssh_password = "secret-b".to_string();
-    assert_ne!(base.tunnel_name(), changed_password.tunnel_name());
 
     let mut changed_auth = base.clone();
     changed_auth.auth_method = SshAuthMethod::PrivateKey;
     changed_auth.private_key_path = "/tmp/id_ed25519".to_string();
     changed_auth.ssh_password.clear();
     assert_ne!(base.tunnel_name(), changed_auth.tunnel_name());
+}
+
+#[test]
+fn ssh_tunnel_config_missing_credential_revision_defaults_to_zero() {
+    let config = SshTunnelConfig::default();
+    let legacy_toml = toml::to_string(&config)
+        .unwrap()
+        .replace("credential_revision = 0\n", "");
+    let deserialized: SshTunnelConfig = toml::from_str(&legacy_toml).unwrap();
+
+    assert_eq!(deserialized.credential_revision, 0);
 }

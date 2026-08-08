@@ -1,39 +1,9 @@
 //! MySQL 查询实现
 
-use super::{
-    ColumnInfo, ForeignKeyInfo, ImportExecutionReport, RoutineInfo, RoutineType, TriggerInfo,
-    empty_result, exec_result, is_query_statement, query_result_with_null_flags,
-};
+use super::{ImportExecutionReport, RoutineInfo, RoutineType, TriggerInfo, is_query_statement};
 use crate::core::constants;
-use crate::data::{ConnectionConfig, DatabaseType, DbError, POOL_MANAGER, QueryResult};
-use mysql_async::prelude::*;
-use std::future::Future;
-use std::time::Duration;
-use tokio::sync::oneshot;
 
-const MYSQL_CANCEL_GRACE_PERIOD: Duration = Duration::from_millis(500);
-const MYSQL_CONN_ID_WAIT_PERIOD: Duration = Duration::from_millis(200);
-const MYSQL_CANCEL_RACE_WAIT_PERIOD: Duration = Duration::from_millis(50);
-
-struct AbortOnDrop(Option<tokio::task::AbortHandle>);
-
-impl AbortOnDrop {
-    fn new(handle: tokio::task::AbortHandle) -> Self {
-        Self(Some(handle))
-    }
-
-    fn disarm(&mut self) {
-        self.0.take();
-    }
-}
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        if let Some(handle) = self.0.take() {
-            handle.abort();
-        }
-    }
-}
+use crate::data::{ConnectionConfig, DatabaseType, DbError, POOL_MANAGER};
 
 /// 获取 MySQL 数据库列表
 pub(crate) async fn get_databases(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
@@ -138,290 +108,11 @@ fn mysql_maintenance_databases(config: &ConnectionConfig, target_database: &str)
     databases
 }
 
-/// 获取 MySQL 表的主键列名
-pub(crate) async fn get_primary_key(
-    config: &ConnectionConfig,
-    table: &str,
-) -> Result<Option<String>, DbError> {
-    let pool = POOL_MANAGER.get_mysql_pool(config).await?;
-
-    let mut conn = pool
-        .get_conn()
-        .await
-        .map_err(|e| DbError::Connection(format!("MySQL 获取连接失败: {}", e)))?;
-
-    // 使用 SHOW KEYS 查询主键列
-    let quoted_table = quote_mysql_identifier(table);
-    let sql = format!("SHOW KEYS FROM {} WHERE Key_name = 'PRIMARY'", quoted_table);
-
-    let result: Vec<mysql_async::Row> = conn
-        .query(&sql)
-        .await
-        .map_err(|e| DbError::Query(format!("查询主键失败: {}", e)))?;
-
-    // Column_name 是第 5 列（索引 4）
-    if let Some(row) = result.first() {
-        let col_name: Option<String> = row.get(4);
-        return Ok(col_name);
-    }
-
-    Ok(None)
-}
-
 fn quote_mysql_identifier(name: &str) -> String {
     name.split('.')
         .map(|part| format!("`{}`", part.replace('`', "``")))
         .collect::<Vec<_>>()
         .join(".")
-}
-
-/// 执行 MySQL 查询
-pub(crate) async fn execute(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbError> {
-    execute_with_connection_id(config, sql, None).await
-}
-
-/// 执行可取消的 MySQL 查询
-pub(crate) async fn execute_cancellable(
-    config: &ConnectionConfig,
-    sql: &str,
-    cancel_rx: oneshot::Receiver<()>,
-) -> Result<QueryResult, DbError> {
-    let (conn_id_tx, conn_id_rx) = oneshot::channel::<u32>();
-    let config_for_query = config.clone();
-    let sql = sql.to_string();
-    let query_task = tokio::spawn(async move {
-        execute_with_connection_id(&config_for_query, &sql, Some(conn_id_tx)).await
-    });
-    let mut abort_on_drop = AbortOnDrop::new(query_task.abort_handle());
-    let result = await_cancellable_query(
-        query_task,
-        cancel_rx,
-        conn_id_rx,
-        MYSQL_CANCEL_RACE_WAIT_PERIOD,
-        MYSQL_CONN_ID_WAIT_PERIOD,
-        MYSQL_CANCEL_GRACE_PERIOD,
-        |connection_id| cancel_query_by_id(config, connection_id),
-    )
-    .await;
-    abort_on_drop.disarm();
-    result
-}
-
-async fn await_cancellable_query<F, K>(
-    mut query_task: tokio::task::JoinHandle<Result<QueryResult, DbError>>,
-    mut cancel_rx: oneshot::Receiver<()>,
-    conn_id_rx: oneshot::Receiver<u32>,
-    cancel_race_wait_period: Duration,
-    conn_id_wait_period: Duration,
-    cancel_grace_period: Duration,
-    send_kill_query: F,
-) -> Result<QueryResult, DbError>
-where
-    F: Fn(u32) -> K,
-    K: Future<Output = Result<(), DbError>>,
-{
-    fn join_query_task(
-        res: Result<Result<QueryResult, DbError>, tokio::task::JoinError>,
-    ) -> Result<QueryResult, DbError> {
-        res.map_err(|e| DbError::Query(format!("任务执行失败: {}", e)))?
-    }
-
-    tokio::select! {
-        res = &mut query_task => {
-            join_query_task(res)
-        }
-        _ = &mut cancel_rx => {
-            // 取消请求与查询完成可能几乎同时发生。先给查询一个很短的收敛窗口，
-            // 避免查询已完成却仍发送 KILL QUERY 的竞态。
-            if let Ok(res) = tokio::time::timeout(cancel_race_wait_period, &mut query_task).await {
-                return join_query_task(res);
-            }
-
-            if query_task.is_finished() {
-                return join_query_task(query_task.await);
-            }
-
-            let cancel_detail = match tokio::time::timeout(conn_id_wait_period, conn_id_rx).await {
-                Ok(Ok(connection_id)) => {
-                    if query_task.is_finished() {
-                        return join_query_task(query_task.await);
-                    }
-
-                    send_kill_query(connection_id)
-                        .await
-                        .err()
-                        .map(|e| e.to_string())
-                }
-                Ok(Err(_)) => Some("未能获取 MySQL 连接 ID，取消请求可能未发送".to_string()),
-                Err(_) => Some("取消请求过早，尚未建立 MySQL 会话".to_string()),
-            };
-
-            if tokio::time::timeout(cancel_grace_period, &mut query_task)
-                .await
-                .is_err()
-            {
-                query_task.abort();
-            }
-
-            Err(DbError::Query(format_cancel_message(cancel_detail)))
-        }
-    }
-}
-
-fn format_cancel_message(cancel_detail: Option<String>) -> String {
-    match cancel_detail {
-        Some(detail) => format!("查询已取消（{}）", detail),
-        None => "查询已取消".to_string(),
-    }
-}
-
-fn build_kill_query_sql(connection_id: u32) -> String {
-    format!("KILL QUERY {}", connection_id)
-}
-
-async fn cancel_query_by_id(config: &ConnectionConfig, connection_id: u32) -> Result<(), DbError> {
-    match cancel_query_with_dedicated_connection(config, connection_id).await {
-        Ok(()) => Ok(()),
-        Err(primary_err) => {
-            tracing::warn!(error = %primary_err, "MySQL 直连取消失败，回退连接池取消");
-            cancel_query_with_pool_connection(config, connection_id)
-                .await
-                .map_err(|fallback_err| {
-                    DbError::Query(format!(
-                        "MySQL 取消查询失败（直连: {}; 连接池回退: {}）",
-                        primary_err, fallback_err
-                    ))
-                })
-        }
-    }
-}
-
-async fn cancel_query_with_dedicated_connection(
-    config: &ConnectionConfig,
-    connection_id: u32,
-) -> Result<(), DbError> {
-    let opts = build_mysql_direct_opts(config)?;
-    let mut killer_conn = mysql_async::Conn::new(opts)
-        .await
-        .map_err(|e| DbError::Connection(format!("MySQL 建立取消连接失败: {}", e)))?;
-
-    let kill_res = execute_kill_query(&mut killer_conn, connection_id).await;
-    if let Err(e) = killer_conn.disconnect().await {
-        tracing::debug!(error = %e, "MySQL 取消连接关闭失败");
-    }
-
-    kill_res
-}
-
-async fn cancel_query_with_pool_connection(
-    config: &ConnectionConfig,
-    connection_id: u32,
-) -> Result<(), DbError> {
-    let pool = POOL_MANAGER.get_mysql_pool(config).await?;
-    let mut killer_conn = pool
-        .get_conn()
-        .await
-        .map_err(|e| DbError::Connection(format!("MySQL 获取取消连接失败: {}", e)))?;
-
-    execute_kill_query(&mut killer_conn, connection_id).await
-}
-
-async fn execute_kill_query(
-    killer_conn: &mut mysql_async::Conn,
-    connection_id: u32,
-) -> Result<(), DbError> {
-    let kill_sql = build_kill_query_sql(connection_id);
-    killer_conn
-        .query_drop(kill_sql)
-        .await
-        .map_err(|e| DbError::Query(format!("MySQL 取消查询失败: {}", e)))
-}
-
-fn build_mysql_direct_opts(config: &ConnectionConfig) -> Result<mysql_async::Opts, DbError> {
-    let opts = mysql_async::Opts::from_url(config.connection_string().as_str())
-        .map_err(|e| DbError::Connection(format!("MySQL 取消连接 URL 解析失败: {}", e)))?;
-    let opts = mysql_async::OptsBuilder::from_opts(opts);
-    let opts = crate::data::PoolManager::configure_mysql_ssl(opts, config)?;
-    Ok(mysql_async::Opts::from(opts))
-}
-
-async fn execute_with_connection_id(
-    config: &ConnectionConfig,
-    sql: &str,
-    conn_id_sender: Option<oneshot::Sender<u32>>,
-) -> Result<QueryResult, DbError> {
-    let pool = POOL_MANAGER.get_mysql_pool(config).await?;
-
-    let mut conn = pool
-        .get_conn()
-        .await
-        .map_err(|e| DbError::Connection(format!("MySQL 获取连接失败: {}", e)))?;
-
-    if let Some(sender) = conn_id_sender {
-        let _ = sender.send(conn.id());
-    }
-
-    execute_with_connection(&mut conn, sql).await
-}
-
-async fn execute_with_connection(
-    conn: &mut mysql_async::Conn,
-    sql: &str,
-) -> Result<QueryResult, DbError> {
-    if is_query_statement(sql, &DatabaseType::MySQL) {
-        let mut result = conn
-            .query_iter(sql)
-            .await
-            .map_err(|e| DbError::Query(e.to_string()))?;
-
-        let columns: Vec<String> = result
-            .columns_ref()
-            .iter()
-            .map(|c| c.name_str().into_owned())
-            .collect();
-
-        if columns.is_empty() {
-            return Ok(empty_result());
-        }
-
-        let max_rows = constants::database::MAX_RESULT_SET_ROWS;
-        let mut data: Vec<Vec<String>> = Vec::new();
-        let mut null_flags: Vec<Vec<bool>> = Vec::new();
-        let mut total_rows = 0usize;
-
-        while let Some(row) = result
-            .next()
-            .await
-            .map_err(|e| DbError::Query(e.to_string()))?
-        {
-            total_rows += 1;
-            if data.len() < max_rows {
-                let (row_values, row_nulls) = row_to_strings(&row, columns.len());
-                data.push(row_values);
-                null_flags.push(row_nulls);
-            }
-        }
-
-        let mut query_result = query_result_with_null_flags(columns, data, null_flags);
-        if total_rows > max_rows {
-            query_result.truncated = true;
-            query_result.original_row_count = Some(total_rows);
-        }
-
-        Ok(query_result)
-    } else {
-        // 使用 query_iter 来获取影响行数
-        let result = conn
-            .query_iter(sql)
-            .await
-            .map_err(|e| DbError::Query(e.to_string()))?;
-
-        let affected = result.affected_rows();
-        // 需要消耗结果
-        drop(result);
-
-        Ok(exec_result(affected))
-    }
 }
 
 /// 批量执行 MySQL 语句（用于导入）
@@ -490,70 +181,6 @@ pub(crate) async fn execute_batch(
     Ok(report)
 }
 
-/// 将 MySQL 行转换为字符串向量
-fn row_to_strings(row: &mysql_async::Row, col_count: usize) -> (Vec<String>, Vec<bool>) {
-    let mut row_values = Vec::with_capacity(col_count);
-    let mut row_nulls = Vec::with_capacity(col_count);
-    for i in 0..col_count {
-        match row.get::<mysql_async::Value, _>(i) {
-            Some(value) => {
-                let (text, is_null) = value_to_string(value);
-                row_values.push(text);
-                row_nulls.push(is_null);
-            }
-            None => {
-                row_values.push(String::new());
-                row_nulls.push(true);
-            }
-        }
-    }
-    (row_values, row_nulls)
-}
-
-/// 将 MySQL Value 转换为字符串
-fn value_to_string(val: mysql_async::Value) -> (String, bool) {
-    use mysql_async::Value;
-    match val {
-        Value::NULL => (String::new(), true),
-        Value::Bytes(b) => (String::from_utf8_lossy(&b).into_owned(), false),
-        Value::Int(i) => (i.to_string(), false),
-        Value::UInt(u) => (u.to_string(), false),
-        Value::Float(f) => (f.to_string(), false),
-        Value::Double(d) => (d.to_string(), false),
-        Value::Date(y, m, d, h, mi, s, us) => {
-            if h == 0 && mi == 0 && s == 0 && us == 0 {
-                (format!("{:04}-{:02}-{:02}", y, m, d), false)
-            } else if us == 0 {
-                (
-                    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", y, m, d, h, mi, s),
-                    false,
-                )
-            } else {
-                (
-                    format!(
-                        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
-                        y, m, d, h, mi, s, us
-                    ),
-                    false,
-                )
-            }
-        }
-        Value::Time(neg, d, h, m, s, us) => {
-            let sign = if neg { "-" } else { "" };
-            if d > 0 {
-                (format!("{}{}d {:02}:{:02}:{:02}", sign, d, h, m, s), false)
-            } else if us > 0 {
-                (
-                    format!("{}{:02}:{:02}:{:02}.{:06}", sign, h, m, s, us),
-                    false,
-                )
-            } else {
-                (format!("{}{:02}:{:02}:{:02}", sign, h, m, s), false)
-            }
-        }
-    }
-}
-
 /// 获取 MySQL 触发器
 pub(crate) async fn get_triggers(config: &ConnectionConfig) -> Result<Vec<TriggerInfo>, DbError> {
     let pool = POOL_MANAGER.get_mysql_pool(config).await?;
@@ -606,99 +233,6 @@ pub(crate) async fn get_triggers(config: &ConnectionConfig) -> Result<Vec<Trigge
         .collect();
 
     Ok(triggers)
-}
-
-/// 获取 MySQL 外键
-pub(crate) async fn get_foreign_keys(
-    config: &ConnectionConfig,
-) -> Result<Vec<ForeignKeyInfo>, DbError> {
-    let pool = POOL_MANAGER.get_mysql_pool(config).await?;
-
-    let mut conn = pool
-        .get_conn()
-        .await
-        .map_err(|e| DbError::Connection(format!("MySQL 获取连接失败: {}", e)))?;
-
-    let sql = r#"
-        SELECT 
-            TABLE_NAME,
-            COLUMN_NAME,
-            REFERENCED_TABLE_NAME,
-            REFERENCED_COLUMN_NAME
-        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND REFERENCED_TABLE_NAME IS NOT NULL
-        ORDER BY TABLE_NAME, COLUMN_NAME
-    "#;
-
-    let result: Vec<mysql_async::Row> = conn
-        .query(sql)
-        .await
-        .map_err(|e| DbError::Query(format!("查询外键失败: {}", e)))?;
-
-    let foreign_keys: Vec<ForeignKeyInfo> = result
-        .iter()
-        .map(|row| ForeignKeyInfo {
-            from_table: row.get(0).unwrap_or_default(),
-            from_column: row.get(1).unwrap_or_default(),
-            to_table: row.get(2).unwrap_or_default(),
-            to_column: row.get(3).unwrap_or_default(),
-        })
-        .collect();
-
-    Ok(foreign_keys)
-}
-
-/// 获取 MySQL 表的列信息
-pub(crate) async fn get_columns(
-    config: &ConnectionConfig,
-    table: &str,
-) -> Result<Vec<ColumnInfo>, DbError> {
-    let pool = POOL_MANAGER.get_mysql_pool(config).await?;
-
-    let mut conn = pool
-        .get_conn()
-        .await
-        .map_err(|e| DbError::Connection(format!("MySQL 获取连接失败: {}", e)))?;
-
-    let sql = format!(
-        r#"
-        SELECT 
-            c.COLUMN_NAME,
-            c.DATA_TYPE,
-            CASE WHEN c.COLUMN_KEY = 'PRI' THEN 1 ELSE 0 END AS is_primary_key,
-            CASE WHEN c.IS_NULLABLE = 'YES' THEN 1 ELSE 0 END AS is_nullable,
-            c.COLUMN_DEFAULT
-        FROM INFORMATION_SCHEMA.COLUMNS c
-        WHERE c.TABLE_SCHEMA = DATABASE()
-          AND c.TABLE_NAME = '{}'
-        ORDER BY c.ORDINAL_POSITION
-        "#,
-        table.replace('\\', "\\\\").replace('\'', "''")
-    );
-
-    let result: Vec<mysql_async::Row> = conn
-        .query(&sql)
-        .await
-        .map_err(|e| DbError::Query(format!("查询列信息失败: {}", e)))?;
-
-    let columns: Vec<ColumnInfo> = result
-        .iter()
-        .map(|row| {
-            let is_pk: i32 = row.get(2).unwrap_or(0);
-            let is_null: i32 = row.get(3).unwrap_or(0);
-            let default_val: Option<String> = row.get(4).unwrap_or(None);
-            ColumnInfo {
-                name: row.get(0).unwrap_or_default(),
-                data_type: row.get(1).unwrap_or_default(),
-                is_primary_key: is_pk == 1,
-                is_nullable: is_null == 1,
-                default_value: default_val,
-            }
-        })
-        .collect();
-
-    Ok(columns)
 }
 
 /// 获取 MySQL 存储过程和函数
@@ -798,17 +332,587 @@ pub(crate) async fn get_routines(config: &ConnectionConfig) -> Result<Vec<Routin
     Ok(routines)
 }
 
+// ── SchemaCatalog 加载 (Phase 6 / Sprint 3) ──
+
+use super::infer_type_family;
+use crate::domain::ids::SchemaRevision;
+use crate::domain::metadata::{
+    ColumnMetadata, ForeignKeyMetadata, KeyMetadata, SchemaCatalog, TableMetadata,
+};
+
+/// 从 information_schema 加载 MySQL schema 元数据
+pub(crate) async fn load_catalog(
+    config: &ConnectionConfig,
+    revision: SchemaRevision,
+) -> Result<SchemaCatalog, DbError> {
+    let pool = POOL_MANAGER
+        .get_mysql_pool(config)
+        .await
+        .map_err(|e| DbError::Connection(format!("MySQL 连接池获取失败: {}", e)))?;
+
+    let mut conn = pool
+        .get_conn()
+        .await
+        .map_err(|e| DbError::Connection(format!("MySQL 连接失败: {}", e)))?;
+
+    // 获取当前连接的数据库名
+    let schema_name: String = conn
+        .query("SELECT DATABASE()")
+        .await
+        .map_err(|e| DbError::Query(format!("查询当前数据库失败: {}", e)))?
+        .first()
+        .map(|row: &mysql_async::Row| row.get::<String, _>(0).unwrap_or_default())
+        .unwrap_or_default();
+    // 1. 获取表列表
+    let table_names: Vec<String> = conn
+        .query(
+            "SELECT TABLE_NAME FROM information_schema.TABLES \
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' \
+                ORDER BY TABLE_NAME",
+        )
+        .await
+        .map_err(|e| DbError::Query(format!("查询表列表失败: {}", e)))?
+        .into_iter()
+        .map(|row: mysql_async::Row| row.get::<String, _>(0).unwrap_or_default())
+        .collect();
+
+    let mut tables = Vec::with_capacity(table_names.len());
+
+    for table_name in &table_names {
+        // 2. 列信息
+        let col_rows: Vec<mysql_async::Row> = conn
+            .exec(
+                "SELECT COLUMN_NAME, ORDINAL_POSITION, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT \
+                 FROM information_schema.COLUMNS \
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? \
+                 ORDER BY ORDINAL_POSITION",
+                (table_name.as_str(),),
+            )
+            .await
+            .map_err(|e| DbError::Query(format!("查询列信息失败: {}", e)))?;
+
+        // 3. 主键
+        let pk_rows: Vec<mysql_async::Row> = conn
+            .exec(
+                "SELECT COLUMN_NAME FROM information_schema.STATISTICS \
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? \
+                   AND INDEX_NAME = 'PRIMARY'",
+                (table_name.as_str(),),
+            )
+            .await
+            .map_err(|e| DbError::Query(format!("查询主键失败: {}", e)))?;
+
+        let pk_columns: Vec<String> = pk_rows
+            .iter()
+            .map(|r| r.get::<String, _>(0).unwrap_or_default())
+            .collect();
+
+        let primary_key = if pk_columns.is_empty() {
+            None
+        } else {
+            Some(KeyMetadata {
+                name: None,
+                columns: pk_columns.clone(),
+            })
+        };
+
+        // 4. 外键
+        let fk_rows: Vec<mysql_async::Row> = conn
+            .exec(
+                "SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME \
+                 FROM information_schema.KEY_COLUMN_USAGE \
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? \
+                   AND REFERENCED_TABLE_NAME IS NOT NULL",
+                (table_name.as_str(),),
+            )
+            .await
+            .map_err(|e| DbError::Query(format!("查询外键失败: {}", e)))?;
+
+        let foreign_keys: Vec<ForeignKeyMetadata> = fk_rows
+            .iter()
+            .map(|r| ForeignKeyMetadata {
+                name: None,
+                from_columns: vec![r.get::<String, _>(0).unwrap_or_default()],
+                ref_table: r.get::<String, _>(1).unwrap_or_default(),
+                ref_columns: vec![r.get::<String, _>(2).unwrap_or_default()],
+            })
+            .collect();
+
+        let is_pk = |col_name: &str| pk_columns.iter().any(|pk| pk == col_name);
+
+        let columns: Vec<ColumnMetadata> = col_rows
+            .iter()
+            .map(|r| -> ColumnMetadata {
+                let col_name: String = r.get::<String, _>(0).unwrap_or_default();
+                let pos: u32 = r.get::<u32, _>(1).unwrap_or(0);
+                let data_type: String = r.get::<String, _>(2).unwrap_or_default();
+                let is_nullable_str: String = r.get::<String, _>(3).unwrap_or_default();
+                let default: Option<String> = r.get::<Option<String>, _>(4).unwrap_or(None);
+
+                ColumnMetadata {
+                    name: col_name.clone(),
+                    position: pos as usize,
+                    type_info: crate::domain::value::DbTypeInfo {
+                        family: infer_type_family(&data_type),
+                        native_name: data_type,
+                        nullable: Some(is_nullable_str == "YES"),
+                    },
+                    is_nullable: is_nullable_str == "YES",
+                    is_primary_key: is_pk(&col_name),
+                    default_value: default,
+                }
+            })
+            .collect();
+
+        tables.push(TableMetadata {
+            name: table_name.clone(),
+            schema: Some(schema_name.clone()),
+            columns,
+            primary_key,
+            unique_keys: Vec::new(),
+            foreign_keys,
+        });
+    }
+
+    Ok(SchemaCatalog { revision, tables })
+}
+
+// ── Typed ResultSet 执行 (Phase 4 / Sprint 2) ──
+
+use crate::domain::execution::ExecutionOutcome;
+use crate::domain::result::{ResultColumn, ResultCompleteness, ResultSet};
+use crate::domain::value::{DbTypeFamily, DbTypeInfo, DbValue};
+use mysql_async::consts::ColumnType;
+use mysql_async::prelude::Queryable;
+
+/// 执行 SQL 并返回类型化 ResultSet（MySQL 原生 Value 路径）
+pub(crate) async fn execute_typed(
+    config: &ConnectionConfig,
+    sql: &str,
+) -> Result<ExecutionOutcome, DbError> {
+    let pool = POOL_MANAGER
+        .get_mysql_pool(config)
+        .await
+        .map_err(|e| DbError::Connection(format!("MySQL 连接池获取失败: {}", e)))?;
+    let mut conn = pool
+        .get_conn()
+        .await
+        .map_err(|e| DbError::Connection(format!("MySQL 连接失败: {}", e)))?;
+    execute_typed_with_conn(&mut conn, sql).await
+}
+
+/// 使用单独控制连接发送 KILL QUERY，协作取消正在执行的 MySQL 查询。
+pub(crate) async fn execute_typed_cancellable(
+    config: &ConnectionConfig,
+    sql: &str,
+    cancellation: &tokio_util::sync::CancellationToken,
+) -> Result<ExecutionOutcome, DbError> {
+    if cancellation.is_cancelled() {
+        return Err(DbError::Cancelled);
+    }
+
+    let pool = POOL_MANAGER
+        .get_mysql_pool(config)
+        .await
+        .map_err(|e| DbError::Connection(format!("MySQL 连接池获取失败: {}", e)))?;
+    let mut conn = pool
+        .get_conn()
+        .await
+        .map_err(|e| DbError::Connection(format!("MySQL 执行连接获取失败: {}", e)))?;
+    let connection_id = conn.id();
+    let query = execute_typed_with_conn(&mut conn, sql);
+    tokio::pin!(query);
+
+    tokio::select! {
+        biased;
+        result = &mut query => result,
+        _ = cancellation.cancelled() => {
+            cancel_mysql_query(&pool, connection_id).await?;
+            match query.await {
+                Err(_) => Err(DbError::Cancelled),
+                Ok(outcome) => Ok(outcome),
+            }
+        }
+    }
+}
+
+async fn cancel_mysql_query(pool: &mysql_async::Pool, connection_id: u32) -> Result<(), DbError> {
+    let mut control = pool.get_conn().await.map_err(|e| {
+        DbError::Connection(format!(
+            "获取 MySQL 取消控制连接失败（connection_id={}）: {}",
+            connection_id, e
+        ))
+    })?;
+    control
+        .query_drop(format!("KILL QUERY {}", connection_id))
+        .await
+        .map_err(|e| {
+            DbError::Query(format!(
+                "取消 MySQL 查询失败（connection_id={}）: {}",
+                connection_id, e
+            ))
+        })
+}
+
+async fn execute_typed_with_conn(
+    conn: &mut mysql_async::Conn,
+    sql: &str,
+) -> Result<ExecutionOutcome, DbError> {
+    if !is_query_statement(sql, &DatabaseType::MySQL) {
+        conn.exec_drop(sql, ())
+            .await
+            .map_err(|e| DbError::Query(e.to_string()))?;
+        let affected = conn.affected_rows();
+        return Ok(ExecutionOutcome::affected_rows(affected));
+    }
+    let mut result = conn
+        .query_iter(sql)
+        .await
+        .map_err(|e| DbError::Query(format!("MySQL query_iter 失败: {}", e)))?;
+
+    let columns: Vec<mysql_async::Column> = result.columns_ref().to_vec();
+    let col_names: Vec<String> = columns.iter().map(|c| c.name_str().into_owned()).collect();
+    let col_types: Vec<ColumnType> = columns.iter().map(|c| c.column_type()).collect();
+    let col_count = col_names.len();
+    let max_rows = constants::database::MAX_RESULT_SET_ROWS;
+
+    let mut cells: Vec<DbValue> = Vec::new();
+    let mut total_rows = 0usize;
+    loop {
+        let row_opt = result
+            .next()
+            .await
+            .map_err(|e| DbError::Query(e.to_string()))?;
+        let Some(row) = row_opt else { break };
+        total_rows += 1;
+        if total_rows <= max_rows + 1 && cells.len() / col_count < max_rows {
+            for (index, column_type) in col_types.iter().enumerate() {
+                let val: mysql_async::Value = row.get(index).unwrap_or(mysql_async::Value::NULL);
+                cells.push(mysql_value_to_dbvalue(val, column_type));
+            }
+        }
+        if total_rows > max_rows {
+            break;
+        }
+    }
+
+    let row_count = cells.len() / col_count;
+    let completeness = if total_rows > max_rows {
+        ResultCompleteness::Truncated {
+            displayed: row_count,
+        }
+    } else {
+        ResultCompleteness::Complete
+    };
+
+    let typed_columns: std::sync::Arc<[ResultColumn]> = col_names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| ResultColumn {
+            name: name.clone(),
+            type_info: DbTypeInfo {
+                family: mysql_type_to_family(&col_types[i]),
+                native_name: format!("{:?}", col_types[i]),
+                nullable: None,
+            },
+        })
+        .collect();
+
+    Ok(ExecutionOutcome::single_result(ResultSet {
+        columns: typed_columns,
+        cells,
+        row_count,
+        completeness,
+    }))
+}
+fn mysql_value_to_dbvalue(val: mysql_async::Value, col_type: &ColumnType) -> DbValue {
+    use mysql_async::Value;
+    match val {
+        Value::NULL => DbValue::Null,
+        Value::Int(i) => DbValue::Int(i),
+        Value::UInt(u) => DbValue::UInt(u),
+        Value::Float(f) => DbValue::Float(f as f64),
+        Value::Double(d) => DbValue::Float(d),
+        Value::Bytes(b) => match col_type {
+            ColumnType::MYSQL_TYPE_BLOB
+            | ColumnType::MYSQL_TYPE_LONG_BLOB
+            | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
+            | ColumnType::MYSQL_TYPE_TINY_BLOB
+            | ColumnType::MYSQL_TYPE_BIT => DbValue::Bytes(std::sync::Arc::from(b)),
+            _ => String::from_utf8(b)
+                .map(DbValue::Text)
+                .unwrap_or(DbValue::Null),
+        },
+        Value::Date(y, m, d, h, mi, s, us) => {
+            if h == 0 && mi == 0 && s == 0 && us == 0 {
+                DbValue::Date(crate::domain::value::DbDate {
+                    year: y as i32,
+                    month: m,
+                    day: d,
+                })
+            } else {
+                DbValue::DateTime(crate::domain::value::DbDateTime {
+                    date: crate::domain::value::DbDate {
+                        year: y as i32,
+                        month: m,
+                        day: d,
+                    },
+                    time: crate::domain::value::DbTime {
+                        hour: h,
+                        minute: mi,
+                        second: s,
+                        nanos: us * 1000,
+                    },
+                })
+            }
+        }
+        Value::Time(neg, d, h, mi, s, us) => {
+            let total_seconds = if neg { -(s as i64) } else { s as i64 };
+            let total_hours = (d as i64) * 24 + (h as i64);
+            DbValue::Time(crate::domain::value::DbTime {
+                hour: total_hours as u8,
+                minute: mi,
+                second: total_seconds.unsigned_abs() as u8,
+                nanos: us * 1000,
+            })
+        }
+    }
+}
+
+fn mysql_type_to_family(ct: &ColumnType) -> DbTypeFamily {
+    use mysql_async::consts::ColumnType::*;
+    match ct {
+        MYSQL_TYPE_NULL | MYSQL_TYPE_DECIMAL | MYSQL_TYPE_NEWDECIMAL => DbTypeFamily::Decimal,
+        MYSQL_TYPE_TINY | MYSQL_TYPE_SHORT | MYSQL_TYPE_LONG | MYSQL_TYPE_LONGLONG
+        | MYSQL_TYPE_INT24 => DbTypeFamily::Integer,
+        MYSQL_TYPE_FLOAT | MYSQL_TYPE_DOUBLE => DbTypeFamily::Float,
+        MYSQL_TYPE_VARCHAR
+        | MYSQL_TYPE_VAR_STRING
+        | MYSQL_TYPE_STRING
+        | MYSQL_TYPE_ENUM
+        | MYSQL_TYPE_SET
+        | MYSQL_TYPE_TINY_BLOB
+        | MYSQL_TYPE_MEDIUM_BLOB
+        | MYSQL_TYPE_LONG_BLOB
+        | MYSQL_TYPE_BLOB
+        | MYSQL_TYPE_JSON
+        | MYSQL_TYPE_GEOMETRY => DbTypeFamily::Text,
+        MYSQL_TYPE_TIMESTAMP | MYSQL_TYPE_TIMESTAMP2 => DbTypeFamily::DateTime,
+        MYSQL_TYPE_DATE | MYSQL_TYPE_NEWDATE => DbTypeFamily::Date,
+        MYSQL_TYPE_TIME | MYSQL_TYPE_TIME2 => DbTypeFamily::Time,
+        MYSQL_TYPE_DATETIME | MYSQL_TYPE_DATETIME2 => DbTypeFamily::DateTime,
+        MYSQL_TYPE_YEAR => DbTypeFamily::Integer,
+        MYSQL_TYPE_BIT => DbTypeFamily::Bytes,
+        _ => DbTypeFamily::Text,
+    }
+}
+
+use crate::domain::mutation::{
+    ExpectedRows, InputValue, Mutation, MutationBatch, MutationBatchResult, RowIdentity,
+};
+
+/// DbValue → mysql_async::Value 转换。
+fn dbvalue_to_mysql(value: &crate::domain::value::DbValue) -> mysql_async::Value {
+    use crate::domain::value::DbValue;
+    match value {
+        DbValue::Null => mysql_async::Value::NULL,
+        DbValue::Bool(b) => mysql_async::Value::Int(if *b { 1 } else { 0 }),
+        DbValue::Int(i) => mysql_async::Value::Int(*i),
+        DbValue::UInt(u) => mysql_async::Value::UInt(*u),
+        DbValue::Float(f) => mysql_async::Value::Double(*f),
+        DbValue::Text(s) => mysql_async::Value::Bytes(s.as_bytes().to_vec()),
+        DbValue::Bytes(b) => mysql_async::Value::Bytes(b.to_vec()),
+        DbValue::Decimal(d) => mysql_async::Value::Bytes(d.as_bytes().to_vec()),
+        DbValue::Json(j) => mysql_async::Value::Bytes(j.to_string().as_bytes().to_vec()),
+        DbValue::Uuid(u) => mysql_async::Value::Bytes(u.to_string().as_bytes().to_vec()),
+        _ => mysql_async::Value::NULL,
+    }
+}
+
+/// 以参数化方式执行 MutationBatch（MySQL 实现）。
+pub(crate) async fn apply_mutations(
+    config: &ConnectionConfig,
+    batch: &MutationBatch,
+) -> Result<MutationBatchResult, DbError> {
+    use crate::domain::identifier::IdentifierDialect;
+    let pool = POOL_MANAGER.get_mysql_pool(config).await?;
+    let mut conn = pool
+        .get_conn()
+        .await
+        .map_err(|e| DbError::Connection(format!("MySQL: {e}")))?;
+    conn.query_drop("START TRANSACTION")
+        .await
+        .map_err(|e| DbError::Query(format!("MySQL BEGIN: {e}")))?;
+
+    let result: Result<Vec<u64>, DbError> = async {
+        let mut rows_vec = Vec::with_capacity(batch.mutations.len());
+        for mutation in batch.mutations.iter() {
+            let rows = match mutation {
+                Mutation::Insert {
+                    table,
+                    columns,
+                    values,
+                } => {
+                    let included: Vec<(&str, &InputValue)> = columns
+                        .iter()
+                        .zip(values.iter())
+                        .filter(|(_, v)| {
+                            !matches!(v, InputValue::Unspecified | InputValue::Default)
+                        })
+                        .map(|(c, v)| (c.name.as_str(), v))
+                        .collect();
+                    if included.is_empty() {
+                        let sql = format!(
+                            "INSERT INTO {} () VALUES ()",
+                            IdentifierDialect::MySql.quote(&table.name)
+                        );
+                        conn.exec_drop(sql, ())
+                            .await
+                            .map_err(|e| DbError::Query(format!("MySQL INSERT DEFAULT: {e}")))?;
+                        1u64
+                    } else {
+                        let cols: Vec<String> = included
+                            .iter()
+                            .map(|(name, _)| IdentifierDialect::MySql.quote(name))
+                            .collect();
+                        let placeholders = vec!["?"; included.len()].join(", ");
+                        let sql = format!(
+                            "INSERT INTO {} ({}) VALUES ({})",
+                            IdentifierDialect::MySql.quote(&table.name),
+                            cols.join(", "),
+                            placeholders
+                        );
+                        let params: Vec<mysql_async::Value> =
+                            included.iter().map(|(_, v)| mysql_value_param(v)).collect();
+                        conn.exec_drop(sql, mysql_async::Params::Positional(params))
+                            .await
+                            .map_err(|e| DbError::Query(format!("MySQL INSERT: {e}")))?;
+                        conn.affected_rows()
+                    }
+                }
+                Mutation::Update {
+                    table,
+                    identity,
+                    changes,
+                    expected_rows,
+                } => {
+                    let pk = extract_pk_mysql(identity)?;
+                    let set_sql: Vec<String> = changes
+                        .iter()
+                        .map(|(col, _)| {
+                            format!("{} = ?", IdentifierDialect::MySql.quote(&col.name))
+                        })
+                        .collect();
+                    let where_sql: Vec<String> = pk
+                        .iter()
+                        .map(|(col, _)| {
+                            format!("{} = ?", IdentifierDialect::MySql.quote(&col.name))
+                        })
+                        .collect();
+                    let sql = format!(
+                        "UPDATE {} SET {} WHERE {}",
+                        IdentifierDialect::MySql.quote(&table.name),
+                        set_sql.join(", "),
+                        where_sql.join(" AND ")
+                    );
+                    let mut params: Vec<mysql_async::Value> =
+                        changes.iter().map(|(_, v)| mysql_value_param(v)).collect();
+                    params.extend(pk.iter().map(|(_, v)| dbvalue_to_mysql(v)));
+                    conn.exec_drop(sql, mysql_async::Params::Positional(params))
+                        .await
+                        .map_err(|e| DbError::Query(format!("MySQL UPDATE: {e}")))?;
+                    let n = conn.affected_rows();
+                    if let ExpectedRows::Exactly(e) = expected_rows
+                        && n != *e
+                    {
+                        return Err(DbError::Query(format!(
+                            "MySQL UPDATE: expected {e} rows, affected {n}"
+                        )));
+                    }
+                    n
+                }
+                Mutation::Delete {
+                    table,
+                    identity,
+                    expected_rows,
+                } => {
+                    let pk = extract_pk_mysql(identity)?;
+                    let where_sql: Vec<String> = pk
+                        .iter()
+                        .map(|(col, _)| {
+                            format!("{} = ?", IdentifierDialect::MySql.quote(&col.name))
+                        })
+                        .collect();
+                    let sql = format!(
+                        "DELETE FROM {} WHERE {}",
+                        IdentifierDialect::MySql.quote(&table.name),
+                        where_sql.join(" AND ")
+                    );
+                    let params: Vec<mysql_async::Value> =
+                        pk.iter().map(|(_, v)| dbvalue_to_mysql(v)).collect();
+                    conn.exec_drop(sql, mysql_async::Params::Positional(params))
+                        .await
+                        .map_err(|e| DbError::Query(format!("MySQL DELETE: {e}")))?;
+                    let n = conn.affected_rows();
+                    if let ExpectedRows::Exactly(e) = expected_rows
+                        && n != *e
+                    {
+                        return Err(DbError::Query(format!(
+                            "MySQL DELETE: expected {e} rows, affected {n}"
+                        )));
+                    }
+                    n
+                }
+            };
+            rows_vec.push(rows);
+        }
+        Ok(rows_vec)
+    }
+    .await;
+
+    match result {
+        Ok(r) => {
+            conn.query_drop("COMMIT")
+                .await
+                .map_err(|e| DbError::Query(format!("MySQL COMMIT: {e}")))?;
+            Ok(MutationBatchResult {
+                affected: r,
+                all_success: true,
+            })
+        }
+        Err(e) => {
+            let _ = conn.query_drop("ROLLBACK").await;
+            Err(e)
+        }
+    }
+}
+
+fn mysql_value_param(v: &InputValue) -> mysql_async::Value {
+    match v {
+        InputValue::Value(dv) => dbvalue_to_mysql(dv),
+        InputValue::Null => mysql_async::Value::NULL,
+        _ => mysql_async::Value::NULL,
+    }
+}
+
+fn extract_pk_mysql(
+    identity: &RowIdentity,
+) -> Result<
+    &Vec<(
+        crate::domain::mutation::ColumnRef,
+        crate::domain::value::DbValue,
+    )>,
+    DbError,
+> {
+    match identity {
+        RowIdentity::PrimaryKey(cols) => Ok(cols),
+        RowIdentity::UniqueKey { columns, .. } => Ok(columns),
+    }
+}
 #[cfg(test)]
 mod tests {
-    use super::{
-        DbError, await_cancellable_query, build_kill_query_sql, format_cancel_message,
-        mysql_maintenance_databases, quote_mysql_identifier,
-    };
-    use crate::data::{ConnectionConfig, DatabaseType, query::query_result};
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::Duration;
-    use tokio::sync::oneshot;
+    use super::{mysql_maintenance_databases, quote_mysql_identifier};
+    use crate::data::{ConnectionConfig, DatabaseType};
 
     #[test]
     fn test_quote_mysql_identifier_schema_table() {
@@ -820,22 +924,6 @@ mod tests {
     fn test_quote_mysql_identifier_escapes_backticks() {
         let quoted = quote_mysql_identifier("na`me");
         assert_eq!(quoted, "`na``me`");
-    }
-
-    #[test]
-    fn test_build_kill_query_sql() {
-        assert_eq!(build_kill_query_sql(123), "KILL QUERY 123");
-    }
-
-    #[test]
-    fn test_format_cancel_message_without_detail() {
-        assert_eq!(format_cancel_message(None), "查询已取消");
-    }
-
-    #[test]
-    fn test_format_cancel_message_with_detail() {
-        let msg = format_cancel_message(Some("权限不足".to_string()));
-        assert_eq!(msg, "查询已取消（权限不足）");
     }
 
     #[test]
@@ -857,116 +945,5 @@ mod tests {
                 "".to_string(),
             ]
         );
-    }
-
-    #[tokio::test]
-    async fn test_await_cancellable_query_returns_result_when_query_completes_first() {
-        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
-        let (_conn_id_tx, conn_id_rx) = oneshot::channel::<u32>();
-
-        let query_task = tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-            Ok(query_result(
-                vec!["id".to_string()],
-                vec![vec!["1".to_string()]],
-            ))
-        });
-
-        let result = await_cancellable_query(
-            query_task,
-            cancel_rx,
-            conn_id_rx,
-            Duration::from_millis(5),
-            Duration::from_millis(5),
-            Duration::from_millis(10),
-            |_| async { Ok(()) },
-        )
-        .await
-        .expect("query should complete before cancellation");
-
-        assert_eq!(result.columns, vec!["id".to_string()]);
-        assert_eq!(result.rows, vec![vec!["1".to_string()]]);
-
-        drop(cancel_tx);
-    }
-
-    #[tokio::test]
-    async fn test_await_cancellable_query_sends_kill_signal_on_cancel() {
-        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
-        let (conn_id_tx, conn_id_rx) = oneshot::channel::<u32>();
-        let cancelled_conn_id = Arc::new(AtomicU32::new(0));
-        let cancelled_conn_id_clone = Arc::clone(&cancelled_conn_id);
-
-        let query_task = tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            Ok(query_result(Vec::new(), Vec::new()))
-        });
-
-        conn_id_tx.send(88).expect("connection id should be sent");
-        cancel_tx.send(()).expect("cancel signal should be sent");
-
-        let err = await_cancellable_query(
-            query_task,
-            cancel_rx,
-            conn_id_rx,
-            Duration::from_millis(5),
-            Duration::from_millis(5),
-            Duration::from_millis(5),
-            move |conn_id| {
-                let cancelled_conn_id = Arc::clone(&cancelled_conn_id_clone);
-                async move {
-                    cancelled_conn_id.store(conn_id, Ordering::Relaxed);
-                    Ok(())
-                }
-            },
-        )
-        .await
-        .expect_err("query should be cancelled");
-
-        match err {
-            DbError::Query(msg) => assert!(msg.starts_with("查询已取消")),
-            other => panic!("unexpected error type: {}", other),
-        }
-        assert_eq!(cancelled_conn_id.load(Ordering::Relaxed), 88);
-    }
-
-    #[tokio::test]
-    async fn test_await_cancellable_query_skips_kill_when_query_finishes_during_race_window() {
-        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
-        let (conn_id_tx, conn_id_rx) = oneshot::channel::<u32>();
-        let kill_called = Arc::new(AtomicU32::new(0));
-        let kill_called_clone = Arc::clone(&kill_called);
-
-        let query_task = tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-            Ok(query_result(
-                vec!["ok".to_string()],
-                vec![vec!["1".to_string()]],
-            ))
-        });
-
-        conn_id_tx.send(99).expect("connection id should be sent");
-        cancel_tx.send(()).expect("cancel signal should be sent");
-
-        let result = await_cancellable_query(
-            query_task,
-            cancel_rx,
-            conn_id_rx,
-            Duration::from_millis(20),
-            Duration::from_millis(5),
-            Duration::from_millis(5),
-            move |_| {
-                let kill_called = Arc::clone(&kill_called_clone);
-                async move {
-                    kill_called.store(1, Ordering::Relaxed);
-                    Ok(())
-                }
-            },
-        )
-        .await
-        .expect("query should win race window and avoid kill");
-
-        assert_eq!(result.columns, vec!["ok".to_string()]);
-        assert_eq!(kill_called.load(Ordering::Relaxed), 0);
     }
 }

@@ -1,6 +1,7 @@
 //! 连接状态和连接管理器
 
 use super::config::ConnectionConfig;
+use crate::domain::ids::ConnectionId;
 use std::collections::HashMap;
 
 // ============================================================================
@@ -10,6 +11,8 @@ use std::collections::HashMap;
 /// 单个数据库连接状态
 #[derive(Default)]
 pub struct Connection {
+    /// 连接的唯一标识符
+    pub id: ConnectionId,
     pub config: ConnectionConfig,
     pub connected: bool,
     /// 可用的数据库列表（MySQL/PostgreSQL）
@@ -80,7 +83,10 @@ impl Connection {
 /// 管理多个数据库连接
 #[derive(Default)]
 pub struct ConnectionManager {
+    /// 连接存储（以名称为键，保持向后兼容）
     pub connections: HashMap<String, Connection>,
+    /// 名称 → ID 映射（名称不是身份，ID 才是）
+    connection_ids: HashMap<String, ConnectionId>,
     pub active: Option<String>,
 }
 
@@ -88,16 +94,11 @@ impl ConnectionManager {
     /// 添加新连接配置
     pub fn add(&mut self, config: ConnectionConfig) {
         let name = config.name.clone();
-        self.connections.insert(name, Connection::new(config));
-    }
-
-    /// 移除连接
-    #[allow(dead_code)] // 公开 API，供外部使用
-    pub fn remove(&mut self, name: &str) -> Option<Connection> {
-        if self.active.as_deref() == Some(name) {
-            self.active = None;
-        }
-        self.connections.remove(name)
+        let id = ConnectionId::default();
+        self.connection_ids.insert(name.clone(), id);
+        let mut conn = Connection::new(config);
+        conn.id = id;
+        self.connections.insert(name, conn);
     }
 
     /// 获取当前活动连接
@@ -107,11 +108,19 @@ impl ConnectionManager {
             .and_then(|name| self.connections.get(name))
     }
 
-    /// 获取当前活动连接（可变）
-    #[allow(dead_code)] // 公开 API，供外部使用
-    pub fn get_active_mut(&mut self) -> Option<&mut Connection> {
-        let name = self.active.clone()?;
-        self.connections.get_mut(&name)
+    /// 按名称获取连接（推荐：先获取 ID，后续使用 get()）
+    pub fn get_by_name(&self, name: &str) -> Option<&Connection> {
+        self.connections.get(name)
+    }
+
+    /// 按 ID 获取连接
+    pub fn get(&self, id: ConnectionId) -> Option<&Connection> {
+        self.connections.values().find(|conn| conn.id == id)
+    }
+
+    /// 按名称获取 ConnectionId
+    pub fn connection_id(&self, name: &str) -> Option<ConnectionId> {
+        self.connection_ids.get(name).copied()
     }
 
     /// 断开指定连接
@@ -119,33 +128,5 @@ impl ConnectionManager {
         if let Some(conn) = self.connections.get_mut(name) {
             conn.reset();
         }
-    }
-
-    /// 处理连接结果
-    #[allow(dead_code)] // 公开 API，供外部使用
-    pub fn handle_connect_result(&mut self, name: &str, result: Result<Vec<String>, String>) {
-        if let Some(conn) = self.connections.get_mut(name) {
-            match result {
-                Ok(tables) => conn.set_connected(tables),
-                Err(e) => {
-                    conn.set_error(e);
-                    if self.active.as_deref() == Some(name) {
-                        self.active = None;
-                    }
-                }
-            }
-        }
-    }
-
-    /// 连接数量
-    #[allow(dead_code)] // 公开 API，供外部使用
-    pub fn len(&self) -> usize {
-        self.connections.len()
-    }
-
-    /// 是否为空
-    #[allow(dead_code)] // 公开 API，供外部使用
-    pub fn is_empty(&self) -> bool {
-        self.connections.is_empty()
     }
 }

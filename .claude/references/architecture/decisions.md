@@ -82,3 +82,28 @@ Key architectural decisions for Gridix, with context and rationale.
 **Rationale:** Decouples handler logic from rendering types without introducing FrameEffects ceremony. Simple, testable, minimal.
 
 **Result:** 15 `ctx.request_repaint()` calls replaced. Handler ctx parameter renamed to `_ctx`.
+## ADR-006: Typed Domain Layer
+
+**Date:** 2026-08
+**Status:** In Progress
+
+**Context:** QueryResult uses `Vec<Vec<String>>` — no type information, no NULL/empty string
+distinction, string-based sorting/export. Grid save generates raw SQL strings.
+
+**Decision:** Introduce `src/domain/` with zero dependencies on egui, DB drivers, keyring, or ssh:
+- `DbValue` (15 variants: Null, Bool, Int, UInt, Float, Decimal, Text, Bytes, Date, Time,
+  DateTime, Json, Uuid, Array, Other) with `cmp_semantic()` for type-aware comparison
+- `ResultSet` (flat row-major) with `ResultCompleteness`
+- `ExecutionOutcome` (multi-statement result)
+- `SchemaCatalog` (tables, columns, PK, FK)
+- `MutationBatch` / `InputValue::Unspecified|Default|Null` for typed parameterized save
+- `IdentifierDialect` (per-backend quoting)
+- Strong typed IDs: ConnectionId, DocumentId, SurfaceId, TableViewId, TaskId, SchemaRevision
+
+**Rationale:** Compiler-enforced separation of schema from presentation. Type-aware sort/filter/
+export eliminates silent string-comparison bugs.
+
+**Result:** Domain types implemented. SQLite typed query and mutation paths functional end-to-end.
+PG/MySQL typed backends compile but not production-wired. ResultSet not yet canonical in UI layer.
+
+---

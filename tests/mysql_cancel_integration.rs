@@ -1,157 +1,161 @@
-//! MySQL 查询取消集成测试（需要外部 MySQL 环境）
-//!
-//! 运行方式（示例）:
-//! GRIDIX_IT_MYSQL_HOST=127.0.0.1 \
-//! GRIDIX_IT_MYSQL_PORT=3306 \
-//! GRIDIX_IT_MYSQL_USER=root \
-//! GRIDIX_IT_MYSQL_PASSWORD=secret \
-//! GRIDIX_IT_MYSQL_DB=test \
-//! cargo test --test mysql_cancel_integration -- --ignored
+//! MySQL 服务端查询取消集成测试。
+
+use std::time::{Duration, Instant};
 
 use gridix::data::{
-    ConnectionConfig, DatabaseType, MySqlSslMode, execute_query, execute_query_cancellable,
+    ConnectionConfig, DatabaseType, DbError, execute_typed, execute_typed_cancellable,
 };
-use std::time::{Duration, Instant};
-use tokio::sync::oneshot;
+use gridix::domain::execution::StatementOutcome;
+use mysql_async::prelude::Queryable;
+use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
-fn mysql_test_config() -> Option<ConnectionConfig> {
-    let host = std::env::var("GRIDIX_IT_MYSQL_HOST").ok()?;
-    let username = std::env::var("GRIDIX_IT_MYSQL_USER").ok()?;
-    let database = std::env::var("GRIDIX_IT_MYSQL_DB").ok()?;
-    let password = std::env::var("GRIDIX_IT_MYSQL_PASSWORD").unwrap_or_default();
-    let port = std::env::var("GRIDIX_IT_MYSQL_PORT")
-        .ok()
-        .and_then(|v| v.parse::<u16>().ok())
-        .unwrap_or(3306);
+const OBSERVER_TIMEOUT: Duration = Duration::from_secs(10);
+const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
-    Some(ConnectionConfig {
-        name: "mysql-it-cancel".to_string(),
+fn parse_mysql_url(url: &str) -> Result<ConnectionConfig, &'static str> {
+    let rest = url
+        .strip_prefix("mysql://")
+        .ok_or("MySQL URL must start with mysql://")?;
+    let (user_info, rest) = rest
+        .split_once('@')
+        .ok_or("MySQL URL must include credentials")?;
+    let (user, password) = user_info.split_once(':').unwrap_or((user_info, ""));
+    let (host_port, database) = rest
+        .split_once('/')
+        .ok_or("MySQL URL must include database")?;
+    let (host, port_str) = host_port.split_once(':').unwrap_or((host_port, "3306"));
+    let port = port_str
+        .parse()
+        .map_err(|_| "MySQL URL port must be a u16")?;
+
+    Ok(ConnectionConfig {
         db_type: DatabaseType::MySQL,
-        host,
+        host: host.to_string(),
         port,
-        username,
-        password,
-        database,
-        mysql_ssl_mode: MySqlSslMode::Disabled,
+        username: user.to_string(),
+        password: password.to_string(),
+        database: database.to_string(),
         ..Default::default()
     })
 }
 
-#[tokio::test]
-#[ignore = "requires external MySQL and GRIDIX_IT_MYSQL_* env vars"]
-async fn mysql_cancel_interrupts_long_running_query() {
-    let Some(config) = mysql_test_config() else {
-        eprintln!("skip mysql integration test: missing GRIDIX_IT_MYSQL_* env vars");
-        return;
-    };
+async fn marker_is_visible(
+    observer: &mut mysql_async::Conn,
+    marker: &str,
+) -> Result<bool, mysql_async::Error> {
+    let query = "SELECT 1 FROM information_schema.processlist WHERE INFO LIKE ? LIMIT 1";
+    let found: Option<u8> = observer
+        .exec_first(query, (format!("%{}%", marker),))
+        .await?;
+    Ok(found.is_some())
+}
 
-    let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let _ = cancel_tx.send(());
-    });
-
-    let started = Instant::now();
-    let result = tokio::time::timeout(
-        Duration::from_secs(5),
-        execute_query_cancellable(&config, "SELECT SLEEP(10)", cancel_rx),
-    )
-    .await;
-
-    let elapsed = started.elapsed();
-    assert!(
-        elapsed < Duration::from_secs(5),
-        "cancelled query should return quickly, elapsed: {:?}",
-        elapsed
-    );
-
-    let err = result
-        .expect("cancellable query future should complete before timeout")
-        .expect_err("query should be cancelled");
-    let err_text = err.to_string();
-    assert!(
-        err_text.contains("查询已取消") || err_text.to_ascii_lowercase().contains("cancel"),
-        "unexpected cancel error text: {}",
-        err_text
-    );
+async fn wait_for_marker(observer: &mut mysql_async::Conn, marker: &str, should_be_visible: bool) {
+    let deadline = Instant::now() + OBSERVER_TIMEOUT;
+    loop {
+        let visible = marker_is_visible(observer, marker)
+            .await
+            .expect("observer information_schema.processlist query must succeed");
+        if visible == should_be_visible {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "marker {} did not become visible={}",
+            marker,
+            should_be_visible
+        );
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
 }
 
 #[tokio::test]
-#[ignore = "requires external MySQL and GRIDIX_IT_MYSQL_* env vars"]
-async fn mysql_connection_still_works_after_cancel() {
-    let Some(config) = mysql_test_config() else {
-        eprintln!("skip mysql integration test: missing GRIDIX_IT_MYSQL_* env vars");
-        return;
+async fn execute_typed_cancellable_server_query_observed_cancelled_and_connection_reusable() {
+    let url = match std::env::var("GRIDIX_TEST_MYSQL_URL") {
+        Ok(url) => url,
+        Err(std::env::VarError::NotPresent) => {
+            eprintln!("SKIP: GRIDIX_TEST_MYSQL_URL not set");
+            return;
+        }
+        Err(error) => panic!("GRIDIX_TEST_MYSQL_URL could not be read: {}", error),
     };
+    let config = parse_mysql_url(&url).expect("GRIDIX_TEST_MYSQL_URL must be valid");
+    let opts = mysql_async::Opts::from_url(&url).expect("observer MySQL URL must be valid");
+    let mut observer = mysql_async::Conn::new(opts)
+        .await
+        .expect("observer MySQL connection must succeed");
 
-    let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let _ = cancel_tx.send(());
+    let marker = format!("gridix-cancel:{}", Uuid::new_v4());
+    let sql = format!("SELECT SLEEP(30) /* {} */", marker);
+    let cancellation = CancellationToken::new();
+    let worker_config = config.clone();
+    let worker_token = cancellation.clone();
+    println!("marker={} milestone=start", marker);
+    let worker = tokio::spawn(async move {
+        execute_typed_cancellable(&worker_config, &sql, &worker_token).await
     });
 
-    let _ = execute_query_cancellable(&config, "SELECT SLEEP(5)", cancel_rx)
-        .await
-        .expect_err("query should be cancelled");
+    wait_for_marker(&mut observer, &marker, true).await;
+    println!("marker={} milestone=observed", marker);
+    cancellation.cancel();
 
-    let quick = execute_query(&config, "SELECT 1 AS ping")
+    let result = tokio::time::timeout(OBSERVER_TIMEOUT, worker)
         .await
-        .expect("connection should remain usable after cancellation");
+        .expect("cancelled MySQL query must complete before deadline")
+        .expect("MySQL worker must not panic");
+    assert!(matches!(result, Err(DbError::Cancelled)));
+    println!("marker={} milestone=cancelled", marker);
 
-    assert_eq!(quick.columns, vec!["ping".to_string()]);
-    assert_eq!(quick.rows.len(), 1);
+    wait_for_marker(&mut observer, &marker, false).await;
+    println!("marker={} milestone=disappeared", marker);
+
+    let outcome = execute_typed(&config, "SELECT 1 AS one")
+        .await
+        .expect("execution connection must remain usable");
+    assert_eq!(
+        outcome.statements.len(),
+        1,
+        "SELECT 1 must return one result"
+    );
+    let StatementOutcome::ResultSet(result_set) = &outcome.statements[0] else {
+        panic!("SELECT 1 must return a result set");
+    };
+    assert_eq!(result_set.row_count, 1, "SELECT 1 must return one row");
+    println!("marker={} milestone=select-1", marker);
 }
 
 #[tokio::test]
-#[ignore = "requires external MySQL and GRIDIX_IT_MYSQL_* env vars"]
-async fn mysql_cancel_still_works_when_pool_near_capacity() {
-    let Some(config) = mysql_test_config() else {
-        eprintln!("skip mysql integration test: missing GRIDIX_IT_MYSQL_* env vars");
-        return;
+async fn execute_typed_cancellable_pre_cancel_returns_cancelled_without_dispatching_marker() {
+    let url = match std::env::var("GRIDIX_TEST_MYSQL_URL") {
+        Ok(url) => url,
+        Err(std::env::VarError::NotPresent) => {
+            eprintln!("SKIP: GRIDIX_TEST_MYSQL_URL not set");
+            return;
+        }
+        Err(error) => panic!("GRIDIX_TEST_MYSQL_URL could not be read: {}", error),
     };
+    let config = parse_mysql_url(&url).expect("GRIDIX_TEST_MYSQL_URL must be valid");
+    let opts = mysql_async::Opts::from_url(&url).expect("observer MySQL URL must be valid");
+    let mut observer = mysql_async::Conn::new(opts)
+        .await
+        .expect("observer MySQL connection must succeed");
 
-    // 默认池上限为 10，先占用 9 个连接，再验证取消查询仍可生效。
-    let mut blockers = Vec::new();
-    for _ in 0..9 {
-        let blocker_config = config.clone();
-        blockers.push(tokio::spawn(async move {
-            let _ = execute_query(&blocker_config, "SELECT SLEEP(5)").await;
-        }));
-    }
-
-    tokio::time::sleep(Duration::from_millis(300)).await;
-
-    let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let _ = cancel_tx.send(());
-    });
-
-    let started = Instant::now();
-    let result = tokio::time::timeout(
-        Duration::from_secs(6),
-        execute_query_cancellable(&config, "SELECT SLEEP(10)", cancel_rx),
+    let marker = format!("gridix-pre-cancel:{}", Uuid::new_v4());
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let result = execute_typed_cancellable(
+        &config,
+        &format!("SELECT SLEEP(30) /* {} */", marker),
+        &cancellation,
     )
     .await;
-    let elapsed = started.elapsed();
 
+    assert!(matches!(result, Err(DbError::Cancelled)));
     assert!(
-        elapsed < Duration::from_secs(6),
-        "cancelled query should return before timeout under high pool usage, elapsed: {:?}",
-        elapsed
+        !marker_is_visible(&mut observer, &marker)
+            .await
+            .expect("observer information_schema.processlist query must succeed"),
+        "pre-cancelled query must never be dispatched"
     );
-
-    let err = result
-        .expect("cancellable query future should complete before timeout")
-        .expect_err("query should be cancelled");
-    let err_text = err.to_string();
-    assert!(
-        err_text.contains("查询已取消") || err_text.to_ascii_lowercase().contains("cancel"),
-        "unexpected cancel error text: {}",
-        err_text
-    );
-
-    for blocker in blockers {
-        let _ = blocker.await;
-    }
 }

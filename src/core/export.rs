@@ -2,7 +2,8 @@
 //!
 //! 支持 CSV、TSV、SQL、JSON 格式的数据导入导出。
 
-use crate::types::{DatabaseType, QueryResult};
+use crate::domain::result::{ResultColumn, ResultCompleteness, ResultSet};
+use crate::types::DatabaseType;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fs::File;
@@ -184,7 +185,7 @@ impl Default for ExportOptions {
     }
 }
 
-fn selected_column_indices(result: &QueryResult, options: &ExportOptions) -> Vec<usize> {
+fn selected_column_indices(result: &ResultSet, options: &ExportOptions) -> Vec<usize> {
     let mut seen = HashSet::new();
     let source = if options.selected_columns.is_empty() {
         (0..result.columns.len()).collect::<Vec<_>>()
@@ -199,95 +200,61 @@ fn selected_column_indices(result: &QueryResult, options: &ExportOptions) -> Vec
         .collect()
 }
 
-pub fn filter_result_for_export(result: &QueryResult, options: &ExportOptions) -> QueryResult {
+pub fn filter_result_for_export(result: &ResultSet, options: &ExportOptions) -> ResultSet {
     let selected_indices = selected_column_indices(result, options);
 
-    let columns: Vec<String> = selected_indices
+    let selected_columns: Vec<ResultColumn> = selected_indices
         .iter()
         .filter_map(|&i| result.columns.get(i).cloned())
         .collect();
 
-    let row_range =
-        result
-            .rows
-            .iter()
-            .enumerate()
-            .skip(options.start_row)
-            .take(if options.row_limit > 0 {
-                options.row_limit
-            } else {
-                usize::MAX
-            });
+    let row_range = (options.start_row..result.row_count).take(if options.row_limit > 0 {
+        options.row_limit
+    } else {
+        usize::MAX
+    });
 
-    let mut rows = Vec::new();
-    let mut null_flags = Vec::new();
-    for (row_idx, row) in row_range {
-        rows.push(
-            selected_indices
-                .iter()
-                .filter_map(|&i| row.get(i).cloned())
-                .collect(),
-        );
-        null_flags.push(
-            selected_indices
-                .iter()
-                .map(|&i| result.is_null(row_idx, i))
-                .collect(),
-        );
+    let mut cells = Vec::new();
+    let mut filtered_row_count = 0usize;
+    for row_idx in row_range {
+        for &col_idx in &selected_indices {
+            cells.push(result.cell(row_idx, col_idx).clone());
+        }
+        filtered_row_count += 1;
     }
 
-    QueryResult {
-        columns,
-        rows,
-        null_flags,
-        affected_rows: result.affected_rows,
-        truncated: result.truncated,
-        original_row_count: result.original_row_count,
+    ResultSet {
+        columns: std::sync::Arc::from(selected_columns),
+        cells,
+        row_count: filtered_row_count,
+        completeness: ResultCompleteness::Complete,
     }
 }
 
-fn export_cell_text(result: &QueryResult, row_idx: usize, col_idx: usize) -> String {
+fn export_cell_text(result: &ResultSet, row_idx: usize, col_idx: usize) -> String {
     if result.is_null(row_idx, col_idx) {
         String::new()
     } else {
-        result
-            .rows
-            .get(row_idx)
-            .and_then(|row| row.get(col_idx))
-            .cloned()
-            .unwrap_or_default()
+        result.cell(row_idx, col_idx).display()
     }
 }
 
-fn export_sql_literal(result: &QueryResult, row_idx: usize, col_idx: usize) -> String {
+fn export_sql_literal(result: &ResultSet, row_idx: usize, col_idx: usize) -> String {
     if result.is_null(row_idx, col_idx) {
         "NULL".to_string()
     } else {
         format!(
             "'{}'",
-            result
-                .rows
-                .get(row_idx)
-                .and_then(|row| row.get(col_idx))
-                .cloned()
-                .unwrap_or_default()
-                .replace("'", "''")
+            result.cell(row_idx, col_idx).display().replace("'", "''")
         )
     }
 }
 
-fn export_json_value(result: &QueryResult, row_idx: usize, col_idx: usize) -> serde_json::Value {
+fn export_json_value(result: &ResultSet, row_idx: usize, col_idx: usize) -> serde_json::Value {
     if result.is_null(row_idx, col_idx) {
         serde_json::Value::Null
     } else {
-        serde_json::Value::String(
-            result
-                .rows
-                .get(row_idx)
-                .and_then(|row| row.get(col_idx))
-                .cloned()
-                .unwrap_or_default(),
-        )
+        serde_json::Value::String(result.cell(row_idx, col_idx).display())
     }
 }
 
@@ -312,7 +279,7 @@ fn finish_line_output(lines: Vec<String>) -> String {
     }
 }
 
-fn render_delimited(result: &QueryResult, options: &ExportOptions, delimiter: char) -> String {
+fn render_delimited(result: &ResultSet, options: &ExportOptions, delimiter: char) -> String {
     let delimiter_text = delimiter.to_string();
     let mut lines = Vec::new();
 
@@ -322,16 +289,16 @@ fn render_delimited(result: &QueryResult, options: &ExportOptions, delimiter: ch
                 .columns
                 .iter()
                 .map(|column| {
-                    escape_delimited_field(column, &delimiter_text, options.csv_quote_char)
+                    escape_delimited_field(&column.name, &delimiter_text, options.csv_quote_char)
                 })
                 .collect::<Vec<_>>()
                 .join(&delimiter_text),
         );
     }
 
-    for row_idx in 0..result.rows.len() {
+    for row_idx in 0..result.row_count {
         lines.push(
-            (0..result.columns.len())
+            (0..result.column_count())
                 .map(|col_idx| {
                     escape_delimited_field(
                         &export_cell_text(result, row_idx, col_idx),
@@ -348,7 +315,7 @@ fn render_delimited(result: &QueryResult, options: &ExportOptions, delimiter: ch
 }
 
 fn render_sql(
-    result: &QueryResult,
+    result: &ResultSet,
     table_name: &str,
     options: &ExportOptions,
 ) -> Result<String, String> {
@@ -359,9 +326,9 @@ fn render_sql(
     let mut output = String::new();
     output.push_str("-- Exported from Rust DB Manager\n");
     output.push_str(&format!("-- Table: {}\n", table_name));
-    output.push_str(&format!("-- Rows: {}\n\n", result.rows.len()));
+    output.push_str(&format!("-- Rows: {}\n\n", result.row_count));
 
-    if result.rows.is_empty() {
+    if result.row_count == 0 {
         output.push_str("-- No data to export\n");
         return Ok(output);
     }
@@ -374,16 +341,16 @@ fn render_sql(
     let columns_str = result
         .columns
         .iter()
-        .map(|column| options.sql_dialect.quote_identifier(column))
+        .map(|column| options.sql_dialect.quote_identifier(&column.name))
         .collect::<Vec<_>>()
         .join(", ");
 
     if options.sql_batch_size > 0 {
-        for start in (0..result.rows.len()).step_by(options.sql_batch_size) {
-            let end = (start + options.sql_batch_size).min(result.rows.len());
+        for start in (0..result.row_count).step_by(options.sql_batch_size) {
+            let end = (start + options.sql_batch_size).min(result.row_count);
             let values_list = (start..end)
                 .map(|row_idx| {
-                    let values = (0..result.columns.len())
+                    let values = (0..result.column_count())
                         .map(|col_idx| export_sql_literal(result, row_idx, col_idx))
                         .collect::<Vec<_>>()
                         .join(", ");
@@ -399,8 +366,8 @@ fn render_sql(
             ));
         }
     } else {
-        for row_idx in 0..result.rows.len() {
-            let values = (0..result.columns.len())
+        for row_idx in 0..result.row_count {
+            let values = (0..result.column_count())
                 .map(|col_idx| export_sql_literal(result, row_idx, col_idx))
                 .collect::<Vec<_>>()
                 .join(", ");
@@ -419,19 +386,18 @@ fn render_sql(
     Ok(output)
 }
 
-fn render_json(result: &QueryResult, options: &ExportOptions) -> Result<String, String> {
-    let json_rows: Vec<serde_json::Map<String, serde_json::Value>> = result
-        .rows
-        .iter()
-        .enumerate()
-        .map(|(row_idx, row)| {
+fn render_json(result: &ResultSet, options: &ExportOptions) -> Result<String, String> {
+    let json_rows: Vec<serde_json::Map<String, serde_json::Value>> = (0..result.row_count)
+        .map(|row_idx| {
             result
                 .columns
                 .iter()
                 .enumerate()
-                .zip(row.iter())
-                .map(|((col_idx, col), _)| {
-                    (col.clone(), export_json_value(result, row_idx, col_idx))
+                .map(|(col_idx, col)| {
+                    (
+                        col.name.clone(),
+                        export_json_value(result, row_idx, col_idx),
+                    )
                 })
                 .collect()
         })
@@ -446,7 +412,7 @@ fn render_json(result: &QueryResult, options: &ExportOptions) -> Result<String, 
 }
 
 fn render_export_content(
-    result: &QueryResult,
+    result: &ResultSet,
     table_name: &str,
     options: &ExportOptions,
 ) -> Result<String, String> {
@@ -459,22 +425,32 @@ fn render_export_content(
 }
 
 pub(crate) fn render_export_content_for_transfer(
-    result: &QueryResult,
+    result: &ResultSet,
     table_name: &str,
     options: &ExportOptions,
 ) -> Result<String, String> {
     render_export_content(result, table_name, options)
 }
 
-fn preview_subset(result: &QueryResult, preview_rows: usize) -> QueryResult {
-    let row_count = preview_rows.min(result.rows.len());
-    QueryResult {
-        columns: result.columns.clone(),
-        rows: result.rows.iter().take(row_count).cloned().collect(),
-        null_flags: result.null_flags.iter().take(row_count).cloned().collect(),
-        affected_rows: result.affected_rows,
-        truncated: result.truncated || row_count < result.rows.len(),
-        original_row_count: Some(result.rows.len()),
+fn preview_subset(result: &ResultSet, preview_rows: usize) -> ResultSet {
+    let row_count = preview_rows.min(result.row_count);
+    let col_count = result.column_count();
+    ResultSet {
+        columns: std::sync::Arc::clone(&result.columns),
+        cells: result
+            .cells
+            .iter()
+            .take(row_count * col_count)
+            .cloned()
+            .collect(),
+        row_count,
+        completeness: if row_count < result.row_count {
+            ResultCompleteness::Truncated {
+                displayed: row_count,
+            }
+        } else {
+            result.completeness
+        },
     }
 }
 
@@ -486,7 +462,7 @@ fn trim_trailing_newlines(mut content: String) -> String {
 }
 
 pub fn export_to_path(
-    result: &QueryResult,
+    result: &ResultSet,
     table_name: &str,
     path: &Path,
     options: &ExportOptions,
@@ -501,7 +477,7 @@ pub fn export_to_path(
 }
 
 pub fn preview_export(
-    result: &QueryResult,
+    result: &ResultSet,
     table_name: &str,
     options: &ExportOptions,
     preview_rows: usize,
@@ -516,7 +492,7 @@ pub fn preview_export(
         .unwrap_or_else(|err| format!("（预览失败: {}）", err));
     content = trim_trailing_newlines(content);
 
-    let remaining_rows = filtered.rows.len().saturating_sub(preview.rows.len());
+    let remaining_rows = filtered.row_count.saturating_sub(preview.row_count);
     if remaining_rows == 0 {
         return content;
     }
@@ -531,37 +507,6 @@ pub fn preview_export(
     }
     content.push_str(&format!("... (+{} {})", remaining_rows, suffix_label));
     content
-}
-
-#[allow(dead_code)]
-pub(crate) fn export_to_csv(result: &QueryResult, path: &Path) -> Result<(), String> {
-    let options = ExportOptions {
-        format: ExportFormat::Csv,
-        ..Default::default()
-    };
-    export_to_path(result, "result", path, &options)
-}
-
-#[allow(dead_code)]
-pub(crate) fn export_to_sql(
-    result: &QueryResult,
-    table_name: &str,
-    path: &Path,
-) -> Result<(), String> {
-    let options = ExportOptions {
-        format: ExportFormat::Sql,
-        ..Default::default()
-    };
-    export_to_path(result, table_name, path, &options)
-}
-
-#[allow(dead_code)]
-pub(crate) fn export_to_json(result: &QueryResult, path: &Path) -> Result<(), String> {
-    let options = ExportOptions {
-        format: ExportFormat::Json,
-        ..Default::default()
-    };
-    export_to_path(result, "result", path, &options)
 }
 
 // ============================================================================
@@ -835,8 +780,8 @@ pub fn import_csv_to_sql(
 }
 
 /// 解析 CSV 行
-/// 解析 CSV 行，处理引号转义
-#[allow(dead_code)] // 公开 API，供测试和外部调用
+///
+/// 将一行 CSV 文本按分隔符和引用符拆分为字段列表。
 pub fn parse_csv_line(line: &str, delimiter: char, quote_char: char) -> Vec<String> {
     let mut fields = Vec::new();
     let mut current_field = String::new();
@@ -846,7 +791,6 @@ pub fn parse_csv_line(line: &str, delimiter: char, quote_char: char) -> Vec<Stri
     while let Some(c) = chars.next() {
         if in_quotes {
             if c == quote_char {
-                // 检查是否是转义的引号
                 if chars.peek() == Some(&quote_char) {
                     current_field.push(quote_char);
                     chars.next();
@@ -866,12 +810,9 @@ pub fn parse_csv_line(line: &str, delimiter: char, quote_char: char) -> Vec<Stri
         }
     }
 
-    // 添加最后一个字段
     fields.push(current_field);
-
     fields
 }
-
 // ============================================================================
 // JSON 导入
 // ============================================================================
@@ -1213,25 +1154,9 @@ pub fn sql_value_from_string(s: &str) -> String {
 // 工具函数
 // ============================================================================
 
-/// 转义 CSV 字段中的特殊字符
-#[allow(dead_code)] // 被 export_to_csv 使用
-fn escape_csv_field(field: &str) -> String {
-    if field.contains(',') || field.contains('"') || field.contains('\n') {
-        format!("\"{}\"", field.replace('"', "\"\""))
-    } else {
-        field.to_string()
-    }
-}
-
 /// 转义 SQL 标识符（表名、列名）中的特殊字符
 fn escape_sql_identifier(name: &str) -> String {
     name.replace('`', "``").replace('"', "\"\"")
-}
-
-/// 读取 SQL 文件内容
-#[allow(dead_code)] // 公开 API，供外部使用
-pub(crate) fn import_sql_file(path: &Path) -> Result<String, String> {
-    std::fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
 // ============================================================================
@@ -1241,20 +1166,51 @@ pub(crate) fn import_sql_file(path: &Path) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::QueryResult;
+    use crate::domain::result::{ResultColumn, ResultCompleteness, ResultSet};
+    use crate::domain::value::{DbTypeFamily, DbTypeInfo, DbValue};
     use std::fs;
+    use std::sync::Arc;
     use tempfile::NamedTempFile;
+
+    fn make_result_set(column_names: &[&str], rows: Vec<Vec<DbValue>>) -> ResultSet {
+        let columns: Arc<[ResultColumn]> = Arc::from(
+            column_names
+                .iter()
+                .map(|&name| ResultColumn {
+                    name: name.to_string(),
+                    type_info: DbTypeInfo {
+                        family: DbTypeFamily::Other,
+                        native_name: String::new(),
+                        nullable: None,
+                    },
+                })
+                .collect::<Vec<_>>(),
+        );
+        let row_count = rows.len();
+        let mut cells = Vec::new();
+        for row in &rows {
+            for cell in row {
+                cells.push(cell.clone());
+            }
+        }
+        ResultSet {
+            columns,
+            cells,
+            row_count,
+            completeness: ResultCompleteness::Complete,
+        }
+    }
 
     #[test]
     fn filter_result_for_export_deduplicates_and_preserves_null_flags() {
-        let result = QueryResult {
-            columns: vec!["id".to_string(), "name".to_string(), "note".to_string()],
-            rows: vec![vec!["1".to_string(), "alice".to_string(), String::new()]],
-            null_flags: vec![vec![false, false, true]],
-            affected_rows: 0,
-            truncated: false,
-            original_row_count: None,
-        };
+        let result = make_result_set(
+            &["id", "name", "note"],
+            vec![vec![
+                DbValue::Text("1".into()),
+                DbValue::Text("alice".into()),
+                DbValue::Null,
+            ]],
+        );
         let options = ExportOptions {
             selected_columns: vec![2, 0, 2, 9],
             ..Default::default()
@@ -1262,21 +1218,22 @@ mod tests {
 
         let filtered = filter_result_for_export(&result, &options);
 
-        assert_eq!(filtered.columns, vec!["note".to_string(), "id".to_string()]);
-        assert_eq!(filtered.rows, vec![vec![String::new(), "1".to_string()]]);
-        assert_eq!(filtered.null_flags, vec![vec![true, false]]);
+        let col_names: Vec<&str> = filtered.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(col_names, vec!["note", "id"]);
+        assert_eq!(filtered.row(0), &[DbValue::Null, DbValue::Text("1".into())]);
+        assert!(filtered.is_null(0, 0));
+        assert!(!filtered.is_null(0, 1));
     }
 
     #[test]
     fn preview_export_matches_csv_file_content() {
-        let result = QueryResult {
-            columns: vec!["name".to_string(), "note".to_string()],
-            rows: vec![vec!["a,b".to_string(), "he\"llo".to_string()]],
-            null_flags: vec![vec![false, false]],
-            affected_rows: 0,
-            truncated: false,
-            original_row_count: None,
-        };
+        let result = make_result_set(
+            &["name", "note"],
+            vec![vec![
+                DbValue::Text("a,b".into()),
+                DbValue::Text("he\"llo".into()),
+            ]],
+        );
         let options = ExportOptions {
             format: ExportFormat::Csv,
             ..Default::default()
@@ -1293,14 +1250,10 @@ mod tests {
 
     #[test]
     fn preview_export_matches_sql_file_content_and_preserves_null_semantics() {
-        let result = QueryResult {
-            columns: vec!["user name".to_string(), "value".to_string()],
-            rows: vec![vec!["NULL".to_string(), String::new()]],
-            null_flags: vec![vec![false, true]],
-            affected_rows: 0,
-            truncated: false,
-            original_row_count: None,
-        };
+        let result = make_result_set(
+            &["user name", "value"],
+            vec![vec![DbValue::Text("NULL".into()), DbValue::Null]],
+        );
         let options = ExportOptions {
             format: ExportFormat::Sql,
             sql_use_transaction: false,
@@ -1322,14 +1275,10 @@ mod tests {
 
     #[test]
     fn export_to_path_json_preserves_literal_null_string() {
-        let result = QueryResult {
-            columns: vec!["value".to_string()],
-            rows: vec![vec!["NULL".to_string()], vec![String::new()]],
-            null_flags: vec![vec![false], vec![true]],
-            affected_rows: 0,
-            truncated: false,
-            original_row_count: None,
-        };
+        let result = make_result_set(
+            &["value"],
+            vec![vec![DbValue::Text("NULL".into())], vec![DbValue::Null]],
+        );
         let options = ExportOptions {
             format: ExportFormat::Json,
             json_pretty: false,

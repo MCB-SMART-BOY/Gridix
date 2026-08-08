@@ -23,9 +23,7 @@ mod view;
 pub use actions::{
     DataGridActions, FocusTransfer, escape_identifier, escape_value, quote_identifier,
 };
-pub use filter::{
-    ColumnFilter, FilterCache, FilterLogic, FilterOperator, check_filter_match, filter_rows_cached,
-};
+pub use filter::{ColumnFilter, FilterCache, FilterLogic, FilterOperator, check_filter_match};
 pub(crate) use keyboard::{
     GridCommandShortcut, GridSequenceConflictKind, grid_command_sequence_conflict,
     grid_command_shortcuts, normalize_grid_command_sequence,
@@ -36,8 +34,7 @@ pub use state::DataGridState;
 use view::{GridVirtualRow, GridVirtualRows};
 
 use crate::core::{Action, KeyBindings, constants};
-use crate::data::DatabaseType;
-use crate::data::QueryResult;
+use crate::domain::result::{ResultCompleteness, ResultSet};
 use crate::ui::dialogs::{DialogHeader, DialogStyle, DialogWindow};
 use crate::ui::styles::{DANGER, GRAY, theme_accent, theme_disabled_text, theme_text, theme_warn};
 use crate::ui::{
@@ -72,7 +69,7 @@ impl DataGrid {
     /// 显示可编辑的数据表格（Helix 风格）
     pub fn show_editable(
         ui: &mut egui::Ui,
-        result: &QueryResult,
+        result: &ResultSet,
         search_text: &str,
         search_column: &Option<String>,
         selected_row: &mut Option<usize>,
@@ -80,7 +77,6 @@ impl DataGrid {
         state: &mut DataGridState,
         table_name: Option<&str>,
         keybindings: &KeyBindings,
-        db_type: Option<DatabaseType>,
     ) -> (DataGridActions, (usize, usize)) {
         let mut actions = DataGridActions::default();
 
@@ -90,15 +86,7 @@ impl DataGrid {
         }
 
         // 显示模式状态栏和操作按钮
-        Self::show_mode_bar(
-            ui,
-            state,
-            result,
-            table_name,
-            keybindings,
-            &mut actions,
-            db_type,
-        );
+        Self::show_mode_bar(ui, state, result, table_name, keybindings, &mut actions);
 
         ui.add_space(2.0);
 
@@ -116,7 +104,7 @@ impl DataGrid {
         ui.add_space(4.0);
 
         // 过滤行（使用缓存）
-        let filtered_rows = filter::filter_rows_cached(
+        let filtered_rows = filter::filter_result_set_cached(
             result,
             search_text,
             search_column,
@@ -124,8 +112,7 @@ impl DataGrid {
             &mut state.filter_cache,
         );
         let keyboard_new_rows = state.new_rows.clone();
-        let keyboard_row_view =
-            GridVirtualRows::new(result.rows.len(), &filtered_rows, &keyboard_new_rows);
+        let keyboard_row_view = GridVirtualRows::new(result, &filtered_rows, &keyboard_new_rows);
 
         // 保存危险确认打开时，本地 overlay 拥有输入，grid 不再继续接管键盘。
         if !save_confirm_open {
@@ -144,8 +131,7 @@ impl DataGrid {
 
         // 处理新增行的编辑
         if let Some((virtual_idx, col_idx, new_value)) = state.pending_new_row_edit.take() {
-            // 计算新增行在 new_rows 中的索引
-            let new_row_idx = virtual_idx.saturating_sub(result.rows.len());
+            let new_row_idx = virtual_idx.saturating_sub(result.row_count);
             if let Some(row_data) = state.new_rows.get_mut(new_row_idx)
                 && col_idx < row_data.len()
             {
@@ -154,16 +140,13 @@ impl DataGrid {
         }
 
         let render_new_rows = state.new_rows.clone();
-        let row_view = GridVirtualRows::new(result.rows.len(), &filtered_rows, &render_new_rows);
+        let row_view = GridVirtualRows::new(result, &filtered_rows, &render_new_rows);
         let new_rows_count = state.new_rows.len();
         let filtered_count = row_view.len();
-        let total_count = result.rows.len() + new_rows_count;
+        let total_count = result.row_count + new_rows_count;
 
-        // 处理 Ctrl+S 保存请求
         if state.pending_save && state.has_changes() {
-            if let Some(table) = table_name {
-                actions::generate_save_sql(result, state, table, &mut actions, db_type);
-            }
+            Self::queue_mutation_batch(result, state, table_name, &mut actions);
             state.pending_save = false;
         } else if state.pending_save {
             state.pending_save = false;
@@ -249,16 +232,14 @@ impl DataGrid {
 
                     table_builder
                         .header(HEADER_HEIGHT, |mut header| {
-                            // 行号列头
                             header.col(|ui| {
                                 ui.label(RichText::new("#").strong().color(GRAY));
                             });
-                            // 数据列头
-                            for (col_idx, col_name) in result.columns.iter().enumerate() {
+                            for (col_idx, column) in result.columns.iter().enumerate() {
                                 header.col(|ui| {
                                     render::render_column_header(
                                         ui,
-                                        col_name,
+                                        &column.name,
                                         col_idx,
                                         state,
                                         &mut columns_to_filter,
@@ -269,66 +250,60 @@ impl DataGrid {
                         .body(|body| {
                             body.rows(ROW_HEIGHT, filtered_count, |mut row| {
                                 let display_idx = row.index();
-                                if let Some(virtual_row) =
-                                    row_view.row_at_display_index(display_idx)
-                                {
-                                    match virtual_row {
-                                        GridVirtualRow::Existing { row_key, row_data } => {
-                                            let is_cursor_row = state.cursor.0 == row_key;
-                                            let is_row_deleted =
-                                                state.rows_to_delete.contains(&row_key);
-
-                                            row.set_selected(is_cursor_row || is_row_deleted);
-
+                                let Some(virtual_row) = row_view.row_at_display_index(display_idx)
+                                else {
+                                    return;
+                                };
+                                match virtual_row {
+                                    GridVirtualRow::Existing { row_key, row_data } => {
+                                        let is_cursor_row = state.cursor.0 == row_key;
+                                        let is_row_deleted =
+                                            state.rows_to_delete.contains(&row_key);
+                                        row.set_selected(is_cursor_row || is_row_deleted);
+                                        row.col(|ui| {
+                                            render::render_row_number(
+                                                ui,
+                                                row_key,
+                                                is_cursor_row,
+                                                is_row_deleted,
+                                                state,
+                                            );
+                                        });
+                                        for (col_idx, cell) in row_data.iter().enumerate() {
                                             row.col(|ui| {
-                                                render::render_row_number(
+                                                render::render_editable_cell(
                                                     ui,
+                                                    cell,
                                                     row_key,
+                                                    col_idx,
                                                     is_cursor_row,
                                                     is_row_deleted,
                                                     state,
                                                 );
                                             });
-
-                                            for (col_idx, cell) in row_data.iter().enumerate() {
-                                                row.col(|ui| {
-                                                    render::render_editable_cell(
-                                                        ui,
-                                                        cell,
-                                                        result.is_null(row_key, col_idx),
-                                                        row_key,
-                                                        col_idx,
-                                                        is_cursor_row,
-                                                        is_row_deleted,
-                                                        state,
-                                                    );
-                                                });
-                                            }
                                         }
-                                        GridVirtualRow::PendingNew { row_key, row_data } => {
-                                            let is_cursor_row = state.cursor.0 == row_key;
-                                            row.set_selected(is_cursor_row);
-
+                                    }
+                                    GridVirtualRow::PendingNew { row_key, row_data } => {
+                                        let is_cursor_row = state.cursor.0 == row_key;
+                                        row.set_selected(is_cursor_row);
+                                        row.col(|ui| {
+                                            ui.label(
+                                                RichText::new(format!("{}+", row_key + 1))
+                                                    .monospace()
+                                                    .color(Color32::from_rgb(100, 200, 100)),
+                                            );
+                                        });
+                                        for (col_idx, cell) in row_data.iter().enumerate() {
                                             row.col(|ui| {
-                                                let text =
-                                                    RichText::new(format!("{}+", row_key + 1))
-                                                        .monospace()
-                                                        .color(Color32::from_rgb(100, 200, 100));
-                                                ui.label(text);
+                                                render::render_new_row_cell(
+                                                    ui,
+                                                    cell,
+                                                    row_key,
+                                                    col_idx,
+                                                    is_cursor_row,
+                                                    state,
+                                                );
                                             });
-
-                                            for (col_idx, cell) in row_data.iter().enumerate() {
-                                                row.col(|ui| {
-                                                    render::render_new_row_cell(
-                                                        ui,
-                                                        cell,
-                                                        row_key,
-                                                        col_idx,
-                                                        is_cursor_row,
-                                                        state,
-                                                    );
-                                                });
-                                            }
                                         }
                                     }
                                 }
@@ -359,79 +334,38 @@ impl DataGrid {
         (actions, (filtered_count, total_count))
     }
 
-    /// 显示模式状态栏和操作按钮
+    /// 显示模式状态栏和操作按钮。
     fn show_mode_bar(
         ui: &mut egui::Ui,
         state: &mut DataGridState,
-        result: &QueryResult,
+        result: &ResultSet,
         table_name: Option<&str>,
         keybindings: &KeyBindings,
         actions: &mut DataGridActions,
-        db_type: Option<DatabaseType>,
     ) {
         ui.horizontal(|ui| {
-            // 模式指示器
-            let mode_text = format!("-- {} --", state.mode.display_name());
-            ui.label(RichText::new(mode_text).strong().color(state.mode.color()));
+            ui.label(
+                RichText::new(format!("-- {} --", state.mode.display_name()))
+                    .strong()
+                    .color(state.mode.color()),
+            );
+            ui.separator();
+            ui.label(
+                RichText::new(format!("{}:{}", state.cursor.0 + 1, state.cursor.1 + 1))
+                    .monospace()
+                    .color(GRAY),
+            );
+            Self::show_selection_status(ui, state);
+            Self::show_command_status(ui, state);
+            Self::show_truncation_status(ui, result);
 
             ui.separator();
-
-            // 光标位置
-            let pos_text = format!("{}:{}", state.cursor.0 + 1, state.cursor.1 + 1);
-            ui.label(RichText::new(pos_text).monospace().color(GRAY));
-
-            // 选择范围
-            if let Some(((min_r, min_c), (max_r, max_c))) = state.get_selection() {
-                let sel_text = format!("选择: {}x{}", max_r - min_r + 1, max_c - min_c + 1);
-                ui.separator();
-                ui.label(RichText::new(sel_text).small().color(COLOR_VISUAL_SELECT));
-            }
-
-            // 命令缓冲
-            if !state.command_buffer.is_empty() {
-                ui.separator();
-                ui.label(
-                    RichText::new(&state.command_buffer)
-                        .monospace()
-                        .color(theme_warn(ui.visuals())),
-                );
-            }
-
-            // 计数
-            if let Some(count) = state.count {
-                ui.separator();
-                ui.label(
-                    RichText::new(format!("{}", count))
-                        .monospace()
-                        .color(theme_warn(ui.visuals())),
-                );
-            }
-
-            // 截断警告
-            if result.truncated {
-                ui.separator();
-                let truncated_msg = if let Some(original) = result.original_row_count {
-                    format!("! 已截断 (原{}行)", original)
-                } else {
-                    "! 已截断".to_string()
-                };
-                ui.label(
-                    RichText::new(truncated_msg)
-                        .small()
-                        .color(theme_warn(ui.visuals())), // 主题警告色
-                )
-                .on_hover_text("结果集过大已被截断。建议在 SQL 中添加 LIMIT 子句限制返回行数。");
-            }
-
-            ui.separator();
-
-            // 筛选 - 可点击文字，打开左侧栏筛选面板
             let filter_text = if state.filters.is_empty() {
                 "+ 筛选".to_string()
             } else {
                 format!(
                     "筛选({})",
-                    state.filters.iter().filter(|f| f.enabled).count()
+                    state.filters.iter().filter(|filter| filter.enabled).count()
                 )
             };
             if ui
@@ -453,134 +387,224 @@ impl DataGrid {
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .clicked()
             {
-                // 设置标记，让 app 层处理打开侧边栏筛选面板
                 actions.open_filter_panel = true;
             }
 
-            // 操作按钮
             if table_name.is_some() {
-                ui.add_space(16.0);
-
-                // 新增行 - 可点击文字
-                if ui
-                    .add(
-                        egui::Label::new(
-                            RichText::new("+ 行")
-                                .size(12.0)
-                                .color(theme_accent(ui.visuals()).gamma_multiply(0.8)),
-                        )
-                        .sense(egui::Sense::click()),
-                    )
-                    .on_hover_text(shortcut_tooltip(
-                        "添加新行",
-                        &shortcut_refs(
-                            &[
-                                keyboard::grid_command_shortcuts(
-                                    keybindings,
-                                    keyboard::GridCommandShortcut::AddRowBelow,
-                                ),
-                                keyboard::grid_command_shortcuts(
-                                    keybindings,
-                                    keyboard::GridCommandShortcut::AddRowAbove,
-                                ),
-                            ]
-                            .into_iter()
-                            .flatten()
-                            .collect::<Vec<_>>(),
-                        ),
-                    ))
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .clicked()
-                {
-                    let new_row = vec!["".to_string(); result.columns.len()];
-                    state.new_rows.push(new_row);
-                    // 移动光标到新增行
-                    let new_row_idx = result.rows.len() + state.new_rows.len() - 1;
-                    state.cursor = (new_row_idx, 0);
-                    state.scroll_to_row = Some(new_row_idx);
-                    state.focused = true;
-                    actions.message = Some("已添加新行".to_string());
-                }
-
-                let has_changes = state.has_changes();
-                let save_color = if has_changes {
-                    theme_text(ui.visuals())
-                } else {
-                    theme_disabled_text(ui.visuals())
-                };
-                if ui
-                    .add_enabled(
-                        has_changes,
-                        egui::Button::new(RichText::new("💾").size(13.0).color(save_color))
-                            .frame(false)
-                            .min_size(Vec2::new(24.0, 24.0)),
-                    )
-                    .on_hover_text(action_tooltip_with_extras(
-                        keybindings,
-                        Action::Save,
-                        "保存所有修改到数据库",
-                        &shortcut_refs(&keyboard::grid_command_shortcuts(
-                            keybindings,
-                            keyboard::GridCommandShortcut::Save,
-                        )),
-                    ))
-                    .clicked()
-                    && let Some(table) = table_name
-                {
-                    actions::generate_save_sql(result, state, table, actions, db_type);
-                }
-
-                let discard_color = if has_changes {
-                    theme_text(ui.visuals())
-                } else {
-                    theme_disabled_text(ui.visuals())
-                };
-                if ui
-                    .add_enabled(
-                        has_changes,
-                        egui::Button::new(RichText::new("↩").size(13.0).color(discard_color))
-                            .frame(false)
-                            .min_size(Vec2::new(24.0, 24.0)),
-                    )
-                    .on_hover_text(shortcut_tooltip(
-                        "放弃所有未保存的修改",
-                        &shortcut_refs(&keyboard::grid_command_shortcuts(
-                            keybindings,
-                            keyboard::GridCommandShortcut::Discard,
-                        )),
-                    ))
-                    .clicked()
-                {
-                    state.clear_edits();
-                    actions.message = Some("已放弃所有修改".to_string());
-                }
-
-                if has_changes {
-                    ui.separator();
-                    // 使用图标+文字双重指示，对色盲友好
-                    let mut stats = Vec::new();
-                    if !state.modified_cells.is_empty() {
-                        stats.push(format!("✎ {}处修改", state.modified_cells.len()));
-                    }
-                    if !state.rows_to_delete.is_empty() {
-                        stats.push(format!("− {}行删除", state.rows_to_delete.len()));
-                    }
-                    if !state.new_rows.is_empty() {
-                        stats.push(format!("+ {}行新增", state.new_rows.len()));
-                    }
-                    ui.label(
-                        RichText::new(stats.join(", "))
-                            .small()
-                            .color(COLOR_CELL_MODIFIED),
-                    );
-                }
+                Self::show_grid_edit_actions(ui, state, result, table_name, keybindings, actions);
             }
-
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let help = keyboard::mode_help_text(state.mode, keybindings);
                 ui.label(RichText::new(help).small().color(GRAY));
             });
         });
+    }
+
+    fn show_selection_status(ui: &mut egui::Ui, state: &DataGridState) {
+        if let Some(((min_row, min_col), (max_row, max_col))) = state.get_selection() {
+            ui.separator();
+            ui.label(
+                RichText::new(format!(
+                    "选择: {}x{}",
+                    max_row - min_row + 1,
+                    max_col - min_col + 1
+                ))
+                .small()
+                .color(COLOR_VISUAL_SELECT),
+            );
+        }
+    }
+
+    fn show_command_status(ui: &mut egui::Ui, state: &DataGridState) {
+        if !state.command_buffer.is_empty() {
+            ui.separator();
+            ui.label(
+                RichText::new(&state.command_buffer)
+                    .monospace()
+                    .color(theme_warn(ui.visuals())),
+            );
+        }
+        if let Some(count) = state.count {
+            ui.separator();
+            ui.label(
+                RichText::new(count.to_string())
+                    .monospace()
+                    .color(theme_warn(ui.visuals())),
+            );
+        }
+    }
+
+    fn show_truncation_status(ui: &mut egui::Ui, result: &ResultSet) {
+        if let ResultCompleteness::Truncated { displayed } = result.completeness {
+            ui.separator();
+            ui.label(
+                RichText::new(format!("! 已截断（显示 {} 行）", displayed))
+                    .small()
+                    .color(theme_warn(ui.visuals())),
+            )
+            .on_hover_text("结果集过大已被截断。建议在 SQL 中添加 LIMIT 子句限制返回行数。");
+        }
+    }
+
+    fn show_grid_edit_actions(
+        ui: &mut egui::Ui,
+        state: &mut DataGridState,
+        result: &ResultSet,
+        table_name: Option<&str>,
+        keybindings: &KeyBindings,
+        actions: &mut DataGridActions,
+    ) {
+        ui.add_space(16.0);
+        if Self::show_add_row_button(ui, keybindings) {
+            let new_row = vec![String::new(); result.column_count()];
+            state.new_rows.push(new_row);
+            let new_row_index = result.row_count + state.new_rows.len() - 1;
+            state.cursor = (new_row_index, 0);
+            state.scroll_to_row = Some(new_row_index);
+            state.focused = true;
+            actions.message = Some("已添加新行".to_string());
+        }
+        let has_changes = state.has_changes();
+        if Self::show_save_button(ui, has_changes, keybindings)
+            && let Some(table_name) = table_name
+        {
+            Self::queue_mutation_batch(result, state, Some(table_name), actions);
+        }
+        if Self::show_discard_button(ui, has_changes, keybindings) {
+            state.clear_edits();
+            actions.message = Some("已放弃所有修改".to_string());
+        }
+        Self::show_edit_summary(ui, state, has_changes);
+    }
+
+    fn show_add_row_button(ui: &mut egui::Ui, keybindings: &KeyBindings) -> bool {
+        ui.add(
+            egui::Label::new(
+                RichText::new("+ 行")
+                    .size(12.0)
+                    .color(theme_accent(ui.visuals()).gamma_multiply(0.8)),
+            )
+            .sense(egui::Sense::click()),
+        )
+        .on_hover_text(shortcut_tooltip(
+            "添加新行",
+            &shortcut_refs(
+                &[
+                    keyboard::grid_command_shortcuts(
+                        keybindings,
+                        keyboard::GridCommandShortcut::AddRowBelow,
+                    ),
+                    keyboard::grid_command_shortcuts(
+                        keybindings,
+                        keyboard::GridCommandShortcut::AddRowAbove,
+                    ),
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>(),
+            ),
+        ))
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+    }
+
+    fn show_save_button(ui: &mut egui::Ui, has_changes: bool, keybindings: &KeyBindings) -> bool {
+        let color = if has_changes {
+            theme_text(ui.visuals())
+        } else {
+            theme_disabled_text(ui.visuals())
+        };
+        ui.add_enabled(
+            has_changes,
+            egui::Button::new(RichText::new("💾").size(13.0).color(color))
+                .frame(false)
+                .min_size(Vec2::new(24.0, 24.0)),
+        )
+        .on_hover_text(action_tooltip_with_extras(
+            keybindings,
+            Action::Save,
+            "保存所有修改到数据库",
+            &shortcut_refs(&keyboard::grid_command_shortcuts(
+                keybindings,
+                keyboard::GridCommandShortcut::Save,
+            )),
+        ))
+        .clicked()
+    }
+
+    fn show_discard_button(
+        ui: &mut egui::Ui,
+        has_changes: bool,
+        keybindings: &KeyBindings,
+    ) -> bool {
+        let color = if has_changes {
+            theme_text(ui.visuals())
+        } else {
+            theme_disabled_text(ui.visuals())
+        };
+        ui.add_enabled(
+            has_changes,
+            egui::Button::new(RichText::new("↩").size(13.0).color(color))
+                .frame(false)
+                .min_size(Vec2::new(24.0, 24.0)),
+        )
+        .on_hover_text(shortcut_tooltip(
+            "放弃所有未保存的修改",
+            &shortcut_refs(&keyboard::grid_command_shortcuts(
+                keybindings,
+                keyboard::GridCommandShortcut::Discard,
+            )),
+        ))
+        .clicked()
+    }
+
+    fn show_edit_summary(ui: &mut egui::Ui, state: &DataGridState, has_changes: bool) {
+        if !has_changes {
+            return;
+        }
+        ui.separator();
+        let mut stats = Vec::new();
+        if !state.modified_cells.is_empty() {
+            stats.push(format!("✎ {}处修改", state.modified_cells.len()));
+        }
+        if !state.rows_to_delete.is_empty() {
+            stats.push(format!("− {}行删除", state.rows_to_delete.len()));
+        }
+        if !state.new_rows.is_empty() {
+            stats.push(format!("+ {}行新增", state.new_rows.len()));
+        }
+        ui.label(
+            RichText::new(stats.join(", "))
+                .small()
+                .color(COLOR_CELL_MODIFIED),
+        );
+    }
+
+    fn queue_mutation_batch(
+        result: &ResultSet,
+        state: &mut DataGridState,
+        table_name: Option<&str>,
+        actions: &mut DataGridActions,
+    ) {
+        let Some(table_name) = table_name else {
+            actions.message = Some("请先选择要保存的表".to_string());
+            return;
+        };
+        match actions::build_mutation_batch(result, state, table_name) {
+            Ok(batch) if state.rows_to_delete.is_empty() => {
+                actions.message = Some(format!("将执行 {} 项变更", batch.len()));
+                actions.mutation_batch = Some(batch);
+            }
+            Ok(batch) => {
+                actions.message = Some(format!(
+                    "包含 {} 条删除操作，请确认",
+                    state.rows_to_delete.len()
+                ));
+                state.pending_mutation_batch = Some(batch);
+                state.show_save_confirm = true;
+            }
+            Err(error) => actions.message = Some(format!("无法保存修改: {}", error)),
+        }
     }
 
     /// 计算字符串的显示宽度（考虑中英文差异）
@@ -597,89 +621,68 @@ impl DataGrid {
         width
     }
 
-    /// 计算数据的哈希值（用于缓存验证）
+    /// 计算数据的哈希值（用于列宽缓存验证）。
     fn calculate_data_hash(
-        result: &QueryResult,
-        filtered_rows: &[(usize, &Vec<String>)],
+        result: &ResultSet,
+        filtered_rows: &[usize],
         sample_count: usize,
     ) -> u64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
-
-        // 哈希列名
-        for col in &result.columns {
-            col.hash(&mut hasher);
+        for column in result.columns.iter() {
+            column.name.hash(&mut hasher);
         }
-
-        // 哈希采样数据的前几个字符（避免大字符串影响性能）
-        for (idx, row_data) in filtered_rows.iter().take(sample_count) {
-            idx.hash(&mut hasher);
-            for cell in row_data.iter() {
-                // 只哈希前 50 个字符
-                let sample: String = cell.chars().take(50).collect();
-                sample.hash(&mut hasher);
+        for row_index in filtered_rows.iter().take(sample_count) {
+            row_index.hash(&mut hasher);
+            for cell in result.row(*row_index) {
+                cell.display()
+                    .chars()
+                    .take(CELL_TRUNCATE_LEN)
+                    .collect::<String>()
+                    .hash(&mut hasher);
             }
         }
-
         hasher.finish()
     }
 
-    /// 获取列宽（优先使用缓存）
     fn get_column_widths(
-        result: &QueryResult,
-        filtered_rows: &[(usize, &Vec<String>)],
+        result: &ResultSet,
+        filtered_rows: &[usize],
         cache: &mut state::ColumnWidthCache,
     ) -> Vec<f32> {
-        let column_count = result.columns.len();
+        let column_count = result.column_count();
         let sample_count = filtered_rows.len().min(100);
         let data_hash = Self::calculate_data_hash(result, filtered_rows, sample_count);
-
-        // 检查缓存是否有效
         if cache.is_valid(column_count, sample_count, data_hash) {
             return cache.widths.clone();
         }
-
-        // 计算新的列宽
-        let widths = Self::calculate_column_widths_internal(result, filtered_rows, sample_count);
-
-        // 更新缓存
+        let widths = Self::calculate_column_widths(result, filtered_rows, sample_count);
         cache.update(widths.clone(), column_count, sample_count, data_hash);
-
         widths
     }
 
-    /// 计算每列的最佳宽度（内部实现）
-    fn calculate_column_widths_internal(
-        result: &QueryResult,
-        filtered_rows: &[(usize, &Vec<String>)],
+    fn calculate_column_widths(
+        result: &ResultSet,
+        filtered_rows: &[usize],
         sample_count: usize,
     ) -> Vec<f32> {
-        let mut col_widths = Vec::with_capacity(result.columns.len());
-
-        for (col_idx, col_name) in result.columns.iter().enumerate() {
-            // 从列名开始计算最大宽度
-            let mut max_width = Self::calculate_text_width(col_name);
-
-            // 采样前 N 行来计算内容最大宽度（避免大数据集性能问题）
-            for (_, row_data) in filtered_rows.iter().take(sample_count) {
-                if let Some(cell) = row_data.get(col_idx) {
-                    let cell_width = Self::calculate_text_width(cell);
-                    if cell_width > max_width {
-                        max_width = cell_width;
-                    }
-                }
-            }
-
-            // 加上内边距（左右内边距 + 筛选按钮空间）
-            let padding = 24.0;
-            let width = (max_width + padding).clamp(MIN_COL_WIDTH, MAX_COL_WIDTH);
-
-            col_widths.push(width);
-        }
-
-        col_widths
+        result
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(column_index, column)| {
+                let max_width = filtered_rows
+                    .iter()
+                    .take(sample_count)
+                    .map(|row_index| {
+                        Self::calculate_text_width(&result.cell(*row_index, column_index).display())
+                    })
+                    .fold(Self::calculate_text_width(&column.name), f32::max);
+                (max_width + 24.0).clamp(MIN_COL_WIDTH, MAX_COL_WIDTH)
+            })
+            .collect()
     }
 
     /// 显示空状态
@@ -779,7 +782,10 @@ impl DataGrid {
         }
 
         let delete_count = state.rows_to_delete.len();
-        let total_count = state.pending_sql.len();
+        let total_count = state
+            .pending_mutation_batch
+            .as_ref()
+            .map_or(0, crate::domain::mutation::MutationBatch::len);
 
         #[derive(Default)]
         struct SaveConfirmOutcome {
@@ -805,25 +811,24 @@ impl DataGrid {
                         ui.label(format!("将删除 {} 行数据", delete_count));
                     });
                     ui.horizontal(|ui| {
-                        ui.label(format!("共 {} 条 SQL 语句", total_count));
+                        ui.label(format!("共 {} 项参数化变更", total_count));
                     });
-
                     ui.add_space(8.0);
 
-                    ui.collapsing("查看 SQL 预览", |ui| {
-                        egui::ScrollArea::vertical()
-                            .max_height(150.0)
-                            .show(ui, |ui| {
-                                for (i, sql) in state.pending_sql.iter().enumerate() {
-                                    let is_delete = sql.starts_with("DELETE");
-                                    let color = if is_delete { DANGER } else { GRAY };
-                                    ui.label(
-                                        RichText::new(format!("{}. {}", i + 1, sql))
-                                            .small()
-                                            .color(color),
-                                    );
-                                }
-                            });
+                    ui.collapsing("查看操作预览", |ui| {
+                        if let Some(batch) = &state.pending_mutation_batch {
+                            for (index, mutation) in batch.mutations.iter().enumerate() {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{}. {}",
+                                        index + 1,
+                                        Self::describe_mutation(mutation)
+                                    ))
+                                    .small()
+                                    .color(GRAY),
+                                );
+                            }
+                        }
                     });
 
                     ui.add_space(12.0);
@@ -875,9 +880,23 @@ impl DataGrid {
             });
 
         if outcome.inner.confirmed {
-            actions::confirm_pending_sql(state, actions);
+            actions::confirm_pending_mutations(state, actions);
         } else if outcome.inner.cancelled || outcome.should_close() {
-            actions::cancel_pending_sql(state);
+            actions::cancel_pending_mutations(state);
+        }
+    }
+
+    fn describe_mutation(mutation: &crate::domain::mutation::Mutation) -> String {
+        use crate::domain::mutation::Mutation;
+
+        match mutation {
+            Mutation::Insert { table, columns, .. } => {
+                format!("新增至 {}（{} 列）", table.name, columns.len())
+            }
+            Mutation::Update { table, changes, .. } => {
+                format!("更新 {}（{} 列）", table.name, changes.len())
+            }
+            Mutation::Delete { table, .. } => format!("删除 {}", table.name),
         }
     }
 
@@ -907,7 +926,9 @@ fn shortcut_refs(shortcuts: &[String]) -> Vec<&str> {
 mod tests {
     use super::{DataGrid, DataGridActions};
     use crate::core::KeyBindings;
-    use crate::data::QueryResult;
+    use crate::domain::mutation::{ColumnRef, ExpectedRows, Mutation, MutationBatch, RowIdentity};
+    use crate::domain::result::{ResultColumn, ResultCompleteness, ResultSet};
+    use crate::domain::value::{DbTypeFamily, DbTypeInfo, DbValue};
     use crate::ui::DataGridState;
     use egui::{Event, Key, Modifiers, RawInput};
 
@@ -921,14 +942,47 @@ mod tests {
         }
     }
 
-    fn sample_result() -> QueryResult {
-        QueryResult::with_rows(
-            vec!["id".to_string(), "name".to_string()],
-            vec![
-                vec!["1".to_string(), "alice".to_string()],
-                vec!["2".to_string(), "bob".to_string()],
+    fn sample_result() -> ResultSet {
+        ResultSet {
+            columns: std::sync::Arc::new([
+                ResultColumn {
+                    name: "id".into(),
+                    type_info: DbTypeInfo {
+                        family: DbTypeFamily::Integer,
+                        native_name: "INTEGER".into(),
+                        nullable: Some(false),
+                    },
+                },
+                ResultColumn {
+                    name: "name".into(),
+                    type_info: DbTypeInfo {
+                        family: DbTypeFamily::Text,
+                        native_name: "TEXT".into(),
+                        nullable: Some(false),
+                    },
+                },
+            ]),
+            cells: vec![
+                DbValue::Int(1),
+                DbValue::Text("alice".into()),
+                DbValue::Int(2),
+                DbValue::Text("bob".into()),
             ],
-        )
+            row_count: 2,
+            completeness: ResultCompleteness::Complete,
+        }
+    }
+
+    fn pending_batch() -> MutationBatch {
+        let mut batch = MutationBatch::new();
+        batch.mutations.push(Mutation::Delete {
+            table: ColumnRef {
+                name: "users".to_string(),
+            },
+            identity: RowIdentity::PrimaryKey(vec![]),
+            expected_rows: ExpectedRows::Exactly(1),
+        });
+        batch
     }
 
     fn render_with_key(state: &mut DataGridState, key: Key) -> DataGridActions {
@@ -954,7 +1008,6 @@ mod tests {
                 state,
                 Some("users"),
                 &KeyBindings::default(),
-                None,
             );
             returned_actions = actions;
         });
@@ -968,15 +1021,13 @@ mod tests {
         let mut state = DataGridState::new();
         state.cursor = (0, 0);
         state.show_save_confirm = true;
-        state
-            .pending_sql
-            .push("DELETE FROM users WHERE id = 1;".to_string());
+        state.pending_mutation_batch = Some(pending_batch());
 
         let actions = render_with_key(&mut state, Key::J);
 
         assert_eq!(state.cursor, (0, 0));
         assert!(state.show_save_confirm);
-        assert!(actions.sql_to_execute.is_empty());
+        assert!(actions.mutation_batch.is_none());
     }
 
     #[test]
@@ -984,15 +1035,13 @@ mod tests {
         let mut state = DataGridState::new();
         state.cursor = (0, 0);
         state.show_save_confirm = true;
-        state
-            .pending_sql
-            .push("DELETE FROM users WHERE id = 1;".to_string());
+        state.pending_mutation_batch = Some(pending_batch());
 
         let actions = render_with_key(&mut state, Key::Y);
 
         assert_eq!(state.cursor, (0, 0));
         assert!(!state.show_save_confirm);
-        assert!(state.pending_sql.is_empty());
-        assert_eq!(actions.sql_to_execute.len(), 1);
+        assert!(state.pending_mutation_batch.is_none());
+        assert!(actions.mutation_batch.is_some());
     }
 }

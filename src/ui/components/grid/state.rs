@@ -2,7 +2,6 @@
 
 use super::filter::{ColumnFilter, FilterCache};
 use super::mode::GridMode;
-use crate::data::ColumnInfo;
 use std::collections::HashMap;
 
 /// 列宽缓存
@@ -96,17 +95,14 @@ pub struct DataGridState {
     pub pending_save: bool,
     /// 显示保存确认对话框
     pub show_save_confirm: bool,
-    /// 待确认的 SQL 语句
-    pub pending_sql: Vec<String>,
+    /// 待确认的参数化变异批次（包含 DELETE 时使用）
+    pub pending_mutation_batch: Option<crate::domain::mutation::MutationBatch>,
     /// 筛选结果缓存
     pub filter_cache: FilterCache,
-    /// 主键列索引（None 表示未知，编辑功能将被禁用）
-    pub primary_key_column: Option<usize>,
-    /// 当前表的列元数据（类型/可空性/主键），用于保存前客户端校验（审计 G6）。空=未知。
-    pub column_metadata: Vec<ColumnInfo>,
-    /// 正则表达式错误信息（用于向用户显示正则匹配失败原因）
-    #[allow(dead_code)] // 预留字段，待实现正则错误提示 UI
-    pub regex_error: Option<String>,
+    /// 当前表的结构化元数据（从 SchemaCatalog 投影，取代 column_metadata）
+    pub table_metadata: Option<std::sync::Arc<crate::domain::metadata::TableMetadata>>,
+    /// 类型化数据（Phase 4 ResultSet）。
+    pub result_set: Option<std::sync::Arc<crate::domain::result::ResultSet>>,
     /// 待处理的新增行编辑 (虚拟行索引, 列索引, 新值)
     pub pending_new_row_edit: Option<(usize, usize, String)>,
     /// 列宽缓存
@@ -132,18 +128,17 @@ impl DataGridState {
         self.column_width_cache.clear();
     }
 
-    #[allow(dead_code)]
-    pub fn clear_save_state(&mut self) {
-        self.clear_edits();
-        self.pending_sql.clear();
-        self.pending_save = false;
-        self.show_save_confirm = false;
-    }
-
     pub fn has_changes(&self) -> bool {
         !self.modified_cells.is_empty()
             || !self.rows_to_delete.is_empty()
             || !self.new_rows.is_empty()
+    }
+
+    /// 清除保存状态（取消确认后调用）。保留编辑内容。
+    pub fn clear_save_state(&mut self) {
+        self.pending_mutation_batch = None;
+        self.pending_save = false;
+        self.show_save_confirm = false;
     }
 
     /// 获取选择范围

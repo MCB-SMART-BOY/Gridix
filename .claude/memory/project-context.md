@@ -12,7 +12,7 @@ metadata:
 - **Version**: 7.1.0
 - **Branch**: `main` (sole branch — `dev`, `EDU`, `master` consolidated and deleted)
 - **TLS**: rustls 0.23 only — zero native-tls/openssl in dependency tree
-- **Test status**: 619 passed, 0 failed, 0 warnings
+- **Test status**: 743 passed, 0 failed, 0 warnings
 - **Merge**: v6.1.0 core (rustls, state migration) + v7.0.0 features (workbench, ER rewrite, design tokens, 36 audit fixes)
 
 
@@ -21,10 +21,13 @@ metadata:
 - 6-layer unidirectional architecture: types(-1) ← core(0) ← data(1) ← session(2) ← state(3) ← ui/app(4)
 - DbManagerApp: ~11 fields (from ~100). 89 migrated to Session(~30) + UiState(~60).
 - self.sql dual source: ELIMINATED. Sole authority = QueryTab.sql via active_sql()/set_active_sql()
-- database/ renamed to data/
 - Config version: 2 (with #[serde(default)] for backward compat)
 - Config save: 5-second debounce via save_config_debounced()
 - Handler repaint: needs_repaint flag replaces ctx.request_repaint()
+- 8.0 typed domain layer: src/domain/ (DbValue, ResultSet, SchemaCatalog, MutationBatch) — SQLite production-ready, PG/MySQL compile-complete
+- TaskRegistry with OperationKey dedup + CancellationToken — GridSave/ColumnMetadata/Connect/DatabaseSelected clean cutover; Query cutover pending
+- Typed mutation: SQLite Ctrl+S path uses parameterized apply_mutations(); PG/MySQL guard-warning
+- Dual-path debt: pending_query_* maps, generate_save_sql(), Message::QueryDone still active
 
 ## Key Constraints
 

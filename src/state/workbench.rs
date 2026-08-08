@@ -62,7 +62,7 @@ pub enum WorkbenchSurfaceKind {
     SqlDocument {
         index: usize,
     },
-    QueryResult {
+    SurfaceResult {
         query_tab_id: String,
     },
     Explain {
@@ -130,7 +130,7 @@ impl WorkbenchSurfaceKind {
     pub fn from_bottom_panel_tab(tab: BottomPanelTab, query_tab_id: impl Into<String>) -> Self {
         let query_tab_id = query_tab_id.into();
         match tab {
-            BottomPanelTab::Results => Self::QueryResult { query_tab_id },
+            BottomPanelTab::Results => Self::SurfaceResult { query_tab_id },
             BottomPanelTab::Messages => Self::Messages,
             BottomPanelTab::Explain => Self::Explain { query_tab_id },
             BottomPanelTab::History => Self::History,
@@ -165,7 +165,7 @@ impl WorkbenchSurfaceKind {
     fn title(&self, fallback: &'static str) -> String {
         match self {
             Self::SqlDocument { index } => format!("SQL {}", index + 1),
-            Self::QueryResult { query_tab_id } => format!("Result {}", query_tab_id),
+            Self::SurfaceResult { query_tab_id } => format!("Result {}", query_tab_id),
             Self::Explain { query_tab_id } => format!("Explain {}", query_tab_id),
             Self::TableData { table, .. } => table.clone(),
             Self::SchemaObject { title } => title.clone(),
@@ -177,7 +177,7 @@ impl WorkbenchSurfaceKind {
     fn persistence_key(&self) -> String {
         match self {
             Self::SqlDocument { index } => format!("sql:{}", index),
-            Self::QueryResult { query_tab_id } => format!("result:{}", query_tab_id),
+            Self::SurfaceResult { query_tab_id } => format!("result:{}", query_tab_id),
             Self::Explain { query_tab_id } => format!("explain:{}", query_tab_id),
             Self::TableData {
                 connection,
@@ -216,7 +216,7 @@ impl WorkbenchSurfaceKind {
                 default_placement: WorkbenchPlacement::Bottom,
                 allowed_placements: ALL_PLACEMENTS,
             },
-            Self::QueryResult { .. } => SurfaceMetadata {
+            Self::SurfaceResult { .. } => SurfaceMetadata {
                 title: "Results",
                 icon: "table",
                 description: "显示绑定 SQL 文档的查询结果",
@@ -701,7 +701,7 @@ mod tests {
     #[test]
     fn default_surface_placements_match_current_workbench_baseline() {
         let sql = WorkbenchSurfaceKind::SqlDocument { index: 0 }.descriptor();
-        let result = WorkbenchSurfaceKind::QueryResult {
+        let result = WorkbenchSurfaceKind::SurfaceResult {
             query_tab_id: "q1".to_string(),
         }
         .descriptor();
@@ -776,7 +776,7 @@ mod tests {
         );
         assert_eq!(
             WorkbenchSurfaceKind::from_bottom_panel_tab(BottomPanelTab::Results, "tab-a"),
-            WorkbenchSurfaceKind::QueryResult {
+            WorkbenchSurfaceKind::SurfaceResult {
                 query_tab_id: "tab-a".to_string()
             }
         );

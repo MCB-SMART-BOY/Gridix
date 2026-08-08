@@ -5,7 +5,7 @@
 //! DbManagerApp owns DockState<DockTab>. This is contained to Layer 4
 //! (both modules are in the same layer) and does not cause compilation
 //! issues. A cleaner design would move WorkspaceViewer to app/ and keep
-//! DockTab + sync_all in ui/.
+//! DockTab + refresh_dock_from_session in ui/.
 
 use crate::app::DbManagerApp;
 use crate::core::RightInspectorTab;
@@ -101,9 +101,9 @@ pub fn default_surface_layout(
     _inspector_mode: RightInspectorTab,
 ) -> DockState<DockTab> {
     let query_tab_id = active_query_tab_id.into();
-    let mut state = DockState::new(vec![DockTab::surface(WorkbenchSurfaceKind::QueryResult {
-        query_tab_id,
-    })]);
+    let mut state = DockState::new(vec![DockTab::surface(
+        WorkbenchSurfaceKind::SurfaceResult { query_tab_id },
+    )]);
     let tree = state.main_surface_mut();
     let [center, _right] = tree.split_right(
         NodeIndex::root(),
@@ -159,8 +159,9 @@ pub fn has_surface_tab(state: &DockState<DockTab>, kind: &WorkbenchSurfaceKind) 
 
 // ── 同步：每帧渲染前调用 ──────────────────────────────────────────────
 
-/// 同步 dock 布局与 app 状态（SQL documents、ER 图）
-pub fn sync_all(state: &mut DockState<DockTab>, app: &DbManagerApp) {
+/// 从 session 刷新 dock 布局（SQL documents、ER 图可见性）。
+/// 只读操作：dock 读取 session/state，不写回。
+pub fn refresh_dock_from_session(state: &mut DockState<DockTab>, app: &DbManagerApp) {
     sync_sql_documents(state, app.tab_manager());
     sync_er_visibility(state, app.state.show_er_diagram);
 }
@@ -428,7 +429,7 @@ mod tests {
 
         assert!(!surfaces.contains(&WorkbenchSurfaceKind::Explorer));
         assert!(surfaces.contains(&WorkbenchSurfaceKind::SqlDocument { index: 0 }));
-        assert!(surfaces.contains(&WorkbenchSurfaceKind::QueryResult {
+        assert!(surfaces.contains(&WorkbenchSurfaceKind::SurfaceResult {
             query_tab_id: "tab-a".to_string()
         }));
         assert!(surfaces.contains(&WorkbenchSurfaceKind::ErDiagram));
@@ -542,7 +543,7 @@ mod tests {
     #[test]
     fn ensure_surface_tab_adds_surface_once_by_stable_identity() {
         let mut state = default_layout();
-        let result_surface = WorkbenchSurfaceKind::QueryResult {
+        let result_surface = WorkbenchSurfaceKind::SurfaceResult {
             query_tab_id: "tab-a".to_string(),
         };
 

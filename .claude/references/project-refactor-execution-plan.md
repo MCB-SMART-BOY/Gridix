@@ -20,7 +20,7 @@ The workbench UI redesign is only one track. The full refactor also covers confi
 ## Current Baseline
 
 Package:
-- `gridix` v6.1.0
+- `gridix` v7.1.0
 - Targets: lib, `gridix`, `gridix-driver`, `check-doc-links`
 - Test targets: `core_tests`, `database_tests`, `ddl_tests`, `edge_regression_tests`, `export_tests`, `grid_tests`, `mysql_cancel_integration`, `ssh_tests`, `ui_dialogs_tests`
 
@@ -176,6 +176,8 @@ Completed:
 - Dockable Workbench v2 Phase C visual/layout calibration: default dock split ratios are named in `src/ui/dock_tabs.rs`, tuned to the user-approved 2026-06-19 April-shell screenshot (`280px` fixed PrimarySidebar, query/ER `0.73/0.27`, results/editor `0.69/0.31`), and the ActivityBar widget is dormant and not rendered in the default runtime layout.
 - Dockable Workbench v2 Phase C April-shell correction: default runtime layout no longer reserves or renders the duplicate left ActivityBar/SurfaceRail; `ToggleSidebar`/`SetPrimarySidebarVisible` control only the stable fixed PrimarySidebar and must not mutate the dock tree.
 - ER diagram visual redesign: `src/ui/components/er_diagram/render.rs` now uses schema-canvas styling, object-card table rendering, PK/FK badges, key-row highlighting, relation halos/endpoints/cardinality pills, and themed empty/loading cards while preserving existing layout/state/keyboard behavior.
+
+- Typed Runtime Convergence A-F: SQLite typed mutation, Strong IDs, TaskRegistry cutover (GridSave/ColumnMetadata/Connect/DatabaseSelected), typed PG/MySQL backends, SchemaCatalog with 7 SQLite contract tests. 743 tests passing. Query lifecycle cutover, PG/MySQL apply_mutations, and ResultSet UI consumers deferred to T1-T5.
 
 Current next phase:
 - Dockable Workbench v2 Phase C next slice before continuing Phase 8 Dialog Reduction. Split stable PrimarySidebar state from explicitly docked navigation surface state, migrate remaining fixed-region chrome into the shared surface shell, keep TopBar as the primary global launcher, and continue replacing legacy `FocusArea` assumptions with surface-first focus/config routing.

@@ -4,8 +4,6 @@
 //! 当前 `handle_messages()` 仍在 `DbManagerApp` 上；
 //! 未来将由 `Session::poll_messages()` 产生这些效果。
 
-use crate::data::QueryResult;
-
 /// 通知级别
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotifyLevel {
@@ -17,9 +15,9 @@ pub enum NotifyLevel {
 
 /// 查询结果变化效果
 #[derive(Debug, Clone)]
-pub struct QueryResultEffect {
+pub struct QueryEffect {
     pub tab_id: String,
-    pub result: Option<QueryResult>,
+    pub result: Option<std::sync::Arc<crate::domain::result::ResultSet>>,
     pub error: Option<String>,
     pub elapsed_ms: Option<u64>,
     pub was_cancelled: bool,
@@ -46,13 +44,6 @@ pub enum MetadataEffect {
         database: Option<String>,
         result: Result<Vec<crate::data::RoutineInfo>, String>,
     },
-    ForeignKeysFetched {
-        result: Result<Vec<crate::data::ForeignKeyInfo>, String>,
-    },
-    ERTableColumnsFetched {
-        table_name: String,
-        result: Result<Vec<crate::data::ColumnInfo>, String>,
-    },
     PrimaryKeyFetched {
         table_name: String,
         pk_column: Option<String>,
@@ -62,7 +53,7 @@ pub enum MetadataEffect {
 /// 一帧中 Session 产生的所有效果
 #[derive(Debug, Default)]
 pub struct FrameEffects {
-    pub queries: Vec<QueryResultEffect>,
+    pub queries: Vec<QueryEffect>,
     pub connections: Vec<ConnectionEffect>,
     pub metadata: Vec<MetadataEffect>,
     pub notifications: Vec<(NotifyLevel, String)>,

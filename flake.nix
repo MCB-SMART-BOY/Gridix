@@ -66,17 +66,21 @@
             description = "Fast, secure, cross-platform database management tool with Helix/Vim keybindings";
             homepage = "https://github.com/MCB-SMART-BOY/Gridix";
             license = licenses.asl20;
-            maintainers = [{
-              name = "MCB-SMART-BOY";
-              email = "mcb2720838051@gmail.com";
-              github = "MCB-SMART-BOY";
-            }];
+            maintainers = [
+              {
+                name = "MCB-SMART-BOY";
+                email = "mcb2720838051@gmail.com";
+                github = "MCB-SMART-BOY";
+              }
+            ];
             mainProgram = "gridix";
             platforms = platforms.linux ++ platforms.darwin;
           };
         };
       in
       {
+        formatter = pkgs.nixfmt;
+
         packages = {
           default = gridixPackage;
           gridix = gridixPackage;
@@ -103,6 +107,8 @@
           buildInputs =
             with pkgs;
             [
+              cargo-audit
+              deadnix
               rustup
               pkg-config
             ]
@@ -125,7 +131,7 @@
       }
     )
     // {
-      overlays.default = final: prev: {
+      overlays.default = _final: prev: {
         gridix = self.packages.${prev.stdenv.hostPlatform.system}.default;
       };
     };

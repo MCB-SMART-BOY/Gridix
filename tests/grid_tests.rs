@@ -2,6 +2,7 @@
 //!
 //! 测试 SQL 标识符转义、值转义、列宽缓存等功能
 
+use gridix::domain::mutation::MutationBatch;
 use gridix::ui::{DataGridState, escape_identifier, escape_value, quote_identifier};
 
 // ============================================================================
@@ -103,25 +104,22 @@ mod grid_state {
     }
 
     #[test]
-    fn test_clear_save_state() {
+    fn test_clear_save_state_preserves_pending_user_edits() {
         let mut state = DataGridState::new();
         state.modified_cells.insert((0, 0), "new_value".to_string());
         state.rows_to_delete.push(1);
         state.new_rows.push(vec!["draft".to_string()]);
-        state
-            .pending_sql
-            .push("UPDATE users SET name='new_value'".to_string());
+        state.pending_mutation_batch = Some(MutationBatch::new());
         state.pending_save = true;
         state.show_save_confirm = true;
 
         state.clear_save_state();
 
-        assert!(!state.has_changes());
-        assert!(state.pending_sql.is_empty());
+        assert!(state.has_changes());
+        assert!(state.pending_mutation_batch.is_none());
         assert!(!state.pending_save);
         assert!(!state.show_save_confirm);
     }
-
     #[test]
     fn test_has_changes() {
         let mut state = DataGridState::new();

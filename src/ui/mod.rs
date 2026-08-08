@@ -56,7 +56,6 @@ pub use components::{
     },
     escape_identifier,
     escape_value,
-    filter_rows_cached,
     quote_identifier,
 };
 #[allow(unused_imports)] // 公开 API，供外部使用

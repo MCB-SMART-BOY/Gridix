@@ -1121,7 +1121,7 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn open_export_dialog(&mut self) {
-        if self.state.result.is_some() {
+        if self.state.grid_state.result_set.is_some() {
             self.open_dialog(DialogId::Export);
             self.state.export_status = None;
         }

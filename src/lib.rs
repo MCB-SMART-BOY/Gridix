@@ -29,6 +29,7 @@ pub(crate) mod app;
 pub mod bootstrap;
 pub mod core;
 pub mod data;
+pub mod domain;
 pub mod prelude;
 pub mod session;
 pub mod state;
@@ -66,13 +67,11 @@ pub use data::{
     ConnectionManager,
     // 类型定义
     DatabaseType,
-    QueryResult,
     // SSH 支持
     SshAuthMethod,
     SshTunnelConfig,
     // 异步操作
     connect_database,
-    execute_query,
     get_tables_for_database,
 };
 

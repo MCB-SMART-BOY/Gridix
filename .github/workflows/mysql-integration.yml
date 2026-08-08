@@ -4,13 +4,17 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '0 3 * * 1'
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  mysql-cancel-tests:
-    name: MySQL Cancel Integration
+  mysql-integration:
+    name: MySQL Typed Integration
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -31,11 +35,7 @@ jobs:
           --health-retries=12
 
     env:
-      GRIDIX_IT_MYSQL_HOST: 127.0.0.1
-      GRIDIX_IT_MYSQL_PORT: "3306"
-      GRIDIX_IT_MYSQL_USER: gridix
-      GRIDIX_IT_MYSQL_PASSWORD: gridix
-      GRIDIX_IT_MYSQL_DB: gridix_test
+      GRIDIX_TEST_MYSQL_URL: mysql://gridix:gridix@127.0.0.1:3306/gridix_test
 
     steps:
       - uses: actions/checkout@v4
@@ -58,5 +58,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev
 
-      - name: Run MySQL integration tests
-        run: cargo test --test mysql_cancel_integration -- --ignored --nocapture
+      - name: Grant MySQL cancellation observer permissions
+        run: >-
+          docker exec ${{ job.services.mysql.id }}
+          mysql -uroot -proot
+          -e "GRANT PROCESS, CONNECTION_ADMIN ON *.* TO 'gridix'@'%'; FLUSH PRIVILEGES;"
+
+      - name: Run MySQL typed integration tests
+        run: |
+          : "${GRIDIX_TEST_MYSQL_URL:?GRIDIX_TEST_MYSQL_URL must be set for release acceptance}"
+          cargo test --test mysql_typed_e2e -- --nocapture --test-threads=1
+          cargo test --test mysql_cancel_integration -- --nocapture --test-threads=1

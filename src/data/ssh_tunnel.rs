@@ -62,16 +62,10 @@ impl SshAuthMethod {
             Self::PrivateKey => "private_key",
         }
     }
-
-    /// 获取所有认证方式
-    #[allow(dead_code)] // 公开 API，供外部使用
-    pub fn all() -> Vec<Self> {
-        vec![Self::Password, Self::PrivateKey]
-    }
 }
 
 /// SSH 隧道配置
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct SshTunnelConfig {
     /// 是否启用 SSH 隧道
     pub enabled: bool,
@@ -85,6 +79,12 @@ pub struct SshTunnelConfig {
     /// 注意：此字段在序列化时会被跳过，密码通过 OS keyring 存储。
     #[serde(default, skip_serializing)]
     pub ssh_password: String,
+    /// 持久化密码的 keyring key（None 表示仅内存密码）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password_ref: Option<String>,
+    /// 密码最近一次实际编辑的版本，用于轮换非秘密隧道身份。
+    #[serde(default)]
+    pub credential_revision: u64,
     /// 私钥路径（私钥认证时使用）
     pub private_key_path: String,
     /// 私钥密码（如果私钥有密码保护）
@@ -99,6 +99,25 @@ pub struct SshTunnelConfig {
     pub remote_port: u16,
     /// 本地绑定端口（0 表示自动分配）
     pub local_port: u16,
+}
+
+impl std::fmt::Debug for SshTunnelConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SshTunnelConfig")
+            .field("enabled", &self.enabled)
+            .field("ssh_host", &self.ssh_host)
+            .field("ssh_port", &self.ssh_port)
+            .field("ssh_username", &self.ssh_username)
+            .field("ssh_password", &"<REDACTED>")
+            .field("private_key_path", &self.private_key_path)
+            .field("private_key_passphrase", &"<REDACTED>")
+            .field("auth_method", &self.auth_method)
+            .field("credential_revision", &self.credential_revision)
+            .field("remote_host", &self.remote_host)
+            .field("remote_port", &self.remote_port)
+            .field("local_port", &self.local_port)
+            .finish()
+    }
 }
 
 #[allow(dead_code)] // 公开 API，供外部使用
@@ -117,16 +136,24 @@ impl SshTunnelConfig {
     }
 
     fn auth_fingerprint(&self) -> String {
-        let material = match self.auth_method {
-            SshAuthMethod::Password => {
-                format!("password:{}:{}", self.ssh_username, self.ssh_password)
-            }
-            SshAuthMethod::PrivateKey => format!(
-                "private_key:{}:{}:{}",
-                self.ssh_username, self.private_key_path, self.private_key_passphrase
+        let credential_material = match self.auth_method {
+            SshAuthMethod::Password => format!(
+                "password:{}:{}",
+                self.password_ref.as_deref().unwrap_or("memory"),
+                self.credential_revision
             ),
+            SshAuthMethod::PrivateKey => self.private_key_path.clone(),
         };
+        let material = format!(
+            "ssh:{}@{}:{}:{}",
+            self.ssh_username, self.ssh_host, self.ssh_port, credential_material
+        );
         crate::core::hash::sha256_hex(&material)
+    }
+
+    /// 记录 SSH 密码的用户编辑，以强制创建使用新凭据的隧道。
+    pub fn mark_password_edited(&mut self) {
+        self.credential_revision = self.credential_revision.wrapping_add(1);
     }
 
     /// 获取隧道唯一名称（用于复用与回收）

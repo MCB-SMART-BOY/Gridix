@@ -6,7 +6,7 @@ use eframe::egui;
 
 use crate::app::dialogs::host::DialogId;
 use crate::core::{BottomPanelTab, constants, format_sql};
-use crate::data::{ConnectionConfig, QueryResult};
+use crate::data::ConnectionConfig;
 use crate::state::WorkbenchSurfaceKind;
 use crate::ui::{self, SqlEditorActions, TabBarActions, ToolbarActions};
 
@@ -32,7 +32,7 @@ enum ErDiagramSurfaceAction {
 }
 
 fn classify_workspace_surface(
-    result: Option<&QueryResult>,
+    result: Option<&crate::domain::result::ResultSet>,
     active_query_error: Option<&str>,
 ) -> WorkspaceSurface {
     if active_query_error.is_some() || result.is_some() {
@@ -243,11 +243,11 @@ impl DbManagerApp {
                             // 获取当前查询结果的列信息
                             let columns: Vec<String> = self
                                 .state
-                                .result
+                                .grid_state
+                                .result_set
                                 .as_ref()
-                                .map(|r| r.columns.clone())
+                                .map(|r| r.column_names())
                                 .unwrap_or_default();
-
                             if self.active_activity_uses_legacy_sidebar() {
                                 // 同步表加载态，让侧栏区分"加载中"与"空 schema"（审计 SM-3）。
                                 self.state.sidebar_panel_state.loading_tables =
@@ -365,7 +365,7 @@ impl DbManagerApp {
                                 let fallback_dock = self.default_workbench_surface_layout();
                                 let mut dock =
                                     std::mem::replace(&mut self.dock_state, fallback_dock);
-                                ui::dock_tabs::sync_all(&mut dock, self);
+                                ui::dock_tabs::refresh_dock_from_session(&mut dock, self);
                                 let mut viewer = ui::dock_tabs::WorkspaceViewer { app: self };
                                 egui_dock::DockArea::new(&mut dock).show_inside(ui, &mut viewer);
                                 // Put dock_state back
@@ -455,8 +455,14 @@ impl DbManagerApp {
             .tab_manager
             .get_active()
             .and_then(|tab| tab.last_error.clone());
+        let result_set = self
+            .state
+            .grid_state
+            .result_set
+            .as_ref()
+            .map(|a| a.as_ref());
         let workspace_surface =
-            classify_workspace_surface(self.state.result.as_ref(), active_query_error.as_deref());
+            classify_workspace_surface(result_set, active_query_error.as_deref());
 
         match workspace_surface {
             WorkspaceSurface::QueryOutputAvailable => {
@@ -474,23 +480,16 @@ impl DbManagerApp {
     }
 
     pub(crate) fn render_result_grid_in_ui(&mut self, ui: &mut egui::Ui) {
-        let Some(result) = &self.state.result else {
+        let Some(result) = self.state.grid_state.result_set.clone() else {
             return;
         };
 
         self.state.grid_state.focused =
             self.state.focus_area == ui::FocusArea::DataGrid && !self.has_modal_dialog_open();
         let table_name = self.state.selected_table.as_deref();
-        let db_type = self
-            .session
-            .manager
-            .active
-            .as_ref()
-            .and_then(|name| self.session.manager.connections.get(name))
-            .map(|conn| conn.config.db_type);
-        let (grid_actions, _) = ui::DataGrid::show_editable(
+        let (mut grid_actions, _) = ui::DataGrid::show_editable(
             ui,
-            result,
+            &result,
             &self.state.search_text,
             &self.state.search_column,
             &mut self.state.selected_row,
@@ -498,7 +497,6 @@ impl DbManagerApp {
             &mut self.state.grid_state,
             table_name,
             &self.keybindings,
-            db_type,
         );
 
         if grid_actions.open_filter_panel {
@@ -527,10 +525,9 @@ impl DbManagerApp {
         if let Some(message) = grid_actions.message {
             self.session.notifications.info(message);
         }
-        if !grid_actions.sql_to_execute.is_empty() {
-            // 网格保存走事务化批量通道（修复 B1/B2/B3）：整批原子提交，成功后清编辑并刷新。
+        if let Some(batch) = grid_actions.mutation_batch.take() {
             let save_table = self.state.selected_table.clone().unwrap_or_default();
-            self.execute_grid_save(save_table, grid_actions.sql_to_execute);
+            self.execute_grid_save_typed(save_table, batch);
         }
         if let Some(tab) = grid_actions.switch_to_tab {
             let index = tab.saturating_sub(1);
@@ -1060,7 +1057,7 @@ impl DbManagerApp {
     }
 
     fn insert_sidebar_filter(&mut self, mode: ui::SidebarFilterInsertMode) {
-        let Some(result) = &self.state.result else {
+        let Some(result) = &self.state.grid_state.result_set else {
             self.session
                 .notifications
                 .warning("当前结果集为空，无法添加筛选条件");
@@ -1090,10 +1087,10 @@ impl DbManagerApp {
             ui::SidebarFilterInsertMode::AppendEnd => self.state.grid_state.filters.len(),
         };
 
-        self.state
-            .grid_state
-            .filters
-            .insert(insert_index, ui::ColumnFilter::new(default_col));
+        self.state.grid_state.filters.insert(
+            insert_index,
+            ui::ColumnFilter::new(default_col.name.clone()),
+        );
         self.state.sidebar_panel_state.selection.filters = insert_index;
         self.state.grid_state.filter_cache.invalidate();
 
@@ -1128,7 +1125,13 @@ impl DbManagerApp {
 
     /// 循环切换筛选列
     fn cycle_sidebar_filter_column(&mut self, index: usize, forward: bool) {
-        let Some(columns) = self.state.result.as_ref().map(|r| r.columns.clone()) else {
+        let Some(columns) = self
+            .state
+            .grid_state
+            .result_set
+            .as_ref()
+            .map(|r| r.columns.clone())
+        else {
             return;
         };
         if columns.is_empty() {
@@ -1140,7 +1143,7 @@ impl DbManagerApp {
 
         let current = columns
             .iter()
-            .position(|c| c == &filter.column)
+            .position(|c| c.name == filter.column)
             .unwrap_or(0);
         let next = if forward {
             (current + 1) % columns.len()
@@ -1151,7 +1154,7 @@ impl DbManagerApp {
         };
 
         if let Some(new_col) = columns.get(next) {
-            filter.column = new_col.clone();
+            filter.column = new_col.name.clone();
             self.state.grid_state.filter_cache.invalidate();
         }
     }
@@ -1382,7 +1385,9 @@ mod tests {
     use crate::app::DbManagerApp;
     use crate::app::dialogs::host::DialogId;
     use crate::core::BottomPanelTab;
-    use crate::data::{Connection, ConnectionConfig, DatabaseType, QueryResult};
+    use crate::data::{Connection, ConnectionConfig, DatabaseType};
+    use crate::domain::result::{ResultColumn, ResultCompleteness, ResultSet};
+    use crate::domain::value::{DbTypeFamily, DbTypeInfo, DbValue};
     use crate::state::WorkbenchSurfaceKind;
     use crate::ui::{
         ERDiagramResponse, FocusArea, SidebarActions, SidebarDeleteTarget, ToolbarActions,
@@ -1424,20 +1429,11 @@ mod tests {
             WorkspaceSurface::Welcome
         );
         assert_eq!(
-            classify_workspace_surface(
-                Some(&QueryResult {
-                    affected_rows: 3,
-                    ..QueryResult::default()
-                }),
-                None,
-            ),
+            classify_workspace_surface(Some(&ResultSet::empty()), None,),
             WorkspaceSurface::QueryOutputAvailable
         );
         assert_eq!(
-            classify_workspace_surface(
-                Some(&QueryResult::with_rows(vec!["id".to_string()], Vec::new())),
-                None,
-            ),
+            classify_workspace_surface(Some(&ResultSet::empty()), None,),
             WorkspaceSurface::QueryOutputAvailable
         );
     }
@@ -1445,10 +1441,7 @@ mod tests {
     #[test]
     fn workspace_surface_routes_query_error_to_bottom_panel() {
         assert_eq!(
-            classify_workspace_surface(
-                Some(&QueryResult::with_rows(vec!["id".to_string()], Vec::new())),
-                Some("错误: syntax error"),
-            ),
+            classify_workspace_surface(Some(&ResultSet::empty()), Some("错误: syntax error"),),
             WorkspaceSurface::QueryOutputAvailable
         );
         assert_eq!(
@@ -1582,10 +1575,19 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = DbManagerApp::new_for_test();
         prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
-        app.state.result = Some(QueryResult::with_rows(
-            vec!["id".to_string()],
-            vec![vec!["1".to_string()]],
-        ));
+        app.state.grid_state.result_set = Some(std::sync::Arc::new(ResultSet {
+            columns: std::sync::Arc::new([ResultColumn {
+                name: "id".into(),
+                type_info: DbTypeInfo {
+                    family: DbTypeFamily::Text,
+                    native_name: "TEXT".into(),
+                    nullable: None,
+                },
+            }]),
+            cells: vec![DbValue::Text("1".into())],
+            row_count: 1,
+            completeness: ResultCompleteness::Complete,
+        }));
         app.state.selected_table = Some("customers".to_string());
         app.state.show_er_diagram = false;
         app.set_focus_area(FocusArea::DataGrid);
@@ -1638,10 +1640,19 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = DbManagerApp::new_for_test();
         prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
-        app.state.result = Some(QueryResult::with_rows(
-            vec!["id".to_string()],
-            vec![vec!["1".to_string()]],
-        ));
+        app.state.grid_state.result_set = Some(std::sync::Arc::new(ResultSet {
+            columns: std::sync::Arc::new([ResultColumn {
+                name: "id".into(),
+                type_info: DbTypeInfo {
+                    family: DbTypeFamily::Text,
+                    native_name: "TEXT".into(),
+                    nullable: None,
+                },
+            }]),
+            cells: vec![DbValue::Text("1".into())],
+            row_count: 1,
+            completeness: ResultCompleteness::Complete,
+        }));
         app.state.selected_table = Some("customers".to_string());
         app.state.show_er_diagram = false;
         app.set_focus_area(FocusArea::DataGrid);

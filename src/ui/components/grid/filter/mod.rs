@@ -9,7 +9,8 @@ mod operators;
 mod ui;
 
 // 重新导出公共接口
-pub use cache::{FilterCache, filter_rows_cached};
+pub use cache::FilterCache;
+pub(crate) use cache::filter_result_set_cached;
 pub use condition::ColumnFilter;
 pub use logic::FilterLogic;
 pub use operators::{FilterOperator, check_filter_match};

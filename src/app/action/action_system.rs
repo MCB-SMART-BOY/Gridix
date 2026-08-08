@@ -192,12 +192,13 @@ impl ActionContext {
                 .manager
                 .get_active()
                 .map(|conn| conn.config.db_type),
-            has_result: app.state.result.is_some(),
+            has_result: app.state.grid_state.result_set.is_some(),
             result_has_rows: app
                 .state
-                .result
+                .grid_state
+                .result_set
                 .as_ref()
-                .is_some_and(|result| !result.rows.is_empty()),
+                .is_some_and(|result| result.row_count > 0),
             selected_table: app.state.selected_table.clone(),
             has_sql: !app.active_sql().trim().is_empty(),
             has_search_text: !app.state.search_text.trim().is_empty(),
@@ -276,7 +277,6 @@ pub(in crate::app) struct CommandMatch {
 pub(in crate::app) enum AppEffect {
     Connect(String),
     ExecuteSql(String),
-    FetchColumnMetadata(String),
     RefreshWelcomeEnvironment,
     EnsureLearningSample {
         reset: bool,
@@ -1384,9 +1384,7 @@ impl DbManagerApp {
                 .map(AppEffect::Connect)
                 .into_iter()
                 .collect(),
-            AppAction::RefreshSelectedTable => {
-                self.selected_table_query_effects(false, false, false)
-            }
+            AppAction::RefreshSelectedTable => self.selected_table_query_effects(false),
             AppAction::NewTable => {
                 self.open_create_table_dialog();
                 Vec::new()
@@ -1496,7 +1494,7 @@ impl DbManagerApp {
                 self.state.workbench.focus = crate::state::WorkbenchFocus::RightInspector;
                 Vec::new()
             }
-            AppAction::QuerySelectedTable => self.selected_table_query_effects(true, true, true),
+            AppAction::QuerySelectedTable => self.selected_table_query_effects(true),
             AppAction::ShowSelectedTableSchema => {
                 let Some(table) = self.state.selected_table.clone() else {
                     return Vec::new();
@@ -1556,19 +1554,11 @@ impl DbManagerApp {
         }
     }
 
-    fn selected_table_query_effects(
-        &mut self,
-        reset_primary_key: bool,
-        clear_sql: bool,
-        fetch_column_metadata: bool,
-    ) -> Vec<AppEffect> {
+    fn selected_table_query_effects(&mut self, clear_sql: bool) -> Vec<AppEffect> {
         let Some(table) = self.state.selected_table.clone() else {
             return Vec::new();
         };
         self.switch_grid_workspace(Some(table.clone()));
-        if reset_primary_key {
-            self.state.grid_state.primary_key_column = None;
-        }
 
         let query_sql = match ui::quote_identifier(&table, self.is_mysql()) {
             Ok(quoted_table) => format!(
@@ -1588,10 +1578,7 @@ impl DbManagerApp {
             self.set_active_sql(String::new());
         }
 
-        let mut effects = vec![AppEffect::ExecuteSql(query_sql)];
-        if fetch_column_metadata {
-            effects.push(AppEffect::FetchColumnMetadata(table));
-        }
+        let effects = vec![AppEffect::ExecuteSql(query_sql)];
         effects
     }
 
@@ -1615,9 +1602,6 @@ impl DbManagerApp {
                 }
                 AppEffect::ExecuteSql(sql) => {
                     let _ = self.execute(sql);
-                }
-                AppEffect::FetchColumnMetadata(table) => {
-                    self.fetch_column_metadata(&table);
                 }
                 AppEffect::RefreshWelcomeEnvironment => {
                     self.refresh_welcome_environment_status();

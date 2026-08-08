@@ -764,26 +764,50 @@ fn persist_connection_passwords(connections: &mut [ConnectionConfig]) -> Result<
     let mut warnings = Vec::new();
 
     for connection in connections {
-        if connection.password.is_empty() {
-            continue;
-        }
+        // DB 密码持久化
+        if !connection.password.is_empty() {
+            let password_ref = connection
+                .password_ref
+                .clone()
+                .unwrap_or_else(|| format!("connection:{}", uuid::Uuid::new_v4()));
 
-        let password_ref = connection
-            .password_ref
-            .clone()
-            .unwrap_or_else(|| format!("connection:{}", uuid::Uuid::new_v4()));
-
-        match store_password_secret(&password_ref, &connection.password) {
-            Ok(()) => {
-                connection.password_ref = Some(password_ref);
+            match store_password_secret(&password_ref, &connection.password) {
+                Ok(()) => {
+                    connection.password_ref = Some(password_ref);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        connection = %connection.name,
+                        error = %e,
+                        "无法将密码写入系统密钥链；连接配置仍会保存，但下次启动可能需要重新输入密码"
+                    );
+                    warnings.push(format!("{}: {}", connection.name, e));
+                }
             }
-            Err(e) => {
-                tracing::warn!(
-                    connection = %connection.name,
-                    error = %e,
-                    "无法将密码写入系统密钥链；连接配置仍会保存，但下次启动可能需要重新输入密码"
-                );
-                warnings.push(format!("{}: {}", connection.name, e));
+        }
+        // SSH 密码持久化
+        if connection.ssh_config.enabled && !connection.ssh_config.ssh_password.is_empty() {
+            let ssh_key = format!("ssh/{}", connection.name);
+            use crate::data::secret::{KeyringStore, SecretStore, SecretString};
+            let store = KeyringStore;
+            match store.store(
+                &ssh_key,
+                &SecretString::new(connection.ssh_config.ssh_password.clone()),
+            ) {
+                Ok(()) => {
+                    connection.ssh_config.password_ref = Some(ssh_key);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        connection = %connection.name,
+                        error = %e,
+                        "无法将 SSH 密码写入系统密钥链；新密码未持久化，重启后可能仍引用旧凭据"
+                    );
+                    warnings.push(format!(
+                        "{}: SSH 密码未持久化，重启后可能仍引用旧凭据: {}",
+                        connection.name, e
+                    ));
+                }
             }
         }
     }

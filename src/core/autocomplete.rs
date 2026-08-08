@@ -265,6 +265,28 @@ impl AutoComplete {
         self.columns.clear();
     }
 
+    /// 从 SchemaCatalog 批量填充表名和列名（Phase 6）
+    pub fn set_from_catalog(&mut self, catalog: &crate::domain::metadata::SchemaCatalog) {
+        self.tables = catalog
+            .table_names()
+            .into_iter()
+            .take(consts::MAX_CACHED_TABLES)
+            .map(String::from)
+            .collect();
+        self.columns.clear();
+        for table in &self.tables {
+            let cols: Vec<String> = catalog
+                .column_names(table)
+                .into_iter()
+                .take(consts::MAX_CACHED_COLUMNS_PER_TABLE)
+                .map(String::from)
+                .collect();
+            if !cols.is_empty() {
+                self.columns.insert(table.clone(), cols);
+            }
+        }
+    }
+
     /// 获取补全建议
     pub fn get_completions(&self, text: &str, cursor_pos: usize) -> Vec<CompletionItem> {
         // egui 的光标索引是字符索引，这里先安全转换为字节索引

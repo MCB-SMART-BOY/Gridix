@@ -133,22 +133,21 @@ impl DbManagerApp {
             tab.sql = sql;
         }
     }
-    /// Clear result from both mirror and active tab
+    /// 清除活动 Tab 的查询结果（Tab 是 canonical owner，state 是缓存）
     pub(crate) fn clear_result(&mut self) {
-        self.state.result = None;
         if let Some(tab) = self.session.tab_manager.get_active_mut() {
-            tab.result = None;
+            tab.result_set = None;
         }
+        self.state.grid_state.result_set = None;
     }
 
-    /// Clear search from both mirror and active tab
+    /// 清除活动 Tab 的搜索状态（Tab 是 canonical owner，state 是缓存）
     pub(crate) fn clear_search(&mut self) {
-        self.state.search_text.clear();
-        self.state.search_column = None;
         if let Some(tab) = self.session.tab_manager.get_active_mut() {
-            tab.search_text.clear();
             tab.search_column = None;
         }
+        self.state.search_text.clear();
+        self.state.search_column = None;
     }
 
     // ── Config save throttling ──
@@ -342,15 +341,6 @@ impl DbManagerApp {
         self.state.grid_state.focused = self.state.focus_area == ui::FocusArea::DataGrid;
     }
 
-    pub(in crate::app) fn sync_active_surface_binding_to_tab(&mut self) {
-        if let Some(tab) = self.session.tab_manager.get_active_mut() {
-            tab.selected_table = self.state.selected_table.clone();
-            tab.search_text = self.state.search_text.clone();
-            tab.search_column = self.state.search_column.clone();
-            tab.uses_grid_workspace = self.active_grid_workspace_enabled;
-        }
-    }
-
     pub(in crate::app) fn restore_grid_surface_from_active_tab(&mut self) {
         self.state.grid_state = match self.active_grid_workspace_id() {
             Some(workspace_id) => self.grid_workspaces.load(&workspace_id).unwrap_or_default(),
@@ -364,7 +354,32 @@ impl DbManagerApp {
         self.state.selected_table = next_table;
         self.active_grid_workspace_enabled = self.state.selected_table.is_some();
         self.restore_grid_surface_from_active_tab();
-        self.sync_active_surface_binding_to_tab();
+        self.sync_table_metadata();
+    }
+
+    /// 从 schema_catalogs 同步当前选中表的 TableMetadata 到 grid_state。
+    fn sync_table_metadata(&mut self) {
+        if let Some(table_name) = self.state.selected_table.clone() {
+            let conn = self.session.manager.get_active();
+            let conn_id = conn.map(|c| c.id);
+            let database = conn.and_then(|c| {
+                c.selected_database.clone().or_else(|| {
+                    if c.config.database.is_empty() {
+                        None
+                    } else {
+                        Some(c.config.database.clone())
+                    }
+                })
+            });
+            if let (Some(conn_id), Some(database)) = (conn_id, database)
+                && let Some(catalog) = self.session.schema_catalogs.get(&(conn_id, database))
+                && let Some(tm) = catalog.table(&table_name)
+            {
+                self.state.grid_state.table_metadata = Some(std::sync::Arc::new(tm.clone()));
+                return;
+            }
+        }
+        self.state.grid_state.table_metadata = None;
     }
 
     pub(in crate::app) fn reset_grid_workspace_for_transient_surface(
@@ -375,7 +390,7 @@ impl DbManagerApp {
         self.state.selected_table = selected_table;
         self.active_grid_workspace_enabled = false;
         self.restore_grid_surface_from_active_tab();
-        self.sync_active_surface_binding_to_tab();
+        self.sync_table_metadata();
     }
 
     pub(in crate::app) fn remove_grid_workspaces_for_connection(&mut self, connection_name: &str) {
@@ -433,7 +448,7 @@ impl DbManagerApp {
             .clone()
             .unwrap_or_else(|| "query_result".to_string());
 
-        if let Some(result) = &self.state.result {
+        if let Some(result) = &self.state.grid_state.result_set {
             let filter_name = format!("{} 文件", config.format.display_name());
             let filter_ext = config.format.extension();
 
@@ -450,7 +465,7 @@ impl DbManagerApp {
                     .map(|connection| connection.config.db_type)
                     .unwrap_or(crate::data::DatabaseType::SQLite);
                 self.state.export_status = Some(workflow::export::execute_export(
-                    result,
+                    result.as_ref(),
                     &table_name,
                     &path,
                     &config,
@@ -477,11 +492,16 @@ impl eframe::App for DbManagerApp {
             self.save_config();
             self.config_dirty = false;
         }
-        for (_, handle) in self.session.pending_query_tasks.drain() {
-            handle.abort();
+        // 通过 TaskRegistry 取消所有活跃任务（替代旧 pending_query_* 映射遍历）
+        let active_keys: Vec<crate::session::task_registry::OperationKey> = self
+            .session
+            .task_registry
+            .active_keys()
+            .map(|(k, _)| k.clone())
+            .collect();
+        for key in active_keys {
+            self.session.task_registry.cancel_by_key(&key);
         }
-        self.session.pending_query_connections.clear();
-        self.session.pending_query_cancellers.clear();
 
         // 清理连接池，确保所有数据库连接正确关闭
         self.session.runtime.block_on(async {

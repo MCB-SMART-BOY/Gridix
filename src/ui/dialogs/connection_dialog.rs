@@ -854,10 +854,13 @@ impl ConnectionDialog {
             SshAuthMethod::Password => {
                 Self::show_responsive_labeled_row(ui, "SSH 密码", |ui, row_class| {
                     let control_width = Self::control_width(ui, row_class, 260.0);
-                    ui.add_sized(
+                    let response = ui.add_sized(
                         [control_width, 0.0],
                         TextEdit::singleline(&mut config.ssh_config.ssh_password).password(true),
                     );
+                    if response.changed() {
+                        config.ssh_config.mark_password_edited();
+                    }
                 });
             }
             SshAuthMethod::PrivateKey => {

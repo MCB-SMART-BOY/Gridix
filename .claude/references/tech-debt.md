@@ -34,4 +34,7 @@ v7.1.0 — branch consolidation + rustls migration complete. All logic paths ver
 - FrameEffects types defined, not wired (needs_repaint works as minimal decoupling)
 - 72 source files zero test coverage (data/query drivers, grid filter)
 - 3 oversized files (keybindings_dialog 3560L, input_router 3369L, keybindings 2448L)
+- Dual-path architecture: generate_save_sql still generated alongside MutationBatch; Message::QueryDone sent alongside RuntimeEvent; pending_query_* maps not yet deleted
+- PG/MySQL typed mutation not implemented (guard-warning in execute_grid_save_typed)
+- SchemaCatalog backend exists but application consumers not wired (autocomplete.set_from_catalog has no caller in production runtime)
 - Session fields all pub (single-crate project, no practical risk)

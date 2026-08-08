@@ -4,13 +4,17 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '0 4 * * 1'
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  postgresql-cancel-tests:
-    name: PostgreSQL Cancel Integration
+  postgresql-integration:
+    name: PostgreSQL Typed Integration
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -30,11 +34,7 @@ jobs:
           --health-retries=12
 
     env:
-      GRIDIX_IT_PG_HOST: 127.0.0.1
-      GRIDIX_IT_PG_PORT: "5432"
-      GRIDIX_IT_PG_USER: gridix
-      GRIDIX_IT_PG_PASSWORD: gridix
-      GRIDIX_IT_PG_DB: gridix_test
+      GRIDIX_TEST_PG_URL: postgres://gridix:gridix@127.0.0.1:5432/gridix_test
 
     steps:
       - uses: actions/checkout@v4
@@ -57,8 +57,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev
 
-      - name: Run PostgreSQL integration tests
+      - name: Run PostgreSQL typed integration tests
         run: |
-          # PostgreSQL integration tests will be added in a future release.
-          # For now, we verify the crate compiles with postgres features.
-          cargo check --features postgres
+          : "${GRIDIX_TEST_PG_URL:?GRIDIX_TEST_PG_URL must be set for release acceptance}"
+          cargo test --test postgres_typed_e2e -- --nocapture --test-threads=1
+          cargo test --test postgres_cancel_integration -- --nocapture --test-threads=1

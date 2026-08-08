@@ -297,7 +297,9 @@ mod tests {
         command_palette_widths, consume_palette_key_action, search_commands,
     };
     use crate::app::dialogs::host::DialogId;
-    use crate::data::{Connection, ConnectionConfig, DatabaseType, QueryResult};
+    use crate::data::{Connection, ConnectionConfig, DatabaseType};
+    use crate::domain::result::{ResultColumn, ResultCompleteness, ResultSet};
+    use crate::domain::value::{DbTypeFamily, DbTypeInfo, DbValue};
     use crate::ui::FocusArea;
     use eframe::egui::{Area, Context, Event, Id, Key, Modifiers, RawInput};
 
@@ -388,10 +390,19 @@ mod tests {
         let ctx = Context::default();
         let mut app = DbManagerApp::new_for_test();
         prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
-        app.state.result = Some(QueryResult::with_rows(
-            vec!["id".to_string()],
-            vec![vec!["1".to_string()]],
-        ));
+        app.state.grid_state.result_set = Some(std::sync::Arc::new(ResultSet {
+            columns: std::sync::Arc::new([ResultColumn {
+                name: "id".into(),
+                type_info: DbTypeInfo {
+                    family: DbTypeFamily::Text,
+                    native_name: "TEXT".into(),
+                    nullable: None,
+                },
+            }]),
+            cells: vec![DbValue::Text("1".into())],
+            row_count: 1,
+            completeness: ResultCompleteness::Complete,
+        }));
         app.state.selected_table = Some("customers".to_string());
         app.state.show_er_diagram = false;
         app.set_focus_area(FocusArea::DataGrid);

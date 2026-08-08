@@ -5,16 +5,18 @@
 
 #![allow(dead_code)] // 公开 API，部分功能预留
 
-mod mysql;
-mod postgres;
-mod sqlite;
+pub(crate) mod mysql;
+pub(crate) mod postgres;
+pub(crate) mod sqlite;
 
 use super::ssh_tunnel::{SSH_TUNNEL_MANAGER, SshTunnel};
 use super::*;
 use crate::core::constants;
+use crate::domain::ids::SchemaRevision;
+use crate::domain::metadata::SchemaCatalog;
+use crate::domain::value::{DbTypeFamily, DbTypeInfo, DbValue};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::oneshot;
 use tokio::task;
 
 // ============================================================================
@@ -95,87 +97,96 @@ pub async fn get_tables_for_database(
     }
 }
 
-/// 获取表的主键列名
+/// 执行 SQL 并返回类型化 ExecutionOutcome
 ///
-/// 从数据库元数据中查询主键信息，返回主键列名（如果存在）
-pub async fn get_primary_key_column(
-    config: &ConnectionConfig,
-    table: &str,
-) -> Result<Option<String>, DbError> {
-    // 如果启用了 SSH 隧道，先建立隧道并修改连接配置
-    let (effective_config, _tunnel) = setup_ssh_tunnel_if_enabled(config).await?;
-    let table = table.to_string();
-
-    match effective_config.db_type {
-        DatabaseType::SQLite => {
-            task::spawn_blocking(move || sqlite::get_primary_key(&effective_config, &table))
-                .await
-                .map_err(|e| DbError::Query(format!("任务执行失败: {}", e)))?
-        }
-        DatabaseType::PostgreSQL => postgres::get_primary_key(&effective_config, &table).await,
-        DatabaseType::MySQL => mysql::get_primary_key(&effective_config, &table).await,
-    }
-}
-
-/// 执行 SQL 查询或命令
-///
-/// # Arguments
-/// * `config` - 数据库连接配置
-/// * `sql` - SQL 语句
-///
-/// # Returns
-/// 成功返回查询结果，失败返回错误
-pub async fn execute_query(config: &ConnectionConfig, sql: &str) -> Result<QueryResult, DbError> {
-    // 如果启用了 SSH 隧道，先建立隧道并修改连接配置
-    let (effective_config, _tunnel) = setup_ssh_tunnel_if_enabled(config).await?;
-    let sql = sql.to_string();
-
-    match effective_config.db_type {
-        DatabaseType::SQLite => {
-            task::spawn_blocking(move || sqlite::execute(&effective_config, &sql))
-                .await
-                .map_err(|e| DbError::Query(format!("任务执行失败: {}", e)))?
-        }
-        DatabaseType::PostgreSQL => postgres::execute(&effective_config, &sql).await,
-        DatabaseType::MySQL => mysql::execute(&effective_config, &sql).await,
-    }
-}
-
-/// 执行可取消的 SQL 查询
-///
-/// `cancel_rx` 收到信号后会尝试在数据库侧取消正在执行的查询。
-pub async fn execute_query_cancellable(
+/// 三后端均提供原生类型转换路径，避免 String→DbValue 二次转换。
+pub async fn execute_typed(
     config: &ConnectionConfig,
     sql: &str,
-    mut cancel_rx: oneshot::Receiver<()>,
-) -> Result<QueryResult, DbError> {
+) -> Result<crate::domain::execution::ExecutionOutcome, DbError> {
     let (effective_config, _tunnel) = setup_ssh_tunnel_if_enabled(config).await?;
-    let sql = sql.to_string();
-
     match effective_config.db_type {
         DatabaseType::SQLite => {
-            let (interrupt_tx, interrupt_rx) = oneshot::channel::<rusqlite::InterruptHandle>();
-            let mut query_task = task::spawn_blocking(move || {
-                sqlite::execute_with_interrupt_handle(&effective_config, &sql, Some(interrupt_tx))
-            });
+            let config = effective_config.clone();
+            let sql = sql.to_string();
+            tokio::task::spawn_blocking(move || sqlite::execute_typed(&config, &sql))
+                .await
+                .map_err(|e| DbError::Query(e.to_string()))?
+        }
+        DatabaseType::PostgreSQL => postgres::execute_typed(&effective_config, sql).await,
+        DatabaseType::MySQL => mysql::execute_typed(&effective_config, sql).await,
+    }
+}
 
-            tokio::select! {
-                res = &mut query_task => {
-                    res.map_err(|e| DbError::Query(format!("任务执行失败: {}", e)))?
-                }
-                _ = &mut cancel_rx => {
-                    if let Ok(handle) = interrupt_rx.await {
-                        handle.interrupt();
-                    }
-                    let _ = (&mut query_task).await;
-                    Err(DbError::Query("查询已取消".to_string()))
-                }
-            }
+/// 执行可由运行时任务协作取消的类型化 SQL。
+///
+/// SQLite 保持同步执行，因为已进入 rusqlite 的语句无法安全地伪装为服务端取消。
+pub async fn execute_typed_cancellable(
+    config: &ConnectionConfig,
+    sql: &str,
+    cancellation: &tokio_util::sync::CancellationToken,
+) -> Result<crate::domain::execution::ExecutionOutcome, DbError> {
+    if cancellation.is_cancelled() {
+        return Err(DbError::Cancelled);
+    }
+
+    let (effective_config, _tunnel) = setup_ssh_tunnel_if_enabled(config).await?;
+    match effective_config.db_type {
+        DatabaseType::SQLite => {
+            let config = effective_config.clone();
+            let sql = sql.to_string();
+            tokio::task::spawn_blocking(move || sqlite::execute_typed(&config, &sql))
+                .await
+                .map_err(|e| DbError::Query(e.to_string()))?
         }
         DatabaseType::PostgreSQL => {
-            postgres::execute_cancellable(&effective_config, &sql, cancel_rx).await
+            postgres::execute_typed_cancellable(&effective_config, sql, cancellation).await
         }
-        DatabaseType::MySQL => mysql::execute_cancellable(&effective_config, &sql, cancel_rx).await,
+        DatabaseType::MySQL => {
+            mysql::execute_typed_cancellable(&effective_config, sql, cancellation).await
+        }
+    }
+}
+
+/// 加载数据库 Schema 目录
+///
+/// 从数据库元数据（information_schema / sqlite_master）一次性加载所有表、列、
+/// 主键和外键信息，返回 `SchemaCatalog` 供 autocomplete、grid PK、ER 图使用。
+pub async fn load_schema_catalog(
+    config: &ConnectionConfig,
+    revision: SchemaRevision,
+) -> Result<SchemaCatalog, DbError> {
+    let (effective_config, _tunnel) = setup_ssh_tunnel_if_enabled(config).await?;
+    match effective_config.db_type {
+        DatabaseType::SQLite => {
+            let config = effective_config.clone();
+            tokio::task::spawn_blocking(move || sqlite::load_catalog(&config, revision))
+                .await
+                .map_err(|e| DbError::Query(e.to_string()))?
+        }
+        DatabaseType::PostgreSQL => postgres::load_catalog(&effective_config, revision).await,
+        DatabaseType::MySQL => mysql::load_catalog(&effective_config, revision).await,
+    }
+}
+
+/// 以参数化方式执行 MutationBatch（统一 dispatcher）
+///
+/// 三后端统一入口：SQLite 同步执行，PostgreSQL/MySQL 异步执行。
+pub async fn apply_mutations(
+    config: &ConnectionConfig,
+    batch: &crate::domain::mutation::MutationBatch,
+) -> Result<crate::domain::mutation::MutationBatchResult, DbError> {
+    let (effective_config, _tunnel) = setup_ssh_tunnel_if_enabled(config).await?;
+    match effective_config.db_type {
+        DatabaseType::SQLite => {
+            let config = effective_config.clone();
+            let batch = batch.clone();
+            tokio::task::spawn_blocking(move || sqlite::apply_mutations(&config, &batch))
+                .await
+                .map_err(|e| DbError::Query(e.to_string()))?
+        }
+        DatabaseType::PostgreSQL => postgres::apply_mutations(&effective_config, batch).await,
+        DatabaseType::MySQL => mysql::apply_mutations(&effective_config, batch).await,
     }
 }
 
@@ -259,20 +270,20 @@ async fn setup_ssh_tunnel_if_enabled(
         return Ok((config.clone(), None));
     }
 
-    // 验证 SSH 配置
-    config
-        .ssh_config
+    let store = crate::data::secret::KeyringStore;
+    let ssh_config = resolve_ssh_credentials(config.ssh_config.clone(), &store)?;
+    ssh_config
         .validate()
         .map_err(|e| DbError::Connection(format!("SSH 配置无效: {}", e)))?;
 
     // 创建隧道标识符（基于配置生成唯一名称）
-    let tunnel_name = config.ssh_config.tunnel_name();
+    let tunnel_name = ssh_config.tunnel_name();
 
     // 获取或创建隧道（带超时）
     let timeout_duration = Duration::from_secs(constants::database::SSH_TUNNEL_TIMEOUT_SECS);
     let tunnel = tokio::time::timeout(
         timeout_duration,
-        SSH_TUNNEL_MANAGER.get_or_create(&tunnel_name, &config.ssh_config),
+        SSH_TUNNEL_MANAGER.get_or_create(&tunnel_name, &ssh_config),
     )
     .await
     .map_err(|_| {
@@ -292,6 +303,115 @@ async fn setup_ssh_tunnel_if_enabled(
     effective_config.port = tunnel.local_port();
 
     Ok((effective_config, Some(tunnel)))
+}
+
+fn resolve_ssh_credentials<S: crate::data::secret::SecretStore>(
+    mut ssh_config: crate::data::ssh_tunnel::SshTunnelConfig,
+    store: &S,
+) -> Result<crate::data::ssh_tunnel::SshTunnelConfig, DbError> {
+    if !matches!(
+        ssh_config.auth_method,
+        crate::data::ssh_tunnel::SshAuthMethod::Password
+    ) || !ssh_config.ssh_password.is_empty()
+    {
+        return Ok(ssh_config);
+    }
+
+    let Some(password_ref) = ssh_config.password_ref.clone() else {
+        return Ok(ssh_config);
+    };
+
+    match store.load(&password_ref) {
+        Ok(Some(secret)) => {
+            ssh_config.ssh_password = secret.expose().to_string();
+            Ok(ssh_config)
+        }
+        Ok(None) => Err(DbError::Keyring(format!(
+            "未找到 SSH 密码 {}；请重新输入并保存 SSH 密码",
+            password_ref
+        ))),
+        Err(error) => Err(DbError::Keyring(format!(
+            "读取 SSH 密码 {} 失败: {}",
+            password_ref, error
+        ))),
+    }
+}
+
+#[cfg(test)]
+mod ssh_credential_tests {
+    use super::resolve_ssh_credentials;
+    use crate::data::secret::{SecretStore, SecretString};
+    use crate::data::{DbError, SshTunnelConfig};
+
+    enum LoadOutcome {
+        Found,
+        Missing,
+        Failed,
+    }
+
+    struct FakeSecretStore(LoadOutcome);
+
+    impl SecretStore for FakeSecretStore {
+        fn load(&self, _key: &str) -> Result<Option<SecretString>, DbError> {
+            match self.0 {
+                LoadOutcome::Found => Ok(Some(SecretString::new("resolved".to_string()))),
+                LoadOutcome::Missing => Ok(None),
+                LoadOutcome::Failed => Err(DbError::Keyring("backend unavailable".to_string())),
+            }
+        }
+
+        fn store(&self, _key: &str, _secret: &SecretString) -> Result<(), DbError> {
+            Ok(())
+        }
+
+        fn delete(&self, _key: &str) -> Result<(), DbError> {
+            Ok(())
+        }
+    }
+
+    fn build_password_config() -> SshTunnelConfig {
+        SshTunnelConfig {
+            password_ref: Some("ssh/test".to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn resolve_ssh_credentials_found_secret_populates_clone() {
+        let original = build_password_config();
+        let resolved =
+            resolve_ssh_credentials(original.clone(), &FakeSecretStore(LoadOutcome::Found))
+                .unwrap();
+
+        assert_eq!(resolved.ssh_password, "resolved");
+        assert!(original.ssh_password.is_empty());
+    }
+
+    #[test]
+    fn resolve_ssh_credentials_missing_secret_returns_keyring_guidance() {
+        let error = resolve_ssh_credentials(
+            build_password_config(),
+            &FakeSecretStore(LoadOutcome::Missing),
+        )
+        .unwrap_err();
+
+        assert!(matches!(&error, DbError::Keyring(_)));
+        assert!(error.to_string().contains("ssh/test"));
+        assert!(error.to_string().contains("请重新输入并保存 SSH 密码"));
+    }
+
+    #[test]
+    fn resolve_ssh_credentials_keyring_error_preserves_context() {
+        let error = resolve_ssh_credentials(
+            build_password_config(),
+            &FakeSecretStore(LoadOutcome::Failed),
+        )
+        .unwrap_err();
+
+        assert!(matches!(&error, DbError::Keyring(_)));
+        assert!(error.to_string().contains("读取 SSH 密码 ssh/test"));
+        assert!(error.to_string().contains("backend unavailable"));
+    }
 }
 
 /// 判断 SQL 是否为查询语句（返回结果集）
@@ -909,48 +1029,6 @@ mod tests {
     }
 }
 
-/// 构建查询成功的结果
-#[inline]
-pub(crate) fn query_result(columns: Vec<String>, rows: Vec<Vec<String>>) -> QueryResult {
-    QueryResult::with_rows(columns, rows)
-}
-
-/// 构建带空值标记的查询结果
-#[inline]
-pub(crate) fn query_result_with_null_flags(
-    columns: Vec<String>,
-    rows: Vec<Vec<String>>,
-    null_flags: Vec<Vec<bool>>,
-) -> QueryResult {
-    QueryResult::with_rows_and_null_flags(columns, rows, null_flags)
-}
-
-/// 构建执行成功的结果
-#[inline]
-pub(crate) fn exec_result(affected: u64) -> QueryResult {
-    QueryResult {
-        columns: vec![],
-        rows: vec![],
-        null_flags: vec![],
-        affected_rows: affected,
-        truncated: false,
-        original_row_count: None,
-    }
-}
-
-/// 构建空结果
-#[inline]
-pub(crate) fn empty_result() -> QueryResult {
-    QueryResult {
-        columns: vec![],
-        rows: vec![],
-        null_flags: vec![],
-        affected_rows: 0,
-        truncated: false,
-        original_row_count: None,
-    }
-}
-
 // ============================================================================
 // 触发器查询
 // ============================================================================
@@ -1017,61 +1095,151 @@ pub async fn get_routines(config: &ConnectionConfig) -> Result<Vec<RoutineInfo>,
         DatabaseType::MySQL => mysql::get_routines(&effective_config).await,
     }
 }
-
 // ============================================================================
-// 外键查询（用于 ER 图）
+// 类型推断辅助函数（从 adapter.rs 迁移）
 // ============================================================================
 
-/// 外键信息
-#[derive(Debug, Clone)]
-pub struct ForeignKeyInfo {
-    pub from_table: String,
-    pub from_column: String,
-    pub to_table: String,
-    pub to_column: String,
+/// 从数据库原生类型名推断类型族
+pub fn infer_type_family(data_type: &str) -> DbTypeFamily {
+    let t = data_type.to_ascii_lowercase();
+
+    // 布尔
+    if t.contains("bool") {
+        return DbTypeFamily::Bool;
+    }
+
+    // 整数族（需在浮点前判断，避免 "float" 中的 "int" 误匹配）
+    if t.contains("int") || t.contains("serial") {
+        return DbTypeFamily::Integer;
+    }
+
+    // 浮点族
+    if t.contains("real") || t.contains("float") || t.contains("double") {
+        return DbTypeFamily::Float;
+    }
+
+    // 精确数值
+    if t.contains("numeric") || t.contains("decimal") || t.contains("money") {
+        return DbTypeFamily::Decimal;
+    }
+
+    // 二进制
+    if t.contains("blob") || t.contains("bytea") || t.contains("binary") {
+        return DbTypeFamily::Bytes;
+    }
+
+    // 日期时间
+    if t == "date" {
+        return DbTypeFamily::Date;
+    }
+    if t == "time" || t.contains("timetz") {
+        return DbTypeFamily::Time;
+    }
+    if t.contains("timestamp") || t.contains("datetime") {
+        return DbTypeFamily::DateTime;
+    }
+
+    // JSON
+    if t.contains("json") {
+        return DbTypeFamily::Json;
+    }
+
+    // UUID
+    if t.contains("uuid") {
+        return DbTypeFamily::Uuid;
+    }
+
+    // Array
+    if t.starts_with('_') || t.ends_with("[]") || t.contains("array") {
+        return DbTypeFamily::Array;
+    }
+
+    // 默认：文本
+    DbTypeFamily::Text
 }
 
-/// 列信息
-#[derive(Debug, Clone)]
-pub struct ColumnInfo {
-    pub name: String,
-    pub data_type: String,
-    pub is_primary_key: bool,
-    pub is_nullable: bool,
-    /// 默认值（如有）
-    pub default_value: Option<String>,
-}
-
-/// 获取数据库的所有外键关系
-pub async fn get_foreign_keys(config: &ConnectionConfig) -> Result<Vec<ForeignKeyInfo>, DbError> {
-    let (effective_config, _tunnel) = setup_ssh_tunnel_if_enabled(config).await?;
-
-    match effective_config.db_type {
-        DatabaseType::SQLite => {
-            task::spawn_blocking(move || sqlite::get_foreign_keys(&effective_config))
-                .await
-                .map_err(|e| DbError::Query(format!("任务执行失败: {}", e)))?
-        }
-        DatabaseType::PostgreSQL => postgres::get_foreign_keys(&effective_config).await,
-        DatabaseType::MySQL => mysql::get_foreign_keys(&effective_config).await,
+/// 从文本值和列类型信息推断 DbValue
+pub fn infer_value(raw: &str, type_info: &DbTypeInfo) -> DbValue {
+    match type_info.family {
+        DbTypeFamily::Null => DbValue::Null,
+        DbTypeFamily::Bool => match raw.to_ascii_lowercase().as_str() {
+            "true" | "t" | "1" | "yes" | "on" => DbValue::Bool(true),
+            "false" | "f" | "0" | "no" | "off" => DbValue::Bool(false),
+            _ => DbValue::Text(raw.to_string()),
+        },
+        DbTypeFamily::Integer => raw
+            .parse::<i64>()
+            .map(DbValue::Int)
+            .unwrap_or_else(|_| DbValue::Text(raw.to_string())),
+        DbTypeFamily::Float => raw
+            .parse::<f64>()
+            .map(DbValue::Float)
+            .unwrap_or_else(|_| DbValue::Text(raw.to_string())),
+        DbTypeFamily::Decimal => DbValue::Decimal(raw.to_string()),
+        DbTypeFamily::Date => parse_date(raw)
+            .map(DbValue::Date)
+            .unwrap_or(DbValue::Text(raw.to_string())),
+        DbTypeFamily::Time => parse_time(raw)
+            .map(DbValue::Time)
+            .unwrap_or(DbValue::Text(raw.to_string())),
+        DbTypeFamily::DateTime => parse_datetime(raw)
+            .map(DbValue::DateTime)
+            .unwrap_or(DbValue::Text(raw.to_string())),
+        DbTypeFamily::Uuid => uuid::Uuid::parse_str(raw)
+            .map(DbValue::Uuid)
+            .unwrap_or(DbValue::Text(raw.to_string())),
+        DbTypeFamily::Json => serde_json::from_str(raw)
+            .map(DbValue::Json)
+            .unwrap_or(DbValue::Text(raw.to_string())),
+        _ => DbValue::Text(raw.to_string()),
     }
 }
 
-/// 获取指定表的列信息
-pub async fn get_table_columns(
-    config: &ConnectionConfig,
-    table: &str,
-) -> Result<Vec<ColumnInfo>, DbError> {
-    let (effective_config, _tunnel) = setup_ssh_tunnel_if_enabled(config).await?;
-    let table = table.to_string();
-
-    match effective_config.db_type {
-        DatabaseType::SQLite => {
-            task::spawn_blocking(move || sqlite::get_columns(&effective_config, &table))
-                .await
-                .map_err(|e| DbError::Query(format!("任务执行失败: {}", e)))?
-        }
-        DatabaseType::PostgreSQL => postgres::get_columns(&effective_config, &table).await,
-        DatabaseType::MySQL => mysql::get_columns(&effective_config, &table).await,
+fn parse_date(s: &str) -> Option<crate::domain::value::DbDate> {
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() == 3 {
+        let year = parts[0].parse().ok()?;
+        let month = parts[1].parse().ok()?;
+        let day = parts[2].parse().ok()?;
+        Some(crate::domain::value::DbDate { year, month, day })
+    } else {
+        None
     }
+}
+
+fn parse_time(s: &str) -> Option<crate::domain::value::DbTime> {
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() >= 3 {
+        let hour = parts[0].parse().ok()?;
+        let minute = parts[1].parse().ok()?;
+        let sec_parts: Vec<&str> = parts[2].split('.').collect();
+        let second = sec_parts[0].parse().ok()?;
+        let nanos = if sec_parts.len() > 1 {
+            let frac = sec_parts[1];
+            let padded = format!("{:0<9}", frac);
+            padded[..9].parse().unwrap_or(0)
+        } else {
+            0
+        };
+        Some(crate::domain::value::DbTime {
+            hour,
+            minute,
+            second,
+            nanos,
+        })
+    } else {
+        None
+    }
+}
+
+fn parse_datetime(s: &str) -> Option<crate::domain::value::DbDateTime> {
+    let (date_str, time_str) = if let Some(idx) = s.find('T') {
+        (&s[..idx], &s[idx + 1..])
+    } else {
+        let idx = s.find(' ')?;
+        (&s[..idx], &s[idx + 1..])
+    };
+    let date = parse_date(date_str)?;
+    let time = parse_time(time_str)?;
+    Some(crate::domain::value::DbDateTime { date, time })
 }

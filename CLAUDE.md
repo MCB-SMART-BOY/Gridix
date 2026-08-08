@@ -53,7 +53,7 @@ src/
 ├── lib.rs               # public API re-exports
 ├── bootstrap.rs         # tracing (RUST_LOG, default gridix=info,warn), panic hook, fonts, eframe launch (1200×800)
 ├── prelude.rs           # use crate::prelude::* — HashMap, Arc, Color32, tokio, serde, thiserror
-├── types.rs             # Layer -1: shared types — DatabaseType, PostgresSslMode, MySqlSslMode, QueryResult
+├── types.rs             # Layer -1: shared types — DatabaseType, PostgresSslMode, MySqlSslMode
 ├── core/                # Layer 0: pure functions, no side effects
 │   ├── config.rs        # AppConfig (TOML, atomic temp-file+rename, Unix 0o600)
 │   ├── keybindings.rs   # Action (35 variants), KeyBindings, keymap.toml engine

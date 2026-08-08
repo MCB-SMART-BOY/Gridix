@@ -297,99 +297,52 @@ impl PoolManager {
     async fn connect_pg_with_ssl(
         config: &ConnectionConfig,
     ) -> Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>), DbError> {
-        let conn_string = config.connection_string();
-
         match config.postgres_ssl_mode {
             PostgresSslMode::Disable => {
-                // 不使用 TLS
-                let (client, conn) = tokio_postgres::connect(&conn_string, tokio_postgres::NoTls)
-                    .await
-                    .map_err(|e| DbError::Connection(format!("PostgreSQL 连接失败: {}", e)))?;
-
-                let handle = Self::spawn_pg_connection(conn, &config.pool_key());
-                Ok((client, handle))
+                Self::connect_pg_plain(config, tokio_postgres::config::SslMode::Disable).await
             }
             PostgresSslMode::Prefer => {
-                // 优先使用 TLS，失败则回退到非 TLS
-                match Self::connect_pg_tls(config, true).await {
+                match Self::connect_pg_tls(config, true, tokio_postgres::config::SslMode::Prefer)
+                    .await
+                {
                     Ok(pair) => Ok(pair),
                     Err(_) => {
-                        // TLS 失败，尝试非 TLS
-                        let (client, conn) =
-                            tokio_postgres::connect(&conn_string, tokio_postgres::NoTls)
-                                .await
-                                .map_err(|e| {
-                                    DbError::Connection(format!("PostgreSQL 连接失败: {}", e))
-                                })?;
-
-                        let handle = Self::spawn_pg_connection(conn, &config.pool_key());
-                        Ok((client, handle))
+                        Self::connect_pg_plain(config, tokio_postgres::config::SslMode::Disable)
+                            .await
                     }
                 }
             }
-            PostgresSslMode::Require => {
-                // 必须使用 TLS，使用系统 CA 验证证书
-                Self::connect_pg_tls(config, false).await
-            }
-            PostgresSslMode::VerifyCa | PostgresSslMode::VerifyFull => {
-                // 验证证书
-                Self::connect_pg_tls(config, false).await
+            PostgresSslMode::Require | PostgresSslMode::VerifyCa | PostgresSslMode::VerifyFull => {
+                Self::connect_pg_tls(config, false, tokio_postgres::config::SslMode::Require).await
             }
         }
+    }
+
+    async fn connect_pg_plain(
+        config: &ConnectionConfig,
+        ssl_mode: tokio_postgres::config::SslMode,
+    ) -> Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>), DbError> {
+        let pg_config = build_pg_connection_config(config, ssl_mode)?;
+        let (client, conn) = pg_config
+            .connect(tokio_postgres::NoTls)
+            .await
+            .map_err(|e| DbError::Connection(format!("PostgreSQL 连接失败: {}", e)))?;
+        let handle = Self::spawn_pg_connection(conn, &config.pool_key());
+        Ok((client, handle))
     }
 
     /// 使用 TLS 连接 PostgreSQL。返回客户端及其后台连接任务句柄。
     async fn connect_pg_tls(
         config: &ConnectionConfig,
         accept_invalid_certs: bool,
+        ssl_mode: tokio_postgres::config::SslMode,
     ) -> Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>), DbError> {
-        use std::path::Path;
-
-        let config_builder = rustls::ClientConfig::builder();
-
-        let tls_config = if accept_invalid_certs {
-            config_builder
-                .dangerous()
-                .with_custom_certificate_verifier(Arc::new(SkipCertVerification))
-                .with_no_client_auth()
-        } else if !config.ssl_ca_cert.is_empty() {
-            let ca_path = Path::new(&config.ssl_ca_cert);
-            if !ca_path.exists() {
-                return Err(DbError::Connection(format!(
-                    "CA 证书文件不存在: {}",
-                    config.ssl_ca_cert
-                )));
-            }
-            let ca_data = std::fs::read(&config.ssl_ca_cert)
-                .map_err(|e| DbError::Connection(format!("读取 CA 证书失败: {}", e)))?;
-            let certs = rustls_pemfile::certs(&mut ca_data.as_slice())
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| DbError::Connection(format!("解析 CA 证书失败: {}", e)))?;
-
-            let mut root_store = rustls::RootCertStore::empty();
-            for cert in certs {
-                root_store
-                    .add(cert)
-                    .map_err(|e| DbError::Connection(format!("添加 CA 证书失败: {}", e)))?;
-            }
-
-            config_builder
-                .with_root_certificates(root_store)
-                .with_no_client_auth()
-        } else {
-            let root_store =
-                rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-            config_builder
-                .with_root_certificates(root_store)
-                .with_no_client_auth()
-        };
-
-        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(tls_config);
-
-        let (client, conn) = tokio_postgres::connect(&config.connection_string(), tls)
+        let pg_config = build_pg_connection_config(config, ssl_mode)?;
+        let tls = build_pg_tls_connector(config, accept_invalid_certs)?;
+        let (client, conn) = pg_config
+            .connect(tls)
             .await
             .map_err(|e| DbError::Connection(format!("PostgreSQL TLS 连接失败: {}", e)))?;
-
         let handle = Self::spawn_pg_connection(conn, &config.pool_key());
         Ok((client, handle))
     }
@@ -452,6 +405,63 @@ impl PoolManager {
             }
         }
     }
+}
+
+fn build_pg_connection_config(
+    config: &ConnectionConfig,
+    ssl_mode: tokio_postgres::config::SslMode,
+) -> Result<tokio_postgres::Config, DbError> {
+    let mut pg_config = config
+        .connection_string()
+        .parse::<tokio_postgres::Config>()
+        .map_err(|e| DbError::Connection(format!("PostgreSQL URL 解析失败: {}", e)))?;
+    pg_config.ssl_mode(ssl_mode);
+    Ok(pg_config)
+}
+
+pub(crate) fn build_pg_tls_connector(
+    config: &ConnectionConfig,
+    accept_invalid_certs: bool,
+) -> Result<tokio_postgres_rustls::MakeRustlsConnect, DbError> {
+    use std::path::Path;
+
+    let config_builder = rustls::ClientConfig::builder();
+    let tls_config = if accept_invalid_certs {
+        config_builder
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(SkipCertVerification))
+            .with_no_client_auth()
+    } else if !config.ssl_ca_cert.is_empty() {
+        let ca_path = Path::new(&config.ssl_ca_cert);
+        if !ca_path.exists() {
+            return Err(DbError::Connection(format!(
+                "CA 证书文件不存在: {}",
+                config.ssl_ca_cert
+            )));
+        }
+        let ca_data = std::fs::read(&config.ssl_ca_cert)
+            .map_err(|e| DbError::Connection(format!("读取 CA 证书失败: {}", e)))?;
+        let certs = rustls_pemfile::certs(&mut ca_data.as_slice())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| DbError::Connection(format!("解析 CA 证书失败: {}", e)))?;
+        let mut root_store = rustls::RootCertStore::empty();
+        for cert in certs {
+            root_store
+                .add(cert)
+                .map_err(|e| DbError::Connection(format!("添加 CA 证书失败: {}", e)))?;
+        }
+        config_builder
+            .with_root_certificates(root_store)
+            .with_no_client_auth()
+    } else {
+        let root_store =
+            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        config_builder
+            .with_root_certificates(root_store)
+            .with_no_client_auth()
+    };
+
+    Ok(tokio_postgres_rustls::MakeRustlsConnect::new(tls_config))
 }
 
 impl Default for PoolManager {

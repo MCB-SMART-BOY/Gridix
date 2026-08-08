@@ -2,71 +2,17 @@
 //!
 //! 处理从异步任务返回的各种消息，更新应用状态。
 
-use std::collections::HashSet;
-
 use eframe::egui;
 
 use super::{DbManagerApp, Message};
+use crate::domain::execution::StatementOutcome;
 use crate::ui;
-
-struct QueryDonePayload {
-    sql: String,
-    conn_name: String,
-    tab_id: String,
-    request_id: u64,
-    result: Result<crate::data::QueryResult, String>,
-    elapsed_ms: u64,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ErDiagramReadyKind {
     Explicit(usize),
     Inferred(usize),
     Empty,
-}
-
-fn is_cancelled_query_error(err: &str) -> bool {
-    let trimmed = err.trim();
-    if trimmed.starts_with("查询已取消") {
-        return true;
-    }
-
-    let lower = trimmed.to_ascii_lowercase();
-    lower.contains("query canceled")
-        || lower.contains("query cancelled")
-        || lower.contains("canceling statement due to user request")
-        || lower.contains("query execution was interrupted")
-}
-
-#[allow(dead_code)] // utility — tested but not called in production (future grid cursor restore)
-fn clamp_grid_cursor_for_result(
-    cursor: (usize, usize),
-    result: &crate::data::QueryResult,
-) -> (usize, usize) {
-    if result.rows.is_empty() || result.columns.is_empty() {
-        return (0, 0);
-    }
-
-    (
-        cursor.0.min(result.rows.len().saturating_sub(1)),
-        cursor.1.min(result.columns.len().saturating_sub(1)),
-    )
-}
-
-fn should_drop_query_error_as_stale(
-    is_stale_for_existing_tab: bool,
-    is_cancelled: bool,
-    was_user_cancelled: bool,
-) -> bool {
-    is_stale_for_existing_tab && !(is_cancelled && was_user_cancelled)
-}
-
-fn should_record_active_query_time(
-    target_tab_index: Option<usize>,
-    active_index: usize,
-    is_stale_for_existing_tab: bool,
-) -> bool {
-    !is_stale_for_existing_tab && target_tab_index == Some(active_index)
 }
 
 /// schema 变更失效级联需要执行哪些重载（纯决策，便于单测）。
@@ -104,29 +50,6 @@ fn classify_grid_save_outcome(
         Ok(report) if report.failed == 0 => GridSaveOutcome::CommittedClearEdits,
         _ => GridSaveOutcome::RolledBackKeepEdits,
     }
-}
-
-fn collect_er_foreign_key_columns(
-    fks: &[crate::data::ForeignKeyInfo],
-) -> HashSet<(String, String)> {
-    fks.iter()
-        .map(|fk| (fk.from_table.clone(), fk.from_column.clone()))
-        .collect()
-}
-
-fn collect_er_relationships_from_foreign_keys(
-    fks: Vec<crate::data::ForeignKeyInfo>,
-) -> Vec<ui::Relationship> {
-    fks.into_iter()
-        .map(|fk| ui::Relationship {
-            from_table: fk.from_table,
-            from_column: fk.from_column,
-            to_table: fk.to_table,
-            to_column: fk.to_column,
-            relation_type: ui::RelationType::OneToMany,
-            origin: ui::RelationshipOrigin::Explicit,
-        })
-        .collect()
 }
 
 fn resolve_er_diagram_ready_state(
@@ -214,7 +137,7 @@ fn apply_ready_state_er_diagram_layout(state: &mut ui::ERDiagramState) {
 }
 
 impl DbManagerApp {
-    fn finalize_er_diagram_load_if_ready(&mut self) {
+    pub(super) fn finalize_er_diagram_load_if_ready(&mut self) {
         if self.state.er_diagram_state.loading || self.state.er_diagram_state.tables.is_empty() {
             return;
         }
@@ -237,16 +160,11 @@ impl DbManagerApp {
     }
 
     /// 处理异步消息
-    ///
-    /// 轮询消息通道，处理数据库连接、查询结果、ER图数据等异步任务的返回结果。
     pub fn handle_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.session.rx.try_recv() {
             match msg {
-                Message::ConnectedWithTables(name, request_id, result) => {
-                    self.handle_connected_with_tables(ctx, name, request_id, result);
-                }
-                Message::ConnectedWithDatabases(name, request_id, result) => {
-                    self.handle_connected_with_databases(ctx, name, request_id, result);
+                Message::RuntimeEvent(event) => {
+                    self.handle_runtime_event(ctx, event);
                 }
                 Message::DatabaseSelected(conn_name, db_name, request_id, result) => {
                     self.handle_database_selected(ctx, conn_name, db_name, request_id, result);
@@ -260,44 +178,14 @@ impl DbManagerApp {
                 Message::ActiveTablesReloaded(conn_name, request_id, result) => {
                     self.handle_active_tables_reloaded(ctx, conn_name, request_id, result);
                 }
-                Message::QueryDone(sql, conn_name, tab_id, request_id, result, elapsed_ms) => {
-                    self.handle_query_done(
-                        ctx,
-                        QueryDonePayload {
-                            sql,
-                            conn_name,
-                            tab_id,
-                            request_id,
-                            result,
-                            elapsed_ms,
-                        },
-                    );
-                }
                 Message::ImportDone(result, elapsed_ms) => {
                     self.handle_import_done(ctx, result, elapsed_ms);
-                }
-                Message::GridSaveDone {
-                    result,
-                    table,
-                    request_id,
-                    elapsed_ms,
-                } => {
-                    self.handle_grid_save_done(ctx, result, table, request_id, elapsed_ms);
-                }
-                Message::ColumnMetadataFetched(table_name, columns) => {
-                    self.handle_column_metadata_fetched(ctx, table_name, columns);
                 }
                 Message::TriggersFetched(conn_name, db_name, request_id, result) => {
                     self.handle_triggers_fetched(ctx, conn_name, db_name, request_id, result);
                 }
                 Message::RoutinesFetched(conn_name, db_name, request_id, result) => {
                     self.handle_routines_fetched(ctx, conn_name, db_name, request_id, result);
-                }
-                Message::ForeignKeysFetched(generation, result) => {
-                    self.handle_foreign_keys_fetched(ctx, generation, result);
-                }
-                Message::ERTableColumnsFetched(generation, table_name, result) => {
-                    self.handle_er_table_columns_fetched(ctx, generation, table_name, result);
                 }
             }
         }
@@ -356,62 +244,6 @@ impl DbManagerApp {
                     if self.state.show_er_diagram {
                         self.load_er_diagram_data();
                     }
-                }
-            }
-            Err(e) => {
-                if is_active {
-                    self.handle_connection_error(&name, e);
-                } else if let Some(conn) = self.session.manager.connections.get_mut(&name) {
-                    conn.set_error(e);
-                }
-            }
-        }
-        self.session.needs_repaint = true;
-    }
-
-    /// 处理 MySQL/PostgreSQL 连接完成消息
-    fn handle_connected_with_databases(
-        &mut self,
-        _ctx: &egui::Context,
-        name: String,
-        request_id: u64,
-        result: Result<Vec<String>, String>,
-    ) {
-        let is_latest = self
-            .session
-            .pending_connect_requests
-            .get(&name)
-            .is_some_and(|id| *id == request_id);
-        if !is_latest {
-            tracing::debug!(
-                connection = %name,
-                request_id,
-                "忽略过期连接回包（多数据库）"
-            );
-            return;
-        }
-        self.session.pending_connect_requests.remove(&name);
-        self.session.refresh_connecting_flag();
-
-        let is_active = self.session.manager.active.as_deref() == Some(name.as_str());
-        match result {
-            Ok(databases) => {
-                if let Some(conn) = self.session.manager.connections.get_mut(&name) {
-                    conn.set_connected_with_databases(databases.clone());
-                }
-
-                if is_active {
-                    self.session.notifications.success(format!(
-                        "已连接到 {} ({} 个数据库)",
-                        name,
-                        databases.len()
-                    ));
-                    self.load_history_for_connection(&name);
-                    self.session.autocomplete.clear();
-                    self.state
-                        .sidebar_panel_state
-                        .selection
-                        .reset_for_connection_change();
                 }
             }
             Err(e) => {
@@ -610,293 +442,38 @@ impl DbManagerApp {
         &mut self,
         _ctx: &egui::Context,
         conn_name: String,
-        _request_id: u64,
+        request_id: u64,
         result: Result<Vec<String>, String>,
     ) {
-        if self.session.manager.active.as_deref() != Some(conn_name.as_str()) {
-            tracing::debug!(connection = %conn_name, "忽略过期表列表刷新（连接已切换）");
+        let is_active = self.session.manager.active.as_deref() == Some(conn_name.as_str());
+        let is_latest = self
+            .session
+            .pending_active_tables_reload_requests
+            .get(&conn_name)
+            .is_some_and(|pending_id| *pending_id == request_id);
+        if !is_active || !is_latest {
+            tracing::debug!(
+                connection = %conn_name,
+                request_id,
+                "忽略过期表列表刷新"
+            );
             return;
         }
+
         match result {
             Ok(tables) => {
                 if let Some(conn) = self.session.manager.connections.get_mut(&conn_name) {
                     conn.tables = tables.clone();
                 }
                 self.session.autocomplete.set_tables(tables);
+                self.session
+                    .pending_active_tables_reload_requests
+                    .remove(&conn_name);
             }
             Err(e) => {
                 tracing::warn!(connection = %conn_name, error = %e, "刷新表列表失败");
             }
         }
-        self.session.needs_repaint = true;
-    }
-
-    /// 处理查询完成消息
-    fn handle_query_done(&mut self, _ctx: &egui::Context, payload: QueryDonePayload) {
-        use crate::core::constants;
-        let QueryDonePayload {
-            sql,
-            conn_name,
-            tab_id,
-            request_id,
-            result,
-            elapsed_ms,
-        } = payload;
-
-        self.finalize_query_task(request_id);
-        let was_user_cancelled = self
-            .session
-            .user_cancelled_query_requests
-            .remove(&request_id);
-
-        let target_tab_index = self
-            .session
-            .tab_manager
-            .tabs
-            .iter()
-            .position(|t| t.id == tab_id);
-        let is_stale_for_existing_tab = target_tab_index
-            .and_then(|idx| self.session.tab_manager.tabs.get(idx))
-            .is_some_and(|tab| tab.pending_request_id != Some(request_id));
-        let should_update_active_query_time = should_record_active_query_time(
-            target_tab_index,
-            self.session.tab_manager.active_index,
-            is_stale_for_existing_tab,
-        );
-
-        let sql_hints = crate::data::analyze_sql_for_ui(&sql);
-        let is_update_or_delete = sql_hints.is_update_or_delete;
-        let is_insert = sql_hints.is_insert;
-        let is_drop_table = sql_hints.is_drop_table;
-
-        let db_type = self
-            .session
-            .manager
-            .connections
-            .get(&conn_name)
-            .map(|c| c.config.db_type.display_name().to_string())
-            .unwrap_or_default();
-
-        match result {
-            Ok(mut res) => {
-                if sql_hints.is_create_database {
-                    self.mark_onboarding_database_initialized();
-                }
-                if sql_hints.is_create_user_or_role {
-                    self.mark_onboarding_user_created();
-                }
-                self.mark_onboarding_first_query_executed();
-                // 查询层已执行结果集限流；这里保留兼容兜底（避免旧路径漏限流）
-                let mut original_rows = res.original_row_count.unwrap_or(res.rows.len());
-                let mut was_truncated = res.truncated;
-                if !was_truncated && res.rows.len() > constants::database::MAX_RESULT_SET_ROWS {
-                    original_rows = res.rows.len();
-                    was_truncated = true;
-                    res.rows.truncate(constants::database::MAX_RESULT_SET_ROWS);
-                    res.truncated = true;
-                    res.original_row_count = Some(original_rows);
-                }
-
-                self.session.query_history.add(
-                    sql,
-                    db_type,
-                    true,
-                    if res.affected_rows > 0 {
-                        Some(res.affected_rows)
-                    } else {
-                        None
-                    },
-                );
-
-                if is_stale_for_existing_tab {
-                    if is_drop_table {
-                        self.state.pending_drop_requests.remove(&request_id);
-                    }
-                    tracing::debug!(
-                        tab_id = %tab_id,
-                        request_id,
-                        "忽略过期查询回包（请求已被新查询覆盖或标签已关闭）"
-                    );
-                    self.session.refresh_executing_flag();
-                    self.session.needs_repaint = true;
-                    return;
-                }
-
-                let msg = if res.columns.is_empty() {
-                    format!("执行成功，影响 {} 行 ({}ms)", res.affected_rows, elapsed_ms)
-                } else if was_truncated {
-                    format!(
-                        "查询完成，返回 {} 行（已截断，原始 {} 行，建议使用 LIMIT）({}ms)",
-                        res.rows.len(),
-                        original_rows,
-                        elapsed_ms
-                    )
-                } else {
-                    format!("查询完成，返回 {} 行 ({}ms)", res.rows.len(), elapsed_ms)
-                };
-
-                if let Some(idx) = target_tab_index {
-                    let is_active_tab = idx == self.session.tab_manager.active_index;
-                    if let Some(tab) = self.session.tab_manager.tabs.get_mut(idx) {
-                        tab.result = Some(res.clone());
-                        tab.executing = false;
-                        tab.last_error = None;
-                        tab.pending_request_id = None;
-                        tab.query_time_ms = Some(elapsed_ms);
-                        tab.last_message = Some(msg.clone());
-                    }
-
-                    if is_active_tab {
-                        if should_update_active_query_time {
-                            self.session.last_query_time_ms = Some(elapsed_ms);
-                        }
-                        self.session.notifications.success(&msg);
-                        self.state.selected_row = None;
-                        self.state.selected_cell = None;
-                        self.clear_search();
-
-                        // 根据 SQL 类型设置光标位置
-                        if is_update_or_delete {
-                            self.state.grid_state.scroll_to_row =
-                                Some(self.state.grid_state.cursor.0);
-                        } else if is_insert {
-                            let last_row = res.rows.len().saturating_sub(1);
-                            self.state.grid_state.cursor = (last_row, 0);
-                            self.state.grid_state.scroll_to_row = Some(last_row);
-                        }
-
-                        if self.state.focus_area == ui::FocusArea::DataGrid {
-                            self.state.grid_state.focused = true;
-                        }
-
-                        // 更新自动补全
-                        if let Some(table) = &self.state.selected_table
-                            && !res.columns.is_empty()
-                        {
-                            self.session
-                                .autocomplete
-                                .set_columns(table.clone(), res.columns.clone());
-                        }
-
-                        self.state.result = Some(res.clone());
-                        self.reveal_bottom_panel_for_query(crate::core::BottomPanelTab::Results);
-                        // 清除过期行删除标记，防止新数据行数变化后误删
-                        self.state.grid_state.rows_to_delete.clear();
-                    }
-                } else {
-                    tracing::debug!(tab_id = %tab_id, "查询回包对应的标签页已不存在");
-                }
-
-                if is_drop_table
-                    && let Some((drop_conn_name, dropped_table)) =
-                        self.state.pending_drop_requests.remove(&request_id)
-                {
-                    let is_current_active =
-                        self.session.manager.active.as_deref() == Some(drop_conn_name.as_str());
-
-                    if let Some(conn) = self.session.manager.connections.get_mut(&drop_conn_name) {
-                        conn.tables.retain(|t| t != &dropped_table);
-                        if is_current_active {
-                            self.session.autocomplete.set_tables(conn.tables.clone());
-                        }
-                    }
-
-                    if is_current_active
-                        && self.state.selected_table.as_deref() == Some(&dropped_table)
-                    {
-                        self.switch_grid_workspace(None);
-                        self.remove_grid_workspace_for_table(&dropped_table);
-                        self.clear_result();
-                    }
-                }
-
-                // 统一的 schema 失效级联：DDL 成功后重载受影响的派生视图
-                // （表列表/autocomplete/ER 图、触发器、存储过程）。修复审计 ER-4/ER-6/SM-8。
-                self.invalidate_after_schema_change(&sql_hints, &conn_name);
-            }
-            Err(e) => {
-                let is_cancelled = is_cancelled_query_error(&e);
-                if !is_cancelled {
-                    self.session.query_history.add(sql, db_type, false, None);
-                }
-                if should_drop_query_error_as_stale(
-                    is_stale_for_existing_tab,
-                    is_cancelled,
-                    was_user_cancelled,
-                ) {
-                    if is_drop_table {
-                        self.state.pending_drop_requests.remove(&request_id);
-                    }
-                    tracing::debug!(
-                        tab_id = %tab_id,
-                        request_id,
-                        error = %e,
-                        "忽略过期查询错误回包（请求已被新查询覆盖或标签已关闭）"
-                    );
-                    self.session.refresh_executing_flag();
-                    self.session.needs_repaint = true;
-                    return;
-                }
-
-                if target_tab_index.is_none() {
-                    tracing::debug!(tab_id = %tab_id, "查询错误回包对应的标签页已不存在");
-                    if is_drop_table {
-                        self.state.pending_drop_requests.remove(&request_id);
-                    }
-                    self.session.refresh_executing_flag();
-                    self.session.needs_repaint = true;
-                    return;
-                }
-
-                let err_msg = if is_cancelled {
-                    if e.starts_with("查询已取消") {
-                        e.clone()
-                    } else {
-                        format!("查询已取消 ({})", e)
-                    }
-                } else {
-                    format!("错误: {}", e)
-                };
-                if is_cancelled {
-                    self.session.notifications.warning(&err_msg);
-                } else {
-                    self.session.notifications.error(&err_msg);
-                }
-                if let Some(idx) = target_tab_index {
-                    let is_active_tab = idx == self.session.tab_manager.active_index;
-                    if let Some(tab) = self.session.tab_manager.tabs.get_mut(idx) {
-                        tab.executing = false;
-                        if !is_cancelled {
-                            tab.result = None;
-                        }
-                        tab.query_time_ms = Some(elapsed_ms);
-                        tab.last_error = if is_cancelled {
-                            None
-                        } else {
-                            Some(err_msg.clone())
-                        };
-                        tab.pending_request_id = None;
-                        tab.last_message = Some(err_msg.clone());
-                    }
-                    if is_active_tab {
-                        if should_update_active_query_time {
-                            self.session.last_query_time_ms = Some(elapsed_ms);
-                        }
-                        if !is_cancelled {
-                            self.clear_result();
-                            self.reveal_bottom_panel_for_query(
-                                crate::core::BottomPanelTab::Messages,
-                            );
-                        }
-                    }
-                }
-
-                if is_drop_table {
-                    self.state.pending_drop_requests.remove(&request_id);
-                }
-            }
-        }
-        self.session.refresh_executing_flag();
         self.session.needs_repaint = true;
     }
 
@@ -971,19 +548,10 @@ impl DbManagerApp {
         ctx: &egui::Context,
         result: Result<crate::data::ImportExecutionReport, String>,
         table: String,
-        request_id: u64,
         elapsed_ms: u64,
     ) {
         self.session.grid_save_executing = false;
         self.session.refresh_executing_flag();
-
-        // 过期回包保护：仅处理最新一次网格保存的结果。
-        if self.session.pending_grid_save_request != Some(request_id) {
-            tracing::debug!(request_id, "忽略过期网格保存回包");
-            self.session.needs_repaint = true;
-            return;
-        }
-        self.session.pending_grid_save_request = None;
 
         match (classify_grid_save_outcome(&result), result) {
             (GridSaveOutcome::CommittedClearEdits, Ok(report)) => {
@@ -1016,33 +584,6 @@ impl DbManagerApp {
             }
         }
 
-        self.session.needs_repaint = true;
-    }
-
-    /// 处理列元数据获取完成消息
-    ///
-    /// 缓存列元数据用于保存前校验,并由其中 `is_primary_key` 顺带刷新主键索引(审计 G6)。
-    fn handle_column_metadata_fetched(
-        &mut self,
-        _ctx: &egui::Context,
-        table_name: String,
-        columns: Vec<crate::data::ColumnInfo>,
-    ) {
-        // 过期保护:仅当回包仍对应当前选中表时落地。
-        if self.state.selected_table.as_deref() == Some(&table_name) {
-            // 从列元数据推导主键索引(取代旧的仅拉主键路径)。
-            let pk_name = columns
-                .iter()
-                .find(|c| c.is_primary_key)
-                .map(|c| c.name.clone());
-            self.state.grid_state.primary_key_column = pk_name.and_then(|name| {
-                self.state
-                    .result
-                    .as_ref()
-                    .and_then(|result| result.columns.iter().position(|c| c == &name))
-            });
-            self.state.grid_state.column_metadata = columns;
-        }
         self.session.needs_repaint = true;
     }
 
@@ -1169,100 +710,232 @@ impl DbManagerApp {
         self.session.needs_repaint = true;
     }
 
-    /// 处理外键获取完成消息
-    fn handle_foreign_keys_fetched(
+    /// 处理统一运行时事件（T1 cutover）。
+    fn handle_runtime_event(
         &mut self,
-        _ctx: &egui::Context,
-        generation: u64,
-        result: Result<Vec<crate::data::ForeignKeyInfo>, String>,
+        ctx: &egui::Context,
+        event: crate::session::runtime_event::RuntimeEvent,
     ) {
-        // 丢弃过期连接/上一轮加载的外键回包（审计 B6-ER）。
-        if generation != self.state.er_diagram_state.current_load_generation() {
-            tracing::debug!(generation, "忽略过期 ER 外键回包");
+        if !self
+            .session
+            .task_registry
+            .is_current(&event.key, event.task_id)
+        {
+            self.session.task_registry.complete(event.task_id);
+            self.session.task_registry.cleanup();
+            self.session.needs_repaint = true;
             return;
         }
-        match result {
-            Ok(fks) => {
-                let foreign_key_columns = collect_er_foreign_key_columns(&fks);
-                self.state
-                    .er_diagram_state
-                    .set_foreign_key_columns(foreign_key_columns);
 
-                let relationships = collect_er_relationships_from_foreign_keys(fks);
-                let rel_count = relationships.len();
-                self.state.er_diagram_state.relationships = relationships;
-                tracing::debug!(relationship_count = rel_count, "ER 图外键关系已返回");
-                self.finalize_er_diagram_load_if_ready();
+        use crate::session::runtime_event::RuntimeOutcome;
+        match event.outcome {
+            RuntimeOutcome::Connected {
+                conn_name, result, ..
+            } => {
+                let request_id = self
+                    .session
+                    .pending_connect_requests
+                    .get(&conn_name)
+                    .copied()
+                    .unwrap_or(0);
+                self.handle_connected_with_tables(ctx, conn_name, request_id, result);
             }
-            Err(e) => {
-                self.state.er_diagram_state.mark_foreign_keys_resolved();
-                self.session
-                    .notifications
-                    .error(format!("加载外键关系失败: {}", e));
-                // 在画布上显示错误卡，而不是静默退化为空（审计 ER-3）。
-                self.state
-                    .er_diagram_state
-                    .set_error(format!("加载外键关系失败: {}", e));
-                self.finalize_er_diagram_load_if_ready();
+            RuntimeOutcome::DatabaseSelected {
+                conn_name,
+                database,
+                result,
+                ..
+            } => {
+                let request_id = self
+                    .session
+                    .pending_database_requests
+                    .get(&conn_name)
+                    .map(|(_, id)| *id)
+                    .unwrap_or(0);
+                self.handle_database_selected(ctx, conn_name, database, request_id, result);
+            }
+            RuntimeOutcome::GridSaved {
+                result,
+                table,
+                elapsed_ms,
+                ..
+            } => {
+                self.handle_grid_save_done(ctx, result, table, elapsed_ms);
+            }
+            RuntimeOutcome::ExecutionFinished {
+                sql,
+                connection_name: conn_name,
+                tab_id,
+                result,
+                elapsed_ms,
+                ..
+            } => {
+                self.handle_query_execution_finished(
+                    ctx, sql, conn_name, tab_id, result, elapsed_ms,
+                );
+            }
+            RuntimeOutcome::CatalogLoaded {
+                connection_id,
+                database,
+                catalog,
+                ..
+            } => match catalog {
+                Ok(schema) => {
+                    // Populate grid metadata before schema is moved into catalogs
+                    if let Some(table_name) = &self.state.selected_table.clone()
+                        && let Some(tm) = schema.table(table_name)
+                    {
+                        self.state.grid_state.table_metadata =
+                            Some(std::sync::Arc::new(tm.clone()));
+                    }
+                    self.session.autocomplete.set_from_catalog(&schema);
+                    self.session
+                        .schema_catalogs
+                        .insert((connection_id, database), schema);
+                }
+                Err(e) => {
+                    tracing::warn!(connection_id = ?connection_id, database = %database, error = %e, "Schema 目录加载失败");
+                }
+            },
+            _ => {
+                tracing::debug!(task_id = ?event.task_id, "收到未迁移的 RuntimeEvent");
             }
         }
+        self.session.task_registry.complete(event.task_id);
+        self.session.task_registry.cleanup();
         self.session.needs_repaint = true;
     }
 
-    /// 处理 ER 表列信息获取完成消息
-    fn handle_er_table_columns_fetched(
+    /// 处理查询执行完成（T1 cutover — 替代 handle_query_done）。
+    fn handle_query_execution_finished(
         &mut self,
         _ctx: &egui::Context,
-        generation: u64,
-        table_name: String,
-        result: Result<Vec<crate::data::ColumnInfo>, String>,
+        sql: String,
+        conn_name: String,
+        tab_id: String,
+        result: Result<crate::domain::execution::ExecutionOutcome, String>,
+        elapsed_ms: u64,
     ) {
-        // 丢弃过期连接/上一轮加载的列回包（审计 B6-ER）。
-        if generation != self.state.er_diagram_state.current_load_generation() {
-            tracing::debug!(generation, table = %table_name, "忽略过期 ER 列回包");
+        let target_tab_index = self
+            .session
+            .tab_manager
+            .tabs
+            .iter()
+            .position(|t| t.id == tab_id);
+        let Some(tab_index) = target_tab_index else {
+            self.session.refresh_executing_flag();
+            self.session.needs_repaint = true;
             return;
-        }
-        match result {
-            Ok(columns) => {
-                let er_columns: Vec<ui::ERColumn> = columns
-                    .into_iter()
-                    .map(|c| ui::ERColumn {
-                        is_foreign_key: self
-                            .state
-                            .er_diagram_state
-                            .is_foreign_key_column(&table_name, &c.name),
-                        name: c.name,
-                        data_type: c.data_type,
-                        is_primary_key: c.is_primary_key,
-                        nullable: c.is_nullable,
-                        default_value: c.default_value,
-                    })
-                    .collect();
+        };
+        let is_active_tab = tab_index == self.session.tab_manager.active_index;
+        let sql_hints = crate::data::analyze_sql_for_ui(&sql);
+        let is_update_or_delete = sql_hints.is_update_or_delete;
+        let is_insert = sql_hints.is_insert;
+        let is_drop_table = sql_hints.is_drop_table;
+        let db_type = self
+            .session
+            .manager
+            .connections
+            .get(&conn_name)
+            .map(|c| c.config.db_type.display_name().to_string())
+            .unwrap_or_default();
 
-                let display_mode = self.state.er_diagram_state.card_display_mode();
-                if let Some(er_table) = self
-                    .state
-                    .er_diagram_state
-                    .tables
-                    .iter_mut()
-                    .find(|t| t.name == table_name)
-                {
-                    er_table.columns = er_columns;
-                    // 立即计算表格尺寸，确保布局和关系线渲染正确
-                    ui::calculate_table_size_for_mode(er_table, display_mode);
+        match result {
+            Ok(outcome) => {
+                if outcome.statements.len() > 1 {
+                    tracing::warn!(
+                        stmt_count = outcome.statements.len(),
+                        "多条语句仅显示第一条"
+                    );
+                    self.session
+                        .notifications
+                        .warning("检测到多条语句，仅显示第一条结果");
                 }
+                let (result_set, affected_rows) = match outcome.statements.first() {
+                    Some(StatementOutcome::ResultSet(rs)) => (Some(rs.clone()), None),
+                    Some(StatementOutcome::AffectedRows { rows }) => (None, Some(*rows)),
+                    _ => (None, None),
+                };
+
+                if sql_hints.is_create_database {
+                    self.mark_onboarding_database_initialized();
+                }
+                if sql_hints.is_create_user_or_role {
+                    self.mark_onboarding_user_created();
+                }
+                self.mark_onboarding_first_query_executed();
+
+                let typed_arc = result_set.map(std::sync::Arc::new);
+                let row_count = typed_arc.as_ref().map(|a| a.row_count).unwrap_or(0);
+                let columns_empty = typed_arc.as_ref().is_none_or(|a| a.columns.is_empty());
+
+                self.session
+                    .query_history
+                    .add(sql, db_type, true, affected_rows);
+
+                if let Some(tab) = self.session.tab_manager.tabs.get_mut(tab_index) {
+                    tab.result_set = typed_arc.clone();
+                    tab.executing = false;
+                    tab.last_error = None;
+                    tab.pending_request_id = None;
+                    tab.query_time_ms = Some(elapsed_ms);
+                }
+                if is_active_tab {
+                    let msg = if columns_empty {
+                        format!(
+                            "执行成功，影响 {} 行 ({}ms)",
+                            affected_rows.unwrap_or(0),
+                            elapsed_ms
+                        )
+                    } else {
+                        format!("查询完成，返回 {} 行 ({}ms)", row_count, elapsed_ms)
+                    };
+                    self.session.last_query_time_ms = Some(elapsed_ms);
+                    self.session.notifications.success(&msg);
+                    self.state.selected_row = None;
+                    self.state.selected_cell = None;
+                    self.clear_search();
+                    if is_update_or_delete {
+                        self.state.grid_state.scroll_to_row = Some(self.state.grid_state.cursor.0);
+                    } else if is_insert {
+                        let last_row = row_count.saturating_sub(1);
+                        self.state.grid_state.cursor = (last_row, 0);
+                        self.state.grid_state.scroll_to_row = Some(last_row);
+                    }
+                    if self.state.focus_area == crate::ui::FocusArea::DataGrid {
+                        self.state.grid_state.focused = true;
+                    }
+                    if let Some(table) = &self.state.selected_table.clone()
+                        && !columns_empty
+                        && let Some(arc) = &typed_arc
+                    {
+                        self.session
+                            .autocomplete
+                            .set_columns(table.clone(), arc.column_names());
+                    }
+                    self.state.grid_state.result_set = typed_arc;
+                    self.reveal_bottom_panel_for_query(crate::core::BottomPanelTab::Results);
+                    self.state.grid_state.rows_to_delete.clear();
+                    self.persist_active_grid_workspace();
+                }
+                if is_drop_table
+                    && let Some(conn) = self.session.manager.connections.get_mut(&conn_name)
+                    && self.session.manager.active.as_deref() == Some(&conn_name)
+                {
+                    self.session.autocomplete.set_tables(conn.tables.clone());
+                }
+                self.invalidate_after_schema_change(&sql_hints, &conn_name);
             }
             Err(e) => {
-                self.session
-                    .notifications
-                    .warning(format!("获取表 {} 结构失败: {}", table_name, e));
+                tracing::error!(error = %e, elapsed_ms, "查询执行失败");
+                self.session.notifications.error(format!("查询失败: {}", e));
+                if let Some(tab) = self.session.tab_manager.tabs.get_mut(tab_index) {
+                    tab.pending_request_id = None;
+                    tab.executing = false;
+                    tab.last_error = Some(e.clone());
+                }
             }
         }
-        self.state
-            .er_diagram_state
-            .mark_table_request_resolved(&table_name);
-        self.finalize_er_diagram_load_if_ready();
-        self.session.needs_repaint = true;
     }
 }
 
@@ -1270,17 +943,13 @@ impl DbManagerApp {
 mod tests {
     use super::{
         ErDiagramReadyKind, GridSaveOutcome, apply_default_er_diagram_layout,
-        apply_ready_state_er_diagram_layout, clamp_grid_cursor_for_result,
-        classify_grid_save_outcome, collect_er_relationships_from_foreign_keys,
-        er_diagram_ready_message, is_cancelled_query_error, resolve_er_diagram_ready_state,
-        schema_invalidation_for, select_ready_state_er_layout_strategy,
-        should_drop_query_error_as_stale, should_record_active_query_time,
+        apply_ready_state_er_diagram_layout, classify_grid_save_outcome, er_diagram_ready_message,
+        resolve_er_diagram_ready_state, schema_invalidation_for,
+        select_ready_state_er_layout_strategy,
     };
-    use crate::data::ColumnInfo;
-    use crate::data::ForeignKeyInfo;
-    use crate::data::ImportExecutionReport;
-    use crate::data::QueryResult;
-    use crate::data::analyze_sql_for_ui;
+    use crate::data::{
+        Connection, ConnectionConfig, DatabaseType, ImportExecutionReport, analyze_sql_for_ui,
+    };
     use crate::ui::{ERLayoutStrategy, ERTable, RelationType, Relationship, RelationshipOrigin};
 
     #[test]
@@ -1312,64 +981,6 @@ mod tests {
 
         let select = schema_invalidation_for(&analyze_sql_for_ui("SELECT * FROM t;"));
         assert!(!select.reload_tables && !select.reload_triggers && !select.reload_routines);
-    }
-
-    #[test]
-    fn test_is_cancelled_query_error_chinese() {
-        assert!(is_cancelled_query_error("查询已取消"));
-        assert!(is_cancelled_query_error("查询已取消（权限不足）"));
-    }
-
-    #[test]
-    fn test_is_cancelled_query_error_english_patterns() {
-        assert!(is_cancelled_query_error(
-            "canceling statement due to user request"
-        ));
-        assert!(is_cancelled_query_error("Query execution was interrupted"));
-        assert!(is_cancelled_query_error("query canceled by user"));
-    }
-
-    #[test]
-    fn test_is_cancelled_query_error_negative_case() {
-        assert!(!is_cancelled_query_error("syntax error near from"));
-    }
-
-    #[test]
-    fn clamp_grid_cursor_for_result_respects_result_bounds() {
-        let result = QueryResult::with_rows(
-            vec!["id".to_string(), "name".to_string()],
-            vec![
-                vec!["1".to_string(), "alice".to_string()],
-                vec!["2".to_string(), "bob".to_string()],
-            ],
-        );
-
-        assert_eq!(clamp_grid_cursor_for_result((8, 5), &result), (1, 1));
-        assert_eq!(clamp_grid_cursor_for_result((0, 1), &result), (0, 1));
-    }
-
-    #[test]
-    fn clamp_grid_cursor_for_result_falls_back_to_origin_for_empty_result() {
-        assert_eq!(
-            clamp_grid_cursor_for_result((4, 2), &QueryResult::default()),
-            (0, 0)
-        );
-    }
-
-    #[test]
-    fn cancelled_query_error_from_user_cancel_is_not_dropped_as_stale() {
-        assert!(!should_drop_query_error_as_stale(true, true, true));
-        assert!(should_drop_query_error_as_stale(true, true, false));
-        assert!(should_drop_query_error_as_stale(true, false, true));
-        assert!(!should_drop_query_error_as_stale(false, true, true));
-    }
-
-    #[test]
-    fn active_query_time_updates_only_for_non_stale_active_tab() {
-        assert!(should_record_active_query_time(Some(2), 2, false));
-        assert!(!should_record_active_query_time(Some(1), 2, false));
-        assert!(!should_record_active_query_time(Some(2), 2, true));
-        assert!(!should_record_active_query_time(None, 2, false));
     }
 
     #[test]
@@ -1839,6 +1450,7 @@ mod tests {
             .iter()
             .find(|table| table.name == "order_items")
             .unwrap();
+
         let orders = app
             .state
             .er_diagram_state
@@ -1855,68 +1467,140 @@ mod tests {
     }
 
     #[test]
-    fn collect_er_relationships_from_foreign_keys_keeps_empty_results_empty() {
-        let relationships = collect_er_relationships_from_foreign_keys(Vec::new());
-
-        assert!(relationships.is_empty());
-    }
-
-    #[test]
-    fn collect_er_relationships_from_foreign_keys_maps_explicit_edges_only() {
-        let relationships = collect_er_relationships_from_foreign_keys(vec![ForeignKeyInfo {
-            from_table: "orders".to_string(),
-            from_column: "customer_id".to_string(),
-            to_table: "customers".to_string(),
-            to_column: "id".to_string(),
-        }]);
-
-        assert_eq!(relationships.len(), 1);
-        assert_eq!(relationships[0].from_table, "orders");
-        assert_eq!(relationships[0].from_column, "customer_id");
-        assert_eq!(relationships[0].to_table, "customers");
-        assert_eq!(relationships[0].to_column, "id");
-        assert_eq!(relationships[0].relation_type, RelationType::OneToMany);
-    }
-
-    #[test]
-    fn column_metadata_fetch_caches_and_derives_primary_key() {
-        // 审计 G6：列元数据落地到 grid_state，并从 is_primary_key 推导主键索引。
+    fn active_tables_reload_stale_completion_does_not_overwrite_latest_tables_or_autocomplete() {
         let mut app = crate::app::DbManagerApp::new_for_test();
         let ctx = egui::Context::default();
-        app.state.selected_table = Some("t".to_string());
-        app.state.result = Some(QueryResult::with_rows(
-            vec!["id".to_string(), "age".to_string()],
-            vec![vec!["1".to_string(), "30".to_string()]],
+        let connection_name = "demo".to_string();
+        let mut connection = Connection::new(ConnectionConfig::new(
+            &connection_name,
+            DatabaseType::SQLite,
         ));
+        connection.connected = true;
+        connection.tables = vec!["initial".to_string()];
+        app.session
+            .manager
+            .connections
+            .insert(connection_name.clone(), connection);
+        app.session.manager.active = Some(connection_name.clone());
+        app.session
+            .pending_active_tables_reload_requests
+            .insert(connection_name.clone(), 1);
+        app.session
+            .pending_active_tables_reload_requests
+            .insert(connection_name.clone(), 2);
 
-        let columns = vec![
-            ColumnInfo {
-                name: "id".to_string(),
-                data_type: "INTEGER".to_string(),
-                is_primary_key: true,
-                is_nullable: false,
-                default_value: None,
-            },
-            ColumnInfo {
-                name: "age".to_string(),
-                data_type: "INTEGER".to_string(),
-                is_primary_key: false,
-                is_nullable: false,
-                default_value: None,
-            },
-        ];
-        app.handle_column_metadata_fetched(&ctx, "t".to_string(), columns);
-
-        assert_eq!(app.state.grid_state.column_metadata.len(), 2);
-        assert_eq!(app.state.grid_state.primary_key_column, Some(0));
-
-        // 过期回包（表已切换）不应覆盖。
-        app.state.selected_table = Some("other".to_string());
-        app.handle_column_metadata_fetched(&ctx, "t".to_string(), Vec::new());
-        assert_eq!(
-            app.state.grid_state.column_metadata.len(),
+        app.handle_active_tables_reloaded(
+            &ctx,
+            connection_name.clone(),
             2,
-            "过期回包不应清空当前表元数据"
+            Ok(vec!["latest".to_string()]),
         );
+        app.handle_active_tables_reloaded(
+            &ctx,
+            connection_name.clone(),
+            1,
+            Ok(vec!["stale".to_string()]),
+        );
+
+        assert_eq!(
+            app.session.manager.connections[&connection_name].tables,
+            vec!["latest".to_string()]
+        );
+        assert!(
+            !app.session
+                .pending_active_tables_reload_requests
+                .contains_key(&connection_name)
+        );
+        let completions = app.session.autocomplete.get_completions("lat", 3);
+        assert!(
+            completions
+                .iter()
+                .any(|completion| completion.label == "latest")
+        );
+        assert!(
+            !completions
+                .iter()
+                .any(|completion| completion.label == "stale")
+        );
+    }
+
+    #[test]
+    fn stale_query_event_does_not_overwrite_current_tab_state() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let ctx = egui::Context::default();
+        let tab = app
+            .session
+            .tab_manager
+            .get_active_mut()
+            .expect("test app has an active query tab");
+        tab.executing = true;
+        tab.last_message = Some("current query is running".to_string());
+        let tab_id = tab.id.clone();
+        let document = crate::domain::ids::DocumentId::from(
+            uuid::Uuid::parse_str(&tab_id).expect("query tab IDs are UUIDs"),
+        );
+        let key = crate::session::task_registry::OperationKey::Query { document };
+        let (stale_task_id, stale_token) = app
+            .session
+            .task_registry
+            .register(key.clone(), crate::session::task_registry::TaskKind::Query);
+        let stale_handle = app.session.runtime.spawn({
+            let stale_token = stale_token.clone();
+            async move {
+                stale_token.cancelled().await;
+            }
+        });
+        app.session.task_registry.attach(
+            stale_task_id,
+            key.clone(),
+            crate::session::task_registry::TaskKind::Query,
+            stale_handle,
+            stale_token,
+        );
+        app.session.task_registry.cancel_by_key(&key);
+        let (current_task_id, _) = app
+            .session
+            .task_registry
+            .register(key.clone(), crate::session::task_registry::TaskKind::Query);
+        let current_handle = app
+            .session
+            .runtime
+            .spawn(async { std::future::pending::<()>().await });
+        app.session.task_registry.attach(
+            current_task_id,
+            key.clone(),
+            crate::session::task_registry::TaskKind::Query,
+            current_handle,
+            tokio_util::sync::CancellationToken::new(),
+        );
+
+        app.handle_runtime_event(
+            &ctx,
+            crate::session::runtime_event::RuntimeEvent {
+                task_id: stale_task_id,
+                key: key.clone(),
+                outcome: crate::session::runtime_event::RuntimeOutcome::ExecutionFinished {
+                    document,
+                    sql: "SELECT stale".to_string(),
+                    connection_name: "test".to_string(),
+                    tab_id,
+                    result: Err("stale query failed".to_string()),
+                    elapsed_ms: 1,
+                },
+            },
+        );
+
+        let tab = app
+            .session
+            .tab_manager
+            .get_active()
+            .expect("active query tab remains");
+        assert!(tab.executing);
+        assert_eq!(
+            tab.last_message.as_deref(),
+            Some("current query is running")
+        );
+        assert!(tab.last_error.is_none());
+        assert!(app.session.task_registry.is_current(&key, current_task_id));
     }
 }

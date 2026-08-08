@@ -9,7 +9,6 @@ use eframe::egui;
 use crate::core::{BottomPanelTab, RightInspectorTab, WorkbenchActivity, constants};
 use crate::data::Connection;
 use crate::state::{WorkbenchFocus, WorkbenchSurfaceKind};
-use crate::types::QueryResult;
 use crate::ui::{self, ToolbarActions, WorkbenchStatusBarContent};
 
 use super::DbManagerApp;
@@ -431,7 +430,7 @@ impl DbManagerApp {
                     ui,
                     &self.state.theme_manager,
                     &self.keybindings,
-                    self.state.result.is_some(),
+                    self.state.grid_state.result_set.is_some(),
                     self.state.show_sidebar,
                     self.state.show_sql_editor,
                     self.app_config.is_dark_mode,
@@ -541,7 +540,7 @@ impl DbManagerApp {
             WorkbenchSurfaceKind::SqlDocument { index } => {
                 self.render_sql_document_surface_in_ui(ui, index);
             }
-            WorkbenchSurfaceKind::QueryResult { .. } => {
+            WorkbenchSurfaceKind::SurfaceResult { .. } => {
                 self.render_bottom_panel_surface_body(ui, BottomPanelTab::Results);
             }
             WorkbenchSurfaceKind::Explain { .. } => {
@@ -652,11 +651,12 @@ impl DbManagerApp {
         let Some(activity) = navigation_activity_for_surface(surface) else {
             return;
         };
-        let columns = self
+        let columns: Vec<String> = self
             .state
-            .result
+            .grid_state
+            .result_set
             .as_ref()
-            .map(|result| result.columns.clone())
+            .map(|result| result.columns.iter().map(|c| c.name.clone()).collect())
             .unwrap_or_default();
         let surface_id = surface.surface_id();
         let is_focused = self.state.workbench.focus == WorkbenchFocus::Surface(surface_id);
@@ -731,9 +731,10 @@ impl DbManagerApp {
                 "结果行",
                 &self
                     .state
-                    .result
+                    .grid_state
+                    .result_set
                     .as_ref()
-                    .map(|result| result.rows.len().to_string())
+                    .map(|result| result.row_count.to_string())
                     .unwrap_or_else(|| "无结果".to_string()),
             );
             property_row(
@@ -793,10 +794,17 @@ impl DbManagerApp {
                 ui.add_space(8.0);
             }
 
-            if let Some(result) = self.state.result.as_ref().filter(|result| {
-                self.state.workbench.right_inspector.schema_table.is_some()
-                    && !result.columns.is_empty()
-            }) {
+            if let Some(result) = self
+                .state
+                .grid_state
+                .result_set
+                .as_ref()
+                .map(|a| a.as_ref())
+                .filter(|result| {
+                    self.state.workbench.right_inspector.schema_table.is_some()
+                        && !result.columns.is_empty()
+                })
+            {
                 ui.label(egui::RichText::new("最近结构查询结果").strong());
                 render_compact_result_rows(ui, result, 24);
             } else if self.state.er_diagram_state.tables.is_empty() {
@@ -808,8 +816,14 @@ impl DbManagerApp {
     }
 
     fn render_right_inspector_row(&self, ui: &mut egui::Ui) {
+        let result_set = self
+            .state
+            .grid_state
+            .result_set
+            .as_ref()
+            .map(|a| a.as_ref());
         let Some((result, row_index, row)) =
-            selected_result_row(self.state.result.as_ref(), self.state.selected_row)
+            selected_result_row(result_set, self.state.selected_row)
         else {
             ui::WorkbenchRightInspector::show_empty_state(
                 ui,
@@ -822,16 +836,22 @@ impl DbManagerApp {
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.heading(format!("Row {}", row_index + 1));
             ui.add_space(8.0);
-            for (col_index, column) in result.columns.iter().enumerate() {
-                let value = row.get(col_index).map(String::as_str).unwrap_or("");
-                property_row(ui, column, value);
+            for (col_idx, column) in result.columns.iter().enumerate() {
+                let value = row[col_idx].display();
+                property_row(ui, &column.name, &value);
             }
         });
     }
 
     fn render_right_inspector_cell(&self, ui: &mut egui::Ui) {
+        let result_set = self
+            .state
+            .grid_state
+            .result_set
+            .as_ref()
+            .map(|a| a.as_ref());
         let Some((result, row_index, col_index, value)) =
-            selected_result_cell(self.state.result.as_ref(), self.state.selected_cell)
+            selected_result_cell(result_set, self.state.selected_cell)
         else {
             ui::WorkbenchRightInspector::show_empty_state(
                 ui,
@@ -841,21 +861,21 @@ impl DbManagerApp {
             return;
         };
 
-        let column = result
+        let column_name = result
             .columns
             .get(col_index)
-            .map(String::as_str)
+            .map(|c| c.name.as_str())
             .unwrap_or("<unknown>");
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.heading("Cell");
             ui.add_space(8.0);
             property_row(ui, "行", &(row_index + 1).to_string());
-            property_row(ui, "列", column);
+            property_row(ui, "列", column_name);
             ui.separator();
             ui.label(egui::RichText::new("完整值").strong());
             ui.add_space(4.0);
             ui.add(
-                egui::Label::new(egui::RichText::new(value).monospace())
+                egui::Label::new(egui::RichText::new(value.display()).monospace())
                     .wrap()
                     .selectable(true),
             );
@@ -924,7 +944,6 @@ impl DbManagerApp {
             render_connection_properties(ui, connection);
         });
     }
-
     fn render_bottom_panel_results(&mut self, ui: &mut egui::Ui) {
         // 活动标签页正在执行查询时，显示执行中状态而不是"暂无结果"空态（修复审计 EL-02）。
         let active_executing = self
@@ -932,7 +951,7 @@ impl DbManagerApp {
             .tab_manager
             .get_active()
             .is_some_and(|tab| tab.executing);
-        if active_executing && self.state.result.is_none() {
+        if active_executing && self.state.grid_state.result_set.is_none() {
             ui::WorkbenchBottomPanel::show_loading_state(
                 ui,
                 "正在执行查询…",
@@ -941,7 +960,13 @@ impl DbManagerApp {
             return;
         }
 
-        let Some(result) = self.state.result.as_ref() else {
+        let result_set = self
+            .state
+            .grid_state
+            .result_set
+            .as_ref()
+            .map(|a| a.as_ref());
+        let Some(result) = result_set else {
             ui::WorkbenchBottomPanel::show_empty_state(
                 ui,
                 "暂无结果",
@@ -951,11 +976,7 @@ impl DbManagerApp {
         };
 
         if result.columns.is_empty() {
-            ui::WorkbenchBottomPanel::show_empty_state(
-                ui,
-                "语句执行成功",
-                &format!("没有返回列，影响 {} 行。", result.affected_rows),
-            );
+            ui::WorkbenchBottomPanel::show_empty_state(ui, "语句执行成功", "没有返回列。");
             return;
         }
 
@@ -1098,7 +1119,12 @@ impl DbManagerApp {
             content.query_time_ms = self.session.last_query_time_ms;
         }
         if status_config.show_row_count {
-            content.row_count = self.state.result.as_ref().map(|result| result.rows.len());
+            content.row_count = self
+                .state
+                .grid_state
+                .result_set
+                .as_ref()
+                .map(|result| result.row_count);
         }
         content
     }
@@ -1198,39 +1224,55 @@ fn selected_cell_label(selected_cell: Option<(usize, usize)>) -> String {
 }
 
 fn selected_result_row(
-    result: Option<&QueryResult>,
+    result: Option<&crate::domain::result::ResultSet>,
     selected_row: Option<usize>,
-) -> Option<(&QueryResult, usize, &Vec<String>)> {
+) -> Option<(
+    &crate::domain::result::ResultSet,
+    usize,
+    &[crate::domain::value::DbValue],
+)> {
     let result = result?;
     let row_index = selected_row?;
-    let row = result.rows.get(row_index)?;
+    let row = if row_index < result.row_count {
+        Some(result.row(row_index))
+    } else {
+        None
+    };
+    let row = row?;
     Some((result, row_index, row))
 }
 
 fn selected_result_cell(
-    result: Option<&QueryResult>,
+    result: Option<&crate::domain::result::ResultSet>,
     selected_cell: Option<(usize, usize)>,
-) -> Option<(&QueryResult, usize, usize, &str)> {
+) -> Option<(
+    &crate::domain::result::ResultSet,
+    usize,
+    usize,
+    &crate::domain::value::DbValue,
+)> {
     let result = result?;
     let (row_index, col_index) = selected_cell?;
-    let row = result.rows.get(row_index)?;
-    let value = row.get(col_index)?;
-    Some((result, row_index, col_index, value.as_str()))
+    let cell = result.cell(row_index, col_index);
+    Some((result, row_index, col_index, cell))
 }
 
-fn render_compact_result_rows(ui: &mut egui::Ui, result: &QueryResult, max_rows: usize) {
-    for row in result.rows.iter().take(max_rows) {
+fn render_compact_result_rows(
+    ui: &mut egui::Ui,
+    result: &crate::domain::result::ResultSet,
+    max_rows: usize,
+) {
+    for row_idx in 0..result.row_count.min(max_rows) {
         ui.group(|ui| {
             ui.set_width(ui.available_width());
-            for (index, column) in result.columns.iter().enumerate() {
-                let value = row.get(index).map(String::as_str).unwrap_or("");
-                property_row(ui, column, value);
+            for (col_idx, column) in result.columns.iter().enumerate() {
+                let value = result.cell(row_idx, col_idx).display();
+                property_row(ui, &column.name, &value);
             }
         });
     }
-
-    if result.rows.len() > max_rows {
-        ui.label(format!("另有 {} 行未显示", result.rows.len() - max_rows));
+    if result.row_count > max_rows {
+        ui.label(format!("另有 {} 行未显示", result.row_count - max_rows));
     }
 }
 
@@ -1522,7 +1564,7 @@ mod tests {
         app.set_er_diagram_visible(false);
         let fallback_dock = app.default_workbench_surface_layout();
         let mut dock = std::mem::replace(&mut app.dock_state, fallback_dock);
-        ui::dock_tabs::sync_all(&mut dock, &app);
+        ui::dock_tabs::refresh_dock_from_session(&mut dock, &app);
         app.dock_state = dock;
         assert_eq!(
             count_surface_tabs(&app, &WorkbenchSurfaceKind::ErDiagram),
@@ -1551,7 +1593,7 @@ mod tests {
 
         assert_eq!(
             app.active_bottom_panel_surface_kind(BottomPanelTab::Results),
-            WorkbenchSurfaceKind::QueryResult {
+            WorkbenchSurfaceKind::SurfaceResult {
                 query_tab_id: active_tab_id.clone()
             }
         );

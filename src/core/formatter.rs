@@ -1,10 +1,106 @@
 //! SQL 格式化模块
 
+/// 规范化 SQL 中的空白字符，保护字符串字面量内容不变。
+///
+/// 将引号外的连续空白压缩为单个空格，引号内的内容（包括空白）原样保留。
+/// 跟踪单引号字符串 `'…'`、双引号标识符 `"…"` 和反引号标识符 `` `…` ``。
+fn normalize_whitespace_preserving_quotes(sql: &str) -> String {
+    let mut result = String::with_capacity(sql.len());
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_backtick = false;
+    let mut prev_was_space = false;
+    let chars: Vec<char> = sql.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        let c = chars[i];
+
+        // 进入引号状态
+        if !in_single && !in_double && !in_backtick {
+            match c {
+                '\'' => {
+                    in_single = true;
+                    result.push(c);
+                    prev_was_space = false;
+                    i += 1;
+                    continue;
+                }
+                '"' => {
+                    in_double = true;
+                    result.push(c);
+                    prev_was_space = false;
+                    i += 1;
+                    continue;
+                }
+                '`' => {
+                    in_backtick = true;
+                    result.push(c);
+                    prev_was_space = false;
+                    i += 1;
+                    continue;
+                }
+                _ => {}
+            }
+        }
+
+        // 单引号字符串内：原样保留
+        if in_single {
+            result.push(c);
+            if c == '\'' {
+                // 检查转义的单引号 ''
+                if i + 1 < chars.len() && chars[i + 1] == '\'' {
+                    result.push(chars[i + 1]);
+                    i += 2;
+                    continue;
+                }
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        // 双引号标识符内：原样保留
+        if in_double {
+            result.push(c);
+            if c == '"' {
+                in_double = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        // 反引号标识符内：原样保留
+        if in_backtick {
+            result.push(c);
+            if c == '`' {
+                in_backtick = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        // 引号外：压缩空白
+        if c.is_whitespace() {
+            if !prev_was_space {
+                result.push(' ');
+                prev_was_space = true;
+            }
+        } else {
+            result.push(c);
+            prev_was_space = false;
+        }
+        i += 1;
+    }
+
+    result
+}
 /// SQL 格式化 - 美化 SQL 语句
 pub fn format_sql(sql: &str) -> String {
     let mut result = String::new();
     let mut indent_level: usize = 0;
     let mut in_string = false;
+    let mut in_backtick = false;
     let mut string_char = ' ';
     let mut last_was_keyword = false;
 
@@ -50,8 +146,8 @@ pub fn format_sql(sql: &str) -> String {
         "END",
     ];
 
-    // 规范化空白字符
-    let normalized: String = sql.split_whitespace().collect::<Vec<_>>().join(" ");
+    // 规范化空白字符（保护字符串字面量内部的空白）
+    let normalized: String = normalize_whitespace_preserving_quotes(sql);
 
     let chars: Vec<char> = normalized.chars().collect();
     let mut i = 0;
@@ -68,10 +164,14 @@ pub fn format_sql(sql: &str) -> String {
         }
         let c = chars[i];
 
-        // 处理字符串
-        if !in_string && (c == '\'' || c == '"') {
-            in_string = true;
-            string_char = c;
+        // 处理字符串和反引号标识符
+        if !in_string && !in_backtick && (c == '\'' || c == '"' || c == '`') {
+            if c == '`' {
+                in_backtick = true;
+            } else {
+                in_string = true;
+                string_char = c;
+            }
             result.push(c);
             i += 1;
             continue;
@@ -87,6 +187,15 @@ pub fn format_sql(sql: &str) -> String {
                     continue;
                 }
                 in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_backtick {
+            result.push(c);
+            if c == '`' {
+                in_backtick = false;
             }
             i += 1;
             continue;

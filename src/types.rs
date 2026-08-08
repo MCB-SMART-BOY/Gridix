@@ -101,12 +101,6 @@ impl PostgresSslMode {
             Self::VerifyFull,
         ]
     }
-
-    /// 是否需要 TLS
-    #[allow(dead_code)] // 公开 API，供外部使用
-    pub const fn requires_tls(&self) -> bool {
-        !matches!(self, Self::Disable)
-    }
 }
 
 // ============================================================================
@@ -161,61 +155,6 @@ impl MySqlSslMode {
             Self::VerifyCa,
             Self::VerifyIdentity,
         ]
-    }
-}
-
-// ============================================================================
-// 查询结果
-// ============================================================================
-
-/// 查询结果
-#[derive(Debug, Clone, Default)]
-pub struct QueryResult {
-    pub columns: Vec<String>,
-    pub rows: Vec<Vec<String>>,
-    /// 与 `rows` 并行的空值标记，`true` 表示对应单元格是 SQL NULL
-    pub null_flags: Vec<Vec<bool>>,
-    pub affected_rows: u64,
-    /// 是否被截断（原始结果超过限制）
-    pub truncated: bool,
-    /// 原始总行数（如果被截断）
-    pub original_row_count: Option<usize>,
-}
-
-impl QueryResult {
-    pub fn with_rows(columns: Vec<String>, rows: Vec<Vec<String>>) -> Self {
-        let null_flags = rows.iter().map(|row| vec![false; row.len()]).collect();
-        Self {
-            columns,
-            rows,
-            null_flags,
-            affected_rows: 0,
-            truncated: false,
-            original_row_count: None,
-        }
-    }
-
-    pub fn with_rows_and_null_flags(
-        columns: Vec<String>,
-        rows: Vec<Vec<String>>,
-        null_flags: Vec<Vec<bool>>,
-    ) -> Self {
-        Self {
-            columns,
-            rows,
-            null_flags,
-            affected_rows: 0,
-            truncated: false,
-            original_row_count: None,
-        }
-    }
-
-    pub fn is_null(&self, row_idx: usize, col_idx: usize) -> bool {
-        self.null_flags
-            .get(row_idx)
-            .and_then(|row| row.get(col_idx))
-            .copied()
-            .unwrap_or(false)
     }
 }
 

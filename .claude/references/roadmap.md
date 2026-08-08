@@ -28,6 +28,17 @@
 - [x] 36 项 audit 修复 — 键盘、对话框、侧边栏、网格、ER、会话、连接池
 - [x] 查询取消、网格保存修复、连接生命周期修复
 
+## 🚧 Typed Runtime Convergence (T0–T7) — 进行中
+
+- [x] T0: 状态基准线（本文档）
+- [ ] T1: Query lifecycle clean cutover
+- [ ] T2: Typed Execution production 查询主路径
+- [ ] T3: SchemaCatalog application closure
+- [ ] T4: Grid 完整迁移到 ResultSet + Typed Mutation
+- [ ] T5: PostgreSQL/MySQL typed mutation
+- [ ] T6: Final Convergence Gate
+
+
 
 ## 短期 — 功能发布
 

@@ -2,23 +2,22 @@
 //!
 //! 处理 ER 图数据加载和关系推断。
 
-use super::{DbManagerApp, Message};
-use crate::core::constants;
-use crate::data::{Connection, ConnectionConfig};
+use super::DbManagerApp;
+use crate::data::Connection;
+use crate::domain::ids::ConnectionId;
 use crate::ui;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ErDiagramLoadPlan {
     NoActiveConnection,
-    EmptyTables { db_name: String },
-    Load(Box<ErDiagramLoadContext>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ErDiagramLoadContext {
-    tables: Vec<String>,
-    db_name: String,
-    config: ConnectionConfig,
+    EmptyTables {
+        db_name: String,
+    },
+    Load {
+        tables: Vec<String>,
+        db_name: String,
+        connection_id: ConnectionId,
+    },
 }
 
 fn plan_er_diagram_load(active_connection: Option<&Connection>) -> ErDiagramLoadPlan {
@@ -36,17 +35,18 @@ fn plan_er_diagram_load(active_connection: Option<&Connection>) -> ErDiagramLoad
         return ErDiagramLoadPlan::EmptyTables { db_name };
     }
 
-    ErDiagramLoadPlan::Load(Box::new(ErDiagramLoadContext {
+    ErDiagramLoadPlan::Load {
         tables,
         db_name,
-        config: conn.config.clone(),
-    }))
+        connection_id: conn.id,
+    }
 }
 
 impl DbManagerApp {
     /// 加载 ER 图数据
     ///
-    /// 从当前连接获取所有表信息，异步加载每个表的列结构和外键关系。
+    /// 从 `SchemaCatalog` 同步读取所有表的列结构和外键关系，
+    /// 不再通过异步 N+1 查询。
     pub fn load_er_diagram_data(&mut self) {
         match plan_er_diagram_load(self.session.manager.get_active()) {
             ErDiagramLoadPlan::NoActiveConnection => {
@@ -61,74 +61,105 @@ impl DbManagerApp {
                     .warning(format!("数据库 {} 没有表，请先选择数据库", db_name));
                 self.state.er_diagram_state.loading = false;
             }
-            ErDiagramLoadPlan::Load(load) => {
+            ErDiagramLoadPlan::Load {
+                tables,
+                db_name,
+                connection_id,
+            } => {
                 let layout_snapshot = self.state.er_diagram_state.capture_layout_snapshot();
+                let catalog_key = (connection_id, db_name.clone());
+                let catalog = self.session.schema_catalogs.get(&catalog_key);
+
+                let Some(catalog) = catalog else {
+                    // Catalog 未加载：创建表壳（无列信息），保持与旧 N+1 加载初始态的兼容。
+                    let layout_snapshot = self.state.er_diagram_state.capture_layout_snapshot();
+                    self.state.er_diagram_state.clear();
+                    self.state
+                        .er_diagram_state
+                        .set_pending_layout_restore(layout_snapshot);
+
+                    let display_mode = self.state.er_diagram_state.card_display_mode();
+                    let mut er_tables = Vec::with_capacity(tables.len());
+                    for table_name in &tables {
+                        let mut er_table = ui::ERTable::new(table_name.clone());
+                        ui::calculate_table_size_for_mode(&mut er_table, display_mode);
+                        er_tables.push(er_table);
+                    }
+                    self.state.er_diagram_state.tables = er_tables;
+                    self.state.er_diagram_state.mark_foreign_keys_resolved();
+                    self.session.notifications.info(format!(
+                        "ER图: {} 张表（schema目录未加载，结构信息待重载）",
+                        tables.len()
+                    ));
+                    self.state.er_diagram_state.needs_layout = false;
+                    return;
+                };
+
+                // 清空旧状态，保留布局快照用于后续恢复
+                self.state.er_diagram_state.clear();
                 self.state
                     .er_diagram_state
                     .set_pending_layout_restore(layout_snapshot);
-                self.state.er_diagram_state.begin_loading(&load.tables);
-                let load_generation = self.state.er_diagram_state.current_load_generation();
 
-                // 创建 ER 表结构
-                for table_name in &load.tables {
-                    let er_table = ui::ERTable::new(table_name.clone());
-                    self.state.er_diagram_state.tables.push(er_table);
-                }
-
-                // 加载中的骨架仍先走稳定网格；最终完成态布局由 finalize 统一决定。
-                ui::grid_layout(
-                    &mut self.state.er_diagram_state.tables,
-                    4,
-                    eframe::egui::Vec2::new(60.0, 50.0),
-                );
-
-                self.session.notifications.info(format!(
-                    "ER图: 加载 {} 张表，正在获取结构... ({})",
-                    load.tables.len(),
-                    load.db_name
-                ));
-
-                // 异步加载每个表的列信息（带并发限制）
-                let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(
-                    constants::database::MAX_ER_CONCURRENT_TABLE_FETCHES,
-                ));
-                for table_name in &load.tables {
-                    let tx = self.session.tx.clone();
-                    let config_clone = load.config.clone();
-                    let table_clone = table_name.clone();
-                    let permit = semaphore.clone();
-                    self.session.runtime.spawn(async move {
-                        let _permit = permit.acquire().await;
-                        let result =
-                            crate::data::get_table_columns(&config_clone, &table_clone).await;
-                        if tx
-                            .send(Message::ERTableColumnsFetched(
-                                load_generation,
-                                table_clone,
-                                result.map_err(|e| e.to_string()),
-                            ))
-                            .is_err()
-                        {
-                            tracing::warn!("无法发送 ER 表列数据：接收端已关闭");
-                        }
-                    });
-                }
-
-                // 异步加载外键关系
-                let tx = self.session.tx.clone();
-                let config = load.config.clone();
-                self.session.runtime.spawn(async move {
-                    let result = crate::data::get_foreign_keys(&config).await;
-                    if tx
-                        .send(Message::ForeignKeysFetched(
-                            load_generation,
-                            result.map_err(|e| e.to_string()),
-                        ))
-                        .is_err()
-                    {
-                        tracing::warn!("无法发送外键数据：接收端已关闭");
+                // 从 catalog 构建 ER 表（含列信息）
+                let display_mode = self.state.er_diagram_state.card_display_mode();
+                let mut er_tables = Vec::with_capacity(tables.len());
+                for table_name in &tables {
+                    let mut er_table = ui::ERTable::new(table_name.clone());
+                    if let Some(table_meta) = catalog.table(table_name) {
+                        er_table.columns = table_meta
+                            .columns
+                            .iter()
+                            .map(|c| ui::ERColumn {
+                                name: c.name.clone(),
+                                data_type: c.type_info.native_name.clone(),
+                                is_primary_key: c.is_primary_key,
+                                is_foreign_key: false, // 下一步统一设置
+                                nullable: c.is_nullable,
+                                default_value: c.default_value.clone(),
+                            })
+                            .collect();
                     }
-                });
+                    ui::calculate_table_size_for_mode(&mut er_table, display_mode);
+                    er_tables.push(er_table);
+                }
+
+                // 从 catalog 构建外键关系与 FK 列集合（支持复合外键逐列展开）
+                use std::collections::HashSet;
+                let mut fk_columns: HashSet<(String, String)> = HashSet::new();
+                let mut relationships = Vec::new();
+                for table_meta in &catalog.tables {
+                    for fk in &table_meta.foreign_keys {
+                        for (from_col, ref_col) in fk.from_columns.iter().zip(fk.ref_columns.iter())
+                        {
+                            fk_columns.insert((table_meta.name.clone(), from_col.clone()));
+                            relationships.push(ui::Relationship {
+                                from_table: table_meta.name.clone(),
+                                from_column: from_col.clone(),
+                                to_table: fk.ref_table.clone(),
+                                to_column: ref_col.clone(),
+                                relation_type: ui::RelationType::OneToMany,
+                                origin: ui::RelationshipOrigin::Explicit,
+                            });
+                        }
+                    }
+                }
+
+                // 将 FK 标记写入列
+                for table in &mut er_tables {
+                    for col in &mut table.columns {
+                        col.is_foreign_key =
+                            fk_columns.contains(&(table.name.clone(), col.name.clone()));
+                    }
+                }
+
+                self.state.er_diagram_state.tables = er_tables;
+                self.state
+                    .er_diagram_state
+                    .set_foreign_key_columns(fk_columns);
+                self.state.er_diagram_state.relationships = relationships;
+
+                self.finalize_er_diagram_load_if_ready();
             }
         }
 
@@ -242,11 +273,15 @@ mod tests {
         connection.tables = vec!["users".to_string(), "orders".to_string()];
 
         match plan_er_diagram_load(Some(&connection)) {
-            ErDiagramLoadPlan::Load(load) => {
-                assert_eq!(load.db_name, "未选择");
-                assert_eq!(load.tables, vec!["users", "orders"]);
-                assert_eq!(load.config.name, "demo");
-                assert_eq!(load.config.db_type, DatabaseType::SQLite);
+            ErDiagramLoadPlan::Load {
+                tables,
+                db_name,
+                connection_id,
+            } => {
+                assert_eq!(db_name, "未选择");
+                assert_eq!(tables, vec!["users", "orders"]);
+                // connection_id 是由 ConnectionId::default() 生成的 UUID
+                assert_eq!(connection_id, connection.id);
             }
             other => panic!("unexpected load plan: {other:?}"),
         }

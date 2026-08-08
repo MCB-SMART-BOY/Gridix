@@ -3,7 +3,6 @@
 //! QueryTab 和 QueryTabManager 是 Layer 2 的纯数据类型。
 //! 渲染逻辑在 `src/ui/components/query_tab_bar.rs`。
 
-use crate::data::QueryResult;
 use uuid::Uuid;
 
 // ============================================================================
@@ -20,8 +19,8 @@ pub struct QueryTab {
     pub title: String,
     /// SQL 内容
     pub sql: String,
-    /// 查询结果
-    pub result: Option<QueryResult>,
+    /// 类型化结果集（canonical 数据源）
+    pub result_set: Option<std::sync::Arc<crate::domain::result::ResultSet>>,
     /// 是否正在执行
     pub executing: bool,
     /// 最后一条消息
@@ -53,7 +52,7 @@ impl QueryTab {
             id: Uuid::new_v4().to_string(),
             title: "新查询".to_string(),
             sql: String::new(),
-            result: None,
+            result_set: None,
             executing: false,
             last_message: None,
             last_error: None,

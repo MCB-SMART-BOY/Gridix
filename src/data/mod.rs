@@ -10,7 +10,8 @@ mod config;
 mod connection;
 mod error;
 mod pool;
-mod query;
+pub(crate) mod query;
+pub(crate) mod secret;
 pub mod ssh_tunnel;
 
 // ============================================================================
@@ -18,7 +19,7 @@ pub mod ssh_tunnel;
 // ============================================================================
 
 // 类型
-pub use crate::types::{DatabaseType, MySqlSslMode, PostgresSslMode, QueryResult};
+pub use crate::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
 
 // 错误
 pub use error::DbError;
@@ -38,12 +39,11 @@ pub use connection::{Connection, ConnectionManager};
 pub use pool::{POOL_MANAGER, PoolManager};
 
 // 查询
-#[allow(unused_imports)] // get_primary_key_column 预留供将来使用
 pub use query::{
-    ColumnInfo, ConnectResult, ForeignKeyInfo, ImportExecutionReport, RoutineInfo, RoutineType,
-    TriggerInfo, connect_database, drop_database, execute_import_batch, execute_query,
-    execute_query_cancellable, get_foreign_keys, get_primary_key_column, get_routines,
-    get_table_columns, get_tables_for_database, get_triggers,
+    ConnectResult, ImportExecutionReport, RoutineInfo, RoutineType, TriggerInfo, apply_mutations,
+    connect_database, drop_database, execute_import_batch, execute_typed,
+    execute_typed_cancellable, get_routines, get_tables_for_database, get_triggers,
+    infer_type_family, infer_value, load_schema_catalog,
 };
 pub(crate) use query::{SqlUiHints, analyze_sql_for_ui};
 

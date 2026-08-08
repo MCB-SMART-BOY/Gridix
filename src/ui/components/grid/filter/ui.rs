@@ -3,7 +3,7 @@
 //! 提供筛选状态栏的 UI 渲染功能。
 
 use super::condition::ColumnFilter;
-use crate::data::QueryResult;
+use crate::domain::result::ResultSet;
 use crate::ui::styles::GRAY;
 use crate::ui::{LocalShortcut, local_shortcut_tooltip};
 use egui::{self, Color32, RichText};
@@ -19,7 +19,7 @@ pub(crate) struct FilterBarState {
 /// 返回是否有修改（用于使缓存失效）
 pub(crate) fn show_filter_bar(
     ui: &mut egui::Ui,
-    _result: &QueryResult,
+    _result: &ResultSet,
     filters: &mut Vec<ColumnFilter>,
 ) -> bool {
     if filters.is_empty() {

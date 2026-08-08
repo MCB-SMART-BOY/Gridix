@@ -158,30 +158,30 @@ impl DbManagerApp {
 
         // 导出对话框
         if active_dialog == Some(DialogId::Export) {
-            let table_name = self
-                .state
-                .selected_table
-                .clone()
-                .unwrap_or_else(|| "result".to_string());
+            let table_name = self.state.selected_table.clone().unwrap_or_default();
             let export_db_type = self
                 .session
                 .manager
                 .get_active()
                 .map(|connection| connection.config.db_type)
                 .unwrap_or(crate::data::DatabaseType::SQLite);
+            let result_set = self
+                .state
+                .grid_state
+                .result_set
+                .as_ref()
+                .map(|a| a.as_ref());
             ui::ExportDialog::show(
                 ctx,
                 &mut self.state.show_export_dialog,
                 &mut self.state.export_config,
                 &table_name,
-                self.state.result.as_ref(),
+                result_set,
                 export_db_type,
                 &mut results.export_action,
                 &self.state.export_status,
             );
         }
-
-        // 导入对话框
         if active_dialog == Some(DialogId::Import) {
             let is_mysql = self.is_mysql();
             results.import_action = ui::ImportDialog::show(
@@ -241,7 +241,7 @@ impl DbManagerApp {
                 keybindings: self.keybindings.clone(),
                 active_connection_name: self.session.manager.active.clone(),
                 selected_table: self.state.selected_table.clone(),
-                has_result: self.state.result.is_some(),
+                has_result: self.state.grid_state.result_set.is_some(),
                 show_sql_editor: self.state.show_sql_editor,
                 show_er_diagram: self.state.show_er_diagram,
                 onboarding_environment_checked: onboarding.environment_checked,
@@ -543,7 +543,9 @@ impl DbManagerApp {
 mod tests {
     use super::*;
     use crate::app::dialogs::host::DialogId;
-    use crate::data::{Connection, ConnectionConfig, DatabaseType, QueryResult};
+    use crate::data::{Connection, ConnectionConfig, DatabaseType};
+    use crate::domain::result::{ResultColumn, ResultCompleteness, ResultSet};
+    use crate::domain::value::{DbTypeFamily, DbTypeInfo, DbValue};
     use crate::ui::{FocusArea, SidebarDeleteTarget};
 
     fn prime_active_connection_with_tables(app: &mut DbManagerApp, tables: &[&str]) {
@@ -598,10 +600,19 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = DbManagerApp::new_for_test();
         prime_active_connection_with_tables(&mut app, &["customers", "orders"]);
-        app.state.result = Some(QueryResult::with_rows(
-            vec!["id".to_string()],
-            vec![vec!["1".to_string()]],
-        ));
+        app.state.grid_state.result_set = Some(std::sync::Arc::new(ResultSet {
+            columns: std::sync::Arc::new([ResultColumn {
+                name: "id".into(),
+                type_info: DbTypeInfo {
+                    family: DbTypeFamily::Text,
+                    native_name: "TEXT".into(),
+                    nullable: None,
+                },
+            }]),
+            cells: vec![DbValue::Text("1".into())],
+            row_count: 1,
+            completeness: ResultCompleteness::Complete,
+        }));
         app.state.selected_table = Some("customers".to_string());
         app.state.show_er_diagram = false;
         app.set_focus_area(FocusArea::DataGrid);
