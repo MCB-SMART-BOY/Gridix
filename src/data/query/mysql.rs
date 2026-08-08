@@ -3,7 +3,7 @@
 use super::{ImportExecutionReport, RoutineInfo, RoutineType, TriggerInfo, is_query_statement};
 use crate::core::constants;
 
-use crate::data::{ConnectionConfig, DatabaseType, DbError, POOL_MANAGER};
+use crate::data::{ConnectionConfig, DatabaseType, DbError, POOL_MANAGER, PoolManager};
 
 /// 获取 MySQL 数据库列表
 pub(crate) async fn get_databases(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
@@ -520,41 +520,52 @@ pub(crate) async fn execute_typed_cancellable(
         .get_conn()
         .await
         .map_err(|e| DbError::Connection(format!("MySQL 执行连接获取失败: {}", e)))?;
+
+    if cancellation.is_cancelled() {
+        return Err(DbError::Cancelled);
+    }
     let connection_id = conn.id();
     let query = execute_typed_with_conn(&mut conn, sql);
     tokio::pin!(query);
 
     tokio::select! {
         biased;
-        result = &mut query => {
-            if cancellation.is_cancelled() {
-                Err(DbError::Cancelled)
-            } else {
-                result
-            }
-        }
         _ = cancellation.cancelled() => {
-            cancel_mysql_query(&pool, connection_id).await?;
+            let mut control = open_mysql_control_connection(config).await?;
+            cancel_mysql_query(&mut control, connection_id).await?;
             let _ = query.await;
             Err(DbError::Cancelled)
         }
+        result = &mut query => result,
     }
 }
 
-async fn cancel_mysql_query(pool: &mysql_async::Pool, connection_id: u32) -> Result<(), DbError> {
-    let mut control = pool.get_conn().await.map_err(|e| {
-        DbError::Connection(format!(
-            "获取 MySQL 取消控制连接失败（connection_id={}）: {}",
-            connection_id, e
-        ))
-    })?;
+async fn open_mysql_control_connection(
+    config: &ConnectionConfig,
+) -> Result<mysql_async::Conn, DbError> {
+    let options =
+        mysql_async::Opts::from_url(config.connection_string().as_str()).map_err(|error| {
+            DbError::Connection(format!("MySQL 取消控制连接 URL 解析失败: {}", error))
+        })?;
+    let options =
+        PoolManager::configure_mysql_ssl(mysql_async::OptsBuilder::from_opts(options), config)?;
+
+    mysql_async::Conn::new(options)
+        .await
+        .map_err(|error| DbError::Connection(format!("MySQL 取消控制连接失败: {}", error)))
+}
+
+async fn cancel_mysql_query(
+    control: &mut mysql_async::Conn,
+    connection_id: u32,
+) -> Result<(), DbError> {
     control
         .query_drop(format!("KILL QUERY {}", connection_id))
         .await
-        .map_err(|e| {
+        .map_err(|error| {
             DbError::Query(format!(
                 "取消 MySQL 查询失败（connection_id={}）: {}",
-                connection_id, e
+                connection_id, error
             ))
         })
 }
