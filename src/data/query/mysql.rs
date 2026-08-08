@@ -535,10 +535,8 @@ pub(crate) async fn execute_typed_cancellable(
         }
         _ = cancellation.cancelled() => {
             cancel_mysql_query(&pool, connection_id).await?;
-            match query.await {
-                Err(_) => Err(DbError::Cancelled),
-                Ok(outcome) => Ok(outcome),
-            }
+            let _ = query.await;
+            Err(DbError::Cancelled)
         }
     }
 }
