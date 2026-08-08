@@ -14,42 +14,26 @@
 | state | `#[test]` state transitions | inline | No egui Context |
 | ui | `#[test]` egui Context::default() | inline + `tests/ui_dialogs_tests.rs` | egui |
 
-## Required Tests
+## Required evidence
 
-### For data layer changes
-```rust
-#[test]
-fn test_sqlite_new_feature() {
-    let config = ConnectionConfig {
-        db_type: DatabaseType::SQLite,
-        database: ":memory:".to_string(),
-        ..Default::default()
-    };
-    // Test the new functionality
-}
-```
+- Add or update deterministic tests for newly observable behavior.
+- For PostgreSQL/MySQL typed or cancellation changes, use the configured `GRIDIX_TEST_PG_URL` / `GRIDIX_TEST_MYSQL_URL` and run the relevant integration binary serially with `--nocapture --test-threads=1`. CI preflight makes missing URLs fail.
+- Cancellation evidence must show: query marker observed, `DbError::Cancelled`, marker disappearance, and a reusable connection. A task join or fixed sleep is insufficient.
+- For a release candidate, RA2 is a manual SQLite GUI journey. Preserve screenshots for initial query, saved edit, and reopened result, plus non-empty CSV/JSON/SQL exports: CSV contains `after`, JSON contains `"name":"after"`, and SQL contains `'after'` and `NULL`. The driver cannot type, wait for widgets, or operate file dialogs; it cannot automate RA2 end-to-end.
 
-### For UI changes
-```rust
-#[test]
-fn test_new_widget() {
-    let ctx = egui::Context::default();
-    ctx.begin_pass(RawInput::default());
-    // Render and assert
-}
-```
-
-## Running
+## Full validation
 
 ```bash
-cargo test                              # All tests
-cargo test -p gridix --lib              # Unit only
-cargo test --test core_tests            # Specific suite
-cargo test data::query::sqlite::tests   # Specific module
+cargo fmt --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+cargo doc --workspace --no-deps
+cargo run --bin check-doc-links
+cargo audit
 ```
 
 ## Exit Criteria
-- [ ] `cargo test` passes (0 failures)
-- [ ] New functionality has at least one test
-- [ ] No existing tests broken
-- [ ] MySQL integration tests (if applicable) can be `#[ignore]`d
+- [ ] Changed behavior has direct evidence
+- [ ] Full validation passes
+- [ ] Required backend Actions gates pass for the candidate SHA
+- [ ] RA2 artifacts exist when a release candidate requires GUI acceptance

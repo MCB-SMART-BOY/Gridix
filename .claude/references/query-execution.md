@@ -5,45 +5,41 @@ From `docs/recovery/02-query-execution-trace.md`. The full chain from user actio
 ## End-to-end chain
 
 ```
-handle_sql_editor_actions() → execute() → tokio::spawn → execute_query()
-→ Message::QueryDone { sql, conn_name, tab_id, request_id, result, elapsed_ms }
-→ handle_messages() → handle_query_done() → sync_from_active_tab() → render
+handle_sql_editor_actions() → QueryRuntime::execute()
+→ TaskRegistry::register(OperationKey::Query)
+→ tokio task → execute_typed_cancellable()
+→ Message::RuntimeEvent(RuntimeEvent { task_id, key, outcome })
+→ handle_messages() → TaskRegistry::is_current() → render
 ```
+
+`RuntimeEvent` is the completion protocol for the typed runtime path. The event carries the `TaskId` and `OperationKey`; only the current task for that key may update UI state. Older `Message::QueryDone` and pending-query descriptions are historical migration context, not the lifecycle to extend.
 
 ## Authority model
 
-- `QueryTab` holds per-tab facts (sql, result, timestamp) — the **authority**
-- `self.result`, `self.last_query_time_ms` are **active-tab render mirrors**
-- `self.sql` is **dual-source** — both main field and active tab copy (structural cost, not yet unified)
+- `QueryTab` holds per-tab facts (SQL, result, timestamp) — the **authority**.
+- Active-tab render fields are mirrors, not independent request authorities.
+- `TaskRegistry` owns task identity, deduplication, cancellation tokens, and stale-completion filtering for runtime operations.
 
-## Stale response guard
+## Cooperative cancellation
 
-Every `Message` variant carries `request_id: u64`. `handle_*()` methods:
-1. Compare message's request_id against latest pending request for that conn/tab
-2. If stale → log + ignore
-3. If current → update state + `ctx.request_repaint()`
+1. A user cancel, timeout, or superseding query requests the query task's `CancellationToken`.
+2. A query is not force-aborted: it is retained until its typed execution returns and emits a completion event.
+3. PostgreSQL sends a `CancelToken` request; MySQL opens a control connection and sends `KILL QUERY` for the execution connection ID.
+4. SQLite does not promise interruption of a statement already executing in synchronous `rusqlite`.
+5. The completion event is accepted only if `TaskRegistry::is_current(key, task_id)` remains true; otherwise it is discarded as stale.
 
-## Cancel flow
-
-1. User triggers cancel (UI action or timeout)
-2. `cancel_query_request()` sends via `oneshot` channel or aborts `JoinHandle`
-3. Database-specific cancel (KILL QUERY / CancelToken / InterruptHandle)
-4. Grace period (50ms) for DB to process cancel
-5. If graceful cancel fails → abort JoinHandle (force kill)
+Non-query task kinds retain their abort-on-cancellation behavior. Query cancellation is deliberately cooperative so the database cancellation protocol and original query future can finish cleanly.
 
 ## Error rendering
 
 Query errors are rendered as a **Welcome surface** with the error message, not as a blank result pane. The `is_cancelled_query_error()` function checks both Chinese and English error messages.
 
-## Known structural costs
+## Remaining UX and migration context
 
-1. **Dual-source `self.sql`**: both `DbManagerApp::sql` and `active_tab().sql` exist — can diverge
-2. **Mirror vs authority**: `self.result` mirrors active tab but is not canonical
-3. **No stable cancel UI**: cancel feedback is transient, no persistent "query was cancelled" indicator
+1. `QueryTab` is the SQL authority; active-tab result fields are render mirrors rather than a second request lifecycle.
+2. Cancellation feedback is transient; there is no persistent “query was cancelled” indicator.
+3. Legacy `Message::QueryDone` and request-ID structures may still exist for migration compatibility, but must not be used for new query runtime behavior.
 
-## Validation
+## Verification
 
-```bash
-cargo test -p gridix --lib runtime   # handler + database tests
-cargo test --test edge_regression_tests  # edge cases including tab isolation
-```
+Use the targeted unit and integration invocations in `testing-guide.md`. PostgreSQL and MySQL cancellation evidence requires `GRIDIX_TEST_PG_URL` or `GRIDIX_TEST_MYSQL_URL` respectively; an unset URL is a local skip, not proof of the cancellation path.

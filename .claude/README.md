@@ -36,14 +36,14 @@ Primary source of truth: `~/.codex/` (actively maintained by Codex sessions). Th
 │   ├── default.rules         ← Codex-format bash permission prefix rules
 │   └── default-rules.md      ← explains dual permission system (Codex + Claude Code)
 │
-├── workflow/                 ← 8-stage lifecycle (7 files)
-│   ├── README.md             ← overview, quality gates, project overlays
-│   ├── 01-plan.md            ← Stages 0+1: Intake → Plan
-│   ├── 02-design.md          ← Stage 2: Design approach
-│   ├── 03-implement.md       ← Stages 3+4: Safety Net + Implementation
-│   ├── 04-review.md          ← Stage 5: Self-review
-│   ├── 05-test.md            ← Stage 6: Verification
-│   └── 06-deliver.md         ← Stage 7: Summarize, document, commit, update harness
+├── workflow/                 ← 6-stage lifecycle (7 files)
+│   ├── README.md             ← overview, validation gates, release-acceptance overlays
+│   ├── 01-plan.md            ← Stage 1: Plan
+│   ├── 02-design.md          ← Stage 2: Design
+│   ├── 03-implement.md       ← Stage 3: Implement
+│   ├── 04-review.md          ← Stage 4: Review
+│   ├── 05-test.md            ← Stage 5: Test and acceptance evidence
+│   └── 06-deliver.md         ← Stage 6: Deliver and release handoff
 │
 ├── skills/                   ← Executable workflows (7 user + 5 system)
 │   ├── code-review/          ← Gridix code review checklist

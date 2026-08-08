@@ -241,6 +241,19 @@ cargo doc --workspace --no-deps
 
 Adapt commands to the project. The principle is fixed: format, lint, test, build docs/artifacts where relevant.
 
+### Gridix CI 与发布验收
+
+主 CI 的 `Quality Gate` 在 PR、`main` 和 `v*` tag 上保持 format、clippy、doc-link 与 security audit gate，并必须运行：
+
+```bash
+cargo test --workspace --all-features
+cargo doc --workspace --no-deps
+```
+
+PostgreSQL 与 MySQL typed integration workflow 是独立的 release-acceptance 配置：它们分别在 PR、`main`、`v*` tag、手动触发及 weekly schedule 上运行，先验证必需的数据库 URL，再串行运行 typed E2E 与 cancellation binaries。当前 PostgreSQL 为 8 个 typed E2E 和 2 个 cancellation tests；MySQL 为 7 个 typed E2E 和 2 个 cancellation tests。每个 cancellation binary 覆盖 server-observable cancellation 后连接复用，以及 pre-cancel 不派发 marker 的路径。MySQL 取消从执行 `Conn::id()` 取得目标 ID，并新建独立、按连接 TLS 配置的控制连接执行 `KILL QUERY`。
+
+这些 workflow 的配置或一次成功 run 只构成特定 SHA 的数据库验收证据，不等同于 release 已发布或 release candidate 已获完整接受。SQLite GUI journey 仍须以人工 UI 操作及保存的截图/导出文件验收；现有 `gridix-driver` 仅支持 `launch`、`key`、`ss`、`quit`、`help`，不能替代该 journey。
+
 Exit criteria:
 - Required gates pass.
 - Any skipped check is explicitly reported with reason.

@@ -23,23 +23,21 @@ Fail → `cargo fmt` then re-check.
 ## 2. Lint (strict)
 
 ```bash
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
-Warnings are errors.
-
-## 3. Test
+## 3. Test and documentation build
 
 ```bash
-cargo test
-```
-
-~620 tests, all must pass. MySQL integration tests are `#[ignore]`d — expected.
-
-## 4. Doc links
-
-```bash
+cargo test --workspace --all-features
+cargo doc --workspace --no-deps
 cargo run --bin check-doc-links
+```
+
+## 4. Security audit
+
+```bash
+cargo audit
 ```
 
 ## 5. Docs sync (if behavior changed)
@@ -60,5 +58,5 @@ cargo run --bin gridix-driver -- quit
 ## One-liner
 
 ```bash
-cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test && cargo run --bin check-doc-links && echo "PASS"
+cargo fmt --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace --all-features && cargo doc --workspace --no-deps && cargo run --bin check-doc-links && cargo audit && echo "PASS"
 ```

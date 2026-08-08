@@ -1,19 +1,19 @@
 # Bug ledger
 
-From the v4.1.0 → v6.1.0 recovery audit. Current state: no active unblocked bugs.
+From the v4.1.0 → v6.1.0 recovery audit. Historical resolved entries remain below; this ledger does not claim that no bugs remain.
 
-## Fixed 2026-06-21 (release audit grid-save BLOCKERs)
+## Historical fixes — 2026-06-21 (release-audit grid-save blockers)
 
 | ID | symptom | root cause | fix |
 |---|---|---|---|
-| AUD-B1 | Grid edits stay "modified" after a successful save; re-save re-runs same writes | `QueryDone` save path cleared only `rows_to_delete`, never `modified_cells`/`new_rows` | Route save through `execute_grid_save`→`GridSaveDone`; `handle_grid_save_done` calls `clear_edits()` + refresh on a committed batch only |
-| AUD-B2 | Multi-statement save partially commits on error (some rows saved, some not) | Each statement fired as an independent async `execute()` (fire-and-forget) | Single transactional batch via existing `execute_import_batch(.., use_transaction=true, stop_on_error=true)`; all-or-nothing |
-| AUD-B3 | MySQL grid save fails: emits double-quoted identifiers in strict mode | `db_type` hardcoded `None` at `generate_save_sql` call (grid UI layer lacked it) | Thread `db_type` into `DataGrid::show_editable`→`generate_save_sql`; MySQL backticks, PG/SQLite double-quotes |
+| AUD-B1 | Grid edits stayed "modified" after a successful save | Historical `QueryDone` save path cleared only `rows_to_delete`, never `modified_cells`/`new_rows` | Replaced by typed grid-save completion handling that clears edits and refreshes only after a committed batch |
+| AUD-B2 | Multi-statement save partially committed on error | Each statement ran as an independent asynchronous operation | Transactional typed mutation batch with all-or-nothing behavior |
+| AUD-B3 | MySQL grid save emitted double-quoted identifiers in strict mode | Database type was not threaded to SQL generation | Typed MySQL mutation path now binds values and owns backend SQL generation |
+## Current observations and acceptance boundaries (not bugs)
 
-## Current observations (not bugs)
-
-**G41-B007** (observation): dialog horizontal overflow from fixed-width row content in narrow viewports. Major live verification completed. Remaining low-frequency surfaces: CreateDbDialog, CreateUserDialog, ExportDialog at narrow widths.
-
+- **RA2 SQLite GUI evidence**: the manual create/query/edit/save/reopen/export journey still lacks captured artifacts. This is an incomplete release-acceptance evidence item, not evidence of a product defect.
+- **MySQL cancellation coverage**: CI exercises direct `mysql:8.4` with observer and `KILL QUERY` permissions. TLS, SSH tunnel, execution-pool pressure, and reuse of the exact cancelled connection remain untested boundaries, not known failures.
+- **G41-B007**: dialog horizontal overflow can occur from fixed-width row content in narrow viewports. The remaining low-frequency surfaces are `CreateDbDialog`, `CreateUserDialog`, and `ExportDialog`.
 ## Resolved during recovery (v4.1.0 → v6.1.0)
 
 | ID | symptom | root cause | fix |

@@ -8,31 +8,42 @@ paths:
 
 # Release process
 
-Tag-triggered: push `v*` tag → CI builds + publishes all artifacts.
-All commands from repo root.
+Pushing a `v*` tag triggers the CI build and release workflow; it does not demonstrate that a release was published. All commands run from repo root.
 
-## 1. Pre-release checks
+## 1. Pre-release validation
 
 ```bash
-cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test && cargo run --bin check-doc-links
+cargo fmt --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+cargo doc --workspace --no-deps
+cargo run --bin check-doc-links
+cargo audit
 ```
 
-## 2. Version bump
+## 2. Release-acceptance evidence
+
+- PostgreSQL and MySQL typed/cancellation Actions workflows must succeed for the candidate SHA. They run on PRs, `main`, and `v*` tags, preflight `GRIDIX_TEST_PG_URL` / `GRIDIX_TEST_MYSQL_URL`, and run serial integration tests with service containers.
+- RA2 is still a manual SQLite GUI journey, not an automated driver check. Preserve initial-result, saved-result, and reopened-result screenshots under `/tmp/gridix-release-acceptance/<SHA>/`, plus non-empty `acceptance.csv`, `acceptance.json`, and `acceptance.sql`. The exports must show `after`, `"name":"after"`, and `'after'` with `NULL`, respectively.
+- `gridix-driver` only supports launch, key, screenshot, quit, and help; it cannot complete dialog, text-entry, or export interactions. Do not mark RA2 accepted without the manual artifacts.
+- Record the observed workflow run URLs and artifacts. Do not claim a release is published until the release result is observed.
+
+## 3. Version bump
 
 Edit `Cargo.toml`:
 ```toml
 version = "X.Y.Z"
 ```
 
-## 3. Changelog
+## 4. Changelog
 
 Update `docs/CHANGELOG.md` — version header, date, categorized bullets (bilingual).
 
-## 4. Related docs
+## 5. Related docs
 
 Shortcut changes → update the `gridix-keybindings` skill. Config changes → update `CLAUDE.md`. Cross-check `docs/CHANGELOG.md`.
 
-## 5. Commit + push (branch first, then tag)
+## 6. Commit + push (branch first, then tag)
 
 ```bash
 git add Cargo.toml Cargo.lock docs/CHANGELOG.md
@@ -40,18 +51,18 @@ git commit -m "release: vX.Y.Z"
 git push origin main
 ```
 
-Wait for CI: `gh run list --workflow build.yml --limit 3`
+Wait for the candidate CI runs, including `ci.yml`, `postgresql-integration.yml`, and `mysql-integration.yml`.
 
-## 6. Tag → trigger release
+## 7. Tag → trigger release
 
 ```bash
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-Monitor: `gh run list --workflow release.yml --limit 3`
+Monitor the tag's `ci.yml` run and confirm the release job result before using `gh release view`.
 
-## 7. Verify artifacts
+## 8. Verify artifacts
 
 ```bash
 gh release view vX.Y.Z
@@ -60,7 +71,7 @@ gh release download vX.Y.Z -p SHA256SUMS.txt -D /tmp/gridix-release
 
 Expected: `gridix-linux-x86_64.tar.gz`, `gridix-windows-x86_64.zip`, `gridix-macos-arm64.tar.gz`, `gridix.AppImage`, `SHA256SUMS.txt`.
 
-## 8. Distribution sync (post-release, manual)
+## 9. Distribution sync (post-release, manual)
 
 Order: AUR (`gridix` → `gridix-bin` → `gridix-appimage`) → Homebrew → nixpkgs.
 

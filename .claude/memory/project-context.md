@@ -12,7 +12,7 @@ metadata:
 - **Version**: 7.1.0
 - **Branch**: `main` (sole branch — `dev`, `EDU`, `master` consolidated and deleted)
 - **TLS**: rustls 0.23 only — zero native-tls/openssl in dependency tree
-- **Test status**: 743 passed, 0 failed, 0 warnings
+- **Verification state**: typed-runtime and backend integration workflows are configured; do not infer a release result from configuration. RA2 manual SQLite GUI evidence remains outstanding.
 - **Merge**: v6.1.0 core (rustls, state migration) + v7.0.0 features (workbench, ER rewrite, design tokens, 36 audit fixes)
 
 
@@ -24,10 +24,10 @@ metadata:
 - Config version: 2 (with #[serde(default)] for backward compat)
 - Config save: 5-second debounce via save_config_debounced()
 - Handler repaint: needs_repaint flag replaces ctx.request_repaint()
-- 8.0 typed domain layer: src/domain/ (DbValue, ResultSet, SchemaCatalog, MutationBatch) — SQLite production-ready, PG/MySQL compile-complete
-- TaskRegistry with OperationKey dedup + CancellationToken — GridSave/ColumnMetadata/Connect/DatabaseSelected clean cutover; Query cutover pending
-- Typed mutation: SQLite Ctrl+S path uses parameterized apply_mutations(); PG/MySQL guard-warning
-- Dual-path debt: pending_query_* maps, generate_save_sql(), Message::QueryDone still active
+- Typed domain layer: `src/domain/` (`DbValue`, `ResultSet`, `SchemaCatalog`, `MutationBatch`) is used by SQLite, PostgreSQL, and MySQL typed execution, mutations, and catalog loading.
+- Query runtime: `TaskRegistry` + `RuntimeEvent` own `OperationKey` deduplication, stale-event filtering, and cooperative `CancellationToken` cancellation.
+- Public query APIs: `execute_typed()` and `execute_typed_cancellable()`. PostgreSQL uses `CancelToken`; MySQL uses execution `Conn::id()` plus a separately opened TLS-configured control connection running `KILL QUERY`; SQLite does not promise cancellation of a running synchronous statement.
+- Type boundaries: PostgreSQL preserves `DbValue::Decimal` for `NUMERIC` binding and decoding; MySQL temporal input rejects invalid values, including nanoseconds at or above one second.
 
 ## Key Constraints
 
@@ -39,14 +39,17 @@ metadata:
 
 ## Active Tech Debt
 
-- FrameEffects defined in session/frame_effects.rs but not wired
-- 72 source files with zero test coverage (data/query drivers, grid filter)
-- 3 oversized files: keybindings_dialog(3560L), input_router(3369L), keybindings(2448L)
+- FrameEffects defined in `session/frame_effects.rs` but not wired
+- Driver and grid-filter coverage remains uneven outside typed integration paths
+- Several UI/input modules remain oversized
+- RA2 manual SQLite GUI create/query/edit/save/reopen/export evidence is still required for release acceptance
+- MySQL cancellation CI currently covers direct `mysql:8.4` with observer/KILL privileges, not TLS, SSH tunnel, execution-pool pressure, or reuse of the exact cancelled `Conn`
 - Session fields are all pub (acceptable for single-crate project)
 
 ## Build Commands
 
 ```bash
-cargo test                                     # Full test suite
-cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test
+cargo test --workspace --all-features
+cargo fmt --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace --all-features
+cargo doc --workspace --no-deps
 ```

@@ -38,24 +38,23 @@ Check `references/architecture/decisions.md` for applicable ADRs:
 |------|-------|
 | State inconsistency | Will mirror fields stay in sync with canonical tab state? |
 | Stale response | Does the handler have a request_id guard? |
-| Dialog completeness | Is the new DialogId handled in ALL match arms in host.rs? |
-| Config persistence | Is save_config_debounced() called (not direct save_config)? |
-| Session init | Are new Session fields initialized in Session::new()? |
+| Dialog completeness | Is the new DialogId handled in all host match arms? |
+| Config persistence | Is `save_config_debounced()` used? |
+| Backend cancellation | Does the backend retain and finish the original query after requesting server cancellation? |
+| Release evidence | Are CI backend gates or RA2 artifacts explicitly planned rather than assumed? |
 
-### 5. Design Decision Record
+### 5. Backend-specific design
 
-For architectural changes, create an ADR in `references/architecture/decisions.md`:
-```markdown
-## ADR-XXX: Title
-**Date:** YYYY-MM
-**Status:** Proposed
-**Context:** ...
-**Decision:** ...
-**Rationale:** ...
-```
+- Preserve `match db_type` dispatch; do not add a generic driver trait.
+- PostgreSQL cancellation uses `CancelToken`; MySQL uses the execution `Conn::id()` with a separate TLS-configured control connection and `KILL QUERY`.
+- SQLite executes synchronously and has no supported in-flight cancellation contract.
+- PostgreSQL `NUMERIC` must preserve exact `DbValue::Decimal` values on parameter/result paths. MySQL temporal input rejects nanoseconds of one second or greater.
+
+### 6. Design Decision Record
+
+Record architectural changes in `references/architecture/decisions.md`; otherwise keep the design in the task plan.
 
 ## Exit Criteria
 - [ ] Layer impact documented
-- [ ] Architecture rules verified
-- [ ] Risk assessment complete
-- [ ] ADR created (if architectural change)
+- [ ] Backend, state, and security constraints considered where applicable
+- [ ] Verification and release-evidence requirements are explicit

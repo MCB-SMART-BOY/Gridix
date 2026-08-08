@@ -51,26 +51,39 @@ fn test_widget() {
 ## Running
 
 ```bash
-cargo test                              # all tests (~619)
-cargo test -p gridix --lib              # unit tests only
-cargo test --test core_tests            # core module tests
-cargo test --test grid_tests            # grid-specific tests
+cargo test --workspace --all-features
+cargo test -p gridix --lib
+cargo test --test core_tests
+cargo test --test grid_tests
+cargo doc --workspace --no-deps
 ```
 
-## MySQL integration
+## PostgreSQL and MySQL typed integration
 
-MySQL tests require external server (marked `#[ignore]`):
+The typed execution, mutation, catalog, and cancellation suites require real database services. They use a single URL environment variable per backend:
+
 ```bash
-GRIDIX_IT_MYSQL_HOST=127.0.0.1 GRIDIX_IT_MYSQL_PORT=3306 \
-GRIDIX_IT_MYSQL_USER=root GRIDIX_IT_MYSQL_PASSWORD=secret \
-GRIDIX_IT_MYSQL_DB=test \
-cargo test --test mysql_cancel_integration -- --ignored --nocapture
+GRIDIX_TEST_PG_URL='postgres://user:password@127.0.0.1:5432/database' \
+cargo test --test postgres_typed_e2e -- --nocapture --test-threads=1
+
+GRIDIX_TEST_PG_URL='postgres://user:password@127.0.0.1:5432/database' \
+cargo test --test postgres_cancel_integration -- --nocapture --test-threads=1
+
+GRIDIX_TEST_MYSQL_URL='mysql://user:password@127.0.0.1:3306/database' \
+cargo test --test mysql_typed_e2e -- --nocapture --test-threads=1
+
+GRIDIX_TEST_MYSQL_URL='mysql://user:password@127.0.0.1:3306/database' \
+cargo test --test mysql_cancel_integration -- --nocapture --test-threads=1
 ```
+
+The test binaries return early when their URL is absent for local convenience. That is not release evidence: the PostgreSQL and MySQL Actions workflows preflight the corresponding URL, run these commands serially, and provide their service environments. The MySQL cancellation observer additionally needs `PROCESS` and `CONNECTION_ADMIN`.
+
+## Release-acceptance evidence
+
+PostgreSQL/MySQL Actions runs are configured release-acceptance gates for pull requests, `main`, and `v*` tags; configuration alone does not assert that a release has been published or accepted. The remaining GUI acceptance gap is a manual SQLite journey: create/query/edit/save/reopen/export a SQLite database and retain its screenshots and exported CSV, JSON, and SQL artifacts. `gridix --ci-check` and `gridix-driver` cannot replace it because the driver supports only `launch`, `key`, `ss`, `quit`, and `help`, not typed input or dialog waits.
 
 ## Known gaps
 
-- No PostgreSQL/MySQL driver unit tests (connection, query, types, errors)
-- No connection pool tests (`data/pool.rs`)
-- No SSH tunnel establishment tests
-- No benchmarks
-- No property-based tests (proptest/quickcheck)
+- The MySQL cancellation workflow covers direct `mysql:8.4` plus observer/KILL privileges, not TLS, SSH tunnel, or execution-pool-capacity scenarios.
+- The post-cancellation `SELECT 1` checks pool usability, not reuse of the exact cancelled MySQL connection.
+- No benchmarks or property-based tests (proptest/quickcheck).

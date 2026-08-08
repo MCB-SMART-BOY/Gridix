@@ -11,35 +11,34 @@ data/query/postgres.rs  → PostgreSQL (async, tokio-postgres)
 data/query/mysql.rs     → MySQL (async, mysql_async, pooled)
 ```
 
-## Dispatch pattern
+## Typed query, mutation, and catalog dispatch
 
-Each public function in `data/query/mod.rs` follows:
+`data/query/mod.rs` exposes two public typed execution APIs:
 
-```rust
-match effective_config.db_type {
-    DatabaseType::SQLite => {
-        task::spawn_blocking(move || sqlite::function(&config, ...))
-            .await
-            .map_err(|e| DbError::Query(e.to_string()))?
-    }
-    DatabaseType::PostgreSQL => {
-        postgres::function(&config, ...).await
-    }
-    DatabaseType::MySQL => {
-        mysql::function(&config, ...).await
-    }
-}
-```
+- `execute_typed(config, sql)` for normal execution.
+- `execute_typed_cancellable(config, sql, cancellation)` for runtime query tasks.
 
-SQLite always wrapped in `spawn_blocking`. PG/MySQL use direct async.
+Both dispatch by `DatabaseType`; SQLite work is run with `spawn_blocking`, while PostgreSQL and MySQL execute asynchronously. `apply_mutations()` and `load_schema_catalog()` use the same three-backend dispatch. Typed `MutationBatch` insert/update/delete and `SchemaCatalog` loading are implemented for SQLite, PostgreSQL, and MySQL.
 
-## Cancel strategies
+## Cancellation strategies
 
-| Backend | Mechanism | File |
-|---------|-----------|------|
-| SQLite | `rusqlite::InterruptHandle` | `sqlite.rs` |
-| PostgreSQL | `tokio_postgres::CancelToken` | `postgres.rs` |
-| MySQL | `KILL QUERY <connection_id>` via dedicated conn | `mysql.rs` |
+| Backend | Runtime behavior | Mechanism |
+|---------|------------------|-----------|
+| SQLite | Does not promise cancellation of a statement already running in synchronous `rusqlite`. | Continues through the SQLite typed execution path. |
+| PostgreSQL | Cooperative server-side cancellation. | The execution client supplies `tokio_postgres::CancelToken`; a cancel request is sent and the original query future is awaited to its cancellation result. |
+| MySQL | Cooperative server-side cancellation. | The executing `Conn::id()` identifies the query; a separately opened, TLS-configured control connection sends `KILL QUERY <connection_id>`, then the original execution is awaited. |
+
+Do not substitute task abort for these database protocols. A pre-cancelled token returns `DbError::Cancelled` without dispatching the query. PostgreSQL and MySQL integration tests use an observer marker to establish that an in-flight query was seen, cancelled, disappeared, and left the pool able to execute `SELECT 1`.
+
+## Typed value boundaries
+
+- PostgreSQL `NUMERIC` preserves `DbValue::Decimal` exactly for parameter binding and result decoding; it is not converted through floating point.
+- MySQL `DECIMAL` is represented as `DbValue::Decimal`.
+- MySQL temporal bindings require whole microseconds and reject invalid components, including `nanos >= 1_000_000_000`; callers must not rely on normalization of an overflowed nanosecond field.
+
+## MySQL cancellation coverage boundary
+
+The release-acceptance workflow covers direct `mysql:8.4` connections with the minimum observer and `KILL QUERY` privileges (`PROCESS`, `CONNECTION_ADMIN`). It does not yet cover TLS, SSH tunnels, or execution-pool capacity pressure. Its post-cancellation `SELECT 1` proves that the pool can execute another query; it does not prove reuse of the exact `Conn` that was cancelled. These are coverage boundaries, not known functional failures.
 
 ## Adding a new backend
 
@@ -50,11 +49,12 @@ SQLite always wrapped in `spawn_blocking`. PG/MySQL use direct async.
 5. Update `data/config.rs` for connection string
 6. Add SSL mode if applicable
 
-Required functions (see `sqlite.rs` for signatures):
-- `connect()`, `execute()`, `execute_cancellable()`
-- `get_tables()`, `get_databases()` (for non-SQLite)
-- `get_triggers()`, `get_routines()`, `get_foreign_keys()`, `get_columns()`
-- `drop_database()`, `execute_import_batch()`
+Required backend responsibilities are dispatched from `data/query/mod.rs` rather than exposed through a backend trait:
+
+- typed execution and cancellable typed execution where the backend can support it;
+- `apply_mutations()` and `load_schema_catalog()`;
+- schema browsing (`get_tables`, databases where applicable, triggers, routines, foreign keys, columns);
+- connection, import-batch, and database-drop operations appropriate to the backend.
 
 ## Why no trait
 

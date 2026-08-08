@@ -45,17 +45,19 @@ IF moving a field from DbManagerApp to Session or UiState:
 - Chinese `//!` module docs, English identifiers
 - `#[allow(dead_code)]` only with Chinese justification comment
 
-### After Each Change
+### During implementation
 
-```bash
-cargo check    # Quick verification
-cargo test     # Full verification before commit
-```
+Run the narrowest check that exercises the changed behavior. Keep backend differences explicit:
+
+- Runtime query tasks use `execute_typed_cancellable`; they request cancellation cooperatively rather than aborting the query task.
+- SQLite follows the synchronous, non-cancellable path; do not add an unsupported cancellation workaround.
+- PostgreSQL and MySQL cancellation must await protocol-level server completion after `CancelToken` / `KILL QUERY`.
+
+Before review, run the targeted test or smoke path appropriate to the change. Full workspace validation belongs to Stage 5.
 
 ## Exit Criteria
-- [ ] `cargo test` passes (0 failures)
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` passes
-- [ ] No `self.field` references to migrated fields
+- [ ] All callers use the intended API without compatibility shims
+- [ ] Targeted behavior is exercised
 - [ ] No cross-layer imports introduced
 
 ## Artifacts

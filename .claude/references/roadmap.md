@@ -28,16 +28,17 @@
 - [x] 36 项 audit 修复 — 键盘、对话框、侧边栏、网格、ER、会话、连接池
 - [x] 查询取消、网格保存修复、连接生命周期修复
 
-## 🚧 Typed Runtime Convergence (T0–T7) — 进行中
+## ✅ Typed Runtime Convergence (T0–T5) — implementation complete
 
-- [x] T0: 状态基准线（本文档）
-- [ ] T1: Query lifecycle clean cutover
-- [ ] T2: Typed Execution production 查询主路径
-- [ ] T3: SchemaCatalog application closure
-- [ ] T4: Grid 完整迁移到 ResultSet + Typed Mutation
-- [ ] T5: PostgreSQL/MySQL typed mutation
-- [ ] T6: Final Convergence Gate
+- [x] T0: 状态基准线
+- [x] T1: Query lifecycle clean cutover — `TaskRegistry` + `RuntimeEvent`，查询以 cooperative cancellation 收束
+- [x] T2: Typed execution 生产查询主路径 — `execute_typed` / `execute_typed_cancellable`
+- [x] T3: `SchemaCatalog` application closure
+- [x] T4: Grid 使用 `ResultSet` + typed `MutationBatch` 保存
+- [x] T5: PostgreSQL/MySQL typed mutation、catalog 与类型边界支持
+- [ ] T6: Release Acceptance — PostgreSQL/MySQL workflow 是已配置的验收门；SQLite GUI journey 的人工证据仍未完成
 
+这表示实现状态，不表示任何版本已经发布或已通过完整发布验收。
 
 
 ## 短期 — 功能发布

@@ -28,21 +28,15 @@ cargo check
 cargo test -p <package> <test_name>
 ```
 
-Pre-commit:
-
-```bash
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test
-```
-
-Pre-merge for workspaces:
+Pre-merge / CI-quality validation:
 
 ```bash
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo doc --workspace --no-deps
+cargo run --bin check-doc-links
+cargo audit
 ```
 
 Optional when installed/configured:
@@ -117,11 +111,12 @@ async fn test_query() {
 
 ## Rules
 
-- Always run `cargo test` after writing tests — don't assume they pass
-- If testing egui keyboard behavior, use `egui::Event::Key` with `Key::Character` or `Key::Named`
-- MySQL integration tests must be `#[ignore]`d — they need external DB
-- Session tests should not require `egui::Context`
-- Data layer tests should not require `Session`
+- Run the narrowest affected test while iterating, then `cargo test --workspace --all-features` before merge.
+- If testing egui keyboard behavior, use `egui::Event::Key` with `Key::Character` or `Key::Named`.
+- PostgreSQL/MySQL typed and cancellation integration tests read `GRIDIX_TEST_PG_URL` / `GRIDIX_TEST_MYSQL_URL`. Without a URL they may return locally; CI must preflight a non-empty URL and run them serially with `--nocapture --test-threads=1`.
+- Server-side cancellation acceptance must observe a unique query marker, cancel it, observe `DbError::Cancelled`, confirm the marker disappears, then prove the connection remains usable. Do not replace this with fixed sleeps or task-abort assertions.
+- Session tests should not require `egui::Context`.
+- Data layer tests should not require `Session`.
 
 ## Layer-specific testing
 
@@ -133,9 +128,8 @@ async fn test_query() {
 | `state/` | Pure unit tests | `#[test] fn test_apply_effects()` |
 | `ui/` | egui Context tests | `#[test] fn test_dialog_rendering()` |
 
-## Known gaps
+## Release-acceptance boundary
 
-- No tests for PostgreSQL/MySQL driver implementations (connection, query, types, errors)
-- No tests for connection pool (`data/pool.rs`)
-- No tests for SSH tunnel establishment
-- No benchmarks
+- Backend Actions workflows—not an unconfigured local test run—are the PostgreSQL/MySQL acceptance gates for PRs, `main`, and `v*` tags.
+- RA2 remains a manual SQLite GUI journey: it requires initial, saved, and reopened-result screenshots plus non-empty CSV/JSON/SQL exports. CSV must contain `after`, JSON `"name":"after"`, and SQL `'after'` with `NULL`; `gridix --ci-check` and driver screenshots alone do not prove this journey.
+- Do not report a release or RA2 as accepted without the corresponding observed evidence.

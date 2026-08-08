@@ -44,13 +44,13 @@ cargo run --bin gridix-driver -- quit
 
 | cmd | does |
 |---|---|
-| `launch` | start Xvfb + gridix, wait for window (30s timeout) |
-| `key <keys>` | send keystroke (`key Ctrl+N`, `key F1`, `key Escape`) |
-| `type <text>` | type text into focused widget |
-| `ss [name]` | screenshot → `/tmp/shots/<name>.png` |
-| `wait_for <n>` | sleep N seconds |
-| `quit` | stop gridix + Xvfb |
-| `help` | list commands |
+| `launch` | start Xvfb + Gridix and wait for its window |
+| `key <keys>` | send a keystroke, e.g. `key Ctrl+N`, `key F1`, `key Escape` |
+| `ss [name]` | capture `/tmp/shots/<name>.png` (or `GRIDIX_SHOT_DIR`) |
+| `quit` | stop Gridix and Xvfb |
+| `help` | show the command list |
+
+The driver does **not** type text, wait for widgets, click controls, or operate native file dialogs. Use it for launch/key/screenshot/quit smoke paths only.
 
 ### First-launch flow (onboarding)
 
@@ -70,18 +70,18 @@ Useless headless — use driver.
 ## Test
 
 ```bash
-cargo test                     # ~620 tests, all pass
-cargo test -p gridix --lib     # unit tests only
-cargo test --test grid_tests   # grid-specific tests
+cargo test --workspace --all-features
+cargo test --test grid_tests
 ```
 
-MySQL integration (needs server):
+Backend integration uses complete per-backend connection URLs:
+
 ```bash
-GRIDIX_IT_MYSQL_HOST=127.0.0.1 GRIDIX_IT_MYSQL_PORT=3306 \
-GRIDIX_IT_MYSQL_USER=root GRIDIX_IT_MYSQL_PASSWORD=secret \
-GRIDIX_IT_MYSQL_DB=test \
-cargo test --test mysql_cancel_integration -- --ignored --nocapture
+GRIDIX_TEST_MYSQL_URL='mysql://user:password@127.0.0.1:3306/database' \
+cargo test --test mysql_cancel_integration -- --nocapture --test-threads=1
 ```
+
+The PostgreSQL equivalent uses `GRIDIX_TEST_PG_URL`. Missing URLs may locally skip integration behavior; CI release-acceptance workflows preflight URLs and do not accept such skips.
 
 ## Gotchas
 

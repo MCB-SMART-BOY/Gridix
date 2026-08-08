@@ -12,10 +12,9 @@ Tokio async runtime. Helix-inspired modal editing throughout.
 ## Quick commands
 
 ```bash
-cargo build --release          # ~90s → target/release/gridix
-cargo build                    # ~30s debug
-cargo test                     # all pass
-cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test && cargo run --bin check-doc-links  # full pre-PR
+cargo build --release
+cargo test --workspace --all-features
+cargo fmt --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace --all-features && cargo doc --workspace --no-deps && cargo run --bin check-doc-links && cargo audit  # full validation
 ```
 
 ## Task navigation
@@ -148,7 +147,7 @@ src/app/ + ui/  (Layer 4)  — eframe App impl, rendering, input routing (DbMana
 | directory | when loaded | purpose |
 |---|---|---|
 | `CLAUDE.md` | every session | project-wide context, module map, architecture |
-| `workflow/` | agent follows stage by stage | 7-stage lifecycle: Plan→Design→Implement→Review→Test→Release→Monitor |
+| `workflow/` | agent follows stage by stage | 6-stage lifecycle: Plan → Design → Implement → Review → Test → Deliver |
 | `skills/` | user invokes `/<name>` or `description` matches task | executable workflows: run-gridix, keybindings, pr-prep, release, troubleshoot |
 | `rules/` | automatically when editing files matching `paths:` | domain rules with DO/DON'T/VERIFY patterns: database, session, ui-egui, testing, sync-claude |
 | `templates/` | agent uses for consistency | standard formats: commit messages, PR descriptions, feature requests |

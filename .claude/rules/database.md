@@ -25,12 +25,22 @@ Orchestrator: `data/query/mod.rs` dispatches via `match db_type`. **No trait** �
 3. Result via `Message::ConnectedWithTables/Databases` on mpsc channel
 4. `Session::poll_messages()` dispatches to handler → validates request_id → updates session state → emits `FrameEffects`
 
-## Cancel flow
+## Typed execution and cancellation
 
-Each backend has a different cancel strategy:
-- **SQLite**: `rusqlite::InterruptHandle` via `execute_with_interrupt_handle()`
-- **PostgreSQL**: `tokio_postgres::CancelToken` with `tokio::select!`
-- **MySQL**: `KILL QUERY <connection_id>` via dedicated kill connection with pool fallback
+- Public typed entry points are `execute_typed(config, sql)` and `execute_typed_cancellable(config, sql, cancellation)`.
+- **SQLite** runs synchronously in `spawn_blocking` and has no supported in-flight cancellation contract.
+- **PostgreSQL** uses the executing client's `CancelToken`; cancellation sends `CancelRequest` and then awaits the original query future, mapping the server cancellation to `DbError::Cancelled`.
+- **MySQL** records the execution `Conn::id()` and opens a separate TLS-configured control `Conn` to issue `KILL QUERY <connection_id>`; never derive the ID from SQL or user input.
+- Cancellation is cooperative for runtime query tasks. It is not a substitute for aborting unrelated task kinds.
+
+## Typed value boundaries
+
+- PostgreSQL `NUMERIC` parameters and decoded results preserve exact `DbValue::Decimal` values.
+- MySQL temporal input rejects nanoseconds greater than or equal to one second; validate before dispatch rather than silently truncating.
+
+## Release-acceptance backend gates
+
+PostgreSQL and MySQL typed and cancellation integration workflows run on pull requests, `main`, and `v*` tags. Their `GRIDIX_TEST_PG_URL` / `GRIDIX_TEST_MYSQL_URL` preflight is mandatory in CI: a local no-URL return is convenience only, never release evidence.
 
 ## Pooling
 

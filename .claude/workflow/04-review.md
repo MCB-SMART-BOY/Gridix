@@ -25,20 +25,19 @@
 - [ ] `// =====...=====` section separators
 - [ ] Commit message follows `type(scope): description` format
 
-### Documentation
-- [ ] CLAUDE.md updated if architecture changed
-- [ ] Relevant `.claude/rules/` updated
-- [ ] Roadmap updated if feature complete
-- [ ] ADR created if architectural decision made
+### Documentation and acceptance
+- [ ] Rules and workflow docs reflect behavior/API changes
+- [ ] No claim of a passing release, backend gate, or GUI acceptance lacks observed evidence
+- [ ] PostgreSQL/MySQL cancellation uses the correct server-side mechanism; SQLite is not represented as interruptible
+- [ ] A typed-value change preserves PostgreSQL `NUMERIC` decimals and rejects MySQL temporal nanos `>= 1 second`
 
 ## Verification Commands
 
-```bash
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test
-cargo run --bin check-doc-links
-```
+Use targeted tests during implementation. Before merge, Stage 5 runs the complete workspace validation and backend gates where applicable.
+
+## Exit Criteria
+- [ ] Architecture, correctness, security, and documentation review completed
+- [ ] No stale APIs, driver commands, or environment-variable guidance remain
 
 ## Common Issues (from audit history)
 

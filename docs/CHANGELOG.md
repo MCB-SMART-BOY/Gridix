@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 本文件记录项目的重要变更。
 
 ## [Unreleased]
+### Added
+- Added typed runtime documentation for `execute_typed` and `execute_typed_cancellable`. PostgreSQL preserves `NUMERIC` values as exact `DbValue::Decimal` text during parameter binding and result decoding; MySQL temporal input rejects nanoseconds at or above one second.
+  补充 `execute_typed` 与 `execute_typed_cancellable` 类型化运行时文档。PostgreSQL 在参数绑定和结果解码中以精确的 `DbValue::Decimal` 文本保留 `NUMERIC` 值；MySQL 时间类型输入拒绝大于或等于一秒的纳秒值。
+- Added backend-specific cancellation documentation: PostgreSQL uses the driver's `CancelToken`; MySQL uses the execution connection ID plus a separate TLS-configured control connection issuing `KILL QUERY`; SQLite does not promise interruption of an in-flight synchronous statement.
+  补充后端特定的取消语义文档：PostgreSQL 使用驱动的 `CancelToken`；MySQL 使用执行连接 ID 和独立的 TLS 配置控制连接发送 `KILL QUERY`；SQLite 不承诺中断执行中的同步语句。
+- Added explicit local PostgreSQL/MySQL typed integration commands and documented the Actions release-acceptance gates. The PostgreSQL and MySQL workflows run on pull requests, `main`, and `v*` tags, as well as manual dispatch and weekly schedules; each requires its test URL before running serial typed and cancellation test binaries.
+  补充本地 PostgreSQL/MySQL 类型化集成测试显式命令及 Actions 发布验收门说明。PostgreSQL 与 MySQL workflow 在 PR、`main`、`v*` tag、手动触发和每周计划任务中运行；每个 workflow 在串行运行类型化与取消测试二进制前都要求相应测试 URL。
+
+### Release acceptance
+- Backend Actions checks are release-acceptance gates, not a statement that any release has been published. A manually observed SQLite GUI journey—create, edit/save, reopen, and CSV/JSON/SQL export evidence—remains required. The current `gridix-driver` cannot automate that journey because it supports only `launch`, `key`, `ss`, `quit`, and `help`.
+  后端 Actions 检查是发布验收门，不代表任何版本已经发布。仍需人工观察 SQLite GUI journey：创建、编辑/保存、重新打开，以及 CSV/JSON/SQL 导出证据。当前 `gridix-driver` 仅支持 `launch`、`key`、`ss`、`quit` 与 `help`，因此无法自动完成该流程。
+
 
 ## [7.1.0] - 2026-08-04
 

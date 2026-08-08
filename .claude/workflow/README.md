@@ -3,23 +3,28 @@
 ## 6-Stage Lifecycle
 
 ```
-Stage 1: PLAN     → Understand scope, explore, design approach, get approval
-Stage 2: DESIGN    → Architecture decisions, risk assessment, dependency map
-Stage 3: IMPLEMENT → Code with layer awareness, incremental verification
-Stage 4: REVIEW    → Self-review checklist, cross-layer check, stale ref scan
-Stage 5: TEST      → Unit tests, integration tests, regression check
-Stage 6: DELIVER   → Verify, release, monitor, update knowledge base
+Stage 1: PLAN      → Scope, non-goals, risks, observable success criteria
+Stage 2: DESIGN    → Impact and trade-off analysis when warranted
+Stage 3: IMPLEMENT → Minimal coherent change and targeted checks
+Stage 4: REVIEW    → Correctness, security, stale-callsite and documentation review
+Stage 5: TEST      → Behavior proof, full validation, release-acceptance evidence
+Stage 6: DELIVER   → Summarize evidence and limitations; commit or publish only when authorized
 ```
 
 ## Quality Gates
 
-Each stage has entry and exit criteria. Every commit passes:
+For a complete project validation, run:
 
 ```bash
 cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+cargo doc --workspace --no-deps
+cargo run --bin check-doc-links
+cargo audit
 ```
+
+CI also makes PostgreSQL and MySQL typed/cancellation workflows release-acceptance gates on PRs, `main`, and `v*` tags. Their configured URLs must pass preflight; a local test's no-URL return is not evidence.
 
 ## Key Rules (auto-loaded by path matching)
 

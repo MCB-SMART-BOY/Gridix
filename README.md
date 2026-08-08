@@ -120,11 +120,15 @@ sudo zypper install gtk3-devel libxdo-devel
 | Theming / 主题 | Built-in themes, default dark theme: Tokyo Night Storm |
 
 ## Database Support | 数据库支持
-| Database | Notes |
-|---|---|
-| SQLite | Local file DB, bundled driver / 本地文件库，内置驱动 |
-| PostgreSQL | Async connection / 异步连接 |
-| MySQL/MariaDB | Async connection + SSL/TLS options / 异步连接 + SSL/TLS 选项 |
+| Database | Typed runtime | Cancellation semantics |
+|---|---|---|
+| SQLite | Local file DB, bundled driver / 本地文件库，内置驱动 | The typed API accepts a cancellation token, but an already-running synchronous `rusqlite` statement is not interrupted. |
+| PostgreSQL | Async typed execution; `NUMERIC` parameters and results preserve exact `DbValue::Decimal` text | A cancellation token sends PostgreSQL `CancelRequest` through the driver's `CancelToken`, then waits for the executing query to finish with the cancellation result. |
+| MySQL/MariaDB | Async typed execution + SSL/TLS options; temporal inputs reject nanoseconds at or above one second | A cancellation token keeps the execution connection's `Conn::id`, opens a separate TLS-configured control connection, sends `KILL QUERY`, then waits for the original query to finish. |
+
+The public typed entry points are `execute_typed` and `execute_typed_cancellable`. The cancellable entry is cooperative: PostgreSQL and MySQL can request server-side cancellation; SQLite does not promise in-flight statement interruption.
+
+`execute_typed` 与 `execute_typed_cancellable` 是公开的类型化执行入口。可取消入口采用协作式语义：PostgreSQL 和 MySQL 可以请求服务端取消；SQLite 不承诺中断已执行中的语句。
 
 ## Documentation | 文档
 - Docs index / 文档索引: [docs/README.md](docs/README.md)
@@ -139,15 +143,25 @@ cargo clippy
 cargo build --release
 ```
 
-Optional MySQL integration test / 可选 MySQL 集成测试：
+### Backend integration | 后端集成测试
+
+Set the appropriate local test URL before running these explicit integration binaries. The tests are not ignored, and every command runs serially. The typed-E2E binaries use fixed table names, so serial execution prevents their tests from interfering. Use a disposable database; do not put a real credential in shell history or documentation.
+
+运行以下显式集成测试前，请设置相应的本地测试 URL。测试未被标记为 ignored；每条命令均串行运行。typed E2E 二进制使用固定表名，串行运行可避免测试相互干扰。请使用可丢弃的数据库，不要把真实凭据写入 shell history 或文档。
+
 ```bash
-GRIDIX_IT_MYSQL_HOST=127.0.0.1 \
-GRIDIX_IT_MYSQL_PORT=3306 \
-GRIDIX_IT_MYSQL_USER=root \
-GRIDIX_IT_MYSQL_PASSWORD=secret \
-GRIDIX_IT_MYSQL_DB=test \
-cargo test --test mysql_cancel_integration -- --ignored --nocapture
+GRIDIX_TEST_PG_URL='<PostgreSQL test URL>' \
+  cargo test --test postgres_typed_e2e -- --nocapture --test-threads=1
+GRIDIX_TEST_PG_URL='<PostgreSQL test URL>' \
+  cargo test --test postgres_cancel_integration -- --nocapture --test-threads=1
+
+GRIDIX_TEST_MYSQL_URL='<MySQL test URL>' \
+  cargo test --test mysql_typed_e2e -- --nocapture --test-threads=1
+GRIDIX_TEST_MYSQL_URL='<MySQL test URL>' \
+  cargo test --test mysql_cancel_integration -- --nocapture --test-threads=1
 ```
+
+GitHub Actions runs the PostgreSQL and MySQL typed integration gates on pull requests, `main`, and `v*` tags, as well as by manual dispatch and a weekly schedule. Each gate preflights its required URL, uses its dedicated service container, and logs the serial test runs with `--nocapture`. These are release-acceptance gates, not a claim that a release has been published. A manual SQLite GUI journey (create, edit/save, reopen, and CSV/JSON/SQL export evidence) is still required for release acceptance; the current `gridix-driver` supports only `launch`, `key`, `ss`, `quit`, and `help`, so it cannot complete that journey automatically.
 
 ## Contributing | 参与贡献
 - Issues: https://github.com/MCB-SMART-BOY/Gridix/issues

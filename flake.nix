@@ -111,6 +111,8 @@
               deadnix
               rustup
               pkg-config
+              xorg-server
+              imagemagick
             ]
             ++ pkgs.lib.optionals pkgs.stdenv.isLinux linuxRuntimeLibs
             ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [

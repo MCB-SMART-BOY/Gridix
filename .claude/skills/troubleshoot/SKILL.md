@@ -42,14 +42,19 @@ Or manually: `Xvfb :99 -screen 0 1920x1080x24 &; export DISPLAY=:99; cargo run -
 
 ## Test failures
 
-### MySQL tests skip (expected)
-MySQL integration tests are `#[ignore]`d. Need env vars:
+### PostgreSQL/MySQL integration is not exercising a backend
+
+Local integration tests use complete URLs:
+
 ```bash
-GRIDIX_IT_MYSQL_HOST=127.0.0.1 GRIDIX_IT_MYSQL_PORT=3306 \
-GRIDIX_IT_MYSQL_USER=root GRIDIX_IT_MYSQL_PASSWORD=secret \
-GRIDIX_IT_MYSQL_DB=test \
-cargo test --test mysql_cancel_integration -- --ignored --nocapture
+GRIDIX_TEST_MYSQL_URL='mysql://user:password@127.0.0.1:3306/database' \
+cargo test --test mysql_cancel_integration -- --nocapture --test-threads=1
+
+GRIDIX_TEST_PG_URL='postgres://user:password@127.0.0.1:5432/database' \
+cargo test --test postgres_cancel_integration -- --nocapture --test-threads=1
 ```
+
+An absent URL may make the test return locally; it is not a passing backend check. CI preflights these variables and supplies service containers. For cancellation failures, verify the observer can see the marker and that MySQL has the permissions needed for `KILL QUERY`; do not diagnose them as ignored tests.
 
 ### input_router tests fail after keybinding changes
 Check: did you change a key another test expects? Is the scope path correct? Is `TextEntryGuard` blocking the new shortcut?
