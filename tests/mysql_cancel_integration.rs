@@ -106,6 +106,7 @@ async fn execute_typed_cancellable_server_query_observed_cancelled_and_connectio
         .await
         .expect("cancelled MySQL query must complete before deadline")
         .expect("MySQL worker must not panic");
+    println!("marker={} cancellation_result={:?}", marker, result);
     assert!(matches!(result, Err(DbError::Cancelled)));
     println!("marker={} milestone=cancelled", marker);
 
