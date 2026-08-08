@@ -4,6 +4,7 @@
 
 - [CHANGELOG.md](CHANGELOG.md) — version history
 - [LEARNING_CURRICULUM.md](LEARNING_CURRICULUM.md) — in-app learning content spec
+- [LIMITATIONS.md](LIMITATIONS.md) — current product limitations and verification boundaries
 
 ## Developer reference
 
