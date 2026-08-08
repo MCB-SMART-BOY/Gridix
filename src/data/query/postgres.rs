@@ -656,6 +656,9 @@ fn pg_type_family(type_info: &Type) -> DbTypeFamily {
     if *type_info == Type::FLOAT4 || *type_info == Type::FLOAT8 {
         return DbTypeFamily::Float;
     }
+    if *type_info == Type::NUMERIC {
+        return DbTypeFamily::Decimal;
+    }
     if *type_info == Type::BYTEA {
         return DbTypeFamily::Bytes;
     }
@@ -703,6 +706,19 @@ fn pg_row_value(
             pg_column_value::<f64>(row, index, type_info),
             DbValue::Float,
         );
+    }
+    if *type_info == Type::NUMERIC {
+        let value = pg_column_value::<PgNumericRaw>(row, index, type_info)?;
+        return value
+            .map(decode_pg_numeric)
+            .transpose()
+            .map(|value| value.map(DbValue::Decimal).unwrap_or(DbValue::Null))
+            .map_err(|error| {
+                DbError::Query(format!(
+                    "PG decode NUMERIC column {index} (oid {}): {error}",
+                    type_info.oid()
+                ))
+            });
     }
     if is_pg_text_type(type_info) {
         return pg_nullable_value(
@@ -752,6 +768,91 @@ where
     })
 }
 #[derive(Debug)]
+struct PgNumericRaw(Vec<u8>);
+
+const PG_NUMERIC_BASE_DIGITS: usize = 4;
+
+impl<'a> FromSql<'a> for PgNumericRaw {
+    fn from_sql(_: &Type, raw: &'a [u8]) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        Ok(Self(raw.to_vec()))
+    }
+
+    fn accepts(type_info: &Type) -> bool {
+        *type_info == Type::NUMERIC
+    }
+}
+
+fn decode_pg_numeric(raw: PgNumericRaw) -> Result<String, String> {
+    const HEADER_BYTES: usize = 8;
+    const POSITIVE: u16 = 0x0000;
+    const NEGATIVE: u16 = 0x4000;
+
+    if raw.0.len() < HEADER_BYTES || !raw.0.len().is_multiple_of(2) {
+        return Err("invalid NUMERIC binary payload length".into());
+    }
+    let words: Vec<u16> = raw
+        .0
+        .chunks_exact(2)
+        .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+        .collect();
+    let digit_count = usize::from(words[0]);
+    if words.len() != digit_count + HEADER_BYTES / 2 {
+        return Err("NUMERIC digit count does not match payload".into());
+    }
+    let sign = words[2];
+    if sign != POSITIVE && sign != NEGATIVE {
+        return Err(format!("unsupported NUMERIC sign code {sign:#06x}"));
+    }
+    let weight = i16::from_be_bytes(words[1].to_be_bytes());
+    let scale = usize::from(words[3]);
+    let digits = &words[4..];
+    if digits.iter().any(|digit| *digit >= 10_000) {
+        return Err("NUMERIC base-10000 digit is out of range".into());
+    }
+
+    let mut result = numeric_integer_part(digits, weight);
+    if scale > 0 {
+        result.push('.');
+        result.push_str(&numeric_fractional_part(digits, weight, scale)?);
+    }
+    if sign == NEGATIVE && digits.iter().any(|digit| *digit != 0) {
+        result.insert(0, '-');
+    }
+    Ok(result)
+}
+
+fn numeric_integer_part(digits: &[u16], weight: i16) -> String {
+    if weight < 0 {
+        return "0".into();
+    }
+    let mut result = String::new();
+    for index in 0..=weight as usize {
+        let digit = digits.get(index).copied().unwrap_or_default();
+        if index == 0 {
+            result.push_str(&digit.to_string());
+        } else {
+            result.push_str(&format!("{digit:04}"));
+        }
+    }
+    result
+}
+
+fn numeric_fractional_part(digits: &[u16], weight: i16, scale: usize) -> Result<String, String> {
+    let leading_zeros = if weight < -1 {
+        usize::try_from(-i32::from(weight) - 1).map_err(|_| "invalid NUMERIC weight")?
+            * PG_NUMERIC_BASE_DIGITS
+    } else {
+        0
+    };
+    let first_index = if weight < 0 { 0 } else { weight as usize + 1 };
+    let mut result = "0".repeat(leading_zeros);
+    for digit in digits.iter().skip(first_index) {
+        result.push_str(&format!("{digit:04}"));
+    }
+    result.truncate(scale);
+    result.push_str(&"0".repeat(scale.saturating_sub(result.len())));
+    Ok(result)
+}
 struct PgRawValue;
 
 impl<'a> FromSql<'a> for PgRawValue {
