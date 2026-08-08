@@ -526,7 +526,13 @@ pub(crate) async fn execute_typed_cancellable(
 
     tokio::select! {
         biased;
-        result = &mut query => result,
+        result = &mut query => {
+            if cancellation.is_cancelled() {
+                Err(DbError::Cancelled)
+            } else {
+                result
+            }
+        }
         _ = cancellation.cancelled() => {
             cancel_mysql_query(&pool, connection_id).await?;
             match query.await {
