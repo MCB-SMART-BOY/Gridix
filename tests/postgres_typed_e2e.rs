@@ -16,7 +16,7 @@
 
 use gridix::core::constants;
 use gridix::data::{
-    ConnectionConfig, DatabaseType, DbError, apply_mutations, execute_typed, load_schema_catalog,
+    ConnectionConfig, DatabaseType, apply_mutations, execute_typed, load_schema_catalog,
 };
 use gridix::domain::execution::{ExecutionOutcome, StatementOutcome};
 use gridix::domain::ids::SchemaRevision;
@@ -491,57 +491,90 @@ async fn default_value() {
 // ═══════════════════════════════════════════════════════════════════
 
 #[tokio::test]
-async fn float_targets_bind_and_numeric_is_rejected() {
+async fn float_targets_and_numeric_roundtrip_preserve_values() {
     let Some(config) = pg_config() else {
         return;
     };
     let _ = execute_typed(&config, "DROP TABLE IF EXISTS pg_float_targets_e2e").await;
     execute_typed(
         &config,
-        "CREATE TABLE pg_float_targets_e2e (real_value REAL, double_value DOUBLE PRECISION, numeric_value NUMERIC)",
+        "CREATE TABLE pg_float_targets_e2e (numeric_id NUMERIC PRIMARY KEY, real_value REAL, double_value DOUBLE PRECISION, numeric_value NUMERIC)",
     )
     .await
     .unwrap();
 
-    let floats = MutationBatch {
+    let value = "12345678901234567890.12345678901234567890";
+    let updated_value = "98765432109876543210.98765432109876543210";
+    let inserted = MutationBatch {
         mutations: vec![Mutation::Insert {
             table: col("pg_float_targets_e2e"),
-            columns: vec![col("real_value"), col("double_value")],
+            columns: vec![
+                col("numeric_id"),
+                col("real_value"),
+                col("double_value"),
+                col("numeric_value"),
+            ],
             values: vec![
+                InputValue::Value(DbValue::Decimal(value.into())),
                 InputValue::Value(DbValue::Float(1.25)),
                 InputValue::Value(DbValue::Float(2.5)),
+                InputValue::Value(DbValue::Decimal(value.into())),
             ],
         }],
         atomic: true,
     };
     assert_eq!(
-        apply_mutations(&config, &floats).await.unwrap().affected,
+        apply_mutations(&config, &inserted).await.unwrap().affected,
         vec![1]
     );
 
-    let numeric = MutationBatch {
-        mutations: vec![Mutation::Insert {
+    let updated = MutationBatch {
+        mutations: vec![Mutation::Update {
             table: col("pg_float_targets_e2e"),
-            columns: vec![col("numeric_value")],
-            values: vec![InputValue::Value(DbValue::Decimal("12.34".into()))],
+            identity: RowIdentity::PrimaryKey(vec![(
+                col("numeric_id"),
+                DbValue::Decimal(value.into()),
+            )]),
+            changes: vec![(
+                col("numeric_value"),
+                InputValue::Value(DbValue::Decimal(updated_value.into())),
+            )],
+            expected_rows: ExpectedRows::Exactly(1),
         }],
         atomic: true,
     };
-    assert!(matches!(
-        apply_mutations(&config, &numeric).await,
-        Err(DbError::Unsupported { .. })
-    ));
+    assert_eq!(
+        apply_mutations(&config, &updated).await.unwrap().affected,
+        vec![1]
+    );
 
     let result = single_result_set(
         execute_typed(
             &config,
-            "SELECT real_value, double_value FROM pg_float_targets_e2e",
+            "SELECT real_value, double_value, numeric_value FROM pg_float_targets_e2e",
         )
         .await
         .unwrap(),
     );
     assert_eq!(result.cell(0, 0), &DbValue::Float(1.25));
     assert_eq!(result.cell(0, 1), &DbValue::Float(2.5));
+    assert_eq!(result.cell(0, 2), &DbValue::Decimal(updated_value.into()));
+
+    let deleted = MutationBatch {
+        mutations: vec![Mutation::Delete {
+            table: col("pg_float_targets_e2e"),
+            identity: RowIdentity::PrimaryKey(vec![(
+                col("numeric_id"),
+                DbValue::Decimal(value.into()),
+            )]),
+            expected_rows: ExpectedRows::Exactly(1),
+        }],
+        atomic: true,
+    };
+    assert_eq!(
+        apply_mutations(&config, &deleted).await.unwrap().affected,
+        vec![1]
+    );
     let _ = execute_typed(&config, "DROP TABLE IF EXISTS pg_float_targets_e2e").await;
 }
 

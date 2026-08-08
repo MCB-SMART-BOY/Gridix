@@ -3,7 +3,7 @@
 use super::{ImportExecutionReport, RoutineInfo, RoutineType, TriggerInfo, is_query_statement};
 use crate::core::constants;
 use crate::data::{ConnectionConfig, DatabaseType, DbError, POOL_MANAGER};
-use tokio_postgres::types::{FromSql, IsNull, ToSql, Type};
+use tokio_postgres::types::{Format, FromSql, IsNull, ToSql, Type};
 
 async fn current_schema(client: &tokio_postgres::Client) -> Result<String, DbError> {
     let schema: Option<String> = client
@@ -798,6 +798,37 @@ impl ToSql for PgNull {
 
     tokio_postgres::types::to_sql_checked!();
 }
+
+#[derive(Debug)]
+struct PgNumericText(String);
+
+impl ToSql for PgNumericText {
+    fn to_sql(
+        &self,
+        target_type: &Type,
+        output: &mut tokio_postgres::types::private::BytesMut,
+    ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        if *target_type != Type::NUMERIC {
+            return Err(format!(
+                "PG NUMERIC text parameter cannot target {}",
+                target_type.name()
+            )
+            .into());
+        }
+        output.extend_from_slice(self.0.as_bytes());
+        Ok(IsNull::No)
+    }
+
+    fn accepts(target_type: &Type) -> bool {
+        *target_type == Type::NUMERIC
+    }
+
+    fn encode_format(&self, _: &Type) -> Format {
+        Format::Text
+    }
+
+    tokio_postgres::types::to_sql_checked!();
+}
 use crate::domain::mutation::{
     ExpectedRows, InputValue, Mutation, MutationBatch, MutationBatchResult, RowIdentity,
 };
@@ -817,11 +848,7 @@ fn pg_param(value: &DbValue, target_type: &Type) -> Result<Box<dyn ToSql + Sync 
         DbValue::Float(value) => pg_float_param(*value, target_type)?,
         DbValue::Text(value) => Box::new(value.clone()),
         DbValue::Bytes(value) => Box::new(value.to_vec()),
-        DbValue::Decimal(_) => {
-            return Err(DbError::Unsupported {
-                capability: "PG NUMERIC/DECIMAL mutation parameter target",
-            });
-        }
+        DbValue::Decimal(value) => pg_decimal_param(value, target_type)?,
         _ => {
             return Err(DbError::Unsupported {
                 capability: "PG param",
@@ -878,6 +905,18 @@ fn pg_float_param(value: f64, target_type: &Type) -> Result<Box<dyn ToSql + Sync
     })
 }
 
+fn pg_decimal_param(
+    value: &str,
+    target_type: &Type,
+) -> Result<Box<dyn ToSql + Sync + Send>, DbError> {
+    if *target_type != Type::NUMERIC {
+        return Err(DbError::Unsupported {
+            capability: "PG DbValue::Decimal target must be NUMERIC",
+        });
+    }
+    Ok(Box::new(PgNumericText(value.to_string())))
+}
+
 fn pg_value(v: &InputValue, target_type: &Type) -> Result<Box<dyn ToSql + Sync + Send>, DbError> {
     match v {
         InputValue::Value(value) => pg_param(value, target_type),
@@ -917,54 +956,12 @@ fn extract_pk(
     }
 }
 
-fn validate_pg_mutation_values(batch: &MutationBatch) -> Result<(), DbError> {
-    for mutation in &batch.mutations {
-        match mutation {
-            Mutation::Insert { values, .. } => validate_pg_input_values(values)?,
-            Mutation::Update {
-                identity, changes, ..
-            } => {
-                validate_pg_input_values(changes.iter().map(|(_, value)| value))?;
-                validate_pg_identity_values(identity)?;
-            }
-            Mutation::Delete { identity, .. } => validate_pg_identity_values(identity)?,
-        }
-    }
-    Ok(())
-}
-
-fn validate_pg_input_values<'a>(
-    values: impl IntoIterator<Item = &'a InputValue>,
-) -> Result<(), DbError> {
-    for value in values {
-        if matches!(value, InputValue::Value(DbValue::Decimal(_))) {
-            return Err(DbError::Unsupported {
-                capability: "PG NUMERIC/DECIMAL mutation parameter target",
-            });
-        }
-    }
-    Ok(())
-}
-
-fn validate_pg_identity_values(identity: &RowIdentity) -> Result<(), DbError> {
-    if extract_pk(identity)?
-        .iter()
-        .any(|(_, value)| matches!(value, DbValue::Decimal(_)))
-    {
-        return Err(DbError::Unsupported {
-            capability: "PG NUMERIC/DECIMAL mutation parameter target",
-        });
-    }
-    Ok(())
-}
-
 pub(crate) async fn apply_mutations(
     config: &ConnectionConfig,
     batch: &MutationBatch,
 ) -> Result<MutationBatchResult, DbError> {
     use crate::domain::identifier::IdentifierDialect;
 
-    validate_pg_mutation_values(batch)?;
     let client = POOL_MANAGER.get_pg_client(config).await?;
     let client = client.lock().await;
     client

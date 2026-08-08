@@ -797,6 +797,9 @@ fn dbvalue_to_mysql(value: &crate::domain::value::DbValue) -> Result<mysql_async
     }
 }
 
+const NANOS_PER_MICROSECOND: u32 = 1_000;
+const NANOS_PER_SECOND: u32 = 1_000_000_000;
+
 fn mysql_date_value(
     year: i32,
     month: u8,
@@ -812,7 +815,12 @@ fn mysql_date_value(
             reason: "invalid MySQL DATE/DATETIME",
         });
     }
-    if hour > 23 || minute > 59 || second > 59 || !nanos.is_multiple_of(1_000) {
+    if hour > 23
+        || minute > 59
+        || second > 59
+        || nanos >= NANOS_PER_SECOND
+        || !nanos.is_multiple_of(NANOS_PER_MICROSECOND)
+    {
         return Err(DbError::ValueOutOfRange {
             value: format!("{hour:02}:{minute:02}:{second:02}.{nanos:09}"),
             reason: "not representable as MySQL DATETIME",
@@ -825,7 +833,7 @@ fn mysql_date_value(
         hour,
         minute,
         second,
-        nanos / 1_000,
+        nanos / NANOS_PER_MICROSECOND,
     ))
 }
 
@@ -835,7 +843,11 @@ fn mysql_time_value(
     second: u8,
     nanos: u32,
 ) -> Result<mysql_async::Value, DbError> {
-    if minute > 59 || second > 59 || !nanos.is_multiple_of(1_000) {
+    if minute > 59
+        || second > 59
+        || nanos >= NANOS_PER_SECOND
+        || !nanos.is_multiple_of(NANOS_PER_MICROSECOND)
+    {
         return Err(DbError::ValueOutOfRange {
             value: format!("{hour:02}:{minute:02}:{second:02}.{nanos:09}"),
             reason: "not representable as MySQL TIME",
@@ -847,7 +859,7 @@ fn mysql_time_value(
         hour % 24,
         minute,
         second,
-        nanos / 1_000,
+        nanos / NANOS_PER_MICROSECOND,
     ))
 }
 
@@ -1125,7 +1137,10 @@ fn extract_pk_mysql(
 }
 #[cfg(test)]
 mod tests {
-    use super::{mysql_maintenance_databases, quote_mysql_identifier};
+    use super::{
+        NANOS_PER_SECOND, mysql_date_value, mysql_maintenance_databases, mysql_time_value,
+        quote_mysql_identifier,
+    };
     use crate::data::{ConnectionConfig, DatabaseType};
 
     #[test]
@@ -1159,5 +1174,11 @@ mod tests {
                 "".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn mysql_temporal_values_reject_nanoseconds_at_or_above_one_second() {
+        assert!(mysql_date_value(2024, 1, 1, 0, 0, 0, NANOS_PER_SECOND).is_err());
+        assert!(mysql_time_value(0, 0, 0, NANOS_PER_SECOND).is_err());
     }
 }
