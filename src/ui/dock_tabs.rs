@@ -129,20 +129,12 @@ pub fn ensure_surface_tab(state: &mut DockState<DockTab>, kind: WorkbenchSurface
     let placement = kind.descriptor().default_placement;
     let tab = DockTab::surface(kind);
     let tree = state.main_surface_mut();
-    match placement {
-        WorkbenchPlacement::Center => {
-            tree.push_to_focused_leaf(tab);
-        }
-        WorkbenchPlacement::Left => {
-            let _ = tree.split_left(NodeIndex::root(), DEFAULT_LEFT_RETAIN_RATIO, vec![tab]);
-        }
-        WorkbenchPlacement::Right => {
-            let _ = tree.split_right(NodeIndex::root(), DEFAULT_RIGHT_RETAIN_RATIO, vec![tab]);
-        }
-        WorkbenchPlacement::Bottom => {
-            let _ = tree.split_below(NodeIndex::root(), DEFAULT_BOTTOM_RETAIN_RATIO, vec![tab]);
-        }
+    if matches!(placement, WorkbenchPlacement::Center) {
+        tree.push_to_focused_leaf(tab);
+    } else {
+        split_root_or_append(tree, placement, tab);
     }
+
     true
 }
 
@@ -231,7 +223,7 @@ fn sync_sql_documents(state: &mut DockState<DockTab>, tab_manager: &crate::ui::Q
                 tree.set_focused_node(*node_idx);
                 tree.push_to_focused_leaf(tab);
             } else {
-                let _ = tree.split_right(NodeIndex::root(), DEFAULT_RIGHT_RETAIN_RATIO, vec![tab]);
+                split_root_or_append(tree, WorkbenchPlacement::Right, tab);
             }
         }
     }
@@ -254,11 +246,7 @@ fn sync_er_visibility(state: &mut DockState<DockTab>, show: bool) {
             } else {
                 DockTab::ErDiagram
             };
-            let _ = state.main_surface_mut().split_right(
-                NodeIndex::root(),
-                DEFAULT_RIGHT_RETAIN_RATIO,
-                vec![tab],
-            );
+            split_root_or_append(state.main_surface_mut(), WorkbenchPlacement::Right, tab);
         }
         (false, true) => remove_tabs(state, is_er_diagram_tab),
         _ => {}
@@ -267,6 +255,30 @@ fn sync_er_visibility(state: &mut DockState<DockTab>, show: bool) {
 
 fn remove_tabs<F: FnMut(&DockTab) -> bool>(state: &mut DockState<DockTab>, mut predicate: F) {
     state.retain_tabs(|tab| !predicate(tab));
+}
+
+fn split_root_or_append(
+    tree: &mut egui_dock::Tree<DockTab>,
+    placement: WorkbenchPlacement,
+    tab: DockTab,
+) {
+    if tree.root_node().is_none_or(|node| node.is_empty()) {
+        tree.push_to_focused_leaf(tab);
+        return;
+    }
+
+    match placement {
+        WorkbenchPlacement::Center => tree.push_to_focused_leaf(tab),
+        WorkbenchPlacement::Left => {
+            let _ = tree.split_left(NodeIndex::root(), DEFAULT_LEFT_RETAIN_RATIO, vec![tab]);
+        }
+        WorkbenchPlacement::Right => {
+            let _ = tree.split_right(NodeIndex::root(), DEFAULT_RIGHT_RETAIN_RATIO, vec![tab]);
+        }
+        WorkbenchPlacement::Bottom => {
+            let _ = tree.split_below(NodeIndex::root(), DEFAULT_BOTTOM_RETAIN_RATIO, vec![tab]);
+        }
+    }
 }
 
 fn is_sql_document_tab(tab: &DockTab) -> bool {
@@ -537,6 +549,22 @@ mod tests {
             all_tabs(&state)
                 .iter()
                 .all(|tab| !matches!(tab.surface_kind(), WorkbenchSurfaceKind::ErDiagram))
+        );
+    }
+
+    #[test]
+    fn ensure_surface_tab_on_empty_tree_creates_a_leaf() {
+        let mut state = default_layout();
+        remove_tabs(&mut state, |_| true);
+
+        assert!(ensure_surface_tab(
+            &mut state,
+            WorkbenchSurfaceKind::Explorer
+        ));
+        assert!(
+            all_tabs(&state)
+                .iter()
+                .any(|tab| tab.surface_kind() == WorkbenchSurfaceKind::Explorer)
         );
     }
 

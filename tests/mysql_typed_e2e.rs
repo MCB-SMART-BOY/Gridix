@@ -467,7 +467,11 @@ async fn temporal_roundtrip_and_extended_time_decode() {
         nanos: 456_000_000,
     };
     let midnight = DbDateTime {
-        date,
+        date: DbDate {
+            year: 2024,
+            month: 1,
+            day: 1,
+        },
         time: DbTime {
             hour: 0,
             minute: 0,

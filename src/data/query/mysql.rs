@@ -482,7 +482,8 @@ pub(crate) async fn load_catalog(
 use crate::domain::execution::ExecutionOutcome;
 use crate::domain::result::{ResultColumn, ResultCompleteness, ResultSet};
 use crate::domain::value::{DbTypeFamily, DbTypeInfo, DbValue};
-use mysql_async::consts::ColumnType;
+use mysql_async::consts::{ColumnFlags, ColumnType};
+
 use mysql_async::prelude::Queryable;
 
 /// 执行 SQL 并返回类型化 ResultSet（MySQL 原生 Value 路径）
@@ -572,7 +573,8 @@ async fn execute_typed_with_conn(
 
     let columns: Vec<mysql_async::Column> = result.columns_ref().to_vec();
     let col_names: Vec<String> = columns.iter().map(|c| c.name_str().into_owned()).collect();
-    let col_types: Vec<ColumnType> = columns.iter().map(|c| c.column_type()).collect();
+    let col_types: Vec<ColumnType> = columns.iter().map(|column| column.column_type()).collect();
+
     let col_count = col_names.len();
     let max_rows = constants::database::MAX_RESULT_SET_ROWS;
 
@@ -586,9 +588,9 @@ async fn execute_typed_with_conn(
         let Some(row) = row_opt else { break };
         total_rows += 1;
         if total_rows <= max_rows + 1 && cells.len() / col_count < max_rows {
-            for (index, column_type) in col_types.iter().enumerate() {
-                let val: mysql_async::Value = row.get(index).unwrap_or(mysql_async::Value::NULL);
-                cells.push(mysql_value_to_dbvalue(val, column_type));
+            for (index, column) in columns.iter().enumerate() {
+                let value: mysql_async::Value = row.get(index).unwrap_or(mysql_async::Value::NULL);
+                cells.push(mysql_value_to_dbvalue(value, column));
             }
         }
         if total_rows > max_rows {
@@ -625,7 +627,7 @@ async fn execute_typed_with_conn(
         completeness,
     }))
 }
-fn mysql_value_to_dbvalue(val: mysql_async::Value, col_type: &ColumnType) -> DbValue {
+fn mysql_value_to_dbvalue(val: mysql_async::Value, column: &mysql_async::Column) -> DbValue {
     use mysql_async::Value;
     match val {
         Value::NULL => DbValue::Null,
@@ -633,12 +635,16 @@ fn mysql_value_to_dbvalue(val: mysql_async::Value, col_type: &ColumnType) -> DbV
         Value::UInt(u) => DbValue::UInt(u),
         Value::Float(f) => DbValue::Float(f as f64),
         Value::Double(d) => DbValue::Float(d),
-        Value::Bytes(bytes) => match col_type {
+        Value::Bytes(bytes) => match column.column_type() {
+            ColumnType::MYSQL_TYPE_BIT => DbValue::Bytes(std::sync::Arc::from(bytes)),
             ColumnType::MYSQL_TYPE_BLOB
             | ColumnType::MYSQL_TYPE_LONG_BLOB
             | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
             | ColumnType::MYSQL_TYPE_TINY_BLOB
-            | ColumnType::MYSQL_TYPE_BIT => DbValue::Bytes(std::sync::Arc::from(bytes)),
+                if column.flags().contains(ColumnFlags::BINARY_FLAG) =>
+            {
+                DbValue::Bytes(std::sync::Arc::from(bytes))
+            }
             ColumnType::MYSQL_TYPE_DECIMAL | ColumnType::MYSQL_TYPE_NEWDECIMAL => {
                 String::from_utf8(bytes)
                     .map(DbValue::Decimal)
@@ -653,7 +659,7 @@ fn mysql_value_to_dbvalue(val: mysql_async::Value, col_type: &ColumnType) -> DbV
         },
         Value::Date(y, m, d, h, mi, s, us) => {
             if matches!(
-                col_type,
+                column.column_type(),
                 ColumnType::MYSQL_TYPE_DATE | ColumnType::MYSQL_TYPE_NEWDATE
             ) {
                 DbValue::Date(crate::domain::value::DbDate {

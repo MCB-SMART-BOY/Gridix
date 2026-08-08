@@ -151,10 +151,25 @@ pub struct SqlEditorActions {
     /// Escape 键已被编辑器消费（用于退出 Insert 模式）
     pub escape_consumed: bool,
 }
+const STATUS_MESSAGE_MAX_CHARS: usize = 50;
+const STATUS_MESSAGE_PREVIEW_CHARS: usize = 47;
 
 impl SqlEditor {
     fn text_edit_id() -> egui::Id {
         egui::Id::new("gridix.sql_editor.text_edit")
+    }
+    fn truncate_status_message(message: &str) -> String {
+        if message.chars().count() <= STATUS_MESSAGE_MAX_CHARS {
+            return message.to_string();
+        }
+
+        format!(
+            "{}...",
+            message
+                .chars()
+                .take(STATUS_MESSAGE_PREVIEW_CHARS)
+                .collect::<String>()
+        )
     }
 
     fn apply_insert_mode_cancel(
@@ -698,11 +713,7 @@ impl SqlEditor {
                         };
                         let icon = if is_error { "✗" } else { "✓" };
                         ui.label(RichText::new(icon).color(color));
-                        let display_msg = if msg.len() > 50 {
-                            format!("{}...", &msg[..47])
-                        } else {
-                            msg.clone()
-                        };
+                        let display_msg = Self::truncate_status_message(msg);
                         ui.label(RichText::new(display_msg).small().color(color));
                     } else {
                         ui.label(RichText::new("就绪").small().color(GRAY));
@@ -1029,10 +1040,22 @@ impl SqlEditor {
 #[cfg(test)]
 mod tests {
     use super::{
-        CompletionKeyInput, EditorMode, SqlEditor, SqlEditorActions, apply_completion_at_cursor,
+        CompletionKeyInput, EditorMode, STATUS_MESSAGE_MAX_CHARS, STATUS_MESSAGE_PREVIEW_CHARS,
+        SqlEditor, SqlEditorActions, apply_completion_at_cursor,
     };
     use crate::core::AutoComplete;
     use egui::Key;
+    #[test]
+    fn truncate_status_message_with_multibyte_text_preserves_char_boundaries() {
+        let message = "构".repeat(STATUS_MESSAGE_MAX_CHARS + 1);
+
+        let truncated = SqlEditor::truncate_status_message(&message);
+
+        assert_eq!(
+            truncated,
+            format!("{}...", "构".repeat(STATUS_MESSAGE_PREVIEW_CHARS))
+        );
+    }
 
     #[test]
     fn insert_mode_cancel_closes_autocomplete_without_leaving_insert_mode() {
