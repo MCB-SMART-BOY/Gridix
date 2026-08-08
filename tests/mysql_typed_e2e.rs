@@ -22,7 +22,7 @@ use gridix::domain::mutation::{
     ColumnRef, ExpectedRows, InputValue, Mutation, MutationBatch, RowIdentity,
 };
 use gridix::domain::result::{ResultCompleteness, ResultSet};
-use gridix::domain::value::DbValue;
+use gridix::domain::value::{DbDate, DbDateTime, DbTime, DbValue};
 
 // ── helpers ──
 
@@ -368,7 +368,7 @@ async fn default_value() {
         &config,
         "CREATE TABLE with_default (\
          id INT AUTO_INCREMENT PRIMARY KEY, \
-         created_at TEXT DEFAULT '2024-01-01')",
+         created_at VARCHAR(10) DEFAULT '2024-01-01')",
     )
     .await
     .unwrap();
@@ -421,6 +421,138 @@ async fn default_value() {
 
     // Cleanup
     let _ = execute_typed(&config, "DROP TABLE IF EXISTS with_default").await;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Test 5: Temporal values retain their MySQL semantics
+// ═══════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn temporal_roundtrip_and_extended_time_decode() {
+    let Some(config) = mysql_config() else {
+        eprintln!("SKIP: GRIDIX_TEST_MYSQL_URL not set");
+        return;
+    };
+
+    let _ = execute_typed(&config, "DROP TABLE IF EXISTS temporal_values").await;
+    execute_typed(
+        &config,
+        "CREATE TABLE temporal_values (\
+         id INT PRIMARY KEY, \
+         date_value DATE NOT NULL, \
+         datetime_value DATETIME(6) NOT NULL, \
+         time_value TIME(6) NOT NULL)",
+    )
+    .await
+    .unwrap();
+
+    let date = DbDate {
+        year: 2024,
+        month: 2,
+        day: 29,
+    };
+    let datetime = DbDateTime {
+        date,
+        time: DbTime {
+            hour: 23,
+            minute: 45,
+            second: 6,
+            nanos: 789_123_000,
+        },
+    };
+    let time = DbTime {
+        hour: 25,
+        minute: 2,
+        second: 3,
+        nanos: 456_000_000,
+    };
+    let midnight = DbDateTime {
+        date,
+        time: DbTime {
+            hour: 0,
+            minute: 0,
+            second: 0,
+            nanos: 0,
+        },
+    };
+    let insert = MutationBatch {
+        mutations: vec![Mutation::Insert {
+            table: col("temporal_values"),
+            columns: vec![
+                col("id"),
+                col("date_value"),
+                col("datetime_value"),
+                col("time_value"),
+            ],
+            values: vec![
+                InputValue::Value(DbValue::Int(1)),
+                InputValue::Value(DbValue::Date(date)),
+                InputValue::Value(DbValue::DateTime(datetime)),
+                InputValue::Value(DbValue::Time(time)),
+            ],
+        }],
+        atomic: true,
+    };
+    apply_mutations(&config, &insert).await.unwrap();
+
+    execute_typed(
+        &config,
+        "INSERT INTO temporal_values VALUES \
+         (2, '2024-01-01', '2024-01-01 00:00:00', '-01:02:03'), \
+         (3, '2024-01-01', '2024-01-01 00:00:00', '838:59:59')",
+    )
+    .await
+    .unwrap();
+
+    let result = single_result_set(
+        execute_typed(
+            &config,
+            "SELECT id, date_value, datetime_value, time_value \
+             FROM temporal_values ORDER BY id",
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!(result.cell(0, 1), &DbValue::Date(date));
+    assert_eq!(result.cell(0, 2), &DbValue::DateTime(datetime));
+    assert_eq!(result.cell(0, 3), &DbValue::Time(time));
+    assert_eq!(result.cell(1, 2), &DbValue::DateTime(midnight));
+    assert_eq!(
+        result.cell(1, 3),
+        &DbValue::Other {
+            native_type: "TIME".to_string(),
+            display: "-01:02:03.000000".to_string(),
+        }
+    );
+
+    assert_eq!(
+        result.cell(2, 3),
+        &DbValue::Other {
+            native_type: "TIME".to_string(),
+            display: "838:59:59.000000".to_string(),
+        }
+    );
+
+    let _ = execute_typed(&config, "DROP TABLE IF EXISTS temporal_values").await;
+}
+
+#[tokio::test]
+async fn decimal_select_preserves_exact_decimal_value() {
+    let Some(config) = mysql_config() else {
+        eprintln!("SKIP: GRIDIX_TEST_MYSQL_URL not set");
+        return;
+    };
+
+    let result = single_result_set(
+        execute_typed(
+            &config,
+            "SELECT CAST('123.4500' AS DECIMAL(10, 4)) AS amount",
+        )
+        .await
+        .unwrap(),
+    );
+
+    assert_eq!(result.cell(0, 0), &DbValue::Decimal("123.4500".to_string()));
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -520,7 +652,7 @@ async fn catalog_load() {
         .iter()
         .find(|c| c.name == "price")
         .expect("price column must exist");
-    assert_eq!(price_col.default_value, Some("0.0".to_string()));
+    assert_eq!(price_col.default_value, Some("0".to_string()));
 
     // ── Verify "logs" table (no PK) ──
     let logs = catalog.table("logs").expect("logs table must exist");

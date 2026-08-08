@@ -3,8 +3,7 @@
 use super::{ImportExecutionReport, RoutineInfo, RoutineType, TriggerInfo, is_query_statement};
 use crate::core::constants;
 use crate::data::{ConnectionConfig, DatabaseType, DbError, POOL_MANAGER};
-use futures_util::StreamExt;
-use tokio_postgres::SimpleQueryMessage;
+use tokio_postgres::types::{FromSql, IsNull, ToSql, Type};
 
 async fn current_schema(client: &tokio_postgres::Client) -> Result<String, DbError> {
     let schema: Option<String> = client
@@ -66,6 +65,7 @@ fn postgres_maintenance_databases(config: &ConnectionConfig, target_database: &s
 /// 获取 PostgreSQL 数据库列表
 pub(crate) async fn get_databases(config: &ConnectionConfig) -> Result<Vec<String>, DbError> {
     let client = POOL_MANAGER.get_pg_client(config).await?;
+    let client = client.lock().await;
 
     let rows = client
         .query(
@@ -88,6 +88,7 @@ pub(crate) async fn get_tables(
     db_config.database = database.to_string();
 
     let client = POOL_MANAGER.get_pg_client(&db_config).await?;
+    let client = client.lock().await;
     let schema = current_schema(&client).await?;
 
     let rows = client
@@ -116,6 +117,7 @@ pub(crate) async fn drop_database(
 
         match POOL_MANAGER.get_pg_client(&maintenance_config).await {
             Ok(client) => {
+                let client = client.lock().await;
                 let sql = format!("DROP DATABASE {}", quoted_database);
                 return client
                     .execute(sql.as_str(), &[])
@@ -142,6 +144,7 @@ pub(crate) async fn execute_batch(
     stop_on_error: bool,
 ) -> Result<ImportExecutionReport, DbError> {
     let client = POOL_MANAGER.get_pg_client(config).await?;
+    let client = client.lock().await;
 
     let mut report = ImportExecutionReport::new(statements.len());
     if statements.is_empty() {
@@ -195,6 +198,7 @@ pub(crate) async fn execute_batch(
 /// 获取 PostgreSQL 触发器
 pub(crate) async fn get_triggers(config: &ConnectionConfig) -> Result<Vec<TriggerInfo>, DbError> {
     let client = POOL_MANAGER.get_pg_client(config).await?;
+    let client = client.lock().await;
     let schema = current_schema(&client).await?;
 
     let sql = r#"
@@ -243,6 +247,7 @@ pub(crate) async fn get_triggers(config: &ConnectionConfig) -> Result<Vec<Trigge
 /// 获取 PostgreSQL 存储过程和函数
 pub(crate) async fn get_routines(config: &ConnectionConfig) -> Result<Vec<RoutineInfo>, DbError> {
     let client = POOL_MANAGER.get_pg_client(config).await?;
+    let client = client.lock().await;
     let schema = current_schema(&client).await?;
 
     // 查询用户定义的函数和存储过程
@@ -318,6 +323,7 @@ pub(crate) async fn load_catalog(
         .get_pg_client(config)
         .await
         .map_err(|e| DbError::Connection(format!("PG 连接池获取失败: {}", e)))?;
+    let client = client.lock().await;
 
     let schema = current_schema(&client).await?;
 
@@ -483,7 +489,8 @@ pub(crate) async fn execute_typed(
     sql: &str,
 ) -> Result<ExecutionOutcome, DbError> {
     let client = POOL_MANAGER.get_pg_client(config).await?;
-    execute_typed_with_client(client.as_ref(), sql).await
+    let mut client = client.lock().await;
+    execute_typed_with_client(&mut client, sql).await
 }
 
 /// 使用 PostgreSQL CancelRequest 协作取消正在执行的查询。
@@ -497,8 +504,9 @@ pub(crate) async fn execute_typed_cancellable(
     }
 
     let client = POOL_MANAGER.get_pg_client(config).await?;
+    let mut client = client.lock().await;
     let cancel_token = client.cancel_token();
-    let query = execute_typed_with_client(client.as_ref(), sql);
+    let query = execute_typed_with_client(&mut client, sql);
     tokio::pin!(query);
 
     tokio::select! {
@@ -538,7 +546,7 @@ async fn cancel_pg_query(
 }
 
 async fn execute_typed_with_client(
-    client: &tokio_postgres::Client,
+    client: &mut tokio_postgres::Client,
     sql: &str,
 ) -> Result<ExecutionOutcome, DbError> {
     if !is_query_statement(sql, &DatabaseType::PostgreSQL) {
@@ -549,98 +557,271 @@ async fn execute_typed_with_client(
         return Ok(ExecutionOutcome::affected_rows(affected));
     }
 
-    let stream = client
-        .simple_query_raw(sql)
+    let transaction = client
+        .transaction()
         .await
-        .map_err(|e| DbError::Query(e.to_string()))?;
-    futures_util::pin_mut!(stream);
+        .map_err(|e| DbError::Query(format!("PG BEGIN result query: {e}")))?;
+    let result = async {
+        let statement = transaction
+            .prepare(sql)
+            .await
+            .map_err(|e| DbError::Query(format!("PG prepare query: {e}")))?;
+        let columns = statement.columns();
+        let typed_columns = pg_result_columns(columns);
+        let portal = transaction
+            .bind(&statement, &[])
+            .await
+            .map_err(|e| DbError::Query(format!("PG bind query portal: {e}")))?;
+        let max_rows = constants::database::MAX_RESULT_SET_ROWS;
+        let portal_limit = max_rows
+            .checked_add(1)
+            .and_then(|limit| i32::try_from(limit).ok())
+            .ok_or_else(|| {
+                DbError::Query("PG result row limit exceeds portal protocol limit".into())
+            })?;
+        let rows = transaction
+            .query_portal(&portal, portal_limit)
+            .await
+            .map_err(|e| DbError::Query(format!("PG fetch bounded query portal: {e}")))?;
+        let is_truncated = rows.len() > max_rows;
+        let displayed_rows = rows.into_iter().take(max_rows);
+        let mut cells = Vec::with_capacity(displayed_rows.len() * columns.len());
 
-    let mut col_names: Vec<String> = Vec::new();
-    let mut cells: Vec<DbValue> = Vec::new();
-    let mut total_rows = 0usize;
-    let max_rows = constants::database::MAX_RESULT_SET_ROWS;
-
-    while let Some(message) = stream.next().await {
-        match message.map_err(|e| DbError::Query(e.to_string()))? {
-            SimpleQueryMessage::RowDescription(desc) => {
-                if col_names.is_empty() {
-                    col_names = desc.iter().map(|c| c.name().to_owned()).collect();
-                }
+        for row in displayed_rows {
+            for (index, column) in columns.iter().enumerate() {
+                cells.push(pg_row_value(&row, index, column.type_())?);
             }
-            SimpleQueryMessage::Row(row) => {
-                if col_names.is_empty() {
-                    col_names = row.columns().iter().map(|c| c.name().to_owned()).collect();
-                }
-                total_rows += 1;
-                if cells.len() / col_names.len().max(1) < max_rows {
-                    for i in 0..row.len() {
-                        match row.get(i) {
-                            Some(value) => cells.push(DbValue::Text(value.to_string())),
-                            None => cells.push(DbValue::Null),
-                        }
-                    }
-                }
+        }
+
+        let row_count = cells.len() / columns.len().max(1);
+        let completeness = if is_truncated {
+            ResultCompleteness::Truncated {
+                displayed: row_count,
             }
-            SimpleQueryMessage::CommandComplete(_) => {}
-            _ => {}
-        }
+        } else {
+            ResultCompleteness::Complete
+        };
+        Ok(ExecutionOutcome::single_result(ResultSet {
+            columns: typed_columns,
+            cells,
+            row_count,
+            completeness,
+        }))
     }
+    .await;
 
-    if col_names.is_empty() && total_rows == 0 {
-        return Ok(ExecutionOutcome::single_result(ResultSet::empty()));
+    match result {
+        Ok(outcome) => transaction
+            .commit()
+            .await
+            .map(|()| outcome)
+            .map_err(|e| DbError::Query(format!("PG COMMIT result query: {e}"))),
+        Err(error) => rollback_pg_transaction(transaction, error).await,
     }
+}
 
-    let col_count = col_names.len();
-    let row_count = cells.len() / col_count.max(1);
-    let completeness = if total_rows > max_rows {
-        ResultCompleteness::Truncated {
-            displayed: row_count,
-        }
-    } else {
-        ResultCompleteness::Complete
-    };
+async fn rollback_pg_transaction(
+    transaction: tokio_postgres::Transaction<'_>,
+    original_error: DbError,
+) -> Result<ExecutionOutcome, DbError> {
+    match transaction.rollback().await {
+        Ok(()) => Err(original_error),
+        Err(rollback_error) => Err(DbError::Query(format!(
+            "{original_error}; PG ROLLBACK failed: {rollback_error}"
+        ))),
+    }
+}
 
-    let typed_columns: std::sync::Arc<[ResultColumn]> = col_names
+fn pg_result_columns(columns: &[tokio_postgres::Column]) -> std::sync::Arc<[ResultColumn]> {
+    columns
         .iter()
-        .map(|name| ResultColumn {
-            name: name.clone(),
+        .map(|column| ResultColumn {
+            name: column.name().to_owned(),
             type_info: DbTypeInfo {
-                family: DbTypeFamily::Text,
-                native_name: "text".to_string(),
+                family: pg_type_family(column.type_()),
+                native_name: format!("{} (oid {})", column.type_().name(), column.type_().oid()),
                 nullable: None,
             },
         })
-        .collect();
+        .collect()
+}
 
-    Ok(ExecutionOutcome::single_result(ResultSet {
-        columns: typed_columns,
-        cells,
-        row_count,
-        completeness,
-    }))
+fn pg_type_family(type_info: &Type) -> DbTypeFamily {
+    if *type_info == Type::BOOL {
+        return DbTypeFamily::Bool;
+    }
+    if *type_info == Type::INT2 || *type_info == Type::INT4 || *type_info == Type::INT8 {
+        return DbTypeFamily::Integer;
+    }
+    if *type_info == Type::FLOAT4 || *type_info == Type::FLOAT8 {
+        return DbTypeFamily::Float;
+    }
+    if *type_info == Type::BYTEA {
+        return DbTypeFamily::Bytes;
+    }
+    if is_pg_text_type(type_info) {
+        return DbTypeFamily::Text;
+    }
+    DbTypeFamily::Other
+}
+
+fn pg_row_value(
+    row: &tokio_postgres::Row,
+    index: usize,
+    type_info: &Type,
+) -> Result<DbValue, DbError> {
+    if pg_column_is_null(row, index, type_info)? {
+        return Ok(DbValue::Null);
+    }
+
+    if *type_info == Type::BOOL {
+        return pg_nullable_value(
+            pg_column_value::<bool>(row, index, type_info),
+            DbValue::Bool,
+        );
+    }
+    if *type_info == Type::INT2 {
+        return pg_nullable_value(pg_column_value::<i16>(row, index, type_info), |value| {
+            DbValue::Int(i64::from(value))
+        });
+    }
+    if *type_info == Type::INT4 {
+        return pg_nullable_value(pg_column_value::<i32>(row, index, type_info), |value| {
+            DbValue::Int(i64::from(value))
+        });
+    }
+    if *type_info == Type::INT8 {
+        return pg_nullable_value(pg_column_value::<i64>(row, index, type_info), DbValue::Int);
+    }
+    if *type_info == Type::FLOAT4 {
+        return pg_nullable_value(pg_column_value::<f32>(row, index, type_info), |value| {
+            DbValue::Float(f64::from(value))
+        });
+    }
+    if *type_info == Type::FLOAT8 {
+        return pg_nullable_value(
+            pg_column_value::<f64>(row, index, type_info),
+            DbValue::Float,
+        );
+    }
+    if is_pg_text_type(type_info) {
+        return pg_nullable_value(
+            pg_column_value::<String>(row, index, type_info),
+            DbValue::Text,
+        );
+    }
+    if *type_info == Type::BYTEA {
+        return pg_nullable_value(pg_column_value::<Vec<u8>>(row, index, type_info), |value| {
+            DbValue::Bytes(value.into())
+        });
+    }
+    Ok(DbValue::Other {
+        native_type: type_info.name().to_owned(),
+        display: format!("<unsupported PostgreSQL type oid={}>", type_info.oid()),
+    })
+}
+
+fn is_pg_text_type(type_info: &Type) -> bool {
+    *type_info == Type::VARCHAR
+        || *type_info == Type::TEXT
+        || *type_info == Type::BPCHAR
+        || *type_info == Type::NAME
+}
+
+fn pg_nullable_value<T>(
+    value: Result<Option<T>, DbError>,
+    map: impl FnOnce(T) -> DbValue,
+) -> Result<DbValue, DbError> {
+    Ok(value?.map(map).unwrap_or(DbValue::Null))
+}
+
+fn pg_column_value<'row, T>(
+    row: &'row tokio_postgres::Row,
+    index: usize,
+    type_info: &Type,
+) -> Result<Option<T>, DbError>
+where
+    T: FromSql<'row>,
+{
+    row.try_get(index).map_err(|e| {
+        DbError::Query(format!(
+            "PG decode column {index} as {} (oid {}): {e}",
+            type_info.name(),
+            type_info.oid()
+        ))
+    })
+}
+#[derive(Debug)]
+struct PgRawValue;
+
+impl<'a> FromSql<'a> for PgRawValue {
+    fn from_sql(_: &Type, _: &'a [u8]) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        Ok(Self)
+    }
+
+    fn accepts(_: &Type) -> bool {
+        true
+    }
+}
+
+fn pg_column_is_null(
+    row: &tokio_postgres::Row,
+    index: usize,
+    type_info: &Type,
+) -> Result<bool, DbError> {
+    row.try_get::<_, Option<PgRawValue>>(index)
+        .map(|value| value.is_none())
+        .map_err(|e| {
+            DbError::Query(format!(
+                "PG inspect column {index} as {} (oid {}): {e}",
+                type_info.name(),
+                type_info.oid()
+            ))
+        })
+}
+
+#[derive(Debug)]
+struct PgNull;
+
+impl ToSql for PgNull {
+    fn to_sql(
+        &self,
+        _: &Type,
+        _: &mut tokio_postgres::types::private::BytesMut,
+    ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        Ok(IsNull::Yes)
+    }
+
+    fn accepts(_: &Type) -> bool {
+        true
+    }
+
+    tokio_postgres::types::to_sql_checked!();
 }
 use crate::domain::mutation::{
     ExpectedRows, InputValue, Mutation, MutationBatch, MutationBatchResult, RowIdentity,
 };
-use tokio_postgres::types::ToSql;
 
-/// DbValue → tokio_postgres parameter value.
-fn pg_param(
-    value: &crate::domain::value::DbValue,
-) -> Result<Box<dyn ToSql + Sync + Send>, DbError> {
+/// DbValue → tokio_postgres parameter value, preserving the prepared target type.
+fn pg_param(value: &DbValue, target_type: &Type) -> Result<Box<dyn ToSql + Sync + Send>, DbError> {
     Ok(match value {
-        crate::domain::value::DbValue::Null => Box::new(None::<String>),
-        crate::domain::value::DbValue::Bool(b) => Box::new(*b),
-        crate::domain::value::DbValue::Int(i) => Box::new(*i),
-        crate::domain::value::DbValue::UInt(u) => {
-            Box::new(i64::try_from(*u).map_err(|_| DbError::Unsupported {
+        DbValue::Null => Box::new(PgNull),
+        DbValue::Bool(value) => Box::new(*value),
+        DbValue::Int(value) => pg_integer_param(*value, target_type)?,
+        DbValue::UInt(value) => {
+            let value = i64::try_from(*value).map_err(|_| DbError::Unsupported {
                 capability: "u64 > i64::MAX for PG",
-            })?)
+            })?;
+            pg_integer_param(value, target_type)?
         }
-        crate::domain::value::DbValue::Float(f) => Box::new(*f),
-        crate::domain::value::DbValue::Text(s) => Box::new(s.clone()),
-        crate::domain::value::DbValue::Bytes(b) => Box::new(b.to_vec()),
-        crate::domain::value::DbValue::Decimal(d) => Box::new(d.clone()),
+        DbValue::Float(value) => pg_float_param(*value, target_type)?,
+        DbValue::Text(value) => Box::new(value.clone()),
+        DbValue::Bytes(value) => Box::new(value.to_vec()),
+        DbValue::Decimal(_) => {
+            return Err(DbError::Unsupported {
+                capability: "PG NUMERIC/DECIMAL mutation parameter target",
+            });
+        }
         _ => {
             return Err(DbError::Unsupported {
                 capability: "PG param",
@@ -649,15 +830,76 @@ fn pg_param(
     })
 }
 
-fn pg_value(v: &InputValue) -> Result<Box<dyn ToSql + Sync + Send>, DbError> {
+fn pg_integer_param(
+    value: i64,
+    target_type: &Type,
+) -> Result<Box<dyn ToSql + Sync + Send>, DbError> {
+    if *target_type == Type::INT2 {
+        return Ok(Box::new(
+            i16::try_from(value).map_err(|_| pg_integer_overflow(value, target_type))?,
+        ));
+    }
+    if *target_type == Type::INT4 {
+        return Ok(Box::new(
+            i32::try_from(value).map_err(|_| pg_integer_overflow(value, target_type))?,
+        ));
+    }
+    Ok(Box::new(value))
+}
+
+fn pg_integer_overflow(value: i64, target_type: &Type) -> DbError {
+    DbError::Query(format!(
+        "PG parameter integer {value} overflows {} (oid {})",
+        target_type.name(),
+        target_type.oid()
+    ))
+}
+
+fn pg_float_param(value: f64, target_type: &Type) -> Result<Box<dyn ToSql + Sync + Send>, DbError> {
+    if !value.is_finite() {
+        return Err(DbError::Unsupported {
+            capability: "non-finite PG FLOAT4/FLOAT8 parameter",
+        });
+    }
+    if *target_type == Type::FLOAT4 {
+        let value = value as f32;
+        if !value.is_finite() {
+            return Err(DbError::Unsupported {
+                capability: "out-of-range PG FLOAT4 parameter",
+            });
+        }
+        return Ok(Box::new(value));
+    }
+    if *target_type == Type::FLOAT8 {
+        return Ok(Box::new(value));
+    }
+    Err(DbError::Unsupported {
+        capability: "PG DbValue::Float target must be FLOAT4 or FLOAT8",
+    })
+}
+
+fn pg_value(v: &InputValue, target_type: &Type) -> Result<Box<dyn ToSql + Sync + Send>, DbError> {
     match v {
-        InputValue::Value(dv) => pg_param(dv),
-        InputValue::Null => Ok(Box::new(None::<String>)),
+        InputValue::Value(value) => pg_param(value, target_type),
+        InputValue::Null => Ok(Box::new(PgNull)),
         InputValue::Default => Err(DbError::Unsupported {
             capability: "PG DEFAULT",
         }),
         InputValue::Unspecified => unreachable!(),
     }
+}
+
+fn pg_parameter_type<'a>(
+    parameter_types: &'a [Type],
+    index: usize,
+    operation: &str,
+) -> Result<&'a Type, DbError> {
+    parameter_types.get(index).ok_or_else(|| {
+        DbError::Query(format!(
+            "PG {operation}: prepared statement did not provide parameter type {}",
+            index + 1
+        ))
+    })
 }
 
 fn extract_pk(
@@ -675,182 +917,293 @@ fn extract_pk(
     }
 }
 
+fn validate_pg_mutation_values(batch: &MutationBatch) -> Result<(), DbError> {
+    for mutation in &batch.mutations {
+        match mutation {
+            Mutation::Insert { values, .. } => validate_pg_input_values(values)?,
+            Mutation::Update {
+                identity, changes, ..
+            } => {
+                validate_pg_input_values(changes.iter().map(|(_, value)| value))?;
+                validate_pg_identity_values(identity)?;
+            }
+            Mutation::Delete { identity, .. } => validate_pg_identity_values(identity)?,
+        }
+    }
+    Ok(())
+}
+
+fn validate_pg_input_values<'a>(
+    values: impl IntoIterator<Item = &'a InputValue>,
+) -> Result<(), DbError> {
+    for value in values {
+        if matches!(value, InputValue::Value(DbValue::Decimal(_))) {
+            return Err(DbError::Unsupported {
+                capability: "PG NUMERIC/DECIMAL mutation parameter target",
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_pg_identity_values(identity: &RowIdentity) -> Result<(), DbError> {
+    if extract_pk(identity)?
+        .iter()
+        .any(|(_, value)| matches!(value, DbValue::Decimal(_)))
+    {
+        return Err(DbError::Unsupported {
+            capability: "PG NUMERIC/DECIMAL mutation parameter target",
+        });
+    }
+    Ok(())
+}
+
 pub(crate) async fn apply_mutations(
     config: &ConnectionConfig,
     batch: &MutationBatch,
 ) -> Result<MutationBatchResult, DbError> {
     use crate::domain::identifier::IdentifierDialect;
+
+    validate_pg_mutation_values(batch)?;
     let client = POOL_MANAGER.get_pg_client(config).await?;
+    let client = client.lock().await;
     client
         .batch_execute("BEGIN")
         .await
         .map_err(|e| DbError::Query(format!("PG BEGIN: {e}")))?;
 
-    let mut affected = Vec::with_capacity(batch.mutations.len());
-    for mutation in &batch.mutations {
-        let n = match mutation {
-            Mutation::Insert {
-                table,
-                columns,
-                values,
-            } => {
-                let included: Vec<(&str, &InputValue)> = columns
-                    .iter()
-                    .zip(values.iter())
-                    .filter(|(_, v)| !matches!(v, InputValue::Unspecified | InputValue::Default))
-                    .map(|(c, v)| (c.name.as_str(), v))
-                    .collect();
-                if included.is_empty() {
-                    let sql = format!(
-                        "INSERT INTO {} DEFAULT VALUES",
-                        IdentifierDialect::PostgreSql.quote(&table.name)
-                    );
-                    client
-                        .execute(&sql, &[])
-                        .await
-                        .map_err(|e| DbError::Query(format!("PG INSERT DEFAULT: {e}")))?
-                } else {
-                    let cols: Vec<String> = included
+    let result = async {
+        let mut affected = Vec::with_capacity(batch.mutations.len());
+        for mutation in &batch.mutations {
+            let n = match mutation {
+                Mutation::Insert {
+                    table,
+                    columns,
+                    values,
+                } => {
+                    let included: Vec<(&str, &InputValue)> = columns
                         .iter()
-                        .map(|(n, _)| IdentifierDialect::PostgreSql.quote(n))
+                        .zip(values.iter())
+                        .filter(|(_, v)| {
+                            !matches!(v, InputValue::Unspecified | InputValue::Default)
+                        })
+                        .map(|(c, v)| (c.name.as_str(), v))
                         .collect();
-                    let ph: Vec<String> = (1..=included.len()).map(|i| format!("${i}")).collect();
-                    let sql = format!(
-                        "INSERT INTO {} ({}) VALUES ({})",
-                        IdentifierDialect::PostgreSql.quote(&table.name),
-                        cols.join(", "),
-                        ph.join(", ")
-                    );
-                    // scope to drop params before .await
-                    let params: Vec<Box<dyn ToSql + Sync + Send>> = included
+                    if included.is_empty() {
+                        let sql = format!(
+                            "INSERT INTO {} DEFAULT VALUES",
+                            IdentifierDialect::PostgreSql.quote(&table.name)
+                        );
+                        client
+                            .execute(&sql, &[])
+                            .await
+                            .map_err(|e| DbError::Query(format!("PG INSERT DEFAULT: {e}")))?
+                    } else {
+                        let cols: Vec<String> = included
+                            .iter()
+                            .map(|(n, _)| IdentifierDialect::PostgreSql.quote(n))
+                            .collect();
+                        let ph: Vec<String> =
+                            (1..=included.len()).map(|i| format!("${i}")).collect();
+                        let sql = format!(
+                            "INSERT INTO {} ({}) VALUES ({})",
+                            IdentifierDialect::PostgreSql.quote(&table.name),
+                            cols.join(", "),
+                            ph.join(", ")
+                        );
+                        let statement = client
+                            .prepare(&sql)
+                            .await
+                            .map_err(|e| DbError::Query(format!("PG INSERT prepare: {e}")))?;
+                        let params: Vec<Box<dyn ToSql + Sync + Send>> = included
+                            .iter()
+                            .enumerate()
+                            .map(|(index, (_, value))| {
+                                pg_value(
+                                    value,
+                                    pg_parameter_type(statement.params(), index, "INSERT")?,
+                                )
+                            })
+                            .collect::<Result<_, _>>()?;
+                        let refs: Vec<&(dyn ToSql + Sync)> = params
+                            .iter()
+                            .map(|param| param.as_ref() as &(dyn ToSql + Sync))
+                            .collect();
+                        client
+                            .execute(&statement, &refs)
+                            .await
+                            .map_err(|e| DbError::Query(format!("PG INSERT: {e}")))?
+                    }
+                }
+                Mutation::Update {
+                    table,
+                    identity,
+                    changes,
+                    expected_rows,
+                } => {
+                    let pk = extract_pk(identity)?;
+                    let set_sql: Vec<String> = changes
                         .iter()
-                        .map(|(_, v)| pg_value(v))
+                        .enumerate()
+                        .map(|(i, (c, _))| {
+                            format!(
+                                "{} = ${}",
+                                IdentifierDialect::PostgreSql.quote(&c.name),
+                                i + 1
+                            )
+                        })
+                        .collect();
+                    let where_sql: Vec<String> = pk
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (c, _))| {
+                            format!(
+                                "{} = ${}",
+                                IdentifierDialect::PostgreSql.quote(&c.name),
+                                changes.len() + i + 1
+                            )
+                        })
+                        .collect();
+                    let sql = format!(
+                        "UPDATE {} SET {} WHERE {}",
+                        IdentifierDialect::PostgreSql.quote(&table.name),
+                        set_sql.join(", "),
+                        where_sql.join(" AND ")
+                    );
+                    let statement = client
+                        .prepare(&sql)
+                        .await
+                        .map_err(|e| DbError::Query(format!("PG UPDATE prepare: {e}")))?;
+                    let mut params: Vec<Box<dyn ToSql + Sync + Send>> = changes
+                        .iter()
+                        .enumerate()
+                        .map(|(index, (_, value))| {
+                            pg_value(
+                                value,
+                                pg_parameter_type(statement.params(), index, "UPDATE")?,
+                            )
+                        })
+                        .collect::<Result<_, _>>()?;
+                    params.extend(
+                        pk.iter()
+                            .enumerate()
+                            .map(|(index, (_, value))| {
+                                pg_param(
+                                    value,
+                                    pg_parameter_type(
+                                        statement.params(),
+                                        changes.len() + index,
+                                        "UPDATE",
+                                    )?,
+                                )
+                            })
+                            .collect::<Result<Vec<_>, _>>()?,
+                    );
+                    let refs: Vec<&(dyn ToSql + Sync)> = params
+                        .iter()
+                        .map(|param| param.as_ref() as &(dyn ToSql + Sync))
+                        .collect();
+                    let n = client
+                        .execute(&statement, &refs)
+                        .await
+                        .map_err(|e| DbError::Query(format!("PG UPDATE: {e}")))?
+                        as u64;
+                    if let ExpectedRows::Exactly(e) = expected_rows
+                        && n != *e
+                    {
+                        return Err(DbError::Query(format!(
+                            "PG UPDATE: expected {e} rows, affected {n}"
+                        )));
+                    }
+                    n
+                }
+                Mutation::Delete {
+                    table,
+                    identity,
+                    expected_rows,
+                } => {
+                    let pk = extract_pk(identity)?;
+                    let where_sql: Vec<String> = pk
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (c, _))| {
+                            format!(
+                                "{} = ${}",
+                                IdentifierDialect::PostgreSql.quote(&c.name),
+                                i + 1
+                            )
+                        })
+                        .collect();
+                    let sql = format!(
+                        "DELETE FROM {} WHERE {}",
+                        IdentifierDialect::PostgreSql.quote(&table.name),
+                        where_sql.join(" AND ")
+                    );
+                    let statement = client
+                        .prepare(&sql)
+                        .await
+                        .map_err(|e| DbError::Query(format!("PG DELETE prepare: {e}")))?;
+                    let params: Vec<Box<dyn ToSql + Sync + Send>> = pk
+                        .iter()
+                        .enumerate()
+                        .map(|(index, (_, value))| {
+                            pg_param(
+                                value,
+                                pg_parameter_type(statement.params(), index, "DELETE")?,
+                            )
+                        })
                         .collect::<Result<_, _>>()?;
                     let refs: Vec<&(dyn ToSql + Sync)> = params
                         .iter()
-                        .map(|p| p.as_ref() as &(dyn ToSql + Sync))
+                        .map(|param| param.as_ref() as &(dyn ToSql + Sync))
                         .collect();
-                    client
-                        .execute(&sql, &refs)
+                    let n = client
+                        .execute(&statement, &refs)
                         .await
-                        .map_err(|e| DbError::Query(format!("PG INSERT: {e}")))?
+                        .map_err(|e| DbError::Query(format!("PG DELETE: {e}")))?
+                        as u64;
+                    if let ExpectedRows::Exactly(e) = expected_rows
+                        && n != *e
+                    {
+                        return Err(DbError::Query(format!(
+                            "PG DELETE: expected {e} rows, affected {n}"
+                        )));
+                    }
+                    n
                 }
-            }
-            Mutation::Update {
-                table,
-                identity,
-                changes,
-                expected_rows,
-            } => {
-                let pk = extract_pk(identity)?;
-                let set_sql: Vec<String> = changes
-                    .iter()
-                    .enumerate()
-                    .map(|(i, (c, _))| {
-                        format!(
-                            "{} = ${}",
-                            IdentifierDialect::PostgreSql.quote(&c.name),
-                            i + 1
-                        )
-                    })
-                    .collect();
-                let where_sql: Vec<String> = pk
-                    .iter()
-                    .enumerate()
-                    .map(|(i, (c, _))| {
-                        format!(
-                            "{} = ${}",
-                            IdentifierDialect::PostgreSql.quote(&c.name),
-                            changes.len() + i + 1
-                        )
-                    })
-                    .collect();
-                let sql = format!(
-                    "UPDATE {} SET {} WHERE {}",
-                    IdentifierDialect::PostgreSql.quote(&table.name),
-                    set_sql.join(", "),
-                    where_sql.join(" AND ")
-                );
-                let mut params: Vec<Box<dyn ToSql + Sync + Send>> = changes
-                    .iter()
-                    .map(|(_, v)| pg_value(v))
-                    .collect::<Result<_, _>>()?;
-                params.extend(
-                    pk.iter()
-                        .map(|(_, v)| pg_param(v))
-                        .collect::<Result<Vec<_>, _>>()?,
-                );
-                let refs: Vec<&(dyn ToSql + Sync)> = params
-                    .iter()
-                    .map(|p| p.as_ref() as &(dyn ToSql + Sync))
-                    .collect();
-                let n = client
-                    .execute(&sql, &refs)
-                    .await
-                    .map_err(|e| DbError::Query(format!("PG UPDATE: {e}")))?
-                    as u64;
-                if let ExpectedRows::Exactly(e) = expected_rows
-                    && n != *e
-                {
-                    return Err(DbError::Query(format!(
-                        "PG UPDATE: expected {e} rows, affected {n}"
-                    )));
-                }
-                n
-            }
-            Mutation::Delete {
-                table,
-                identity,
-                expected_rows,
-            } => {
-                let pk = extract_pk(identity)?;
-                let where_sql: Vec<String> = pk
-                    .iter()
-                    .enumerate()
-                    .map(|(i, (c, _))| {
-                        format!(
-                            "{} = ${}",
-                            IdentifierDialect::PostgreSql.quote(&c.name),
-                            i + 1
-                        )
-                    })
-                    .collect();
-                let sql = format!(
-                    "DELETE FROM {} WHERE {}",
-                    IdentifierDialect::PostgreSql.quote(&table.name),
-                    where_sql.join(" AND ")
-                );
-                let params: Vec<Box<dyn ToSql + Sync + Send>> = pk
-                    .iter()
-                    .map(|(_, v)| pg_param(v))
-                    .collect::<Result<_, _>>()?;
-                let refs: Vec<&(dyn ToSql + Sync)> = params
-                    .iter()
-                    .map(|p| p.as_ref() as &(dyn ToSql + Sync))
-                    .collect();
-                let n = client
-                    .execute(&sql, &refs)
-                    .await
-                    .map_err(|e| DbError::Query(format!("PG DELETE: {e}")))?
-                    as u64;
-                if let ExpectedRows::Exactly(e) = expected_rows
-                    && n != *e
-                {
-                    return Err(DbError::Query(format!(
-                        "PG DELETE: expected {e} rows, affected {n}"
-                    )));
-                }
-                n
-            }
-        };
-        affected.push(n);
+            };
+            affected.push(n);
+        }
+        Ok(MutationBatchResult {
+            affected,
+            all_success: true,
+        })
     }
-    client
-        .batch_execute("COMMIT")
-        .await
-        .map_err(|e| DbError::Query(format!("PG COMMIT: {e}")))?;
-    Ok(MutationBatchResult {
-        affected,
-        all_success: true,
-    })
+    .await;
+
+    match result {
+        Ok(result) => match client.batch_execute("COMMIT").await {
+            Ok(()) => Ok(result),
+            Err(commit_error) => {
+                rollback_pg_mutation_batch(
+                    &client,
+                    DbError::Query(format!("PG COMMIT: {commit_error}")),
+                )
+                .await
+            }
+        },
+        Err(error) => rollback_pg_mutation_batch(&client, error).await,
+    }
+}
+
+async fn rollback_pg_mutation_batch(
+    client: &tokio_postgres::Client,
+    original_error: DbError,
+) -> Result<MutationBatchResult, DbError> {
+    match client.batch_execute("ROLLBACK").await {
+        Ok(()) => Err(original_error),
+        Err(rollback_error) => Err(DbError::Query(format!(
+            "{original_error}; PG ROLLBACK failed: {rollback_error}"
+        ))),
+    }
 }

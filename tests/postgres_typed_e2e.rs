@@ -14,8 +14,9 @@
 //! - DEFAULT 值
 //! - Schema 目录加载
 
+use gridix::core::constants;
 use gridix::data::{
-    ConnectionConfig, DatabaseType, apply_mutations, execute_typed, load_schema_catalog,
+    ConnectionConfig, DatabaseType, DbError, apply_mutations, execute_typed, load_schema_catalog,
 };
 use gridix::domain::execution::{ExecutionOutcome, StatementOutcome};
 use gridix::domain::ids::SchemaRevision;
@@ -117,6 +118,7 @@ async fn typed_select_and_mutation_roundtrip() {
     let Some(config) = pg_config() else {
         return;
     };
+    let _ = execute_typed(&config, "DROP TABLE IF EXISTS users_pg_e2e").await;
 
     // 1. CREATE TABLE with composite PK
     let outcome = execute_typed(
@@ -124,6 +126,9 @@ async fn typed_select_and_mutation_roundtrip() {
         "CREATE TABLE IF NOT EXISTS users_pg_e2e (\
          tenant_id INT, \
          user_id INT, \
+         score INT, \
+         big_total BIGINT, \
+         optional_count INT, \
          name VARCHAR(255), \
          email VARCHAR(255), \
          PRIMARY KEY (tenant_id, user_id))",
@@ -132,17 +137,25 @@ async fn typed_select_and_mutation_roundtrip() {
     .unwrap();
     assert_affected(outcome, 0);
 
-    // Cleanup before test
-    let _ = execute_typed(&config, "DELETE FROM users_pg_e2e").await;
-
     // 2. INSERT via apply_mutations
     let insert_batch = MutationBatch {
         mutations: vec![Mutation::Insert {
             table: col("users_pg_e2e"),
-            columns: vec![col("tenant_id"), col("user_id"), col("name"), col("email")],
+            columns: vec![
+                col("tenant_id"),
+                col("user_id"),
+                col("score"),
+                col("big_total"),
+                col("optional_count"),
+                col("name"),
+                col("email"),
+            ],
             values: vec![
                 InputValue::Value(DbValue::Int(1)),
                 InputValue::Value(DbValue::Int(100)),
+                InputValue::Value(DbValue::Int(7)),
+                InputValue::Value(DbValue::Int(9_000_000_000)),
+                InputValue::Null,
                 InputValue::Value(DbValue::Text("Alice".into())),
                 InputValue::Value(DbValue::Text("alice@example.com".into())),
             ],
@@ -161,21 +174,37 @@ async fn typed_select_and_mutation_roundtrip() {
 
     // Verify columns
     let col_names: Vec<&str> = rs.columns.iter().map(|c| c.name.as_str()).collect();
-    assert_eq!(col_names, vec!["tenant_id", "user_id", "name", "email"]);
+    assert_eq!(
+        col_names,
+        vec![
+            "tenant_id",
+            "user_id",
+            "score",
+            "big_total",
+            "optional_count",
+            "name",
+            "email",
+        ]
+    );
+    assert_eq!(rs.columns[2].type_info.native_name, "int4 (oid 23)");
+    assert_eq!(rs.columns[3].type_info.native_name, "int8 (oid 20)");
 
     // Verify row count
     assert_eq!(rs.row_count, 1);
     assert_eq!(rs.completeness, ResultCompleteness::Complete);
 
-    // Verify cell values
-    assert_eq!(rs.cell(0, 0), &DbValue::Int(1)); // tenant_id
-    assert_eq!(rs.cell(0, 1), &DbValue::Int(100)); // user_id
-    assert_eq!(rs.cell(0, 2), &DbValue::Text("Alice".into())); // name
-    assert_eq!(rs.cell(0, 3), &DbValue::Text("alice@example.com".into())); // email
+    // Verify native integer values and non-text NULL preservation.
+    assert_eq!(rs.cell(0, 0), &DbValue::Int(1));
+    assert_eq!(rs.cell(0, 1), &DbValue::Int(100));
+    assert_eq!(rs.cell(0, 2), &DbValue::Int(7));
+    assert_eq!(rs.cell(0, 3), &DbValue::Int(9_000_000_000));
+    assert_eq!(rs.cell(0, 4), &DbValue::Null);
+    assert_eq!(rs.cell(0, 5), &DbValue::Text("Alice".into()));
+    assert_eq!(rs.cell(0, 6), &DbValue::Text("alice@example.com".into()));
 
     // Verify row access
     let row = rs.row(0);
-    assert_eq!(row.len(), 4);
+    assert_eq!(row.len(), 7);
     assert_eq!(row[0], DbValue::Int(1));
 
     // 4. UPDATE via apply_mutations with composite PK
@@ -187,6 +216,7 @@ async fn typed_select_and_mutation_roundtrip() {
                 ("user_id", DbValue::Int(100)),
             ]),
             changes: vec![
+                (col("score"), InputValue::Value(DbValue::Int(101))),
                 (
                     col("name"),
                     InputValue::Value(DbValue::Text("Alice Updated".into())),
@@ -210,9 +240,10 @@ async fn typed_select_and_mutation_roundtrip() {
         .unwrap();
     let rs = single_result_set(outcome);
     assert_eq!(rs.row_count, 1);
-    assert_eq!(rs.cell(0, 2), &DbValue::Text("Alice Updated".into()));
+    assert_eq!(rs.cell(0, 2), &DbValue::Int(101));
+    assert_eq!(rs.cell(0, 5), &DbValue::Text("Alice Updated".into()));
     assert_eq!(
-        rs.cell(0, 3),
+        rs.cell(0, 6),
         &DbValue::Text("alice.new@example.com".into())
     );
 
@@ -453,6 +484,137 @@ async fn default_value() {
 
     // Cleanup
     let _ = execute_typed(&config, "DROP TABLE IF EXISTS with_default_pg_e2e").await;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Test 5: 浮点绑定与 NUMERIC 拒绝策略
+// ═══════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn float_targets_bind_and_numeric_is_rejected() {
+    let Some(config) = pg_config() else {
+        return;
+    };
+    let _ = execute_typed(&config, "DROP TABLE IF EXISTS pg_float_targets_e2e").await;
+    execute_typed(
+        &config,
+        "CREATE TABLE pg_float_targets_e2e (real_value REAL, double_value DOUBLE PRECISION, numeric_value NUMERIC)",
+    )
+    .await
+    .unwrap();
+
+    let floats = MutationBatch {
+        mutations: vec![Mutation::Insert {
+            table: col("pg_float_targets_e2e"),
+            columns: vec![col("real_value"), col("double_value")],
+            values: vec![
+                InputValue::Value(DbValue::Float(1.25)),
+                InputValue::Value(DbValue::Float(2.5)),
+            ],
+        }],
+        atomic: true,
+    };
+    assert_eq!(
+        apply_mutations(&config, &floats).await.unwrap().affected,
+        vec![1]
+    );
+
+    let numeric = MutationBatch {
+        mutations: vec![Mutation::Insert {
+            table: col("pg_float_targets_e2e"),
+            columns: vec![col("numeric_value")],
+            values: vec![InputValue::Value(DbValue::Decimal("12.34".into()))],
+        }],
+        atomic: true,
+    };
+    assert!(matches!(
+        apply_mutations(&config, &numeric).await,
+        Err(DbError::Unsupported { .. })
+    ));
+
+    let result = single_result_set(
+        execute_typed(
+            &config,
+            "SELECT real_value, double_value FROM pg_float_targets_e2e",
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!(result.cell(0, 0), &DbValue::Float(1.25));
+    assert_eq!(result.cell(0, 1), &DbValue::Float(2.5));
+    let _ = execute_typed(&config, "DROP TABLE IF EXISTS pg_float_targets_e2e").await;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Test 6: 失败 mutation 回滚并立即复用连接
+// ═══════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn mutation_error_rolls_back_and_connection_is_reusable() {
+    let Some(config) = pg_config() else {
+        return;
+    };
+    let _ = execute_typed(&config, "DROP TABLE IF EXISTS pg_rollback_e2e").await;
+    execute_typed(
+        &config,
+        "CREATE TABLE pg_rollback_e2e (id INT PRIMARY KEY, value TEXT)",
+    )
+    .await
+    .unwrap();
+    execute_typed(&config, "INSERT INTO pg_rollback_e2e VALUES (1, 'kept')")
+        .await
+        .unwrap();
+
+    let failed_update = MutationBatch {
+        mutations: vec![Mutation::Update {
+            table: col("pg_rollback_e2e"),
+            identity: pk(vec![("id", DbValue::Int(999))]),
+            changes: vec![(
+                col("value"),
+                InputValue::Value(DbValue::Text("lost".into())),
+            )],
+            expected_rows: ExpectedRows::Exactly(1),
+        }],
+        atomic: true,
+    };
+    assert!(apply_mutations(&config, &failed_update).await.is_err());
+
+    let result = single_result_set(
+        execute_typed(&config, "SELECT id, value FROM pg_rollback_e2e")
+            .await
+            .unwrap(),
+    );
+    assert_eq!(result.row_count, 1);
+    assert_eq!(result.cell(0, 1), &DbValue::Text("kept".into()));
+    let _ = execute_typed(&config, "DROP TABLE IF EXISTS pg_rollback_e2e").await;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Test 7: 有界 portal 截断后连接可复用
+// ═══════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn bounded_portal_truncates_and_connection_is_reusable() {
+    let Some(config) = pg_config() else {
+        return;
+    };
+    let limit = constants::database::MAX_RESULT_SET_ROWS;
+    let result = single_result_set(
+        execute_typed(
+            &config,
+            &format!("SELECT generate_series(1, {})", limit + 1),
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!(result.row_count, limit);
+    assert_eq!(
+        result.completeness,
+        ResultCompleteness::Truncated { displayed: limit }
+    );
+
+    let reusable = single_result_set(execute_typed(&config, "SELECT 1").await.unwrap());
+    assert_eq!(reusable.cell(0, 0), &DbValue::Int(1));
 }
 
 // ═══════════════════════════════════════════════════════════════════

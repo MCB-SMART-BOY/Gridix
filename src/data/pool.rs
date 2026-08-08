@@ -52,7 +52,7 @@ impl rustls::client::danger::ServerCertVerifier for SkipCertVerification {
     }
 }
 
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 /// 全局连接池管理器
 ///
@@ -65,9 +65,12 @@ pub struct PoolManager {
     pg_clients: RwLock<HashMap<String, PgClientEntry>>,
 }
 
-/// PostgreSQL 客户端缓存条目：客户端、最近使用时间、后台连接任务句柄。
+/// PostgreSQL 客户端缓存条目：互斥客户端、最近使用时间、后台连接任务句柄。
+///
+/// `Client` 可以并发发送普通查询；portal 查询却需要独占的可变客户端。将整个
+/// 客户端置于异步互斥锁中，确保所有协议操作不会与有界 portal 的同步收尾交错。
 type PgClientEntry = (
-    Arc<tokio_postgres::Client>,
+    Arc<Mutex<tokio_postgres::Client>>,
     Instant,
     tokio::task::JoinHandle<()>,
 );
@@ -250,14 +253,14 @@ impl PoolManager {
     pub async fn get_pg_client(
         &self,
         config: &ConnectionConfig,
-    ) -> Result<Arc<tokio_postgres::Client>, DbError> {
+    ) -> Result<Arc<Mutex<tokio_postgres::Client>>, DbError> {
         let key = config.pool_key();
 
         // 检查缓存并验证连接健康 — 在写锁内原子执行
         {
             let mut clients = self.pg_clients.write().await;
             if let Some((client, last_used, _handle)) = clients.get_mut(&key) {
-                if !client.is_closed() {
+                if !client.lock().await.is_closed() {
                     *last_used = Instant::now();
                     return Ok(client.clone());
                 }
@@ -270,7 +273,7 @@ impl PoolManager {
 
         // 创建新连接（根据 SSL 模式选择连接方式）
         let (client, conn_handle) = Self::connect_pg_with_ssl(config).await?;
-        let client = Arc::new(client);
+        let client = Arc::new(Mutex::new(client));
 
         // 存入缓存（限制缓存数量，防止内存溢出）
         {

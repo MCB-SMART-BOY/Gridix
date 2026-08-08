@@ -566,9 +566,9 @@ async fn execute_typed_with_conn(
         return Ok(ExecutionOutcome::affected_rows(affected));
     }
     let mut result = conn
-        .query_iter(sql)
+        .exec_iter(sql, ())
         .await
-        .map_err(|e| DbError::Query(format!("MySQL query_iter 失败: {}", e)))?;
+        .map_err(|e| DbError::Query(format!("MySQL exec_iter 失败: {}", e)))?;
 
     let columns: Vec<mysql_async::Column> = result.columns_ref().to_vec();
     let col_names: Vec<String> = columns.iter().map(|c| c.name_str().into_owned()).collect();
@@ -633,18 +633,29 @@ fn mysql_value_to_dbvalue(val: mysql_async::Value, col_type: &ColumnType) -> DbV
         Value::UInt(u) => DbValue::UInt(u),
         Value::Float(f) => DbValue::Float(f as f64),
         Value::Double(d) => DbValue::Float(d),
-        Value::Bytes(b) => match col_type {
+        Value::Bytes(bytes) => match col_type {
             ColumnType::MYSQL_TYPE_BLOB
             | ColumnType::MYSQL_TYPE_LONG_BLOB
             | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
             | ColumnType::MYSQL_TYPE_TINY_BLOB
-            | ColumnType::MYSQL_TYPE_BIT => DbValue::Bytes(std::sync::Arc::from(b)),
-            _ => String::from_utf8(b)
+            | ColumnType::MYSQL_TYPE_BIT => DbValue::Bytes(std::sync::Arc::from(bytes)),
+            ColumnType::MYSQL_TYPE_DECIMAL | ColumnType::MYSQL_TYPE_NEWDECIMAL => {
+                String::from_utf8(bytes)
+                    .map(DbValue::Decimal)
+                    .unwrap_or_else(|error| DbValue::Other {
+                        native_type: "DECIMAL".to_string(),
+                        display: error.to_string(),
+                    })
+            }
+            _ => String::from_utf8(bytes)
                 .map(DbValue::Text)
                 .unwrap_or(DbValue::Null),
         },
         Value::Date(y, m, d, h, mi, s, us) => {
-            if h == 0 && mi == 0 && s == 0 && us == 0 {
+            if matches!(
+                col_type,
+                ColumnType::MYSQL_TYPE_DATE | ColumnType::MYSQL_TYPE_NEWDATE
+            ) {
                 DbValue::Date(crate::domain::value::DbDate {
                     year: y as i32,
                     month: m,
@@ -666,17 +677,40 @@ fn mysql_value_to_dbvalue(val: mysql_async::Value, col_type: &ColumnType) -> DbV
                 })
             }
         }
-        Value::Time(neg, d, h, mi, s, us) => {
-            let total_seconds = if neg { -(s as i64) } else { s as i64 };
-            let total_hours = (d as i64) * 24 + (h as i64);
+        Value::Time(is_negative, days, hours, minutes, seconds, micros) => {
+            let total_hours = u64::from(days) * 24 + u64::from(hours);
+            if is_negative || total_hours > u64::from(u8::MAX) {
+                return DbValue::Other {
+                    native_type: "TIME".to_string(),
+                    display: format_mysql_time(is_negative, total_hours, minutes, seconds, micros),
+                };
+            }
+
             DbValue::Time(crate::domain::value::DbTime {
                 hour: total_hours as u8,
-                minute: mi,
-                second: total_seconds.unsigned_abs() as u8,
-                nanos: us * 1000,
+                minute: minutes,
+                second: seconds,
+                nanos: micros * 1000,
             })
         }
     }
+}
+
+fn format_mysql_time(
+    is_negative: bool,
+    total_hours: u64,
+    minutes: u8,
+    seconds: u8,
+    micros: u32,
+) -> String {
+    format!(
+        "{}{:02}:{:02}:{:02}.{:06}",
+        if is_negative { "-" } else { "" },
+        total_hours,
+        minutes,
+        seconds,
+        micros
+    )
 }
 
 fn mysql_type_to_family(ct: &ColumnType) -> DbTypeFamily {
@@ -711,22 +745,100 @@ use crate::domain::mutation::{
     ExpectedRows, InputValue, Mutation, MutationBatch, MutationBatchResult, RowIdentity,
 };
 
-/// DbValue → mysql_async::Value 转换。
-fn dbvalue_to_mysql(value: &crate::domain::value::DbValue) -> mysql_async::Value {
+/// Converts a value to a MySQL binary-protocol parameter without lossy coercion.
+fn dbvalue_to_mysql(value: &crate::domain::value::DbValue) -> Result<mysql_async::Value, DbError> {
     use crate::domain::value::DbValue;
     match value {
-        DbValue::Null => mysql_async::Value::NULL,
-        DbValue::Bool(b) => mysql_async::Value::Int(if *b { 1 } else { 0 }),
-        DbValue::Int(i) => mysql_async::Value::Int(*i),
-        DbValue::UInt(u) => mysql_async::Value::UInt(*u),
-        DbValue::Float(f) => mysql_async::Value::Double(*f),
-        DbValue::Text(s) => mysql_async::Value::Bytes(s.as_bytes().to_vec()),
-        DbValue::Bytes(b) => mysql_async::Value::Bytes(b.to_vec()),
-        DbValue::Decimal(d) => mysql_async::Value::Bytes(d.as_bytes().to_vec()),
-        DbValue::Json(j) => mysql_async::Value::Bytes(j.to_string().as_bytes().to_vec()),
-        DbValue::Uuid(u) => mysql_async::Value::Bytes(u.to_string().as_bytes().to_vec()),
-        _ => mysql_async::Value::NULL,
+        DbValue::Null => Ok(mysql_async::Value::NULL),
+        DbValue::Bool(b) => Ok(mysql_async::Value::Int(if *b { 1 } else { 0 })),
+        DbValue::Int(i) => Ok(mysql_async::Value::Int(*i)),
+        DbValue::UInt(u) => Ok(mysql_async::Value::UInt(*u)),
+        DbValue::Float(f) => Ok(mysql_async::Value::Double(*f)),
+        DbValue::Text(s) => Ok(mysql_async::Value::Bytes(s.as_bytes().to_vec())),
+        DbValue::Bytes(b) => Ok(mysql_async::Value::Bytes(b.to_vec())),
+        DbValue::Decimal(d) => Ok(mysql_async::Value::Bytes(d.as_bytes().to_vec())),
+        DbValue::Json(j) => Ok(mysql_async::Value::Bytes(j.to_string().into_bytes())),
+        DbValue::Uuid(u) => Ok(mysql_async::Value::Bytes(u.to_string().into_bytes())),
+        DbValue::Date(date) => mysql_date_value(date.year, date.month, date.day, 0, 0, 0, 0),
+        DbValue::Time(time) => mysql_time_value(time.hour, time.minute, time.second, time.nanos),
+        DbValue::DateTime(datetime) => mysql_date_value(
+            datetime.date.year,
+            datetime.date.month,
+            datetime.date.day,
+            datetime.time.hour,
+            datetime.time.minute,
+            datetime.time.second,
+            datetime.time.nanos,
+        ),
+        DbValue::Array(_) | DbValue::Other { .. } => Err(DbError::Unsupported {
+            capability: "array/other type not supported for MySQL binding",
+        }),
     }
+}
+
+fn mysql_date_value(
+    year: i32,
+    month: u8,
+    day: u8,
+    hour: u8,
+    minute: u8,
+    second: u8,
+    nanos: u32,
+) -> Result<mysql_async::Value, DbError> {
+    if !(1000..=9999).contains(&year) || !is_valid_mysql_date(year, month, day) {
+        return Err(DbError::ValueOutOfRange {
+            value: format!("{year:04}-{month:02}-{day:02}"),
+            reason: "invalid MySQL DATE/DATETIME",
+        });
+    }
+    if hour > 23 || minute > 59 || second > 59 || !nanos.is_multiple_of(1_000) {
+        return Err(DbError::ValueOutOfRange {
+            value: format!("{hour:02}:{minute:02}:{second:02}.{nanos:09}"),
+            reason: "not representable as MySQL DATETIME",
+        });
+    }
+    Ok(mysql_async::Value::Date(
+        year as u16,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        nanos / 1_000,
+    ))
+}
+
+fn mysql_time_value(
+    hour: u8,
+    minute: u8,
+    second: u8,
+    nanos: u32,
+) -> Result<mysql_async::Value, DbError> {
+    if minute > 59 || second > 59 || !nanos.is_multiple_of(1_000) {
+        return Err(DbError::ValueOutOfRange {
+            value: format!("{hour:02}:{minute:02}:{second:02}.{nanos:09}"),
+            reason: "not representable as MySQL TIME",
+        });
+    }
+    Ok(mysql_async::Value::Time(
+        false,
+        u32::from(hour / 24),
+        hour % 24,
+        minute,
+        second,
+        nanos / 1_000,
+    ))
+}
+
+fn is_valid_mysql_date(year: i32, month: u8, day: u8) -> bool {
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
+        2 => 28,
+        _ => return false,
+    };
+    (1..=days_in_month).contains(&day)
 }
 
 /// 以参数化方式执行 MutationBatch（MySQL 实现）。
@@ -735,6 +847,7 @@ pub(crate) async fn apply_mutations(
     batch: &MutationBatch,
 ) -> Result<MutationBatchResult, DbError> {
     use crate::domain::identifier::IdentifierDialect;
+    validate_mysql_mutation_batch(batch)?;
     let pool = POOL_MANAGER.get_mysql_pool(config).await?;
     let mut conn = pool
         .get_conn()
@@ -782,8 +895,10 @@ pub(crate) async fn apply_mutations(
                             cols.join(", "),
                             placeholders
                         );
-                        let params: Vec<mysql_async::Value> =
-                            included.iter().map(|(_, v)| mysql_value_param(v)).collect();
+                        let params: Vec<mysql_async::Value> = included
+                            .iter()
+                            .map(|(_, value)| mysql_value_param(value))
+                            .collect::<Result<_, _>>()?;
                         conn.exec_drop(sql, mysql_async::Params::Positional(params))
                             .await
                             .map_err(|e| DbError::Query(format!("MySQL INSERT: {e}")))?;
@@ -815,9 +930,15 @@ pub(crate) async fn apply_mutations(
                         set_sql.join(", "),
                         where_sql.join(" AND ")
                     );
-                    let mut params: Vec<mysql_async::Value> =
-                        changes.iter().map(|(_, v)| mysql_value_param(v)).collect();
-                    params.extend(pk.iter().map(|(_, v)| dbvalue_to_mysql(v)));
+                    let mut params: Vec<mysql_async::Value> = changes
+                        .iter()
+                        .map(|(_, value)| mysql_value_param(value))
+                        .collect::<Result<_, _>>()?;
+                    params.extend(
+                        pk.iter()
+                            .map(|(_, value)| dbvalue_to_mysql(value))
+                            .collect::<Result<Vec<_>, _>>()?,
+                    );
                     conn.exec_drop(sql, mysql_async::Params::Positional(params))
                         .await
                         .map_err(|e| DbError::Query(format!("MySQL UPDATE: {e}")))?;
@@ -848,8 +969,10 @@ pub(crate) async fn apply_mutations(
                         IdentifierDialect::MySql.quote(&table.name),
                         where_sql.join(" AND ")
                     );
-                    let params: Vec<mysql_async::Value> =
-                        pk.iter().map(|(_, v)| dbvalue_to_mysql(v)).collect();
+                    let params: Vec<mysql_async::Value> = pk
+                        .iter()
+                        .map(|(_, value)| dbvalue_to_mysql(value))
+                        .collect::<Result<_, _>>()?;
                     conn.exec_drop(sql, mysql_async::Params::Positional(params))
                         .await
                         .map_err(|e| DbError::Query(format!("MySQL DELETE: {e}")))?;
@@ -871,27 +994,97 @@ pub(crate) async fn apply_mutations(
     .await;
 
     match result {
-        Ok(r) => {
-            conn.query_drop("COMMIT")
-                .await
-                .map_err(|e| DbError::Query(format!("MySQL COMMIT: {e}")))?;
-            Ok(MutationBatchResult {
-                affected: r,
+        Ok(affected) => match conn.query_drop("COMMIT").await {
+            Ok(()) => Ok(MutationBatchResult {
+                affected,
                 all_success: true,
-            })
-        }
-        Err(e) => {
-            let _ = conn.query_drop("ROLLBACK").await;
-            Err(e)
-        }
+            }),
+            Err(commit_error) => rollback_mysql_transaction(&mut conn, commit_error).await,
+        },
+        Err(error) => rollback_mysql_transaction(&mut conn, error).await,
     }
 }
 
-fn mysql_value_param(v: &InputValue) -> mysql_async::Value {
+async fn rollback_mysql_transaction(
+    conn: &mut mysql_async::Conn,
+    original_error: impl std::fmt::Display,
+) -> Result<MutationBatchResult, DbError> {
+    match conn.query_drop("ROLLBACK").await {
+        Ok(()) => Err(DbError::Query(format!(
+            "MySQL mutation failed: {original_error}"
+        ))),
+        Err(rollback_error) => Err(DbError::Query(format!(
+            "MySQL mutation failed: {original_error}; rollback failed: {rollback_error}"
+        ))),
+    }
+}
+
+fn validate_mysql_mutation_batch(batch: &MutationBatch) -> Result<(), DbError> {
+    for mutation in &batch.mutations {
+        match mutation {
+            Mutation::Insert { values, .. } => validate_mysql_input_values(values)?,
+            Mutation::Update {
+                identity, changes, ..
+            } => {
+                validate_mysql_update_values(changes)?;
+                validate_mysql_identity(identity)?;
+            }
+            Mutation::Delete { identity, .. } => validate_mysql_identity(identity)?,
+        }
+    }
+    Ok(())
+}
+
+fn validate_mysql_input_values(values: &[InputValue]) -> Result<(), DbError> {
+    for value in values {
+        if let InputValue::Value(value) = value {
+            dbvalue_to_mysql(value)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_mysql_update_values(
+    changes: &[(crate::domain::mutation::ColumnRef, InputValue)],
+) -> Result<(), DbError> {
+    for (_, value) in changes {
+        match value {
+            InputValue::Value(value) => {
+                dbvalue_to_mysql(value)?;
+            }
+            InputValue::Null => {}
+            InputValue::Unspecified => {
+                return Err(DbError::Query(
+                    "MySQL UPDATE does not allow Unspecified values".to_string(),
+                ));
+            }
+            InputValue::Default => {
+                return Err(DbError::Unsupported {
+                    capability: "MySQL UPDATE SET DEFAULT",
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_mysql_identity(identity: &RowIdentity) -> Result<(), DbError> {
+    for (_, value) in extract_pk_mysql(identity)? {
+        dbvalue_to_mysql(value)?;
+    }
+    Ok(())
+}
+
+fn mysql_value_param(v: &InputValue) -> Result<mysql_async::Value, DbError> {
     match v {
-        InputValue::Value(dv) => dbvalue_to_mysql(dv),
-        InputValue::Null => mysql_async::Value::NULL,
-        _ => mysql_async::Value::NULL,
+        InputValue::Value(value) => dbvalue_to_mysql(value),
+        InputValue::Null => Ok(mysql_async::Value::NULL),
+        InputValue::Unspecified => Err(DbError::Query(
+            "MySQL parameter cannot be Unspecified".to_string(),
+        )),
+        InputValue::Default => Err(DbError::Unsupported {
+            capability: "MySQL parameter DEFAULT",
+        }),
     }
 }
 
