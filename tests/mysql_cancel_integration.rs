@@ -44,11 +44,13 @@ async fn marker_is_visible(
     observer: &mut mysql_async::Conn,
     marker: &str,
 ) -> Result<bool, mysql_async::Error> {
-    let query = "SELECT 1 FROM information_schema.processlist WHERE INFO LIKE ? LIMIT 1";
-    let found: Option<u8> = observer
-        .exec_first(query, (format!("%{}%", marker),))
+    let statements: Vec<Option<String>> = observer
+        .query("SELECT INFO FROM information_schema.processlist WHERE INFO IS NOT NULL")
         .await?;
-    Ok(found.is_some())
+    Ok(statements
+        .into_iter()
+        .flatten()
+        .any(|statement| statement.contains(marker)))
 }
 
 async fn wait_for_marker(observer: &mut mysql_async::Conn, marker: &str, should_be_visible: bool) {
