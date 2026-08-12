@@ -9,22 +9,24 @@
   pkg-config,
   wrapGAppsHook3,
   gtk3,
+  openssl,
   xdotool,
-
 }:
 
-rustPlatform.buildRustPackage rec {
+rustPlatform.buildRustPackage (finalAttrs: {
+  __structuredAttrs = true;
+
   pname = "gridix";
-  version = "3.8.0";
+  version = "7.2.0";
 
   src = fetchFromGitHub {
     owner = "MCB-SMART-BOY";
     repo = "Gridix";
-    tag = "v${version}";
-    hash = "sha256-Y+2dwAm9LHTvCsHeZNY78vnOSC+m5b1xVnG+sj0V04c=";
+    tag = "v${finalAttrs.version}";
+    hash = "sha256-DfcVkz56Kwxxb79MF2reTOqjoww3d/dk3urJAWmhzAY=";
   };
 
-  cargoHash = "sha256-u+AAurOE6Ie9A81sdz9CI4Huw98sNUk2DsmIRmIz0DE=";
+  cargoHash = "sha256-GXm4toeDBSDnbItg0PsYP627hN0nyf5xDAa5+bF91+o=";
 
   nativeBuildInputs = [
     pkg-config
@@ -33,6 +35,7 @@ rustPlatform.buildRustPackage rec {
 
   buildInputs = [
     gtk3
+    openssl
     xdotool
   ];
 
@@ -49,10 +52,10 @@ rustPlatform.buildRustPackage rec {
       keybindings for efficient navigation and editing.
     '';
     homepage = "https://github.com/MCB-SMART-BOY/Gridix";
-    changelog = "https://github.com/MCB-SMART-BOY/Gridix/releases/tag/v${version}";
+    changelog = "https://github.com/MCB-SMART-BOY/Gridix/releases/tag/v${finalAttrs.version}";
     license = lib.licenses.asl20;
     maintainers = with lib.maintainers; [ mcbsmartboy ];
     mainProgram = "gridix";
     platforms = lib.platforms.linux;
   };
-}
+})
