@@ -7,8 +7,11 @@ title = "Gridix gitleaks configuration"
 useDefault = true
 
 [[allowlists]]
+# `paths` entries are unanchored substring regexes, so anchor them to a path
+# component: without `(^|/)` a directory such as `docs/retarget/` would be
+# exempted as well.
 description = "Generated build and local environment artifacts are not source-controlled inputs."
 paths = [
-  '''target/.*''',
-  '''\.direnv/.*''',
+  '''(^|/)target/''',
+  '''(^|/)\.direnv/''',
 ]
