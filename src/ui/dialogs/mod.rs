@@ -15,6 +15,7 @@ mod help_dialog;
 mod import_dialog;
 mod keybindings_dialog;
 mod picker_shell;
+mod responsive;
 mod schema_diff_dialog;
 mod toolbar_menu_dialog;
 mod toolbar_theme_dialog;

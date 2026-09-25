@@ -432,12 +432,7 @@ enum DdlKeyAction {
     ColumnTogglePrimaryKey,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ResponsiveRowClass {
-    Wide,
-    Medium,
-    Narrow,
-}
+use super::responsive::{ResponsiveRowClass, row_width_class};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ColumnRowLayout {
@@ -450,8 +445,6 @@ struct ColumnRowLayout {
 impl DdlDialog {
     const WINDOW_WIDTH: f32 = 920.0;
     const WINDOW_HEIGHT: f32 = 500.0;
-    const WIDE_ROW_THRESHOLD: f32 = 720.0;
-    const MEDIUM_ROW_THRESHOLD: f32 = 560.0;
     const COLUMN_LIST_MIN_HEIGHT: f32 = 140.0;
     const COLUMN_LIST_MAX_HEIGHT: f32 = 260.0;
     const SQL_PREVIEW_MIN_HEIGHT: f32 = 120.0;
@@ -676,7 +669,7 @@ impl DdlDialog {
                             });
 
                             ui.add_space(6.0);
-                            let dense_row_class = Self::row_width_class(ui.available_width());
+                            let dense_row_class = row_width_class(ui.available_width());
                             Self::show_column_headers(ui, dense_row_class);
 
                             let mut col_to_remove: Option<usize> = None;
@@ -688,7 +681,7 @@ impl DdlDialog {
                                 .show(ui, |ui| {
                                     for idx in 0..col_count {
                                         let layout = ColumnRowLayout {
-                                            row_class: Self::row_width_class(ui.available_width()),
+                                            row_class: row_width_class(ui.available_width()),
                                             is_selected: idx == state.selected_column,
                                             idx,
                                             col_count,
@@ -767,16 +760,6 @@ impl DdlDialog {
         result
     }
 
-    fn row_width_class(available_width: f32) -> ResponsiveRowClass {
-        if available_width >= Self::WIDE_ROW_THRESHOLD {
-            ResponsiveRowClass::Wide
-        } else if available_width >= Self::MEDIUM_ROW_THRESHOLD {
-            ResponsiveRowClass::Medium
-        } else {
-            ResponsiveRowClass::Narrow
-        }
-    }
-
     fn column_list_max_height(ui: &egui::Ui) -> f32 {
         DialogContent::adaptive_height(
             ui,
@@ -796,7 +779,7 @@ impl DdlDialog {
     }
 
     fn show_table_info_fields(ui: &mut egui::Ui, table: &mut TableDefinition) {
-        match Self::row_width_class(ui.available_width()) {
+        match row_width_class(ui.available_width()) {
             ResponsiveRowClass::Wide => {
                 let pair_width = ((ui.available_width() - 12.0) / 2.0).max(200.0);
                 ui.horizontal_top(|ui| {
@@ -1154,22 +1137,6 @@ mod tests {
         assert_eq!(action, None);
 
         let _ = ctx.end_pass();
-    }
-
-    #[test]
-    fn ddl_dialog_row_width_classes_follow_shared_thresholds() {
-        assert_eq!(
-            DdlDialog::row_width_class(DdlDialog::WIDE_ROW_THRESHOLD),
-            ResponsiveRowClass::Wide
-        );
-        assert_eq!(
-            DdlDialog::row_width_class(680.0),
-            ResponsiveRowClass::Medium
-        );
-        assert_eq!(
-            DdlDialog::row_width_class(DdlDialog::MEDIUM_ROW_THRESHOLD - 1.0),
-            ResponsiveRowClass::Narrow
-        );
     }
 
     #[test]

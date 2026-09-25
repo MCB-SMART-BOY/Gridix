@@ -7,9 +7,10 @@ use std::path::PathBuf;
 use super::common::{
     DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow, FormDialogShell,
 };
+use super::responsive::{self, RowMetrics};
 use crate::data::DatabaseType;
 use crate::ui::{LocalShortcut, local_shortcut_text};
-use egui::{self, Color32, RichText, TextEdit};
+use egui::{self, Color32, RichText};
 
 // ============================================================================
 // 对话框结果
@@ -209,16 +210,9 @@ enum CreateDbKeyAction {
     Close,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ResponsiveRowClass {
-    Wide,
-    Medium,
-    Narrow,
-}
-
 impl CreateDbDialog {
-    const WIDE_ROW_THRESHOLD: f32 = 720.0;
-    const MEDIUM_ROW_THRESHOLD: f32 = 560.0;
+    /// 标签列宽:本对话框的标签较短,使用比连接对话框更窄的标签列。
+    const ROW_METRICS: RowMetrics = RowMetrics::new(88.0, 80.0);
 
     fn try_create(state: &mut CreateDbDialogState) -> Result<CreateDatabaseRequest, String> {
         match state.generate_request() {
@@ -515,64 +509,6 @@ impl CreateDbDialog {
         });
     }
 
-    fn row_width_class(available_width: f32) -> ResponsiveRowClass {
-        if available_width >= Self::WIDE_ROW_THRESHOLD {
-            ResponsiveRowClass::Wide
-        } else if available_width >= Self::MEDIUM_ROW_THRESHOLD {
-            ResponsiveRowClass::Medium
-        } else {
-            ResponsiveRowClass::Narrow
-        }
-    }
-
-    fn label_width(row_class: ResponsiveRowClass) -> f32 {
-        match row_class {
-            ResponsiveRowClass::Wide => 88.0,
-            ResponsiveRowClass::Medium => 80.0,
-            ResponsiveRowClass::Narrow => 0.0,
-        }
-    }
-
-    fn control_width(ui: &egui::Ui, row_class: ResponsiveRowClass, preferred_width: f32) -> f32 {
-        match row_class {
-            ResponsiveRowClass::Wide | ResponsiveRowClass::Medium => {
-                ui.available_width().min(preferred_width)
-            }
-            ResponsiveRowClass::Narrow => ui.available_width(),
-        }
-    }
-
-    fn show_responsive_labeled_row(
-        ui: &mut egui::Ui,
-        label: &str,
-        body: impl FnOnce(&mut egui::Ui, ResponsiveRowClass),
-    ) {
-        let row_class = Self::row_width_class(ui.available_width());
-
-        match row_class {
-            ResponsiveRowClass::Narrow => {
-                ui.label(RichText::new(label).color(Color32::from_gray(180)));
-                ui.add_space(4.0);
-                body(ui, row_class);
-            }
-            ResponsiveRowClass::Wide | ResponsiveRowClass::Medium => {
-                let label_width = Self::label_width(row_class);
-                ui.horizontal_top(|ui| {
-                    ui.add_sized(
-                        [label_width, 0.0],
-                        egui::Label::new(RichText::new(label).color(Color32::from_gray(180))),
-                    );
-                    ui.add_space(8.0);
-                    ui.vertical(|ui| {
-                        body(ui, row_class);
-                    });
-                });
-            }
-        }
-
-        ui.add_space(8.0);
-    }
-
     fn show_responsive_text_row(
         ui: &mut egui::Ui,
         label: &str,
@@ -580,10 +516,14 @@ impl CreateDbDialog {
         hint: &str,
         preferred_width: f32,
     ) {
-        Self::show_responsive_labeled_row(ui, label, |ui, row_class| {
-            let width = Self::control_width(ui, row_class, preferred_width);
-            ui.add_sized([width, 0.0], TextEdit::singleline(value).hint_text(hint));
-        });
+        responsive::show_responsive_text_row(
+            ui,
+            label,
+            value,
+            hint,
+            preferred_width,
+            Self::ROW_METRICS,
+        );
     }
 
     fn show_responsive_combo_row(
@@ -593,18 +533,14 @@ impl CreateDbDialog {
         preferred_width: f32,
         body: impl FnOnce(&mut egui::Ui, f32),
     ) {
-        Self::show_responsive_labeled_row(ui, label, |ui, row_class| {
-            let width = Self::control_width(ui, row_class, preferred_width);
-            ui.scope(|ui| {
-                ui.set_min_width(width);
-                ui.set_width(width);
-                body(ui, width);
-            });
-
-            if matches!(row_class, ResponsiveRowClass::Narrow) && selected_text.is_empty() {
-                ui.add_space(2.0);
-            }
-        });
+        responsive::show_responsive_combo_row(
+            ui,
+            label,
+            preferred_width,
+            selected_text.is_empty(),
+            Self::ROW_METRICS,
+            body,
+        );
     }
 }
 
@@ -680,21 +616,5 @@ mod tests {
         assert_eq!(action, Some(CreateDbKeyAction::Confirm));
 
         let _ = ctx.end_pass();
-    }
-
-    #[test]
-    fn create_db_dialog_row_width_classes_follow_shared_thresholds() {
-        assert_eq!(
-            CreateDbDialog::row_width_class(CreateDbDialog::WIDE_ROW_THRESHOLD),
-            ResponsiveRowClass::Wide
-        );
-        assert_eq!(
-            CreateDbDialog::row_width_class(680.0),
-            ResponsiveRowClass::Medium
-        );
-        assert_eq!(
-            CreateDbDialog::row_width_class(CreateDbDialog::MEDIUM_ROW_THRESHOLD - 1.0),
-            ResponsiveRowClass::Narrow
-        );
     }
 }

@@ -7,6 +7,7 @@ use super::common::{
     DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow, FormDialogShell,
     FormFieldId,
 };
+use super::responsive::{self, RowMetrics};
 use crate::data::DatabaseType;
 use crate::ui::{LocalShortcut, local_shortcut_text};
 use egui::{self, Color32, RichText, TextEdit};
@@ -340,6 +341,11 @@ enum CreateUserKeyAction {
 }
 
 impl CreateUserDialog {
+    /// 标签列宽:与新建数据库对话框共享同一套窄标签列。
+    const ROW_METRICS: RowMetrics = RowMetrics::new(88.0, 80.0);
+    /// 文本输入与下拉框的期望宽度。
+    const FIELD_WIDTH: f32 = 200.0;
+
     fn error_field_for_message(error: &str) -> Option<FormFieldId> {
         match error {
             "用户名不能为空" | "用户名只能包含字母、数字和下划线" => {
@@ -444,96 +450,120 @@ impl CreateUserDialog {
                         }
 
                         DialogContent::section(ui, "基本信息", |ui| {
-                            let username_response = ui
-                                .horizontal(|ui| {
-                                    ui.label("用户名:");
-                                    ui.add(
+                            let username_response = responsive::responsive_row(
+                                ui,
+                                "用户名",
+                                Self::ROW_METRICS,
+                                |ui, row_class| {
+                                    let width =
+                                        responsive::control_width(ui, row_class, Self::FIELD_WIDTH);
+                                    ui.add_sized(
+                                        [width, 0.0],
                                         TextEdit::singleline(&mut state.username)
-                                            .desired_width(200.0)
                                             .hint_text("输入用户名"),
                                     )
-                                })
-                                .inner;
+                                },
+                            );
                             body_ctx.register_field(FIELD_USERNAME, &username_response);
 
-                            let password_response = ui
-                                .horizontal(|ui| {
-                                    ui.label("密  码:");
-                                    ui.add(
+                            let password_response = responsive::responsive_row(
+                                ui,
+                                "密码",
+                                Self::ROW_METRICS,
+                                |ui, row_class| {
+                                    let width =
+                                        responsive::control_width(ui, row_class, Self::FIELD_WIDTH);
+                                    ui.add_sized(
+                                        [width, 0.0],
                                         TextEdit::singleline(&mut state.password)
                                             .password(true)
-                                            .desired_width(200.0)
                                             .hint_text("输入密码"),
                                     )
-                                })
-                                .inner;
+                                },
+                            );
                             body_ctx.register_field(FIELD_PASSWORD, &password_response);
 
-                            let confirm_response = ui
-                                .horizontal(|ui| {
-                                    ui.label("确  认:");
-                                    ui.add(
+                            let confirm_response = responsive::responsive_row(
+                                ui,
+                                "确认",
+                                Self::ROW_METRICS,
+                                |ui, row_class| {
+                                    let width =
+                                        responsive::control_width(ui, row_class, Self::FIELD_WIDTH);
+                                    ui.add_sized(
+                                        [width, 0.0],
                                         TextEdit::singleline(&mut state.confirm_password)
                                             .password(true)
-                                            .desired_width(200.0)
                                             .hint_text("再次输入密码"),
                                     )
-                                })
-                                .inner;
+                                },
+                            );
                             body_ctx.register_field(FIELD_CONFIRM_PASSWORD, &confirm_response);
 
                             if matches!(state.db_type, DatabaseType::MySQL) {
-                                ui.horizontal(|ui| {
-                                    ui.label("主  机:");
-                                    egui::ComboBox::from_id_salt("host")
-                                        .selected_text(&state.host)
-                                        .width(150.0)
-                                        .show_ui(ui, |ui| {
-                                            ui.selectable_value(
-                                                &mut state.host,
-                                                "localhost".to_string(),
-                                                "localhost",
-                                            );
-                                            ui.selectable_value(
-                                                &mut state.host,
-                                                "%".to_string(),
-                                                "% (所有主机)",
-                                            );
-                                            ui.selectable_value(
-                                                &mut state.host,
-                                                "127.0.0.1".to_string(),
-                                                "127.0.0.1",
-                                            );
-                                        });
-                                });
+                                responsive::show_responsive_combo_row(
+                                    ui,
+                                    "主机",
+                                    Self::FIELD_WIDTH,
+                                    state.host.is_empty(),
+                                    Self::ROW_METRICS,
+                                    |ui, width| {
+                                        egui::ComboBox::from_id_salt("host")
+                                            .selected_text(&state.host)
+                                            .width(width)
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(
+                                                    &mut state.host,
+                                                    "localhost".to_string(),
+                                                    "localhost",
+                                                );
+                                                ui.selectable_value(
+                                                    &mut state.host,
+                                                    "%".to_string(),
+                                                    "% (所有主机)",
+                                                );
+                                                ui.selectable_value(
+                                                    &mut state.host,
+                                                    "127.0.0.1".to_string(),
+                                                    "127.0.0.1",
+                                                );
+                                            });
+                                    },
+                                );
                             }
                         });
 
                         DialogContent::section(ui, "权限设置", |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label("授权数据库:");
-                                egui::ComboBox::from_id_salt("grant_db")
-                                    .selected_text(if state.grant_database.is_empty() {
-                                        "选择数据库（可选）"
-                                    } else {
-                                        &state.grant_database
-                                    })
-                                    .width(200.0)
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(
-                                            &mut state.grant_database,
-                                            String::new(),
-                                            "不授权",
-                                        );
-                                        for db in &state.available_databases {
+                            responsive::show_responsive_combo_row(
+                                ui,
+                                "授权数据库",
+                                Self::FIELD_WIDTH,
+                                state.grant_database.is_empty(),
+                                Self::ROW_METRICS,
+                                |ui, width| {
+                                    egui::ComboBox::from_id_salt("grant_db")
+                                        .selected_text(if state.grant_database.is_empty() {
+                                            "选择数据库（可选）"
+                                        } else {
+                                            &state.grant_database
+                                        })
+                                        .width(width)
+                                        .show_ui(ui, |ui| {
                                             ui.selectable_value(
                                                 &mut state.grant_database,
-                                                db.clone(),
-                                                db,
+                                                String::new(),
+                                                "不授权",
                                             );
-                                        }
-                                    });
-                            });
+                                            for db in &state.available_databases {
+                                                ui.selectable_value(
+                                                    &mut state.grant_database,
+                                                    db.clone(),
+                                                    db,
+                                                );
+                                            }
+                                        });
+                                },
+                            );
 
                             if !state.grant_database.is_empty() {
                                 ui.add_space(4.0);

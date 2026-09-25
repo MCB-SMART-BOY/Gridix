@@ -2,6 +2,7 @@
 use super::common::{
     DialogContent, DialogFooter, DialogShortcutContext, DialogStyle, DialogWindow, FormDialogShell,
 };
+use super::responsive::{self, ResponsiveRowClass, RowMetrics};
 use crate::data::{ConnectionConfig, DatabaseType, MySqlSslMode, PostgresSslMode, SshAuthMethod};
 use crate::ui::styles::{DANGER, GRAY, MUTED, SPACING_MD, SPACING_SM, SUCCESS};
 use crate::ui::{LocalShortcut, local_shortcut_text, local_shortcut_tooltip, local_shortcuts_text};
@@ -107,13 +108,6 @@ enum ConnectionBrowseTarget {
     SshPrivateKey,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ResponsiveRowClass {
-    Wide,
-    Medium,
-    Narrow,
-}
-
 struct ResponsivePathRowSpec<'a> {
     label: &'a str,
     hint_text: &'a str,
@@ -122,8 +116,8 @@ struct ResponsivePathRowSpec<'a> {
 }
 
 impl ConnectionDialog {
-    const WIDE_ROW_THRESHOLD: f32 = 720.0;
-    const MEDIUM_ROW_THRESHOLD: f32 = 560.0;
+    /// 标签列宽:连接对话框的标签较长,使用最宽的标签列。
+    const ROW_METRICS: RowMetrics = RowMetrics::new(96.0, 88.0);
 
     #[inline]
     fn apply_database_type(config: &mut ConnectionConfig, db_type: DatabaseType) {
@@ -976,31 +970,8 @@ impl ConnectionDialog {
         }
     }
 
-    fn row_width_class(available_width: f32) -> ResponsiveRowClass {
-        if available_width >= Self::WIDE_ROW_THRESHOLD {
-            ResponsiveRowClass::Wide
-        } else if available_width >= Self::MEDIUM_ROW_THRESHOLD {
-            ResponsiveRowClass::Medium
-        } else {
-            ResponsiveRowClass::Narrow
-        }
-    }
-
-    fn label_width(row_class: ResponsiveRowClass) -> f32 {
-        match row_class {
-            ResponsiveRowClass::Wide => 96.0,
-            ResponsiveRowClass::Medium => 88.0,
-            ResponsiveRowClass::Narrow => 0.0,
-        }
-    }
-
     fn control_width(ui: &egui::Ui, row_class: ResponsiveRowClass, preferred_width: f32) -> f32 {
-        match row_class {
-            ResponsiveRowClass::Wide | ResponsiveRowClass::Medium => {
-                ui.available_width().min(preferred_width)
-            }
-            ResponsiveRowClass::Narrow => ui.available_width(),
-        }
+        responsive::control_width(ui, row_class, preferred_width)
     }
 
     fn show_responsive_labeled_row(
@@ -1008,30 +979,7 @@ impl ConnectionDialog {
         label: &str,
         body: impl FnOnce(&mut egui::Ui, ResponsiveRowClass),
     ) {
-        let row_class = Self::row_width_class(ui.available_width());
-
-        match row_class {
-            ResponsiveRowClass::Narrow => {
-                ui.label(RichText::new(label).color(GRAY));
-                ui.add_space(4.0);
-                body(ui, row_class);
-            }
-            ResponsiveRowClass::Wide | ResponsiveRowClass::Medium => {
-                let label_width = Self::label_width(row_class);
-                ui.horizontal_top(|ui| {
-                    ui.add_sized(
-                        [label_width, 0.0],
-                        egui::Label::new(RichText::new(label).color(GRAY)),
-                    );
-                    ui.add_space(SPACING_SM);
-                    ui.vertical(|ui| {
-                        body(ui, row_class);
-                    });
-                });
-            }
-        }
-
-        ui.add_space(SPACING_SM);
+        responsive::show_responsive_labeled_row(ui, label, Self::ROW_METRICS, body);
     }
 
     fn show_responsive_path_row(
@@ -1222,21 +1170,5 @@ mod tests {
         assert_eq!(action, None);
 
         let _ = ctx.end_pass();
-    }
-
-    #[test]
-    fn responsive_row_width_classes_follow_design_thresholds() {
-        assert_eq!(
-            ConnectionDialog::row_width_class(ConnectionDialog::WIDE_ROW_THRESHOLD),
-            ResponsiveRowClass::Wide
-        );
-        assert_eq!(
-            ConnectionDialog::row_width_class(680.0),
-            ResponsiveRowClass::Medium
-        );
-        assert_eq!(
-            ConnectionDialog::row_width_class(ConnectionDialog::MEDIUM_ROW_THRESHOLD - 1.0),
-            ResponsiveRowClass::Narrow
-        );
     }
 }

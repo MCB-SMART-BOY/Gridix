@@ -44,12 +44,7 @@ const CMD_IMPORT_FORMAT_JSON: &str = "dialog.import.format_json";
 const CMD_IMPORT_CYCLE_PREV: &str = "dialog.import.cycle_prev";
 const CMD_IMPORT_CYCLE_NEXT: &str = "dialog.import.cycle_next";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ResponsiveRowClass {
-    Wide,
-    Medium,
-    Narrow,
-}
+use super::responsive::{ResponsiveRowClass, row_width_class};
 
 struct ImportFooterState<'a> {
     effective_mode: ImportMode,
@@ -60,9 +55,6 @@ struct ImportFooterState<'a> {
 }
 
 impl ImportDialog {
-    const WIDE_ROW_THRESHOLD: f32 = 720.0;
-    const MEDIUM_ROW_THRESHOLD: f32 = 560.0;
-
     #[inline]
     fn effective_mode_for_format(state: &ImportState) -> ImportMode {
         state.mode
@@ -841,16 +833,6 @@ impl ImportDialog {
         action
     }
 
-    fn row_width_class(available_width: f32) -> ResponsiveRowClass {
-        if available_width >= Self::WIDE_ROW_THRESHOLD {
-            ResponsiveRowClass::Wide
-        } else if available_width >= Self::MEDIUM_ROW_THRESHOLD {
-            ResponsiveRowClass::Medium
-        } else {
-            ResponsiveRowClass::Narrow
-        }
-    }
-
     fn label_width(row_class: ResponsiveRowClass) -> f32 {
         match row_class {
             ResponsiveRowClass::Wide => 84.0,
@@ -873,7 +855,7 @@ impl ImportDialog {
         label: &str,
         body: impl FnOnce(&mut egui::Ui, ResponsiveRowClass),
     ) {
-        let row_class = Self::row_width_class(ui.available_width());
+        let row_class = row_width_class(ui.available_width());
 
         match row_class {
             ResponsiveRowClass::Narrow => {
@@ -1038,21 +1020,5 @@ mod tests {
         assert_eq!(action, None);
 
         let _ = ctx.end_pass();
-    }
-
-    #[test]
-    fn import_dialog_row_width_classes_follow_shared_thresholds() {
-        assert_eq!(
-            ImportDialog::row_width_class(ImportDialog::WIDE_ROW_THRESHOLD),
-            ResponsiveRowClass::Wide
-        );
-        assert_eq!(
-            ImportDialog::row_width_class(680.0),
-            ResponsiveRowClass::Medium
-        );
-        assert_eq!(
-            ImportDialog::row_width_class(ImportDialog::MEDIUM_ROW_THRESHOLD - 1.0),
-            ResponsiveRowClass::Narrow
-        );
     }
 }

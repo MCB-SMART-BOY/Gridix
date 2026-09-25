@@ -683,7 +683,7 @@ impl ExportDialog {
                                 .corner_radius(CornerRadius::same(4))
                                 .inner_margin(egui::Margin::symmetric(6, 3))
                                 .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
+                                    ui.horizontal_wrapped(|ui| {
                                         if is_nav_selected {
                                             ui.label(
                                                 RichText::new("▶")
@@ -723,7 +723,7 @@ impl ExportDialog {
 
     /// CSV 选项
     fn show_csv_options(ui: &mut egui::Ui, config: &mut ExportConfig) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("分隔符:").small().color(GRAY));
             for (label, delim) in [(",", ','), (";", ';'), ("Tab", '\t'), ("|", '|')] {
                 if ui
@@ -744,7 +744,7 @@ impl ExportDialog {
     fn show_tsv_options(ui: &mut egui::Ui, config: &mut ExportConfig) {
         config.csv_delimiter = '\t';
 
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("分隔符:").small().color(GRAY));
             ui.label(RichText::new("Tab").strong());
             ui.label(RichText::new("(TSV 固定为制表符)").small().color(MUTED));
@@ -757,7 +757,7 @@ impl ExportDialog {
 
     /// SQL 选项
     fn show_sql_options(ui: &mut egui::Ui, config: &mut ExportConfig) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.checkbox(&mut config.sql_use_transaction, "事务包装");
 
             ui.separator();
@@ -776,7 +776,7 @@ impl ExportDialog {
 
     /// JSON 选项
     fn show_json_options(ui: &mut egui::Ui, config: &mut ExportConfig) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.checkbox(&mut config.json_pretty, "美化输出");
             if config.json_pretty {
                 ui.label(RichText::new("(带缩进)").small().color(MUTED));
@@ -836,9 +836,91 @@ impl ExportDialog {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExportDialog, ExportKeyAction};
+    use super::{ExportConfig, ExportDialog, ExportKeyAction};
     use crate::core::ExportFormat;
-    use egui::{Event, Key, Modifiers, RawInput};
+    use egui::{Event, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
+
+    /// 窄视口宽度:低于各选项行在旧实现下的固有宽度。
+    const NARROW_VIEWPORT: f32 = 200.0;
+
+    /// 在窄视口下渲染一段内容,返回其实际占用的宽度。
+    fn rendered_width(ctx: &egui::Context, render: &mut dyn FnMut(&mut egui::Ui)) -> f32 {
+        let mut width = 0.0_f32;
+        egui::Area::new(egui::Id::new("export_dialog_narrow_rows")).show(ctx, |ui| {
+            ui.set_max_width(NARROW_VIEWPORT);
+            let response = ui.scope(|ui| render(ui)).response;
+            width = response.rect.width();
+        });
+        width
+    }
+
+    fn begin_narrow_pass(ctx: &egui::Context) {
+        ctx.begin_pass(RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                Pos2::ZERO,
+                Vec2::new(NARROW_VIEWPORT, 600.0),
+            )),
+            ..Default::default()
+        });
+    }
+
+    #[test]
+    fn export_option_rows_fit_narrow_viewport() {
+        let ctx = egui::Context::default();
+        begin_narrow_pass(&ctx);
+
+        let mut csv = ExportConfig::default();
+        let csv_width = rendered_width(&ctx, &mut |ui| {
+            ExportDialog::show_csv_options(ui, &mut csv);
+        });
+
+        let mut tsv = ExportConfig::default();
+        let tsv_width = rendered_width(&ctx, &mut |ui| {
+            ExportDialog::show_tsv_options(ui, &mut tsv);
+        });
+
+        let mut sql = ExportConfig::default();
+        let sql_width = rendered_width(&ctx, &mut |ui| {
+            ExportDialog::show_sql_options(ui, &mut sql);
+        });
+
+        let mut json = ExportConfig::default();
+        let json_width = rendered_width(&ctx, &mut |ui| {
+            ExportDialog::show_json_options(ui, &mut json);
+        });
+
+        let mut columns = ExportConfig {
+            selected_columns: vec![false; 2],
+            ..Default::default()
+        };
+        let columns_width = rendered_width(&ctx, &mut |ui| {
+            ExportDialog::show_column_selector(
+                ui,
+                &mut columns,
+                &[
+                    "very_long_column_name_that_should_wrap".to_string(),
+                    "second_long_column_name".to_string(),
+                ],
+            );
+        });
+
+        let _ = ctx.end_pass();
+
+        // 每行都必须真的渲染出内容,且不得超出窄视口。
+        for (name, width) in [
+            ("csv", csv_width),
+            ("tsv", tsv_width),
+            ("sql", sql_width),
+            ("json", json_width),
+            ("columns", columns_width),
+        ] {
+            assert!(width > 0.0, "{name} 选项行未渲染内容");
+            assert!(
+                width <= NARROW_VIEWPORT,
+                "{name} 选项行在窄视口下溢出: {width} > {NARROW_VIEWPORT}"
+            );
+        }
+    }
 
     fn key_event(key: Key) -> Event {
         Event::Key {
