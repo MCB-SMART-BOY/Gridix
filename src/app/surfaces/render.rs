@@ -140,6 +140,7 @@ impl DbManagerApp {
     pub(in crate::app) fn run_frame(&mut self, root_ui: &mut egui::Ui) {
         let ctx = root_ui.ctx().clone();
         let viewport_rect = ctx.input(|input| input.content_rect());
+        self.sync_system_theme(&ctx);
         self.normalize_workbench_for_viewport(viewport_rect.width(), viewport_rect.height());
         let mut toolbar_actions = ToolbarActions::default();
 
@@ -817,8 +818,7 @@ impl DbManagerApp {
         }
 
         // 处理日/夜模式切换（来自工具栏按钮或 Ctrl+D 快捷键）
-        if actions.toggle_dark_mode || self.pending_toggle_dark_mode {
-            self.pending_toggle_dark_mode = false;
+        if actions.toggle_dark_mode {
             self.dispatch_app_action(ctx, AppAction::ToggleDarkMode);
         }
 

@@ -495,6 +495,13 @@ impl ThemeManager {
 
     /// 应用主题到 egui 上下文
     pub fn apply(&self, ctx: &egui::Context) {
+        // 钉住 egui 的主题槽：默认的 `ThemePreference::System` 会在系统亮暗翻转时
+        // 切换到另一个槽，而 Gridix 只写自己应用过的那个槽，界面会退回 egui 默认样式。
+        ctx.set_theme(if self.current.is_dark() {
+            egui::Theme::Dark
+        } else {
+            egui::Theme::Light
+        });
         let colors = &self.colors;
 
         // 基于是否为暗色主题选择基础视觉样式
@@ -612,5 +619,38 @@ impl ThemeManager {
         style.animation_time = 0.1;
 
         ctx.set_global_style(style);
+    }
+}
+
+/// 解析「跟随系统」偏好下本次应生效的亮暗模式。
+///
+/// 由系统亮暗偏好与当前模式推导应生效的亮暗模式。
+///
+/// `system_is_dark` 为 `None`（平台未提供系统主题）时保持当前模式。
+/// 是否启用跟随由调用点决定：本函数只表达"跟随时的映射"。
+pub fn resolve_dark_mode(system_is_dark: Option<bool>, current_is_dark: bool) -> bool {
+    system_is_dark.unwrap_or(current_is_dark)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ThemePreset, resolve_dark_mode};
+
+    #[test]
+    fn resolve_dark_mode_prefers_system_preference() {
+        assert!(resolve_dark_mode(Some(true), false));
+        assert!(!resolve_dark_mode(Some(false), true));
+    }
+
+    #[test]
+    fn resolve_dark_mode_keeps_current_when_system_theme_is_unknown() {
+        assert!(resolve_dark_mode(None, true));
+        assert!(!resolve_dark_mode(None, false));
+    }
+
+    #[test]
+    fn theme_presets_expose_matching_light_and_dark_flags() {
+        assert!(ThemePreset::TokyoNightStorm.is_dark());
+        assert!(!ThemePreset::TokyoNightLight.is_dark());
     }
 }

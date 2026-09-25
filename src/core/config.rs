@@ -405,6 +405,9 @@ pub struct AppConfig {
     /// 当前是否为夜间模式
     #[serde(default = "default_dark_mode")]
     pub is_dark_mode: bool,
+    /// 是否跟随系统亮暗模式（为真时由系统主题决定亮暗；跟随期间不更新 `theme_preset`，其值可能滞后于生效模式）
+    #[serde(default)]
+    pub theme_follows_system: bool,
     #[serde(default)]
     pub query_history: QueryHistory,
     /// 每个连接的 SQL 命令历史记录 (连接名 -> SQL 列表)
@@ -660,6 +663,8 @@ struct AppConfigWire {
     #[serde(default = "default_dark_mode")]
     is_dark_mode: bool,
     #[serde(default)]
+    theme_follows_system: bool,
+    #[serde(default)]
     query_history: QueryHistory,
     #[serde(default)]
     command_history: HashMap<String, Vec<String>>,
@@ -692,6 +697,7 @@ impl AppConfigWire {
             light_theme: self.light_theme,
             dark_theme: self.dark_theme,
             is_dark_mode: self.is_dark_mode,
+            theme_follows_system: self.theme_follows_system,
             query_history: self.query_history,
             command_history: self.command_history,
             ui_scale: self.ui_scale,
@@ -853,6 +859,7 @@ impl Default for AppConfig {
             light_theme: default_light_theme(),
             dark_theme: default_dark_theme(),
             is_dark_mode: default_dark_mode(),
+            theme_follows_system: false,
             query_history: QueryHistory::new(100),
             command_history: HashMap::new(),
             ui_scale: default_ui_scale(),

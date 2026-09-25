@@ -375,12 +375,18 @@ impl DbManagerApp {
         }
 
         if active_dialog == Some(DialogId::ToolbarThemeMenu) {
+            let follows_system_before = self.app_config.theme_follows_system;
             results.theme_preset = ui::ToolbarThemeDialog::show(
                 ctx,
                 &mut self.state.toolbar_theme_dialog_state,
                 self.state.theme_manager.current,
                 self.app_config.is_dark_mode,
+                &mut self.app_config.theme_follows_system,
             );
+            if self.app_config.theme_follows_system != follows_system_before {
+                self.save_config_debounced();
+                self.session.needs_repaint = true;
+            }
         }
 
         self.reconcile_active_dialog_owner();

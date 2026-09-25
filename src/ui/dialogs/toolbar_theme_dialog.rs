@@ -120,6 +120,7 @@ impl ToolbarThemeDialog {
         state: &mut ToolbarThemeDialogState,
         current_theme: ThemePreset,
         is_dark_mode: bool,
+        follows_system: &mut bool,
     ) -> Option<ThemePreset> {
         if !state.show {
             return None;
@@ -141,6 +142,8 @@ impl ToolbarThemeDialog {
                 ToolbarThemeFrameAction::Next => state.move_selection(1, themes),
                 ToolbarThemeFrameAction::Confirm => {
                     activated.set(state.selected_preset);
+                    // 显式选择主题即视为放弃跟随系统，避免下一帧又被系统覆盖。
+                    *follows_system = false;
                 }
                 ToolbarThemeFrameAction::Dismiss => close_requested.set(true),
                 ToolbarThemeFrameAction::Start => state.move_to_start(themes),
@@ -176,6 +179,10 @@ impl ToolbarThemeDialog {
                             })
                             .small()
                             .weak(),
+                        );
+                        ui.add_space(4.0);
+                        ui.checkbox(follows_system, "跟随系统主题").on_hover_text(
+                            "系统切换亮/暗模式时自动跟随；关闭或在本对话框确认主题后使用固定主题",
                         );
                     });
                     ui.add_space(8.0);

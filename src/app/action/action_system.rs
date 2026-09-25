@@ -1380,6 +1380,8 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::ToggleDarkMode => {
+                // 显式切换亮暗是用户意图，必须关闭跟随，否则下一帧会被系统值覆盖回去。
+                self.app_config.theme_follows_system = false;
                 self.app_config.is_dark_mode = !self.app_config.is_dark_mode;
                 let new_theme = if self.app_config.is_dark_mode {
                     self.app_config.dark_theme

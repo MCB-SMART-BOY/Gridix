@@ -41,6 +41,43 @@ impl DbManagerApp {
         }
     }
 
+    /// 应用由系统主题推导出的主题，不改变用户固定的主题选择，也不立即写盘。
+    fn apply_effective_theme(&mut self, ctx: &egui::Context, preset: ThemePreset) {
+        if self.state.theme_manager.current == preset {
+            return;
+        }
+        self.state.theme_manager.set_theme(preset);
+        self.state.theme_manager.apply(ctx);
+        self.state.highlight_colors = HighlightColors::from_theme(&self.state.theme_manager.colors);
+        clear_highlight_cache();
+        self.session.needs_repaint = true;
+    }
+
+    /// 跟随系统亮暗模式：系统主题变化时切换 `light_theme` / `dark_theme`。
+    ///
+    /// 每帧调用，但只在解析结果与生效主题不一致时应用样式（`apply_effective_theme`
+    /// 内部按 `ThemeManager::current` 早退），因此不会每帧重建 egui 样式与高亮缓存。
+    /// 同时校正启动时可能残留的不一致：启动样式来自 `theme_preset`，而跟随期间
+    /// 生效的是 `is_dark_mode` 推导出的预设（评审 finding-1）。
+    pub(in crate::app) fn sync_system_theme(&mut self, ctx: &egui::Context) {
+        if !self.app_config.theme_follows_system {
+            return;
+        }
+        let system_is_dark = ctx.system_theme().map(|theme| theme == egui::Theme::Dark);
+        let is_dark = crate::core::resolve_dark_mode(system_is_dark, self.app_config.is_dark_mode);
+        let mode_changed = is_dark != self.app_config.is_dark_mode;
+        self.app_config.is_dark_mode = is_dark;
+        let preset = if is_dark {
+            self.app_config.dark_theme
+        } else {
+            self.app_config.light_theme
+        };
+        self.apply_effective_theme(ctx, preset);
+        if mode_changed {
+            self.save_config_debounced();
+        }
+    }
+
     pub(in crate::app) fn save_config(&mut self) {
         // 保存当前连接的历史记录
         self.save_current_history();
@@ -89,5 +126,53 @@ impl DbManagerApp {
             .unwrap_or_default();
         self.session.current_history_connection = Some(conn_name.to_string());
         self.session.history_index = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::core::{ThemeManager, ThemePreset};
+
+    /// 跟随模式下重启：启动样式来自 `theme_preset`，与 `is_dark_mode` 不一致时必须被纠正。
+    #[test]
+    fn follow_mode_reapplies_stored_mode_after_restart() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let ctx = egui::Context::default();
+        app.app_config.theme_follows_system = true;
+        app.app_config.dark_theme = ThemePreset::TokyoNightStorm;
+        app.app_config.light_theme = ThemePreset::TokyoNightLight;
+        app.app_config.is_dark_mode = false;
+
+        // 启动路径：按 theme_preset 初始化（暗），与 is_dark_mode(亮) 矛盾。
+        app.state
+            .theme_manager
+            .set_theme(ThemePreset::TokyoNightStorm);
+        app.state.theme_manager.apply(&ctx);
+        assert_eq!(
+            app.state.theme_manager.current,
+            ThemePreset::TokyoNightStorm
+        );
+
+        // 无头 context 不提供系统主题，解析结果保持 is_dark_mode=false，即亮色。
+        app.sync_system_theme(&ctx);
+
+        assert_eq!(
+            app.state.theme_manager.current,
+            ThemePreset::TokyoNightLight,
+            "跟随模式必须把启动时残留的主题纠正回 is_dark_mode"
+        );
+    }
+
+    /// 应用主题必须钉住 egui 主题槽，否则系统主题翻转时 egui 会切换到未写入的槽。
+    #[test]
+    fn applying_a_theme_pins_the_egui_theme_slot() {
+        let ctx = egui::Context::default();
+        let mut manager = ThemeManager::new(ThemePreset::TokyoNightLight);
+        manager.apply(&ctx);
+        assert_eq!(ctx.theme(), egui::Theme::Light);
+
+        manager.set_theme(ThemePreset::TokyoNightStorm);
+        manager.apply(&ctx);
+        assert_eq!(ctx.theme(), egui::Theme::Dark);
     }
 }
