@@ -640,8 +640,26 @@ fn run_xdotool(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// 激活窗口：优先使用 `_NET_ACTIVE_WINDOW`，无窗口管理器时退化为直接设置输入焦点。
+///
+/// 驱动自己启动的 Xvfb 不带窗口管理器，`windowactivate` 在这种情况下会失败，
+/// 而 `windowfocus`（XSetInputFocus）不需要窗口管理器支持。
 fn activate_window(window_id: &str) -> Result<(), String> {
-    run_xdotool(&["windowactivate".into(), "--sync".into(), window_id.into()])
+    match run_xdotool(&["windowactivate".into(), "--sync".into(), window_id.into()]) {
+        Ok(()) => Ok(()),
+        Err(activation_error) => {
+            // 退化路径写 stderr：成功时不改变 stdout 的输出约定，但日志里能看出
+            // 本次运行没有走 EWMH 激活。
+            eprintln!(
+                "windowactivate {window_id} unavailable ({activation_error}); falling back to windowfocus"
+            );
+            run_xdotool(&["windowfocus".into(), window_id.into()]).map_err(|focus_error| {
+                format!(
+                    "windowactivate {window_id} failed: {activation_error}; windowfocus {window_id} failed: {focus_error}"
+                )
+            })
+        }
+    }
 }
 
 fn parse_launch_args(args: &[String]) -> Result<bool, String> {
@@ -733,10 +751,10 @@ fn cmd_type(window_id: &str, text_parts: &[String]) -> Result<(), String> {
         return Err("text must not be empty".into());
     }
     activate_window(window_id)?;
+    // 不带 `--window`：`xdotool type --window` 走 XSendEvent 合成事件，egui/winit 会忽略；
+    // activate_window 已把输入焦点落在应用窗口上，直接向聚焦窗口输入才能被 UI 收到。
     run_xdotool(&[
         "type".into(),
-        "--window".into(),
-        window_id.into(),
         "--clearmodifiers".into(),
         "--delay".into(),
         "0".into(),
