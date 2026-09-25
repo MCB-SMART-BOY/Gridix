@@ -1,4 +1,5 @@
 use crate::core::QueryHistory;
+use crate::ui::dialogs::{blocking_layer, register_modal_layer, show_pointer_blocker};
 use crate::ui::styles::{DANGER, GRAY, SUCCESS};
 use crate::ui::{
     DialogShortcutContext, LocalShortcut, local_shortcut_text, local_shortcut_tooltip,
@@ -6,6 +7,7 @@ use crate::ui::{
 };
 use egui::{self, RichText};
 
+const HISTORY_PANEL_WINDOW_ID: &str = "dialog.history";
 const HISTORY_PANEL_VIEWPORT_MARGIN: f32 = 32.0;
 const HISTORY_PANEL_MIN_WIDTH: f32 = 360.0;
 const HISTORY_PANEL_DEFAULT_WIDTH: f32 = 500.0;
@@ -102,7 +104,14 @@ impl HistoryPanel {
         let (min_width, default_width, max_width) = history_panel_widths(content_rect.width());
         let (min_height, default_height, max_height) = history_panel_heights(content_rect.height());
 
+        // 历史面板持有输入：铺一层指针阻断层，并把自己的图层登记为 modal layer，
+        // 阻断侧边栏、工具栏与工作台。
+        show_pointer_blocker(ctx, HISTORY_PANEL_WINDOW_ID);
+        register_modal_layer(ctx, blocking_layer(HISTORY_PANEL_WINDOW_ID));
+
         egui::Window::new("查询历史")
+            .id(egui::Id::new(HISTORY_PANEL_WINDOW_ID))
+            .order(egui::Order::Foreground)
             .collapsible(true)
             .resizable(true)
             .default_width(default_width)
