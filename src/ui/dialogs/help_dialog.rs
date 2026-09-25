@@ -153,13 +153,14 @@ impl HelpDialog {
 
         DialogWindow::workspace(
             ctx,
+            "dialog.help",
             "帮助与学习",
             &DialogStyle::WORKSPACE,
             Self::WINDOW_WIDTH,
             Self::WINDOW_HEIGHT,
         )
         .open(open)
-        .show(ctx, |ui| {
+        .show_blocking(ctx, |ui| {
             let layout = Self::picker_layout_profile(ui.available_width(), &snapshot);
             let header_layout = PickerDialogShell::header_blocks_layout(ui.available_width());
 

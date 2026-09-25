@@ -190,95 +190,100 @@ impl ImportDialog {
         };
         let pending_action = RefCell::new(initial_action);
 
-        DialogWindow::resizable(ctx, "📥 导入数据", &style).show(ctx, |ui| {
-            FormDialogShell::show(
-                ui,
-                "import_dialog_form_shell",
-                |ui| {
-                    DialogContent::shortcut_hint(
-                        ui,
-                        &[
-                            (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
-                            (
-                                local_shortcut_text(LocalShortcut::Confirm).as_str(),
-                                "执行 / 复制",
-                            ),
-                            (
-                                local_shortcuts_text(&[
-                                    LocalShortcut::ImportCyclePrev,
-                                    LocalShortcut::ImportCycleNext,
-                                ])
-                                .as_str(),
-                                "切换格式",
-                            ),
-                            (
-                                local_shortcut_text(LocalShortcut::ImportRefresh).as_str(),
-                                "刷新预览",
-                            ),
-                        ],
-                    );
-                },
-                |ui, _body_ctx| {
-                    DialogContent::section_with_description(
-                        ui,
-                        "导入源",
-                        "选择本地文件后会自动推断格式，并将文件路径与元数据固定在顶部。",
-                        |ui| {
-                            Self::store_action(
-                                &pending_action,
-                                Self::show_file_selector(ui, state),
-                            );
-                        },
-                    );
-
-                    if state.file_path.is_some() {
-                        DialogContent::section_with_description(
+        DialogWindow::resizable(ctx, "dialog.import", "📥 导入数据", &style).show_blocking(
+            ctx,
+            |ui| {
+                FormDialogShell::show(
+                    ui,
+                    "import_dialog_form_shell",
+                    |ui| {
+                        DialogContent::shortcut_hint(
                             ui,
-                            "导入策略",
-                            "格式切换、执行模式和预览共享同一份配置，避免两边状态漂移。",
-                            |ui| Self::show_format_mode_selector(ui, state),
+                            &[
+                                (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
+                                (
+                                    local_shortcut_text(LocalShortcut::Confirm).as_str(),
+                                    "执行 / 复制",
+                                ),
+                                (
+                                    local_shortcuts_text(&[
+                                        LocalShortcut::ImportCyclePrev,
+                                        LocalShortcut::ImportCycleNext,
+                                    ])
+                                    .as_str(),
+                                    "切换格式",
+                                ),
+                                (
+                                    local_shortcut_text(LocalShortcut::ImportRefresh).as_str(),
+                                    "刷新预览",
+                                ),
+                            ],
                         );
-
+                    },
+                    |ui, _body_ctx| {
                         DialogContent::section_with_description(
                             ui,
-                            Self::options_title(state.format),
-                            Self::options_description(state.format),
-                            |ui| match state.format {
-                                ImportFormat::Sql => Self::show_sql_options(ui, state),
-                                ImportFormat::Csv | ImportFormat::Tsv => {
-                                    Self::show_csv_options(ui, state, is_mysql)
-                                }
-                                ImportFormat::Json => Self::show_json_options(ui, state, is_mysql),
-                            },
-                        );
-
-                        DialogContent::section_with_description(
-                            ui,
-                            "导入预览",
-                            "加载中、错误、无预览和成功预览都在同一个面板里处理。",
+                            "导入源",
+                            "选择本地文件后会自动推断格式，并将文件路径与元数据固定在顶部。",
                             |ui| {
                                 Self::store_action(
                                     &pending_action,
-                                    Self::show_preview_panel(ui, state),
+                                    Self::show_file_selector(ui, state),
                                 );
                             },
                         );
-                    } else {
-                        DialogContent::info_text(
-                            ui,
-                            "选择文件后会显示格式选项、预览结果和执行动作。",
+
+                        if state.file_path.is_some() {
+                            DialogContent::section_with_description(
+                                ui,
+                                "导入策略",
+                                "格式切换、执行模式和预览共享同一份配置，避免两边状态漂移。",
+                                |ui| Self::show_format_mode_selector(ui, state),
+                            );
+
+                            DialogContent::section_with_description(
+                                ui,
+                                Self::options_title(state.format),
+                                Self::options_description(state.format),
+                                |ui| match state.format {
+                                    ImportFormat::Sql => Self::show_sql_options(ui, state),
+                                    ImportFormat::Csv | ImportFormat::Tsv => {
+                                        Self::show_csv_options(ui, state, is_mysql)
+                                    }
+                                    ImportFormat::Json => {
+                                        Self::show_json_options(ui, state, is_mysql)
+                                    }
+                                },
+                            );
+
+                            DialogContent::section_with_description(
+                                ui,
+                                "导入预览",
+                                "加载中、错误、无预览和成功预览都在同一个面板里处理。",
+                                |ui| {
+                                    Self::store_action(
+                                        &pending_action,
+                                        Self::show_preview_panel(ui, state),
+                                    );
+                                },
+                            );
+                        } else {
+                            DialogContent::info_text(
+                                ui,
+                                "选择文件后会显示格式选项、预览结果和执行动作。",
+                            );
+                            ui.add_space(SPACING_SM);
+                        }
+                    },
+                    |ui| {
+                        Self::store_action(
+                            &pending_action,
+                            Self::show_buttons(ui, show, &footer_state, &style),
                         );
-                        ui.add_space(SPACING_SM);
-                    }
-                },
-                |ui| {
-                    Self::store_action(
-                        &pending_action,
-                        Self::show_buttons(ui, show, &footer_state, &style),
-                    );
-                },
-            );
-        });
+                    },
+                );
+            },
+        );
 
         pending_action.into_inner()
     }

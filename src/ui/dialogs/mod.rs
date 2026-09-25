@@ -22,8 +22,9 @@ mod toolbar_theme_dialog;
 pub use about_dialog::AboutDialog;
 #[allow(unused_imports)] // 公开 API，供未来使用
 pub use common::{
-    DialogContent, DialogFooter, DialogHeader, DialogShortcutContext, DialogStatus, DialogStyle,
-    DialogWindow, FooterResult,
+    DialogContent, DialogFooter, DialogHeader, DialogShell, DialogShortcutContext, DialogStatus,
+    DialogStyle, DialogWindow, FooterResult, blocking_layer, register_modal_layer,
+    show_pointer_blocker,
 };
 pub use confirm_dialog::ConfirmDialog;
 pub use connection_dialog::ConnectionDialog;

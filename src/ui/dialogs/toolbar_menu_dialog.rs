@@ -148,6 +148,7 @@ impl ToolbarMenuDialog {
             ToolbarMenuWindowKind::Workspace => DialogWindow::workspace(
                 ctx,
                 title,
+                title,
                 &style,
                 window_profile.width,
                 window_profile.height,

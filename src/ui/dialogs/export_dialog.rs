@@ -348,104 +348,107 @@ impl ExportDialog {
         }
 
         let style = DialogStyle::MEDIUM;
-        DialogWindow::standard(ctx, "📤 导出数据", &style).show(ctx, |ui| {
-            ui.add_space(SPACING_SM);
-
-            DialogContent::toolbar(ui, |ui| {
-                Self::show_info_bar(ui, table_name, row_count, col_count, config);
+        DialogWindow::standard(ctx, "dialog.export", "📤 导出数据", &style).show_blocking(
+            ctx,
+            |ui| {
                 ui.add_space(SPACING_SM);
-                DialogContent::shortcut_hint(
-                    ui,
-                    &[
-                        (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
-                        (local_shortcut_text(LocalShortcut::Confirm).as_str(), "导出"),
-                        (
-                            local_shortcuts_text(&[
-                                LocalShortcut::ExportCyclePrev,
-                                LocalShortcut::ExportCycleNext,
-                            ])
-                            .as_str(),
-                            "切换格式",
-                        ),
-                    ],
-                );
-            });
 
-            DialogContent::section_with_description(
-                ui,
-                "导出格式",
-                "格式切换、快捷键提示和真实导出逻辑保持一致。",
-                |ui| Self::show_format_selector(ui, config),
-            );
-
-            ScrollArea::vertical()
-                .id_salt("export_main_scroll")
-                .max_height(DialogContent::adaptive_height(ui, 0.74, 220.0, 430.0))
-                .show(ui, |ui| {
-                    DialogContent::section_with_description(
+                DialogContent::toolbar(ui, |ui| {
+                    Self::show_info_bar(ui, table_name, row_count, col_count, config);
+                    ui.add_space(SPACING_SM);
+                    DialogContent::shortcut_hint(
                         ui,
-                        "导出范围",
-                        "控制起始行与数量，0 表示导出全部。",
-                        |ui| Self::show_row_range(ui, config, row_count),
+                        &[
+                            (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
+                            (local_shortcut_text(LocalShortcut::Confirm).as_str(), "导出"),
+                            (
+                                local_shortcuts_text(&[
+                                    LocalShortcut::ExportCyclePrev,
+                                    LocalShortcut::ExportCycleNext,
+                                ])
+                                .as_str(),
+                                "切换格式",
+                            ),
+                        ],
                     );
-
-                    if let Some(result) = data {
-                        let column_names: Vec<String> =
-                            result.columns.iter().map(|c| c.name.clone()).collect();
-                        DialogContent::section_with_description(
-                            ui,
-                            "列选择",
-                            "保留导航高亮，避免列很多时失去上下文。",
-                            |ui| Self::show_column_selector(ui, config, &column_names),
-                        );
-                    }
-
-                    DialogContent::section_with_description(
-                        ui,
-                        "格式选项",
-                        Self::format_options_description(config.format),
-                        |ui| Self::show_format_options(ui, config),
-                    );
-
-                    if let Some(result) = data {
-                        DialogContent::section_with_description(
-                            ui,
-                            "导出预览",
-                            "预览与实际导出共用核心渲染，不再出现样式和方言偏差。",
-                            |ui| Self::show_preview(ui, config, result, table_name, db_type),
-                        );
-                    }
                 });
 
-            if let Some(result) = status_message {
-                Self::show_status_message(ui, result);
-                ui.add_space(SPACING_SM);
-            }
+                DialogContent::section_with_description(
+                    ui,
+                    "导出格式",
+                    "格式切换、快捷键提示和真实导出逻辑保持一致。",
+                    |ui| Self::show_format_selector(ui, config),
+                );
 
-            if let Some(reason) = Self::disabled_reason(config, row_count) {
-                DialogContent::warning_text(ui, reason);
-                ui.add_space(SPACING_SM);
-            }
+                ScrollArea::vertical()
+                    .id_salt("export_main_scroll")
+                    .max_height(DialogContent::adaptive_height(ui, 0.74, 220.0, 430.0))
+                    .show(ui, |ui| {
+                        DialogContent::section_with_description(
+                            ui,
+                            "导出范围",
+                            "控制起始行与数量，0 表示导出全部。",
+                            |ui| Self::show_row_range(ui, config, row_count),
+                        );
 
-            let footer = DialogFooter::show(
-                ui,
-                &format!(
-                    "导出 {} [{}]",
-                    config.format.display_name(),
-                    local_shortcut_text(LocalShortcut::Confirm)
-                ),
-                &format!("取消 [{}]", local_shortcut_text(LocalShortcut::Dismiss)),
-                can_export,
-                &style,
-            );
+                        if let Some(result) = data {
+                            let column_names: Vec<String> =
+                                result.columns.iter().map(|c| c.name.clone()).collect();
+                            DialogContent::section_with_description(
+                                ui,
+                                "列选择",
+                                "保留导航高亮，避免列很多时失去上下文。",
+                                |ui| Self::show_column_selector(ui, config, &column_names),
+                            );
+                        }
 
-            if footer.confirmed {
-                *on_export = Some(config.clone());
-            }
-            if footer.cancelled {
-                *show = false;
-            }
-        });
+                        DialogContent::section_with_description(
+                            ui,
+                            "格式选项",
+                            Self::format_options_description(config.format),
+                            |ui| Self::show_format_options(ui, config),
+                        );
+
+                        if let Some(result) = data {
+                            DialogContent::section_with_description(
+                                ui,
+                                "导出预览",
+                                "预览与实际导出共用核心渲染，不再出现样式和方言偏差。",
+                                |ui| Self::show_preview(ui, config, result, table_name, db_type),
+                            );
+                        }
+                    });
+
+                if let Some(result) = status_message {
+                    Self::show_status_message(ui, result);
+                    ui.add_space(SPACING_SM);
+                }
+
+                if let Some(reason) = Self::disabled_reason(config, row_count) {
+                    DialogContent::warning_text(ui, reason);
+                    ui.add_space(SPACING_SM);
+                }
+
+                let footer = DialogFooter::show(
+                    ui,
+                    &format!(
+                        "导出 {} [{}]",
+                        config.format.display_name(),
+                        local_shortcut_text(LocalShortcut::Confirm)
+                    ),
+                    &format!("取消 [{}]", local_shortcut_text(LocalShortcut::Dismiss)),
+                    can_export,
+                    &style,
+                );
+
+                if footer.confirmed {
+                    *on_export = Some(config.clone());
+                }
+                if footer.cancelled {
+                    *show = false;
+                }
+            },
+        );
     }
 
     /// 信息栏（紧凑版）

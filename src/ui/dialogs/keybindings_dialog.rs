@@ -1830,12 +1830,13 @@ impl KeyBindingsDialog {
         let style = DialogStyle::WORKSPACE;
         DialogWindow::workspace(
             ctx,
+            "dialog.keybindings",
             "快捷键设置",
             &style,
             Self::WINDOW_WIDTH,
             Self::WINDOW_HEIGHT,
         )
-        .show(ctx, |ui| {
+        .show_blocking(ctx, |ui| {
             let layout = Self::picker_layout_profile(ui.available_width(), &snapshot);
             let header_layout = PickerDialogShell::header_blocks_layout(ui.available_width());
 

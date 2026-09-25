@@ -311,57 +311,60 @@ impl SchemaDiffDialog {
         }
 
         let style = DialogStyle::LARGE;
-        DialogWindow::resizable(ctx, "Schema 对比", &style).show(ctx, |ui| {
-            let Some(catalog) = catalog else {
-                render_unavailable(
-                    ui,
-                    "当前连接的 schema 目录尚未加载：请先在侧边栏选中该表以触发目录加载",
-                );
-                render_footer(ui);
-                return;
-            };
+        DialogWindow::resizable(ctx, "dialog.schema_diff", "Schema 对比", &style).show_blocking(
+            ctx,
+            |ui| {
+                let Some(catalog) = catalog else {
+                    render_unavailable(
+                        ui,
+                        "当前连接的 schema 目录尚未加载：请先在侧边栏选中该表以触发目录加载",
+                    );
+                    render_footer(ui);
+                    return;
+                };
 
-            ui.horizontal(|ui| {
-                table_picker(
-                    ui,
-                    "schema_diff_source_picker",
-                    "源表",
-                    catalog,
-                    &mut state.source_table,
-                );
-                table_picker(
-                    ui,
-                    "schema_diff_target_picker",
-                    "目标表",
-                    catalog,
-                    &mut state.target_table,
-                );
-            });
-            // 每帧按当前目录重算：目录可能被重新加载（重连、切换数据库、手动刷新），
-            // 缓存下来的差异会在那时过期；两张表的比较成本很小。
-            state.compare(catalog);
-
-            ui.separator();
-            ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    let Some(diff) = state.diff.as_ref() else {
-                        let message = state
-                            .error
-                            .clone()
-                            .unwrap_or_else(|| "选择源表与目标表后显示差异".to_string());
-                        ui.colored_label(GRAY, message);
-                        return;
-                    };
-                    if diff.is_empty() {
-                        ui.colored_label(SUCCESS, "两张表结构一致");
-                    }
-                    render_column_sections(ui, diff);
-                    render_key_sections(ui, diff);
-                    render_sql_preview(ui, diff, db_type);
+                ui.horizontal(|ui| {
+                    table_picker(
+                        ui,
+                        "schema_diff_source_picker",
+                        "源表",
+                        catalog,
+                        &mut state.source_table,
+                    );
+                    table_picker(
+                        ui,
+                        "schema_diff_target_picker",
+                        "目标表",
+                        catalog,
+                        &mut state.target_table,
+                    );
                 });
-            render_footer(ui);
-        });
+                // 每帧按当前目录重算：目录可能被重新加载（重连、切换数据库、手动刷新），
+                // 缓存下来的差异会在那时过期；两张表的比较成本很小。
+                state.compare(catalog);
+
+                ui.separator();
+                ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let Some(diff) = state.diff.as_ref() else {
+                            let message = state
+                                .error
+                                .clone()
+                                .unwrap_or_else(|| "选择源表与目标表后显示差异".to_string());
+                            ui.colored_label(GRAY, message);
+                            return;
+                        };
+                        if diff.is_empty() {
+                            ui.colored_label(SUCCESS, "两张表结构一致");
+                        }
+                        render_column_sections(ui, diff);
+                        render_key_sections(ui, diff);
+                        render_sql_preview(ui, diff, db_type);
+                    });
+                render_footer(ui);
+            },
+        );
     }
 }
 

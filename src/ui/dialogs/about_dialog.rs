@@ -38,44 +38,47 @@ impl AboutDialog {
 
         let close_shortcuts = Self::close_shortcuts();
         let style = DialogStyle::MEDIUM;
-        DialogWindow::standard(ctx, "关于 Gridix", &style).show(ctx, |ui| {
-            let body_text = theme_text(ui.visuals());
-            let muted_text = theme_muted_text(ui.visuals());
+        DialogWindow::standard(ctx, "dialog.about", "关于 Gridix", &style).show_blocking(
+            ctx,
+            |ui| {
+                let body_text = theme_text(ui.visuals());
+                let muted_text = theme_muted_text(ui.visuals());
 
-            ui.vertical_centered(|ui| {
-                Self::show_brand_hero(ui, body_text, muted_text);
-            });
-            ui.add_space(10.0);
-            ui.separator();
-            ui.add_space(12.0);
+                ui.vertical_centered(|ui| {
+                    Self::show_brand_hero(ui, body_text, muted_text);
+                });
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(12.0);
 
-            Self::show_manifesto_card(ui, body_text, muted_text);
-            ui.add_space(12.0);
-            Self::show_project_facts(ui, body_text, muted_text);
-            ui.add_space(10.0);
+                Self::show_manifesto_card(ui, body_text, muted_text);
+                ui.add_space(12.0);
+                Self::show_project_facts(ui, body_text, muted_text);
+                ui.add_space(10.0);
 
-            ui.vertical_centered(|ui| {
-                ui.label(
-                    RichText::new(ABOUT_COMMUNITY_HINT)
-                        .small()
-                        .color(muted_text),
+                ui.vertical_centered(|ui| {
+                    ui.label(
+                        RichText::new(ABOUT_COMMUNITY_HINT)
+                            .small()
+                            .color(muted_text),
+                    );
+                });
+                ui.add_space(8.0);
+
+                DialogContent::shortcut_hint(
+                    ui,
+                    &[(local_shortcuts_text(&close_shortcuts).as_str(), "关闭")],
                 );
-            });
-            ui.add_space(8.0);
 
-            DialogContent::shortcut_hint(
-                ui,
-                &[(local_shortcuts_text(&close_shortcuts).as_str(), "关闭")],
-            );
-
-            if DialogFooter::show_close_only(
-                ui,
-                &format!("关闭 [{}]", local_shortcuts_text(&close_shortcuts)),
-                &style,
-            ) {
-                *show = false;
-            }
-        });
+                if DialogFooter::show_close_only(
+                    ui,
+                    &format!("关闭 [{}]", local_shortcuts_text(&close_shortcuts)),
+                    &style,
+                ) {
+                    *show = false;
+                }
+            },
+        );
     }
 
     fn close_shortcuts() -> [LocalShortcut; 2] {

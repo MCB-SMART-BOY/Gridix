@@ -154,6 +154,7 @@ impl ToolbarThemeDialog {
         DialogWindow::fixed_style(
             ctx,
             dialog_title,
+            dialog_title,
             &style,
             TOOLBAR_THEME_WIDTH,
             TOOLBAR_THEME_HEIGHT,

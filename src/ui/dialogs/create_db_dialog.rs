@@ -286,75 +286,78 @@ impl CreateDbDialog {
             }
             DatabaseType::MySQL | DatabaseType::PostgreSQL => !state.db_name.trim().is_empty(),
         };
-        DialogWindow::resizable(ctx, title, &style).show(ctx, |ui| {
-            FormDialogShell::show(
-                ui,
-                "create_db_form_shell",
-                |ui| {
-                    DialogContent::shortcut_hint(
-                        ui,
-                        &[
-                            (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
-                            (local_shortcut_text(LocalShortcut::Confirm).as_str(), "创建"),
-                        ],
-                    );
-                },
-                |ui, _body_ctx| {
-                    Self::show_responsive_text_row(
-                        ui,
-                        "数据库名",
-                        &mut state.db_name,
-                        "输入数据库名称",
-                        220.0,
-                    );
-
-                    match state.db_type {
-                        DatabaseType::MySQL => {
-                            Self::show_mysql_options(ui, state);
-                        }
-                        DatabaseType::PostgreSQL => {
-                            Self::show_postgres_options(ui, state);
-                        }
-                        DatabaseType::SQLite => {
-                            Self::show_sqlite_options(ui, state);
-                        }
-                    }
-
-                    if !matches!(state.db_type, DatabaseType::SQLite) {
-                        DialogContent::section_with_description(
+        DialogWindow::resizable(ctx, "dialog.create_database", title, &style).show_blocking(
+            ctx,
+            |ui| {
+                FormDialogShell::show(
+                    ui,
+                    "create_db_form_shell",
+                    |ui| {
+                        DialogContent::shortcut_hint(
                             ui,
-                            "预览 SQL",
-                            "根据当前数据库名称与方言选项实时生成创建语句。",
-                            |ui| {
-                                let sql = state.generate_sql().unwrap_or_default();
-                                DialogContent::code_block_with_id(
-                                    ui,
-                                    "create_db_preview",
-                                    &sql,
-                                    140.0,
-                                );
-                            },
+                            &[
+                                (local_shortcut_text(LocalShortcut::Dismiss).as_str(), "关闭"),
+                                (local_shortcut_text(LocalShortcut::Confirm).as_str(), "创建"),
+                            ],
                         );
-                    }
+                    },
+                    |ui, _body_ctx| {
+                        Self::show_responsive_text_row(
+                            ui,
+                            "数据库名",
+                            &mut state.db_name,
+                            "输入数据库名称",
+                            220.0,
+                        );
 
-                    if let Some(err) = &state.error {
-                        DialogContent::error_text(ui, err);
-                        ui.add_space(8.0);
-                    }
-                },
-                |ui| {
-                    let footer = DialogFooter::show(
-                        ui,
-                        &format!("创建 [{}]", local_shortcut_text(LocalShortcut::Confirm)),
-                        &format!("取消 [{}]", local_shortcut_text(LocalShortcut::Dismiss)),
-                        can_attempt_create,
-                        &style,
-                    );
-                    footer_confirmed = footer.confirmed;
-                    footer_cancelled = footer.cancelled;
-                },
-            );
-        });
+                        match state.db_type {
+                            DatabaseType::MySQL => {
+                                Self::show_mysql_options(ui, state);
+                            }
+                            DatabaseType::PostgreSQL => {
+                                Self::show_postgres_options(ui, state);
+                            }
+                            DatabaseType::SQLite => {
+                                Self::show_sqlite_options(ui, state);
+                            }
+                        }
+
+                        if !matches!(state.db_type, DatabaseType::SQLite) {
+                            DialogContent::section_with_description(
+                                ui,
+                                "预览 SQL",
+                                "根据当前数据库名称与方言选项实时生成创建语句。",
+                                |ui| {
+                                    let sql = state.generate_sql().unwrap_or_default();
+                                    DialogContent::code_block_with_id(
+                                        ui,
+                                        "create_db_preview",
+                                        &sql,
+                                        140.0,
+                                    );
+                                },
+                            );
+                        }
+
+                        if let Some(err) = &state.error {
+                            DialogContent::error_text(ui, err);
+                            ui.add_space(8.0);
+                        }
+                    },
+                    |ui| {
+                        let footer = DialogFooter::show(
+                            ui,
+                            &format!("创建 [{}]", local_shortcut_text(LocalShortcut::Confirm)),
+                            &format!("取消 [{}]", local_shortcut_text(LocalShortcut::Dismiss)),
+                            can_attempt_create,
+                            &style,
+                        );
+                        footer_confirmed = footer.confirmed;
+                        footer_cancelled = footer.cancelled;
+                    },
+                );
+            },
+        );
 
         if footer_confirmed && let Ok(request) = Self::try_create(state) {
             result = CreateDbDialogResult::Create(request);

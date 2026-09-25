@@ -1047,60 +1047,71 @@ impl DialogWindow {
         ui.set_max_width(max_width);
     }
 
-    /// 创建标准对话框窗口
+    /// 创建标准对话框窗口。
+    ///
+    /// `id` 是跨帧稳定的窗口身份；标题可以变化，窗口 id 不变。
     pub fn standard<'a>(
         ctx: &egui::Context,
+        id: impl Hash,
         title: &'a str,
         style: &DialogStyle,
-    ) -> egui::Window<'a> {
+    ) -> DialogShell<'a> {
         let content_rect = Self::viewport_rect(ctx);
         let (min_width, default_width, max_width) = style.responsive_widths(ctx);
         let (_, _, max_height) = style.responsive_heights(ctx);
 
-        egui::Window::new(title)
-            .collapsible(false)
-            .resizable(false)
-            .default_width(default_width)
-            .min_width(min_width)
-            .max_width(max_width)
-            .max_height(max_height)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .constrain_to(content_rect)
-            .frame(Self::frame(ctx, style))
+        DialogShell::new(
+            id,
+            egui::Window::new(title)
+                .collapsible(false)
+                .resizable(false)
+                .default_width(default_width)
+                .min_width(min_width)
+                .max_width(max_width)
+                .max_height(max_height)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .constrain_to(content_rect)
+                .frame(Self::frame(ctx, style)),
+        )
     }
 
-    /// 创建可调整大小的对话框窗口
+    /// 创建可调整大小的对话框窗口。
     pub fn resizable<'a>(
         ctx: &egui::Context,
+        id: impl Hash,
         title: &'a str,
         style: &DialogStyle,
-    ) -> egui::Window<'a> {
+    ) -> DialogShell<'a> {
         let content_rect = Self::viewport_rect(ctx);
         let (min_width, default_width, max_width) = style.responsive_widths(ctx);
         let (min_height, default_height, max_height) = style.responsive_heights(ctx);
 
-        egui::Window::new(title)
-            .collapsible(false)
-            .resizable(true)
-            .default_width(default_width)
-            .default_height(default_height)
-            .min_width(min_width)
-            .min_height(min_height)
-            .max_width(max_width)
-            .max_height(max_height)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .constrain_to(content_rect)
-            .frame(Self::frame(ctx, style))
+        DialogShell::new(
+            id,
+            egui::Window::new(title)
+                .collapsible(false)
+                .resizable(true)
+                .default_width(default_width)
+                .default_height(default_height)
+                .min_width(min_width)
+                .min_height(min_height)
+                .max_width(max_width)
+                .max_height(max_height)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .constrain_to(content_rect)
+                .frame(Self::frame(ctx, style)),
+        )
     }
 
     /// 创建可拖拽、可调整大小的工作台型对话框窗口。
     pub fn workspace<'a>(
         ctx: &egui::Context,
+        id: impl Hash,
         title: &'a str,
         style: &DialogStyle,
         default_width: f32,
         default_height: f32,
-    ) -> egui::Window<'a> {
+    ) -> DialogShell<'a> {
         let content_rect = Self::viewport_rect(ctx);
         let (min_width, _, max_width) = style.responsive_widths(ctx);
         let (min_height, _, max_height) = style.responsive_heights(ctx);
@@ -1110,67 +1121,191 @@ impl DialogWindow {
         );
         let default_pos = content_rect.center() - default_size * 0.5;
 
-        egui::Window::new(title)
-            .collapsible(false)
-            .resizable(true)
-            .default_pos(default_pos)
-            .default_size(default_size)
-            .min_width(min_width)
-            .min_height(min_height)
-            .max_width(max_width)
-            .max_height(max_height)
-            .hscroll(false)
-            .constrain_to(content_rect)
-            .frame(Self::frame(ctx, style))
+        DialogShell::new(
+            id,
+            egui::Window::new(title)
+                .collapsible(false)
+                .resizable(true)
+                .default_pos(default_pos)
+                .default_size(default_size)
+                .min_width(min_width)
+                .min_height(min_height)
+                .max_width(max_width)
+                .max_height(max_height)
+                .hscroll(false)
+                .constrain_to(content_rect)
+                .frame(Self::frame(ctx, style)),
+        )
     }
 
     /// 创建固定大小的对话框窗口
     pub fn fixed<'a>(
         ctx: &egui::Context,
+        id: impl Hash,
         title: &'a str,
         width: f32,
         height: f32,
-    ) -> egui::Window<'a> {
+    ) -> DialogShell<'a> {
         let content_rect = Self::viewport_rect(ctx);
         let style = DialogStyle::MEDIUM;
         let (min_width, _, max_width) = style.responsive_widths(ctx);
         let (_, _, max_height) = style.responsive_heights(ctx);
 
-        egui::Window::new(title)
-            .collapsible(false)
-            .resizable(false)
-            .fixed_size(Vec2::new(
-                width.clamp(min_width, max_width),
-                height.min(max_height),
-            ))
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .constrain_to(content_rect)
-            .frame(Self::frame(ctx, &style))
+        DialogShell::new(
+            id,
+            egui::Window::new(title)
+                .collapsible(false)
+                .resizable(false)
+                .fixed_size(Vec2::new(
+                    width.clamp(min_width, max_width),
+                    height.min(max_height),
+                ))
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .constrain_to(content_rect)
+                .frame(Self::frame(ctx, &style)),
+        )
     }
 
     /// 创建固定尺寸且沿用指定样式范围的对话框窗口。
     pub fn fixed_style<'a>(
         ctx: &egui::Context,
+        id: impl Hash,
         title: &'a str,
         style: &DialogStyle,
         width: f32,
         height: f32,
-    ) -> egui::Window<'a> {
+    ) -> DialogShell<'a> {
         let content_rect = Self::viewport_rect(ctx);
         let (min_width, _, max_width) = style.responsive_widths(ctx);
         let (min_height, _, max_height) = style.responsive_heights(ctx);
 
-        egui::Window::new(title)
-            .collapsible(false)
-            .resizable(false)
-            .fixed_size(Vec2::new(
-                width.clamp(min_width, max_width),
-                height.clamp(min_height, max_height),
-            ))
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .constrain_to(content_rect)
-            .frame(Self::frame(ctx, style))
+        DialogShell::new(
+            id,
+            egui::Window::new(title)
+                .collapsible(false)
+                .resizable(false)
+                .fixed_size(Vec2::new(
+                    width.clamp(min_width, max_width),
+                    height.clamp(min_height, max_height),
+                ))
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .constrain_to(content_rect)
+                .frame(Self::frame(ctx, style)),
+        )
     }
+}
+
+/// 对话框窗口句柄。
+///
+/// 持有窗口及其稳定 id，并在渲染时决定是否阻断下层交互：
+/// [`Self::show_blocking`] 会铺一层全屏指针阻断层并登记 modal layer，
+/// 该图层之下的一切（侧边栏、工具栏、工作台、dock 面板）因此不再响应指针与键盘；
+/// 窗口本身与更上层弹窗（下拉、tooltip）不受影响。
+/// 外观不变：不绘制任何遮罩，标题栏、拖拽、缩放与锚点都与 [`DialogWindow::blocking`]
+/// 的半透明 backdrop 不同。
+pub struct DialogShell<'a> {
+    window: egui::Window<'a>,
+    id: egui::Id,
+}
+
+impl<'a> DialogShell<'a> {
+    fn new(id: impl Hash, window: egui::Window<'a>) -> Self {
+        let id = egui::Id::new(id);
+        Self {
+            window: window.id(id),
+            id,
+        }
+    }
+
+    /// 渲染窗口，不阻断下层交互（工具栏菜单等弹窗家族使用）。
+    pub fn show<R>(
+        self,
+        ctx: &egui::Context,
+        add_contents: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> Option<egui::InnerResponse<Option<R>>> {
+        self.window.show(ctx, add_contents)
+    }
+
+    /// 渲染窗口，并把本图层登记为当前帧的 modal layer。
+    ///
+    /// 用于持有输入的主对话框：其下所有图层不再接收指针与键盘交互。
+    pub fn show_blocking<R>(
+        self,
+        ctx: &egui::Context,
+        add_contents: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> Option<egui::InnerResponse<Option<R>>> {
+        register_modal_layer(ctx, egui::LayerId::new(egui::Order::Foreground, self.id));
+        show_pointer_blocker(ctx, self.id);
+        self.window
+            .order(egui::Order::Foreground)
+            .show(ctx, add_contents)
+    }
+
+    /// 窗口标题栏关闭按钮：点击时把 `open` 写为 `false`。
+    pub fn open(mut self, open: &'a mut bool) -> Self {
+        self.window = self.window.open(open);
+        self
+    }
+
+    /// 默认宽度（部分对话框在调用点覆盖）。
+    pub fn default_width(mut self, width: f32) -> Self {
+        self.window = self.window.default_width(width);
+        self
+    }
+
+    /// 默认高度（部分对话框在调用点覆盖）。
+    pub fn default_height(mut self, height: f32) -> Self {
+        self.window = self.window.default_height(height);
+        self
+    }
+
+    /// 最小宽度（部分对话框在调用点覆盖）。
+    pub fn min_width(mut self, width: f32) -> Self {
+        self.window = self.window.min_width(width);
+        self
+    }
+
+    /// 最小高度（部分对话框在调用点覆盖）。
+    pub fn min_height(mut self, height: f32) -> Self {
+        self.window = self.window.min_height(height);
+        self
+    }
+}
+
+/// 全屏指针阻断层。
+///
+/// 在对话框窗口之下、工作区之上铺一层可交互区域，吞掉落在它上面的点击与拖拽，
+/// 因此侧边栏、工具栏、工作台不会再响应指针；对话框自身在更上层，保持可交互。
+///
+/// 阻断层与对话框窗口同在 [`egui::Order::Foreground`]：对话框窗口在本函数之后创建，
+/// 同序内更晚创建者在上，所以窗口仍可交互，而所有 `Background`/`Middle` 图层
+/// （侧边栏、工具栏、工作台、dock 面板）都被阻断。
+/// egui 的 widget 命中测试不读 modal layer（`hit_test` 只按 order 过滤），
+/// 所以阻断必须由这一层承担，[`register_modal_layer`] 只负责焦点范围。
+pub fn show_pointer_blocker(ctx: &egui::Context, id: impl Hash) {
+    let rect = ctx.content_rect();
+    egui::Area::new(egui::Id::new(("dialog_pointer_blocker", egui::Id::new(id))))
+        .order(egui::Order::Foreground)
+        .fixed_pos(rect.min)
+        .show(ctx, |ui| {
+            ui.allocate_response(rect.size(), egui::Sense::click_and_drag());
+        });
+}
+
+/// 把 `layer` 登记为当前帧的 modal layer。
+///
+/// `egui` 会把该图层之下的一切交互归属到这一层，从而阻断下层控件的指针与键盘输入；
+/// 登记只在当前帧有效，对话框关闭后不会残留。
+pub fn register_modal_layer(ctx: &egui::Context, layer: egui::LayerId) {
+    ctx.memory_mut(|memory| memory.set_modal_layer(layer));
+}
+
+/// 由稳定 id 派生主对话框的窗口图层。
+///
+/// 直接构造窗口（不经 [`DialogShell`]）的对话框用它与 [`register_modal_layer`] 配对，
+/// 保证窗口所在图层与登记图层一致。
+pub fn blocking_layer(id: impl Hash) -> egui::LayerId {
+    egui::LayerId::new(egui::Order::Foreground, egui::Id::new(id))
 }
 
 /// 工作台型对话框布局壳层。
@@ -1313,7 +1448,10 @@ impl FormDialogShell {
 
 #[cfg(test)]
 mod tests {
-    use super::{DialogContent, DialogShortcutContext, FormDialogBodyContext, SPACING_LG};
+    use super::{
+        DialogContent, DialogShortcutContext, DialogStyle, DialogWindow, FormDialogBodyContext,
+        SPACING_LG,
+    };
     use crate::ui::{LocalShortcut, text_entry_has_priority};
     use egui::{Event, Key, Modifiers, RawInput};
 
@@ -1466,5 +1604,142 @@ mod tests {
         ctx.request_first_error("field.second");
 
         assert_eq!(ctx.requested_error_rect(), Some(first_rect));
+    }
+
+    /// 一个指针动作；每帧只注入一次点击（egui 每帧按最终指针位置做一次命中测试）。
+    #[derive(Clone, Copy)]
+    enum PointerAction {
+        None,
+        ClickBackground,
+        ClickDialog,
+    }
+
+    /// 预热帧：egui 在首帧不发布控件命中矩形，点击必须先渲染至少一帧。
+    const WARMUP_FRAMES: usize = 1;
+
+    /// headless 场景：Background 图层放一个可点击控件模拟侧边栏，
+    /// 再用 [`DialogWindow`] 渲染一个带按钮的对话框。
+    #[derive(Default)]
+    struct PointerScenario {
+        background_clicks: usize,
+        dialog_clicks: usize,
+        background_center: Option<egui::Pos2>,
+        dialog_button_center: Option<egui::Pos2>,
+    }
+
+    impl PointerScenario {
+        fn run(&mut self, ctx: &egui::Context, blocking: bool, action: PointerAction) {
+            let target = match action {
+                PointerAction::None => None,
+                PointerAction::ClickBackground => self.background_center,
+                PointerAction::ClickDialog => self.dialog_button_center,
+            };
+
+            ctx.begin_pass(RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(800.0, 600.0),
+                )),
+                events: target.map(click_events).unwrap_or_default(),
+                ..Default::default()
+            });
+
+            let background = egui::Area::new(egui::Id::new("dialog_shell_test_background"))
+                .order(egui::Order::Background)
+                .fixed_pos(egui::pos2(20.0, 20.0))
+                .show(ctx, |ui| {
+                    ui.set_min_size(egui::vec2(160.0, 80.0));
+                    ui.button("背景按钮")
+                });
+            self.background_center = Some(background.inner.rect.center());
+            if background.inner.clicked() {
+                self.background_clicks += 1;
+            }
+
+            let shell =
+                DialogWindow::standard(ctx, "dialog.shell_test", "测试对话框", &DialogStyle::SMALL);
+            let dialog = if blocking {
+                shell.show_blocking(ctx, |ui| ui.button("对话框按钮"))
+            } else {
+                shell.show(ctx, |ui| ui.button("对话框按钮"))
+            };
+            if let Some(button) = dialog.and_then(|inner| inner.inner) {
+                self.dialog_button_center = Some(button.rect.center());
+                if button.clicked() {
+                    self.dialog_clicks += 1;
+                }
+            }
+
+            let _ = ctx.end_pass();
+        }
+
+        /// 渲染预热帧：首帧发布控件，之后才可能命中；注入点击前必须先调用。
+        fn prime(&mut self, ctx: &egui::Context, blocking: bool) {
+            for _ in 0..=WARMUP_FRAMES {
+                self.run(ctx, blocking, PointerAction::None);
+            }
+        }
+    }
+
+    fn click_events(pos: egui::Pos2) -> Vec<Event> {
+        vec![
+            Event::PointerMoved(pos),
+            Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Modifiers::NONE,
+            },
+            Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::NONE,
+            },
+        ]
+    }
+
+    #[test]
+    fn dialog_shell_registers_its_window_layer_as_modal_layer() {
+        let ctx = egui::Context::default();
+        let mut scenario = PointerScenario::default();
+        scenario.run(&ctx, true, PointerAction::None);
+
+        // modal layer 在下一帧生效（egui 用上一帧的登记值做命中测试）。
+        ctx.begin_pass(RawInput::default());
+        assert_eq!(
+            ctx.memory(|memory| memory.top_modal_layer()),
+            Some(super::blocking_layer("dialog.shell_test"))
+        );
+        let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn dialog_shell_blocking_swallows_clicks_on_lower_layers() {
+        let ctx = egui::Context::default();
+        let mut scenario = PointerScenario::default();
+        scenario.prime(&ctx, true);
+        scenario.run(&ctx, true, PointerAction::ClickBackground);
+
+        assert_eq!(
+            scenario.background_clicks, 0,
+            "对话框打开时下层控件不应收到点击"
+        );
+
+        scenario.run(&ctx, true, PointerAction::ClickDialog);
+        assert_eq!(scenario.dialog_clicks, 1, "对话框自身仍可交互");
+    }
+
+    #[test]
+    fn dialog_shell_without_blocking_lets_lower_layers_receive_clicks() {
+        let ctx = egui::Context::default();
+        let mut scenario = PointerScenario::default();
+        scenario.prime(&ctx, false);
+        scenario.run(&ctx, false, PointerAction::ClickBackground);
+
+        assert_eq!(scenario.background_clicks, 1, "非阻断外壳不应吞掉下层点击");
+
+        scenario.run(&ctx, false, PointerAction::ClickDialog);
+        assert_eq!(scenario.dialog_clicks, 1);
     }
 }

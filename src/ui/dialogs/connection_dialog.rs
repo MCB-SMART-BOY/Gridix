@@ -289,9 +289,9 @@ impl ConnectionDialog {
         let style = DialogStyle::LARGE;
         let footer_validation = validate_config(config);
         let mut click_action = None;
-        DialogWindow::standard(ctx, dialog_title, &style)
+        DialogWindow::standard(ctx, "dialog.connection", dialog_title, &style)
             .open(&mut is_open)
-            .show(ctx, |ui| {
+            .show_blocking(ctx, |ui| {
                 FormDialogShell::show(
                     ui,
                     "connection_dialog_form_shell",

@@ -601,12 +601,13 @@ impl DdlDialog {
                 .any(|column| !column.name.trim().is_empty());
         DialogWindow::workspace(
             ctx,
+            "dialog.ddl",
             "创建表",
             &style,
             Self::WINDOW_WIDTH,
             Self::WINDOW_HEIGHT,
         )
-        .show(ctx, |ui| {
+        .show_blocking(ctx, |ui| {
             FormDialogShell::show(
                 ui,
                 "ddl_form_shell",

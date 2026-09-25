@@ -400,7 +400,6 @@ impl DbManagerApp {
         let status = self.state.welcome_status.state_for(db_type);
         let mut keep_open = self.state.show_welcome_setup_dialog;
         let mut close_now = false;
-        let content_rect = ctx.input(|input| input.content_rect());
         let style = DialogStyle::LARGE;
         let actions = Self::welcome_setup_actions(db_type);
         if !actions.is_empty() {
@@ -446,6 +445,7 @@ impl DbManagerApp {
 
         DialogWindow::resizable(
             ctx,
+            "dialog.welcome_setup",
             &format!("{} 安装与初始化引导", db_type.display_name()),
             &style,
         )
@@ -454,8 +454,7 @@ impl DbManagerApp {
         .default_height(500.0)
         .min_width(560.0)
         .min_height(420.0)
-        .constrain_to(content_rect)
-        .show(ctx, |ui| {
+        .show_blocking(ctx, |ui| {
             let onboarding = self.welcome_onboarding_status();
             ui.label(
                 egui::RichText::new(Self::status_summary_text(status))

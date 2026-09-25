@@ -707,6 +707,7 @@ impl DataGrid {
 
         DialogWindow::fixed_style(
             ctx,
+            "grid_goto_dialog",
             "跳转到行",
             &DialogStyle::SMALL,
             GOTO_DIALOG_WIDTH,
