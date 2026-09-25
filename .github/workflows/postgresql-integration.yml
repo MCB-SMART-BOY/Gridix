@@ -35,11 +35,9 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=12
-
+    env:
       GRIDIX_TEST_PG_URL: postgres://gridix:gridix@127.0.0.1:5432/gridix_test
-      GRIDIX_TEST_PG_SSL_MODE: disable
-      GRIDIX_TEST_PG_CA_CERT: ""
-      GRIDIX_TEST_PG_TLS_SERVER_NAME: ""
+      GRIDIX_ACCEPTANCE: "1"
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -67,6 +65,10 @@ jobs:
       - name: Run PostgreSQL typed integration tests
         run: |
           : "${GRIDIX_TEST_PG_URL:?GRIDIX_TEST_PG_URL must be set for release acceptance}"
-          : "${GRIDIX_TEST_PG_SSL_MODE:?GRIDIX_TEST_PG_SSL_MODE must be set for release acceptance}"
+          test "${GRIDIX_ACCEPTANCE}" = "1" || {
+            echo "GRIDIX_ACCEPTANCE must be 1, otherwise the acceptance suites skip and prove nothing"
+            exit 1
+          }
           cargo test --test postgres_typed_e2e -- --nocapture --test-threads=1
           cargo test --test postgres_cancel_integration -- --nocapture --test-threads=1
+          cargo test --test postgres_pool_acceptance -- --nocapture --test-threads=1

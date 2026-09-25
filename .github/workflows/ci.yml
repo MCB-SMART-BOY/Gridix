@@ -175,6 +175,16 @@ jobs:
           : "${GRIDIX_TEST_PG_URL:?GRIDIX_TEST_PG_URL must be set for release acceptance}"
           cargo test --test postgres_typed_e2e -- --nocapture --test-threads=1
           cargo test --test postgres_cancel_integration -- --nocapture --test-threads=1
+      - name: Run PostgreSQL pool acceptance tests
+        env:
+          GRIDIX_ACCEPTANCE: "1"
+        run: |
+          : "${GRIDIX_TEST_PG_URL:?GRIDIX_TEST_PG_URL must be set for release acceptance}"
+          test "${GRIDIX_ACCEPTANCE}" = "1" || {
+            echo "GRIDIX_ACCEPTANCE must be 1, otherwise the acceptance suite skips and proves nothing"
+            exit 1
+          }
+          cargo test --test postgres_pool_acceptance -- --nocapture --test-threads=1
 
   mysql-acceptance:
     name: MySQL Release Acceptance
@@ -218,6 +228,16 @@ jobs:
           : "${GRIDIX_TEST_MYSQL_URL:?GRIDIX_TEST_MYSQL_URL must be set for release acceptance}"
           cargo test --test mysql_typed_e2e -- --nocapture --test-threads=1
           cargo test --test mysql_cancel_integration -- --nocapture --test-threads=1
+      - name: Run MySQL pool acceptance tests
+        env:
+          GRIDIX_ACCEPTANCE: "1"
+        run: |
+          : "${GRIDIX_TEST_MYSQL_URL:?GRIDIX_TEST_MYSQL_URL must be set for release acceptance}"
+          test "${GRIDIX_ACCEPTANCE}" = "1" || {
+            echo "GRIDIX_ACCEPTANCE must be 1, otherwise the acceptance suite skips and proves nothing"
+            exit 1
+          }
+          cargo test --test mysql_pool_acceptance -- --nocapture --test-threads=1
 
   # ── Stage 2: Build ─────────────────────────────────────────────────
   # 仅 push main 或 push tag 时执行（跳过 PR）

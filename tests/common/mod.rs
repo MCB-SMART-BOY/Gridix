@@ -9,7 +9,11 @@
 // 每个测试二进制只使用本模块的一个子集,未使用的辅助函数不应产生警告。
 #![allow(dead_code)]
 
-use gridix::data::{ConnectionConfig, DatabaseType, MySqlSslMode, PostgresSslMode};
+use std::time::Duration;
+
+use gridix::data::{ConnectionConfig, DatabaseType, MySqlSslMode, PostgresSslMode, execute_typed};
+use gridix::domain::execution::StatementOutcome;
+use gridix::domain::value::DbValue;
 
 /// Read an optional PostgreSQL integration URL and apply TLS overrides.
 pub fn pg_config_from_env() -> Option<ConnectionConfig> {
@@ -188,4 +192,85 @@ pub fn focus_text_input(ctx: &egui::Context) {
         response.request_focus();
     });
     let _ = ctx.end_pass();
+}
+
+// ===== 连接池验收辅助（需要真实服务端；见 tests/mysql_pool_acceptance.rs）=====
+
+/// 单次验收任务的硬超时，避免缺陷以挂起形式出现而不是断言失败。
+pub const ACCEPTANCE_TASK_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// MySQL 验收配置：`GRIDIX_ACCEPTANCE` 已设置却缺少 URL 时硬失败，否则跳过。
+pub fn mysql_acceptance_config_or_skip() -> Option<ConnectionConfig> {
+    if !acceptance_requested() {
+        eprintln!("SKIP: GRIDIX_ACCEPTANCE=1 not set");
+        return None;
+    }
+    Some(mysql_config_from_url(&required_env(
+        "GRIDIX_TEST_MYSQL_URL",
+    )))
+}
+
+/// PostgreSQL 验收配置，语义同 [`mysql_acceptance_config_or_skip`]。
+pub fn pg_acceptance_config_or_skip() -> Option<ConnectionConfig> {
+    if !acceptance_requested() {
+        eprintln!("SKIP: GRIDIX_ACCEPTANCE=1 not set");
+        return None;
+    }
+    Some(pg_config_from_url(&required_env("GRIDIX_TEST_PG_URL")))
+}
+
+/// 进程级串行守卫。
+///
+/// 同一测试二进制内的验收用例共享全局 `POOL_MANAGER`，而 `clear_all` 会拆除兄弟
+/// 用例正在使用的连接；不依赖 `--test-threads=1` 也必须串行。
+pub async fn acceptance_serial_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    SERIAL.lock().await
+}
+
+/// 断言一次 `SELECT <marker> AS marker` 返回单行单列，且值为本次调用的 marker。
+///
+/// 值断言用于发现并发下结果串线：每个调用者都必须拿到自己的结果。
+pub async fn assert_select_round_trip(config: &ConnectionConfig, marker: usize) {
+    let sql = format!("SELECT {marker} AS marker");
+    let outcome = tokio::time::timeout(ACCEPTANCE_TASK_TIMEOUT, execute_typed(config, &sql))
+        .await
+        .unwrap_or_else(|_| panic!("pool query {marker} must finish before deadline"))
+        .unwrap_or_else(|error| panic!("pool query {marker} must succeed: {error}"));
+
+    assert_eq!(
+        outcome.statements.len(),
+        1,
+        "query {marker} must return one statement"
+    );
+    let StatementOutcome::ResultSet(result_set) = &outcome.statements[0] else {
+        panic!("query {marker} must return a result set");
+    };
+    assert_eq!(
+        result_set.row_count, 1,
+        "query {marker} must return one row"
+    );
+    assert_eq!(
+        result_set.cell(0, 0),
+        &DbValue::Int(marker as i64),
+        "query {marker} must return its own value, not another caller's"
+    );
+}
+
+/// 并发发出 `concurrency` 个查询；每个都必须在超时内完成并返回自己的 marker。
+pub async fn assert_concurrent_queries_served(config: ConnectionConfig, concurrency: usize) {
+    let mut tasks = Vec::with_capacity(concurrency);
+    for marker in 0..concurrency {
+        let config = config.clone();
+        tasks.push(tokio::spawn(async move {
+            assert_select_round_trip(&config, marker).await;
+        }));
+    }
+
+    for (index, task) in tasks.into_iter().enumerate() {
+        tokio::time::timeout(ACCEPTANCE_TASK_TIMEOUT, task)
+            .await
+            .unwrap_or_else(|_| panic!("concurrent task {index} must finish before deadline"))
+            .unwrap_or_else(|error| panic!("concurrent task {index} must not panic: {error}"));
+    }
 }
