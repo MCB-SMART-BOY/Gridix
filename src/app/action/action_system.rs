@@ -45,6 +45,7 @@ pub(in crate::app) enum AppAction {
     RefreshActiveConnection,
     RefreshSelectedTable,
     NewTable,
+    CompareSchema,
     NewDatabase,
     NewUser,
     NewQueryTab,
@@ -856,6 +857,16 @@ const COMMANDS: &[CommandDescriptor] = &[
         &["new table", "create table", "ddl"],
     ),
     CommandDescriptor::new(
+        "compare_schema",
+        "对比表结构",
+        "比较当前连接内两张表的 schema 差异，并预览迁移 SQL。",
+        "工具",
+        CommandScope::Connection,
+        AppAction::CompareSchema,
+        None,
+        &["schema diff", "compare schema", "结构对比", "迁移"],
+    ),
+    CommandDescriptor::new(
         "new_database",
         "新建数据库",
         "打开创建数据库工作流。",
@@ -1083,6 +1094,7 @@ fn availability_for_action(context: &ActionContext, action: AppAction) -> Action
         | AppAction::ToggleErDiagram
         | AppAction::ToggleDarkMode
         | AppAction::NewTable
+        | AppAction::CompareSchema
         | AppAction::NewDatabase
         | AppAction::NewQueryTab
         | AppAction::AddFilter
@@ -1388,6 +1400,10 @@ impl DbManagerApp {
             AppAction::RefreshSelectedTable => self.selected_table_query_effects(false),
             AppAction::NewTable => {
                 self.open_create_table_dialog();
+                Vec::new()
+            }
+            AppAction::CompareSchema => {
+                self.open_schema_diff_dialog();
                 Vec::new()
             }
             AppAction::NewDatabase => {

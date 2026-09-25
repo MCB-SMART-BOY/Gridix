@@ -8,6 +8,7 @@ use super::DbManagerApp;
 use super::action_system::AppAction;
 use crate::app::dialogs::host::DialogId;
 use crate::core::{KeyBindings, ThemePreset};
+use crate::types::DatabaseType;
 use crate::ui::{
     self, ExportConfig, KeyBindingsDialog, LocalShortcut, ToolbarMenuDialogEntry,
     ToolbarMenuItemId, local_shortcut_text,
@@ -196,6 +197,27 @@ impl DbManagerApp {
         if active_dialog == Some(DialogId::Ddl) {
             results.ddl_sql =
                 ui::DdlDialog::show_create_table(ctx, &mut self.state.ddl_dialog_state);
+        }
+
+        // Schema 对比对话框（只读；使用已加载的 schema 目录）
+        if active_dialog == Some(DialogId::SchemaDiff) {
+            let active = self.session.manager.get_active();
+            let catalog_key = active.and_then(|connection| {
+                let database = connection.selected_database.clone().or_else(|| {
+                    (!connection.config.database.is_empty())
+                        .then(|| connection.config.database.clone())
+                });
+                database.map(|database| (connection.id, database))
+            });
+            let db_type =
+                active.map_or(DatabaseType::SQLite, |connection| connection.config.db_type);
+            let catalog = catalog_key.and_then(|key| self.session.schema_catalogs.get(&key));
+            ui::SchemaDiffDialog::show(
+                ctx,
+                &mut self.state.schema_diff_dialog_state,
+                catalog,
+                db_type,
+            );
         }
 
         // 新建数据库对话框

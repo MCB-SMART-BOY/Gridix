@@ -95,6 +95,8 @@ pub use dialogs::{
     KeyBindingsDialog,
     KeyBindingsDialogState,
     LearningTopic,
+    SchemaDiffDialog,
+    SchemaDiffDialogState,
     TableDefinition,
     ToolbarMenuDialog,
     ToolbarMenuDialogEntry,

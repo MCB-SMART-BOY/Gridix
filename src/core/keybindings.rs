@@ -1172,6 +1172,7 @@ impl KeyBindings {
         "dialog.welcome_setup",
         "dialog.history",
         "dialog.ddl",
+        "dialog.schema_diff",
         "dialog.create_database",
         "dialog.create_user",
         "dialog.keybindings",

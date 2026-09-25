@@ -216,6 +216,7 @@ fn form_dialog_scopes_route_escape_to_close_dialog() {
         DialogScope::Export,
         DialogScope::Import,
         DialogScope::Ddl,
+        DialogScope::SchemaDiff,
         DialogScope::CreateDatabase,
         DialogScope::CreateUser,
     ] {

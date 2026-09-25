@@ -18,6 +18,7 @@ pub(crate) enum DialogId {
     WelcomeSetup,
     History,
     Ddl,
+    SchemaDiff,
     CreateDatabase,
     CreateUser,
     Keybindings,
@@ -39,6 +40,7 @@ impl DialogId {
             Self::WelcomeSetup => "dialog.welcome_setup",
             Self::History => "dialog.history",
             Self::Ddl => "dialog.ddl",
+            Self::SchemaDiff => "dialog.schema_diff",
             Self::CreateDatabase => "dialog.create_database",
             Self::CreateUser => "dialog.create_user",
             Self::Keybindings => "dialog.keybindings",
@@ -62,6 +64,7 @@ pub(in crate::app) struct DialogHostSnapshot {
     pub welcome_setup: bool,
     pub history: bool,
     pub ddl: bool,
+    pub schema_diff: bool,
     pub create_database: bool,
     pub create_user: bool,
     pub keybindings: bool,
@@ -87,6 +90,7 @@ impl DialogHostSnapshot {
             (self.welcome_setup, DialogId::WelcomeSetup),
             (self.history, DialogId::History),
             (self.ddl, DialogId::Ddl),
+            (self.schema_diff, DialogId::SchemaDiff),
             (self.create_database, DialogId::CreateDatabase),
             (self.create_user, DialogId::CreateUser),
             (self.keybindings, DialogId::Keybindings),
@@ -112,6 +116,7 @@ impl DbManagerApp {
             DialogId::WelcomeSetup => self.state.show_welcome_setup_dialog,
             DialogId::History => self.state.show_history_panel,
             DialogId::Ddl => self.state.ddl_dialog_state.show,
+            DialogId::SchemaDiff => self.state.schema_diff_dialog_state.show,
             DialogId::CreateDatabase => self.state.create_db_dialog_state.show,
             DialogId::CreateUser => self.state.create_user_dialog_state.show,
             DialogId::Keybindings => self.state.keybindings_dialog_state.show,
@@ -133,6 +138,7 @@ impl DbManagerApp {
             welcome_setup: self.state.show_welcome_setup_dialog,
             history: self.state.show_history_panel,
             ddl: self.state.ddl_dialog_state.show,
+            schema_diff: self.state.schema_diff_dialog_state.show,
             create_database: self.state.create_db_dialog_state.show,
             create_user: self.state.create_user_dialog_state.show,
             keybindings: self.state.keybindings_dialog_state.show,
@@ -173,6 +179,7 @@ impl DbManagerApp {
             DialogId::WelcomeSetup => self.state.show_welcome_setup_dialog = true,
             DialogId::History => self.state.show_history_panel = true,
             DialogId::Ddl => self.state.ddl_dialog_state.show = true,
+            DialogId::SchemaDiff => self.state.schema_diff_dialog_state.show = true,
             DialogId::CreateDatabase => self.state.create_db_dialog_state.show = true,
             DialogId::CreateUser => self.state.create_user_dialog_state.show = true,
             DialogId::Keybindings => self.state.keybindings_dialog_state.show = true,
@@ -197,6 +204,7 @@ impl DbManagerApp {
             DialogId::About,
             DialogId::History,
             DialogId::Ddl,
+            DialogId::SchemaDiff,
             DialogId::CreateDatabase,
             DialogId::CreateUser,
             DialogId::Keybindings,
@@ -219,6 +227,7 @@ impl DbManagerApp {
             DialogId::WelcomeSetup => self.state.show_welcome_setup_dialog = false,
             DialogId::History => self.state.show_history_panel = false,
             DialogId::Ddl => self.state.ddl_dialog_state.close(),
+            DialogId::SchemaDiff => self.state.schema_diff_dialog_state.close(),
             DialogId::CreateDatabase => self.state.create_db_dialog_state.close(),
             DialogId::CreateUser => self.state.create_user_dialog_state.close(),
             DialogId::Keybindings => self.state.keybindings_dialog_state.close(),
@@ -268,6 +277,31 @@ mod tests {
             "opening Export must close the previously-open Connection dialog"
         );
         assert_eq!(app.active_dialog_id(), Some(DialogId::Export));
+    }
+
+    #[test]
+    fn opening_another_dialog_closes_the_schema_diff_dialog() {
+        // 审计 DLG-A3-1：SchemaDiff 被静默隐藏会让其状态残留并在关闭后复活。
+        let mut app = DbManagerApp::new_for_test();
+        app.open_dialog(DialogId::SchemaDiff);
+        app.state
+            .schema_diff_dialog_state
+            .open_for(Some("orders".into()));
+
+        app.open_dialog(DialogId::Ddl);
+        assert!(app.is_dialog_visible(DialogId::Ddl));
+        assert!(
+            !app.is_dialog_visible(DialogId::SchemaDiff),
+            "opening DDL must close the previously-open Schema diff dialog"
+        );
+        assert_eq!(app.active_dialog_id(), Some(DialogId::Ddl));
+
+        app.close_dialog(DialogId::Ddl);
+        assert_eq!(
+            app.active_dialog_id(),
+            None,
+            "closing the DDL dialog must not resurrect the Schema diff dialog"
+        );
     }
 
     #[test]

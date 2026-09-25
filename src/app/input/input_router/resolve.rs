@@ -131,6 +131,7 @@ pub(in crate::app) fn resolve_dialog_shortcut_fallback_with(
         | DialogScope::Export
         | DialogScope::Import
         | DialogScope::Ddl
+        | DialogScope::SchemaDiff
         | DialogScope::CreateDatabase
         | DialogScope::CreateUser => local_shortcut_triggered(LocalShortcut::Dismiss).then_some(
             ResolvedInputAction::HandledLocal(RouterLocalAction::CloseDialog(scope)),

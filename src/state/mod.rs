@@ -5,7 +5,9 @@
 
 use crate::core::{HighlightColors, ThemeManager};
 use crate::domain::explain::ExplainState;
-use crate::ui::{CreateDbDialogState, CreateUserDialogState, DdlDialogState, HelpState};
+use crate::ui::{
+    CreateDbDialogState, CreateUserDialogState, DdlDialogState, HelpState, SchemaDiffDialogState,
+};
 use crate::ui::{
     DataGridState, ERDiagramState, EditorMode, ExportConfig, FocusArea, ImportState, SidebarSection,
 };
@@ -47,6 +49,7 @@ pub struct UiState {
     pub(crate) export_config: ExportConfig,
     pub(crate) import_state: ImportState,
     pub(crate) ddl_dialog_state: DdlDialogState,
+    pub(crate) schema_diff_dialog_state: SchemaDiffDialogState,
     pub(crate) create_db_dialog_state: CreateDbDialogState,
     pub(crate) history_panel_state: HistoryPanelState,
     pub(crate) keybindings_dialog_state: KeyBindingsDialogState,
@@ -110,6 +113,7 @@ impl Default for UiState {
             export_config: ExportConfig::default(),
             import_state: ImportState::default(),
             ddl_dialog_state: DdlDialogState::default(),
+            schema_diff_dialog_state: SchemaDiffDialogState::default(),
             create_db_dialog_state: CreateDbDialogState::default(),
             history_panel_state: HistoryPanelState::default(),
             keybindings_dialog_state: KeyBindingsDialogState::default(),

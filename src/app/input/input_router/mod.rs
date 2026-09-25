@@ -266,6 +266,7 @@ impl DbManagerApp {
                 DialogScope::Export => self.close_dialog(DialogId::Export),
                 DialogScope::Import => self.close_dialog(DialogId::Import),
                 DialogScope::Ddl => self.close_dialog(DialogId::Ddl),
+                DialogScope::SchemaDiff => self.close_dialog(DialogId::SchemaDiff),
                 DialogScope::CreateDatabase => self.close_dialog(DialogId::CreateDatabase),
                 DialogScope::CreateUser => self.close_dialog(DialogId::CreateUser),
                 _ => {}
@@ -396,6 +397,19 @@ impl DbManagerApp {
         };
         self.open_dialog(DialogId::Ddl);
         self.state.ddl_dialog_state.open_create_table(db_type);
+    }
+
+    /// 打开 Schema 对比对话框，并把当前选中的表作为源表。
+    pub(in crate::app) fn open_schema_diff_dialog(&mut self) {
+        if self.session.manager.get_active().is_none() {
+            self.session
+                .notifications
+                .warning("请先连接数据库再对比 schema");
+            return;
+        }
+        let source_table = self.state.selected_table.clone();
+        self.open_dialog(DialogId::SchemaDiff);
+        self.state.schema_diff_dialog_state.open_for(source_table);
     }
 
     pub(in crate::app) fn open_create_database_dialog(&mut self) {
