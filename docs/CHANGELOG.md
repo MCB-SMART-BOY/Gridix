@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 本文件记录项目的重要变更。
 
 ## [Unreleased]
+- Dialog windows no longer leave the workbench live: `DialogShell::show_blocking` now lays a full-screen pointer blocker above the workbench and below the dialog window and registers the dialog layer as the frame's modal layer, so sidebar, toolbar, workbench, and dock surfaces stop reacting to clicks and drags while a dialog is open. The blocker is required because egui's widget hit test filters by `Order` only and ignores the modal layer.
+  对话框窗口不再让工作台保持可交互：`DialogShell::show_blocking` 现在会在工作台之上、对话框窗口之下铺设全屏指针阻断层，并把对话框图层登记为当前帧的 modal layer，因此对话框打开时侧边栏、工具栏、工作台与 dock surface 不再响应点击与拖拽。阻断层是必需的：egui 的控件命中测试只按 `Order` 过滤，不读 modal layer。
+- `HistoryPanel` joins the same contract: it draws its own window and now lays the shared pointer blocker before registering the modal layer.
+  `HistoryPanel` 纳入同一契约：它自行绘制窗口，现在会先铺设共享指针阻断层，再登记 modal layer。
+- Added regression tests for both directions of the contract: a blocking shell swallows clicks aimed at lower layers while the dialog's own controls stay live, and a plain shell keeps lower layers reachable.
+  新增契约双向回归测试：阻断外壳吞掉指向下层的点击而对话框自身控件仍可交互，普通外壳保留下层可达性。
 - Added single-table `SchemaSnapshot`/`SchemaDiff` metadata comparison with a quoted, read-only SQL preview. Schema migrations are not executed; SQLite constraint and column-definition changes remain explicit review warnings.
   新增单表 `SchemaSnapshot`/`SchemaDiff` 元数据比较与带标识符引用的只读 SQL preview。不执行 schema 迁移；SQLite 约束和列定义变化会明确保留为人工审核警告。
 - Added a dedicated Explain output surface. Explain executions retain the normal Results surface, while the latest plan rows or execution error are rendered in BottomPanel::Explain using the shared `ResultSet` shape; no cross-database plan AST is introduced.

@@ -90,6 +90,23 @@ brand colors (DB-type chips). Everything that conveys text/state/selection must 
 
 4 contracts in `ui/components/dialogs/common.rs`: Blocking Modal, Form Dialog Shell, Workspace Dialog Shell, Utility Overlay.
 
+- Dialogs holding input render through `DialogShell::show_blocking`
+  (`src/ui/dialogs/common.rs`): it lays a full-screen interactive area above the workbench
+  and below the dialog window (`show_pointer_blocker`) and registers the dialog layer as
+  the frame's modal layer (`register_modal_layer`). `DialogShell::show` stays non-blocking
+  and is for the popup family (toolbar menus, theme chooser) only. Confirm dialogs use
+  `DialogWindow::blocking`, whose `egui::Modal` backdrop blocks and registers the modal
+  layer.
+- egui's widget hit test ignores the modal layer (`hit_test` filters by `Order` only), so a
+  surface that only calls `register_modal_layer` still leaks pointer clicks to the
+  workbench. Keep the pointer blocker in every new blocking surface, and let
+  `HistoryPanel`/workspace overlays keep using `show_pointer_blocker` when they draw their
+  own window.
+- Do not reintroduce dialogs that react to background clicks or that close from outside the
+  dialog host. Keep sizes inside `DialogStyle::responsive_widths`/`responsive_heights` and
+  `constrain_to(content_rect)` so no dialog grows past the viewport; Escape closers belong
+  to the dialog itself or to `resolve_escape_fallback` for the workspace overlays.
+
 ## Borrow checker pattern
 
 During rendering: `&self.session` (read-only) + `&mut self.state` (UI mutations). Disjoint fields — guaranteed safe by Rust.
