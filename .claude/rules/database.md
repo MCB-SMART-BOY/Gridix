@@ -38,9 +38,15 @@ Orchestrator: `data/query/mod.rs` dispatches via `match db_type`. **No trait** �
 - PostgreSQL `NUMERIC` parameters and decoded results preserve exact `DbValue::Decimal` values.
 - MySQL temporal input rejects nanoseconds greater than or equal to one second; validate before dispatch rather than silently truncating.
 
+
+## Read-only schema diff
+
+- `data::load_schema_snapshot(config, revision, table_name)` only reads the existing backend metadata and returns a domain `SchemaSnapshot`.
+- `SchemaDiff` compares one current table with one target table and `sql_preview()`/`to_sql_preview()` only render SQL text; no migration statement is executed.
+- SQLite column-definition, primary-key, unique-key, and foreign-key changes are emitted as review warnings rather than unsafe automatic migrations. Identifier names are quoted with `IdentifierDialect`.
 ## Release-acceptance backend gates
 
-PostgreSQL and MySQL typed and cancellation integration workflows run on pull requests, `main`, and `v*` tags. Their `GRIDIX_TEST_PG_URL` / `GRIDIX_TEST_MYSQL_URL` preflight is mandatory in CI: a local no-URL return is convenience only, never release evidence.
+The PostgreSQL and MySQL acceptance jobs in `.github/workflows/ci.yml` are required by the tag release job. Standalone backend workflows remain diagnostic scheduled/manual/PR checks. Their `GRIDIX_TEST_PG_URL` / `GRIDIX_TEST_MYSQL_URL` preflight is mandatory in CI: a local no-URL return is convenience only, never release evidence.
 
 ## Pooling
 
@@ -69,20 +75,21 @@ Grid cell edits/inserts/deletes are saved as ONE atomic transaction, not N indep
 - `ConnectionConfig.password` is `#[serde(skip_serializing)]`
 - `password_ref` (UUID) stored in config.toml, actual secret in OS keyring via `keyring` crate
 - Legacy AES-256-GCM encrypted passwords auto-migrated to keyring on load (retain migration path)
-- `pool_key()` uses SHA-256 of full connection params (including password) for unique pool identity
+- `pool_key()` uses SHA-256 of the connection identity material, including database credentials, TLS mode/CA, and SSH tunnel routing.
 
 ## SSH tunnel
 
-`data/ssh_tunnel.rs`:
+`data/query/mod.rs` + `data/pool.rs` + `data/ssh_tunnel.rs`:
 - `SshTunnelManager` singleton via `std::sync::LazyLock`
 - Tunnels cached by name with `get_or_create`/`stop`
 - `russh` + `known_hosts` verification with SHA-256 fingerprint logging
-- Config rewritten to `127.0.0.1:<dynamic_port>` before connecting
-- `pool_route_key_material()` includes tunnel routing so pool keys remain stable after rewrite
+- Runtime TCP endpoint rewrites to `127.0.0.1:<dynamic_port>` while preserving the original database host as `tls_server_name`
+- PostgreSQL uses `host=<tls_server_name>` plus `hostaddr=<loopback>`; MySQL uses `tls_hostname_override` for `VerifyIdentity`
+- `pool_route_key_material()` includes the SSH tunnel identity and original TLS server name; rewritten loopback endpoints do not split a reusable pool, while different TLS names cannot share one.
 - `SshError::HostKeyVerification` — distinct error variant for known_hosts mismatch vs. missing known_hosts
 - SSH passwords and private key passphrases are `#[serde(skip_serializing)]`
 
 ## Error handling
 
 `DbError` (thiserror, 2 active variants: Connection, Query). All errors use `#[error("...")]` for Display formatting.
-SSL/TLS: PG default Prefer, MySQL default Preferred. Required modes validate certificates.
+SSL/TLS: 新建连接通过 `ConnectionConfig::new` 默认使用 PostgreSQL `VerifyFull` 和 MySQL `VerifyIdentity`。旧配置缺少 SSL 字段时保留兼容默认：PostgreSQL `Prefer` 先尝试 SSL，失败时回退明文；MySQL `Preferred` 使用 SSL 但跳过证书和主机名验证，不回退明文。显式 `Require`/`VerifyCa`/`VerifyFull`/`Required`/`VerifyIdentity` 模式必须使用证书验证；SSH 隧道下 `VerifyCa` 不因 loopback 改变 CA-only 语义，`VerifyFull`/`VerifyIdentity` 使用原始数据库 TLS server name。

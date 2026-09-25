@@ -1022,11 +1022,54 @@ impl DbManagerApp {
     }
 
     fn render_bottom_panel_explain(&self, ui: &mut egui::Ui) {
-        ui::WorkbenchBottomPanel::show_empty_state(
-            ui,
-            "Explain 暂未独立接入",
-            "当前 EXPLAIN 查询仍作为普通结果显示在 Results。后续阶段会加入结构化执行计划视图。",
-        );
+        let active_tab_id = self.active_query_tab_id();
+        let explain = &self.state.explain_state;
+        let belongs_to_active_tab = explain.query_tab_id.as_deref() == Some(active_tab_id.as_str());
+
+        if belongs_to_active_tab && explain.is_running {
+            ui::WorkbenchBottomPanel::show_loading_state(
+                ui,
+                "正在生成执行计划…",
+                "Explain 完成后，计划会保留在此 surface 中。",
+            );
+            return;
+        }
+        if !explain.should_show_for_tab(&active_tab_id) {
+            ui::WorkbenchBottomPanel::show_empty_state(
+                ui,
+                "暂无执行计划",
+                "在 SQL 编辑器中执行 Explain 后，最近计划会显示在这里。",
+            );
+            return;
+        }
+        if let Some(error) = explain.error.as_deref() {
+            render_explain_error(ui, explain.sql.as_deref(), error);
+            return;
+        }
+        let Some(result) = explain.result.as_deref() else {
+            ui::WorkbenchBottomPanel::show_empty_state(
+                ui,
+                "Explain 未返回结果",
+                "数据库没有返回可显示的执行计划行。",
+            );
+            return;
+        };
+
+        ui.vertical(|ui| {
+            ui.heading("执行计划");
+            render_explain_summary(ui, result.row_count, explain.elapsed_ms);
+            if let Some(sql) = explain.sql.as_deref() {
+                ui.label(egui::RichText::new(sql).monospace().weak());
+            }
+            ui.add_space(6.0);
+            if result.columns.is_empty() {
+                ui.label("执行计划没有可显示的列。");
+            } else {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    render_compact_result_rows(ui, result, 64);
+                });
+            }
+        });
     }
 
     fn render_bottom_panel_history(&self, ui: &mut egui::Ui) {
@@ -1139,6 +1182,34 @@ impl DbManagerApp {
             .status_bar(status_bar)
             .show_inside(root_ui, frame, add_content);
     }
+}
+
+fn render_explain_error(ui: &mut egui::Ui, sql: Option<&str>, error: &str) {
+    ui.vertical(|ui| {
+        ui.heading("Explain 执行失败");
+        ui.add_space(6.0);
+        ui.label("执行计划未更新，请修正 SQL 后重新执行。");
+        if let Some(sql) = sql {
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(sql).monospace().weak());
+        }
+        ui.add_space(8.0);
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.group(|ui| {
+                ui.set_width(ui.available_width());
+                ui.label(egui::RichText::new(error).monospace());
+            });
+        });
+    });
+}
+
+fn render_explain_summary(ui: &mut egui::Ui, row_count: usize, elapsed_ms: Option<u64>) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(format!("{} 行", row_count));
+        if let Some(elapsed_ms) = elapsed_ms {
+            ui.label(format!("{}ms", elapsed_ms));
+        }
+    });
 }
 
 fn property_row(ui: &mut egui::Ui, label: &str, value: &str) {

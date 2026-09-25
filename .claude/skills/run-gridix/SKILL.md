@@ -12,13 +12,13 @@ Gridix is an egui/eframe desktop GUI app. All paths relative to repo root.
 
 ```bash
 # Ubuntu/Debian
-sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgtk-3-dev xvfb
+sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgtk-3-dev imagemagick xauth xdotool xvfb
 
 # Arch
-sudo pacman -S --needed base-devel pkgconf gtk3 xorg-server-xvfb
+sudo pacman -S --needed base-devel pkgconf gtk3 imagemagick xdotool xorg-server-xvfb xorg-xauth
 
 # Fedora
-sudo dnf install gtk3-devel xorg-x11-server-Xvfb
+sudo dnf install gtk3-devel ImageMagick xdotool xorg-x11-server-Xvfb xorg-x11-xauth
 ```
 
 Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y`
@@ -44,13 +44,26 @@ cargo run --bin gridix-driver -- quit
 
 | cmd | does |
 |---|---|
-| `launch` | start Xvfb + Gridix and wait for its window |
+| `launch [--detach]` | start a private-cookie Xvfb + Gridix session and wait for its window; `--detach` returns while the tracked session stays alive |
 | `key <keys>` | send a keystroke, e.g. `key Ctrl+N`, `key F1`, `key Escape` |
+| `type <text>` | type text into the active Gridix window |
+| `move <x> <y>` | move the pointer relative to the Gridix window |
+| `click <x> <y> [button]` | click at window-relative coordinates |
+| `wait window [timeout]` / `wait-window [timeout]` | wait for the Gridix window, bounded to 300 seconds |
+| `wait file <path> [timeout]` / `wait-file <path> [timeout]` | wait for a non-empty file, bounded to 300 seconds |
 | `ss [name]` | capture `/tmp/shots/<name>.png` (or `GRIDIX_SHOT_DIR`) |
-| `quit` | stop Gridix and Xvfb |
+| `assert-file <path> [bytes]` | require a regular, non-empty artifact |
+| `assert-export <format> <path> [expected...]` | validate CSV/JSON/SQL and expected text |
+| `assert-reopened <db> <table> <column> <value|NULL>` | verify a persisted SQLite value read-only |
+| `quit` | stop only the tracked Gridix/Xvfb PIDs and remove the private Xauthority |
 | `help` | show the command list |
 
-The driver does **not** type text, wait for widgets, click controls, or operate native file dialogs. Use it for launch/key/screenshot/quit smoke paths only.
+The driver does **not** operate native file dialogs or decide semantic widget state. Use
+`launch --detach` for non-interactive smoke orchestration and call `quit` after the screenshot;
+if regular `launch` receives stdin EOF, it also leaves the tracked session alive. Self-managed
+Xvfb uses a per-run Xauthority cookie in a private 0700 temporary directory; `GRIDIX_DISPLAY`
+selects the display used by Xvfb and all driver actions. Set `XVFB_MANAGED=1` only when that
+display is managed outside the driver.
 
 ### First-launch flow (onboarding)
 

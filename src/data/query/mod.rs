@@ -14,10 +14,14 @@ use super::*;
 use crate::core::constants;
 use crate::domain::ids::SchemaRevision;
 use crate::domain::metadata::SchemaCatalog;
+use crate::domain::schema_diff::SchemaSnapshot;
 use crate::domain::value::{DbTypeFamily, DbTypeInfo, DbValue};
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task;
+
+const SSH_TUNNEL_LOOPBACK_HOST: &str = "127.0.0.1";
 
 // ============================================================================
 // 公共入口函数
@@ -130,7 +134,8 @@ pub async fn execute_typed_cancellable(
         return Err(DbError::Cancelled);
     }
 
-    let (effective_config, _tunnel) = setup_ssh_tunnel_if_enabled(config).await?;
+    let (effective_config, _tunnel) =
+        await_setup_with_cancellation(setup_ssh_tunnel_if_enabled(config), cancellation).await?;
     match effective_config.db_type {
         DatabaseType::SQLite => {
             let config = effective_config.clone();
@@ -146,6 +151,26 @@ pub async fn execute_typed_cancellable(
             mysql::execute_typed_cancellable(&effective_config, sql, cancellation).await
         }
     }
+}
+
+async fn await_setup_with_cancellation<F, T>(
+    setup: F,
+    cancellation: &tokio_util::sync::CancellationToken,
+) -> Result<T, DbError>
+where
+    F: Future<Output = Result<T, DbError>>,
+{
+    let setup_result = tokio::select! {
+        biased;
+        result = setup => result,
+        _ = cancellation.cancelled() => return Err(DbError::Cancelled),
+    };
+
+    if cancellation.is_cancelled() {
+        return Err(DbError::Cancelled);
+    }
+
+    setup_result
 }
 
 /// 加载数据库 Schema 目录
@@ -167,6 +192,43 @@ pub async fn load_schema_catalog(
         DatabaseType::PostgreSQL => postgres::load_catalog(&effective_config, revision).await,
         DatabaseType::MySQL => mysql::load_catalog(&effective_config, revision).await,
     }
+}
+/// 加载单表 schema snapshot；仅读取现有元数据，不执行迁移。
+///
+/// `revision` 与统一 catalog 保持一致，便于调用方继续使用 stale-guard。
+pub async fn load_schema_snapshot(
+    config: &ConnectionConfig,
+    revision: SchemaRevision,
+    table_name: &str,
+) -> Result<SchemaSnapshot, DbError> {
+    let (effective_config, _tunnel) = setup_ssh_tunnel_if_enabled(config).await?;
+    let table_name = table_name.to_string();
+    match effective_config.db_type {
+        DatabaseType::SQLite => {
+            let config = effective_config.clone();
+            tokio::task::spawn_blocking(move || {
+                sqlite::load_snapshot(&config, revision, &table_name)
+            })
+            .await
+            .map_err(|e| DbError::Query(e.to_string()))?
+        }
+        DatabaseType::PostgreSQL => {
+            let catalog = postgres::load_catalog(&effective_config, revision).await?;
+            snapshot_from_catalog(catalog, &table_name)
+        }
+        DatabaseType::MySQL => {
+            let catalog = mysql::load_catalog(&effective_config, revision).await?;
+            snapshot_from_catalog(catalog, &table_name)
+        }
+    }
+}
+
+fn snapshot_from_catalog(
+    catalog: SchemaCatalog,
+    table_name: &str,
+) -> Result<SchemaSnapshot, DbError> {
+    SchemaSnapshot::from_catalog(&catalog, table_name)
+        .ok_or_else(|| DbError::Query(format!("加载表 schema 失败：未找到表 {}", table_name)))
 }
 
 /// 以参数化方式执行 MutationBatch（统一 dispatcher）
@@ -297,12 +359,21 @@ async fn setup_ssh_tunnel_if_enabled(
     })?
     .map_err(|e| DbError::Connection(format!("SSH 隧道建立失败: {}", e)))?;
 
-    // 修改连接配置，使用隧道的本地端口
+    // 修改连接配置：TCP 使用本地 loopback，TLS 保留数据库原始 server name。
     let mut effective_config = config.clone();
-    effective_config.host = "127.0.0.1".to_string();
-    effective_config.port = tunnel.local_port();
+    apply_ssh_tcp_endpoint(&mut effective_config, tunnel.local_port());
 
     Ok((effective_config, Some(tunnel)))
+}
+
+fn apply_ssh_tcp_endpoint(config: &mut ConnectionConfig, local_port: u16) {
+    let tls_server_name = config
+        .tls_server_name
+        .clone()
+        .unwrap_or_else(|| config.host.clone());
+    config.tls_server_name = Some(tls_server_name);
+    config.host = SSH_TUNNEL_LOOPBACK_HOST.to_string();
+    config.port = local_port;
 }
 
 fn resolve_ssh_credentials<S: crate::data::secret::SecretStore>(
@@ -339,9 +410,24 @@ fn resolve_ssh_credentials<S: crate::data::secret::SecretStore>(
 
 #[cfg(test)]
 mod ssh_credential_tests {
-    use super::resolve_ssh_credentials;
+    use super::{apply_ssh_tcp_endpoint, resolve_ssh_credentials};
     use crate::data::secret::{SecretStore, SecretString};
-    use crate::data::{DbError, SshTunnelConfig};
+    use crate::data::{ConnectionConfig, DatabaseType, DbError, SshTunnelConfig};
+    const TEST_TUNNEL_PORT: u16 = 15_432;
+
+    #[test]
+    fn ssh_endpoint_keeps_tls_server_name_separate_from_loopback() {
+        let mut config = ConnectionConfig::new("test", DatabaseType::PostgreSQL);
+        config.host = "db.example.com".to_string();
+
+        apply_ssh_tcp_endpoint(&mut config, TEST_TUNNEL_PORT);
+
+        assert_eq!(config.host, "127.0.0.1");
+        assert_eq!(config.port, TEST_TUNNEL_PORT);
+        assert_eq!(config.tls_server_name.as_deref(), Some("db.example.com"));
+        assert!(config.connection_string().contains("host='db.example.com'"));
+        assert!(config.connection_string().contains("hostaddr='127.0.0.1'"));
+    }
 
     enum LoadOutcome {
         Found,
@@ -411,6 +497,50 @@ mod ssh_credential_tests {
         assert!(matches!(&error, DbError::Keyring(_)));
         assert!(error.to_string().contains("读取 SSH 密码 ssh/test"));
         assert!(error.to_string().contains("backend unavailable"));
+    }
+}
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::await_setup_with_cancellation;
+    use crate::data::DbError;
+    use tokio::sync::oneshot;
+    use tokio_util::sync::CancellationToken;
+
+    #[tokio::test]
+    async fn tunnel_setup_cancellation_returns_cancelled_before_completion() {
+        let cancellation = CancellationToken::new();
+        let (started_sender, started_receiver) = oneshot::channel();
+        let setup = async move {
+            let _ = started_sender.send(());
+            std::future::pending::<Result<(), DbError>>().await
+        };
+        let result = await_setup_with_cancellation(setup, &cancellation);
+        tokio::pin!(result);
+
+        tokio::select! {
+            _completed = &mut result => panic!("setup unexpectedly completed"),
+            started = started_receiver => assert!(started.is_ok()),
+        }
+
+        cancellation.cancel();
+        assert!(matches!(result.await, Err(DbError::Cancelled)));
+    }
+
+    #[tokio::test]
+    async fn tunnel_setup_cancellation_is_rechecked_after_completion() {
+        let cancellation = CancellationToken::new();
+        let setup_cancellation = cancellation.clone();
+        let result = await_setup_with_cancellation(
+            async move {
+                setup_cancellation.cancel();
+                Ok::<(), DbError>(())
+            },
+            &cancellation,
+        )
+        .await;
+
+        assert!(matches!(result, Err(DbError::Cancelled)));
     }
 }
 

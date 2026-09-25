@@ -9,7 +9,7 @@ metadata:
 
 ## Current State
 
-- **Version**: 7.1.0
+- **Version**: 7.2.0
 - **Branch**: `main` (sole branch — `dev`, `EDU`, `master` consolidated and deleted)
 - **TLS**: rustls 0.23 only — zero native-tls/openssl in dependency tree
 - **Verification state**: typed-runtime and backend integration workflows are configured; do not infer a release result from configuration. RA2 manual SQLite GUI evidence remains outstanding.
@@ -21,7 +21,7 @@ metadata:
 - 6-layer unidirectional architecture: types(-1) ← core(0) ← data(1) ← session(2) ← state(3) ← ui/app(4)
 - DbManagerApp: ~11 fields (from ~100). 89 migrated to Session(~30) + UiState(~60).
 - self.sql dual source: ELIMINATED. Sole authority = QueryTab.sql via active_sql()/set_active_sql()
-- Config version: 2 (with #[serde(default)] for backward compat)
+- Config version: 3 (with `#[serde(default)]` for backward compat)
 - Config save: 5-second debounce via save_config_debounced()
 - Handler repaint: needs_repaint flag replaces ctx.request_repaint()
 - Typed domain layer: `src/domain/` (`DbValue`, `ResultSet`, `SchemaCatalog`, `MutationBatch`) is used by SQLite, PostgreSQL, and MySQL typed execution, mutations, and catalog loading.

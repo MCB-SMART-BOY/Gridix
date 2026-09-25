@@ -1,0 +1,192 @@
+name: Backend TLS Acceptance
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 4 * * 1'
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  postgresql-tls:
+    name: PostgreSQL TLS Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GRIDIX_ACCEPTANCE: "1"
+      GRIDIX_TEST_PG_URL: postgres://gridix:gridix@127.0.0.1:5433/gridix_test
+      GRIDIX_TEST_PG_SSL_MODE: verify-full
+      GRIDIX_TEST_PG_TLS_SERVER_NAME: ""
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (2026-09-03)
+        with:
+          toolchain: 1.98.1
+
+      - name: Cache cargo
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-pg-tls-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-pg-tls-
+
+      - name: Install Linux dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev openssl
+
+      - name: Generate PostgreSQL TLS fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          tls_dir="$RUNNER_TEMP/gridix-pg-tls"
+          mkdir -p "$tls_dir"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout "$tls_dir/ca.key" -out "$tls_dir/ca.crt" \
+            -subj "/CN=Gridix Test CA"
+          openssl req -new -newkey rsa:2048 -nodes \
+            -keyout "$tls_dir/server.key" -out "$tls_dir/server.csr" \
+            -subj "/CN=localhost"
+          cat > "$tls_dir/server.ext" <<'EOF'
+          subjectAltName=DNS:localhost,IP:127.0.0.1
+          extendedKeyUsage=serverAuth
+          EOF
+          openssl x509 -req -days 1 -in "$tls_dir/server.csr" \
+            -CA "$tls_dir/ca.crt" -CAkey "$tls_dir/ca.key" -CAcreateserial \
+            -out "$tls_dir/server.crt" -extfile "$tls_dir/server.ext"
+          cat > "$tls_dir/pg_hba.conf" <<'EOF'
+          local all all trust
+          hostssl all all 0.0.0.0/0 scram-sha-256
+          hostssl all all ::0/0 scram-sha-256
+          EOF
+          chmod 600 "$tls_dir/server.key"
+          sudo chown 999:999 "$tls_dir/server.key"
+          echo "GRIDIX_TEST_PG_CA_CERT=$tls_dir/ca.crt" >> "$GITHUB_ENV"
+          docker run --detach --name gridix-postgres-tls \
+            --env POSTGRES_PASSWORD=gridix \
+            --env POSTGRES_USER=gridix \
+            --env POSTGRES_DB=gridix_test \
+            --publish 5433:5432 \
+            --volume "$tls_dir:/tls:ro" \
+            postgres@sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb \
+            postgres -c ssl=on -c ssl_cert_file=/tls/server.crt \
+            -c ssl_key_file=/tls/server.key -c hba_file=/tls/pg_hba.conf
+          for attempt in $(seq 1 60); do
+            if docker exec gridix-postgres-tls pg_isready -U gridix -d gridix_test >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" = 60 ]; then
+              docker logs gridix-postgres-tls
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Run PostgreSQL TLS acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${GRIDIX_TEST_PG_URL:?GRIDIX_TEST_PG_URL must be set}"
+          : "${GRIDIX_TEST_PG_SSL_MODE:?GRIDIX_TEST_PG_SSL_MODE must be set}"
+          : "${GRIDIX_TEST_PG_CA_CERT:?GRIDIX_TEST_PG_CA_CERT must be set}"
+          test -f "$GRIDIX_TEST_PG_CA_CERT"
+          : "${GRIDIX_ACCEPTANCE:?GRIDIX_ACCEPTANCE must be 1 for acceptance runs}"
+          cargo test --test tls_acceptance postgres_tls_fixture_requires_ca_and_reports_encrypted_session -- --nocapture --test-threads=1
+
+  mysql-tls:
+    name: MySQL TLS Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GRIDIX_ACCEPTANCE: "1"
+      GRIDIX_TEST_MYSQL_URL: mysql://gridix:gridix@127.0.0.1:3307/gridix_test
+      GRIDIX_TEST_MYSQL_SSL_MODE: verify-identity
+      GRIDIX_TEST_MYSQL_TLS_SERVER_NAME: localhost
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (2026-09-03)
+        with:
+          toolchain: 1.98.1
+
+      - name: Cache cargo
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-mysql-tls-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-mysql-tls-
+
+      - name: Install Linux dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev openssl
+
+      - name: Generate MySQL TLS fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          tls_dir="$RUNNER_TEMP/gridix-mysql-tls"
+          mkdir -p "$tls_dir"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout "$tls_dir/ca.key" -out "$tls_dir/ca.crt" \
+            -subj "/CN=Gridix Test CA"
+          openssl req -new -newkey rsa:2048 -nodes \
+            -keyout "$tls_dir/server.key" -out "$tls_dir/server.csr" \
+            -subj "/CN=localhost"
+          cat > "$tls_dir/server.ext" <<'EOF'
+          subjectAltName=DNS:localhost,IP:127.0.0.1
+          extendedKeyUsage=serverAuth
+          EOF
+          openssl x509 -req -days 1 -in "$tls_dir/server.csr" \
+            -CA "$tls_dir/ca.crt" -CAkey "$tls_dir/ca.key" -CAcreateserial \
+            -out "$tls_dir/server.crt" -extfile "$tls_dir/server.ext"
+          chmod 600 "$tls_dir/server.key"
+          sudo chown 999:999 "$tls_dir/server.key"
+          echo "GRIDIX_TEST_MYSQL_CA_CERT=$tls_dir/ca.crt" >> "$GITHUB_ENV"
+          docker run --detach --name gridix-mysql-tls \
+            --env MYSQL_ROOT_PASSWORD=root \
+            --env MYSQL_DATABASE=gridix_test \
+            --env MYSQL_USER=gridix \
+            --env MYSQL_PASSWORD=gridix \
+            --publish 3307:3306 \
+            --volume "$tls_dir:/tls:ro" \
+            mysql@sha256:85b9bf2e29cf836ecb8c2a15a935d4ba0c606631dff1dd79531a11983c638f2a \
+            --ssl-ca=/tls/ca.crt --ssl-cert=/tls/server.crt --ssl-key=/tls/server.key \
+            --require-secure-transport=ON
+          for attempt in $(seq 1 60); do
+            if docker exec gridix-mysql-tls mysqladmin ping -h 127.0.0.1 -uroot -proot \
+              --ssl-ca=/tls/ca.crt --silent >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" = 60 ]; then
+              docker logs gridix-mysql-tls
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Run MySQL TLS acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${GRIDIX_TEST_MYSQL_URL:?GRIDIX_TEST_MYSQL_URL must be set}"
+          : "${GRIDIX_TEST_MYSQL_SSL_MODE:?GRIDIX_TEST_MYSQL_SSL_MODE must be set}"
+          : "${GRIDIX_TEST_MYSQL_CA_CERT:?GRIDIX_TEST_MYSQL_CA_CERT must be set}"
+          : "${GRIDIX_TEST_MYSQL_TLS_SERVER_NAME:?GRIDIX_TEST_MYSQL_TLS_SERVER_NAME must be set}"
+          test -f "$GRIDIX_TEST_MYSQL_CA_CERT"
+          : "${GRIDIX_ACCEPTANCE:?GRIDIX_ACCEPTANCE must be 1 for acceptance runs}"
+          cargo test --test tls_acceptance mysql_tls_fixture_requires_ca_and_reports_cipher -- --nocapture --test-threads=1

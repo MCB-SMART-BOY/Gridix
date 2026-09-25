@@ -840,7 +840,7 @@ pub(crate) const SCOPED_COMMANDS: &[ScopedCommand] = &[
         id: "editor.insert.clear",
         description: "清空 SQL 编辑器",
         category: "SQL 编辑器",
-        default_bindings: &[bind(KeyCode::D, KeyModifiers::SHIFT)],
+        default_bindings: &[bind(KeyCode::D, KeyModifiers::CTRL)],
     },
     ScopedCommand {
         id: "editor.insert.trigger_completion",
@@ -866,7 +866,7 @@ pub(crate) const SCOPED_COMMANDS: &[ScopedCommand] = &[
         category: "SQL 编辑器",
         default_bindings: &[
             bind(KeyCode::ArrowUp, KeyModifiers::SHIFT),
-            bind(KeyCode::K, KeyModifiers::SHIFT),
+            bind(KeyCode::K, KeyModifiers::CTRL),
         ],
     },
     ScopedCommand {
@@ -875,7 +875,7 @@ pub(crate) const SCOPED_COMMANDS: &[ScopedCommand] = &[
         category: "SQL 编辑器",
         default_bindings: &[
             bind(KeyCode::ArrowDown, KeyModifiers::SHIFT),
-            bind(KeyCode::J, KeyModifiers::SHIFT),
+            bind(KeyCode::J, KeyModifiers::CTRL),
         ],
     },
     ScopedCommand {

@@ -12,6 +12,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+permissions:
+  contents: read
+
 
 jobs:
   # ── Stage 1: Quality Gate ──────────────────────────────────────────
@@ -22,15 +25,16 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (2026-09-03)
         with:
+          toolchain: 1.98.1
           components: rustfmt, clippy
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: |
             ~/.cargo/registry
@@ -48,7 +52,7 @@ jobs:
         run: cargo fmt --check
 
       - name: Lint check
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Test
         run: cargo test --workspace --all-features
@@ -59,10 +63,161 @@ jobs:
       - name: Doc links
         run: cargo run --bin check-doc-links
 
+      - name: Dependency policy audit
+        run: |
+          cargo install --git https://github.com/EmbarkStudios/cargo-deny --rev baa02b0a0c54e0578aae6bb7c7181ad00dc290af --locked cargo-deny
+          cargo deny check
+
       - name: Security audit
         run: |
-          cargo install cargo-audit --locked
+          cargo install --git https://github.com/RustSec/rustsec --rev 18e58c28d9e6a542a167f19057c97554ec9b845f --locked cargo-audit
           cargo audit
+
+      - name: Secret scan
+        run: >-
+          docker run --rm
+          -v "${{ github.workspace }}:/repo:ro"
+          docker.io/zricethezav/gitleaks:v8.24.2@sha256:58c180146f495109b851e82278c9cf43d1055b622287a4b6a464087f0c0dbf43
+          detect --source /repo --no-git --config /repo/.gitleaks.toml
+
+      - name: Filesystem vulnerability scan
+        run: >-
+          docker run --rm
+          -v "${{ github.workspace }}:/repo:ro"
+          docker.io/aquasec/trivy:0.60.0@sha256:fea0d6b47bdf422f7b6ffea05db2f34e4eb2be5eca20c9fd461db9c1abd49cc7
+          fs --scanners vuln,secret --skip-dirs /repo/target --skip-dirs /repo/.direnv --exit-code 1 /repo
+
+  # ── Stage 1a: GUI smoke evidence ────────────────────────────────────
+  # This proves a clean X11 launch and preserves a reproducible smoke
+  # artifact. The full SQLite RA2 journey remains manual-required.
+  gui-smoke-evidence:
+    name: GUI Smoke Evidence
+    needs: [quality]
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (2026-09-03)
+        with:
+          toolchain: 1.98.1
+      - name: Install GUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick libgtk-3-dev xauth xdotool xvfb
+      - name: Build GUI and driver
+        run: cargo build --release --bins
+      - name: Capture clean X11 smoke evidence
+        env:
+          GRIDIX_DISPLAY: :99
+          XVFB_MANAGED: "0"
+          GRIDIX_SHOT_DIR: ${{ runner.temp }}/gridix-gui-smoke
+          GRIDIX_DRIVER_STATE: ${{ runner.temp }}/gridix-gui-smoke/driver-state.json
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$GRIDIX_SHOT_DIR"
+          target/release/gridix-driver launch --detach
+          trap 'target/release/gridix-driver quit || true' EXIT
+          target/release/gridix-driver ss initial
+          target/release/gridix-driver assert-file "$GRIDIX_SHOT_DIR/initial.png"
+          target/release/gridix-driver quit
+          cat > "$GRIDIX_SHOT_DIR/manifest.json" <<'EOF'
+          {
+            "mode": "xvfb-smoke",
+            "ra2_status": "manual-required",
+            "artifacts": ["initial.png"],
+            "scope": "clean X11 launch and screenshot only"
+          }
+          EOF
+      - name: Upload GUI smoke evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gridix-gui-smoke-${{ github.sha }}
+          path: ${{ runner.temp }}/gridix-gui-smoke
+          if-no-files-found: error
+
+  # ── Stage 1b: Backend release acceptance ───────────────────────────
+  # These jobs are part of the same workflow so tag releases cannot
+  # bypass PostgreSQL/MySQL typed and cancellation acceptance.
+  postgresql-acceptance:
+    name: PostgreSQL Release Acceptance
+    needs: [quality]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres@sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb
+        env:
+          POSTGRES_PASSWORD: gridix
+          POSTGRES_USER: gridix
+          POSTGRES_DB: gridix_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U gridix -d gridix_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      GRIDIX_TEST_PG_URL: postgres://gridix:gridix@127.0.0.1:5432/gridix_test
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (2026-09-03)
+        with:
+          toolchain: 1.98.1
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev
+      - name: Run PostgreSQL typed and cancellation tests
+        run: |
+          : "${GRIDIX_TEST_PG_URL:?GRIDIX_TEST_PG_URL must be set for release acceptance}"
+          cargo test --test postgres_typed_e2e -- --nocapture --test-threads=1
+          cargo test --test postgres_cancel_integration -- --nocapture --test-threads=1
+
+  mysql-acceptance:
+    name: MySQL Release Acceptance
+    needs: [quality]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql@sha256:85b9bf2e29cf836ecb8c2a15a935d4ba0c606631dff1dd79531a11983c638f2a
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: gridix_test
+          MYSQL_USER: gridix
+          MYSQL_PASSWORD: gridix
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      GRIDIX_TEST_MYSQL_URL: mysql://gridix:gridix@127.0.0.1:3306/gridix_test
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (2026-09-03)
+        with:
+          toolchain: 1.98.1
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev
+      - name: Grant MySQL cancellation observer permissions
+        run: >-
+          docker exec ${{ job.services.mysql.id }}
+          mysql -uroot -proot
+          -e "GRANT PROCESS, CONNECTION_ADMIN ON *.* TO 'gridix'@'%'; FLUSH PRIVILEGES;"
+      - name: Run MySQL typed and cancellation tests
+        run: |
+          : "${GRIDIX_TEST_MYSQL_URL:?GRIDIX_TEST_MYSQL_URL must be set for release acceptance}"
+          cargo test --test mysql_typed_e2e -- --nocapture --test-threads=1
+          cargo test --test mysql_cancel_integration -- --nocapture --test-threads=1
 
   # ── Stage 2: Build ─────────────────────────────────────────────────
   # 仅 push main 或 push tag 时执行（跳过 PR）
@@ -86,15 +241,16 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (2026-09-03)
         with:
+          toolchain: 1.98.1
           targets: ${{ matrix.target }}
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: |
             ~/.cargo/registry
@@ -111,6 +267,15 @@ jobs:
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
+      - name: Smoke-test executable
+        if: matrix.target != 'aarch64-apple-darwin'
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            target/${{ matrix.target }}/release/gridix.exe --version
+          else
+            target/${{ matrix.target }}/release/gridix --version
+          fi
 
       - name: Package
         shell: bash
@@ -123,8 +288,17 @@ jobs:
             tar czvf ../../../gridix-${{ matrix.name }}.tar.gz gridix
           fi
 
+      - name: Verify packaged artifact
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z t "gridix-${{ matrix.name }}.zip"
+          else
+            tar -tzf "gridix-${{ matrix.name }}.tar.gz" >/dev/null
+          fi
+
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gridix-${{ matrix.name }}
           path: gridix-${{ matrix.name }}.*
@@ -138,13 +312,15 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (2026-09-03)
+        with:
+          toolchain: 1.98.1
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: |
             ~/.cargo/registry
@@ -157,8 +333,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev fuse libfuse2
-          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage -o appimagetool
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  appimagetool" | sha256sum --check
           chmod +x appimagetool
+          ./appimagetool --version
           sudo mv appimagetool /usr/local/bin/
 
       - name: Build binary
@@ -181,8 +359,14 @@ jobs:
       - name: Package AppImage
         run: appimagetool gridix.AppDir gridix.AppImage
 
+      - name: Verify AppImage artifact
+        run: |
+          test -s gridix.AppImage
+          file gridix.AppImage
+          ./gridix.AppImage --appimage-version
+
       - name: Upload AppImage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gridix.AppImage
           path: gridix.AppImage
@@ -191,7 +375,7 @@ jobs:
   # 仅 push tag 时执行 — 直接下载 build stage 产物，不重复编译
   release:
     name: GitHub Release
-    needs: [quality, build, build-appimage]
+    needs: [quality, gui-smoke-evidence, postgresql-acceptance, mysql-acceptance, build, build-appimage]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -199,7 +383,7 @@ jobs:
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
           merge-multiple: true
@@ -207,11 +391,12 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum * > SHA256SUMS.txt
+          sha256sum -- * > SHA256SUMS.txt
           cat SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
 
       - name: Publish Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.2
         with:
           files: artifacts/*
           fail_on_unmatched_files: true

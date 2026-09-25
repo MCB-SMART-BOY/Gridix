@@ -217,9 +217,14 @@ pub struct ConnectionConfig {
     /// PostgreSQL SSL 模式
     #[serde(default)]
     pub postgres_ssl_mode: PostgresSslMode,
-    /// CA 证书路径（可选，用于 VerifyCa/VerifyIdentity 模式）
+    /// CA 证书路径（可选，用于 VerifyCa/VerifyFull/VerifyIdentity 模式）
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub ssl_ca_cert: String,
+    /// SSH 隧道后的 TLS server name，仅保存在运行时，不写入配置文件。
+    ///
+    /// `host` 在隧道连接中表示本地 TCP endpoint；TLS 仍必须使用数据库原始主机名。
+    #[serde(skip)]
+    pub tls_server_name: Option<String>,
 }
 
 impl std::fmt::Debug for ConnectionConfig {
@@ -240,6 +245,7 @@ impl std::fmt::Debug for ConnectionConfig {
             .field("mysql_ssl_mode", &self.mysql_ssl_mode)
             .field("postgres_ssl_mode", &self.postgres_ssl_mode)
             .field("ssl_ca_cert", &self.ssl_ca_cert)
+            .field("tls_server_name", &self.tls_server_name)
             .finish()
     }
 }
@@ -258,6 +264,8 @@ impl ConnectionConfig {
             } else {
                 String::new()
             },
+            postgres_ssl_mode: PostgresSslMode::VerifyFull,
+            mysql_ssl_mode: MySqlSslMode::VerifyIdentity,
             ..Default::default()
         }
     }
@@ -273,9 +281,17 @@ impl ConnectionConfig {
             DatabaseType::SQLite => self.database.clone(),
             DatabaseType::PostgreSQL => {
                 let db = database.filter(|s| !s.is_empty()).unwrap_or("postgres");
+                let tls_host = self.tls_server_name.as_deref().unwrap_or(&self.host);
+                let hostaddr = self
+                    .tls_server_name
+                    .as_ref()
+                    .and_then(|_| self.host.parse::<std::net::IpAddr>().ok())
+                    .map(|address| format!(" hostaddr='{}'", address))
+                    .unwrap_or_default();
                 format!(
-                    "host='{}' port={} user='{}' password='{}' dbname='{}'",
-                    escape_pg_param(&self.host),
+                    "host='{}'{} port={} user='{}' password='{}' dbname='{}'",
+                    escape_pg_param(tls_host),
+                    hostaddr,
                     self.port,
                     escape_pg_param(&self.username),
                     escape_pg_param(&self.password),
@@ -303,13 +319,16 @@ impl ConnectionConfig {
 
     fn pool_route_key_material(&self) -> String {
         if self.db_type.requires_network() && self.ssh_config.enabled {
-            format!("ssh:{}", self.ssh_config.tunnel_name())
+            // The tunnel identifies the reusable forwarding path, while the
+            // original TLS name identifies the remote database endpoint.
+            let tls_server_name = self.tls_server_name.as_deref().unwrap_or(&self.host);
+            format!("ssh:{}:{}", self.ssh_config.tunnel_name(), tls_server_name)
         } else {
             format!("direct:{}:{}", self.host, self.port)
         }
     }
 
-    /// 生成唯一的连接标识符（用于连接池缓存，按用户+主机+数据库区分）
+    /// 生成唯一的连接标识符（用于连接池缓存）；SSH 隧道下同时区分隧道身份和原始 TLS server name
     pub fn pool_key(&self) -> String {
         match self.db_type {
             DatabaseType::SQLite => {

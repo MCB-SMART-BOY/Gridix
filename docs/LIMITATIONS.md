@@ -9,14 +9,55 @@ This document distinguishes confirmed product limitations from release-acceptanc
 
 ## SQLite GUI release acceptance
 
-The complete manual SQLite journey has not yet been captured as release evidence:
+The driven X11 journey was exercised on 2026-09-25 with this outcome:
 
-1. Create a SQLite connection and run a query.
-2. Edit and save a Grid cell.
-3. Reopen the database and confirm that the saved value persists.
-4. Export the query result as CSV, JSON, and SQL.
+| Journey step | Evidence | Status |
+|---|---|---|
+| Create a SQLite connection and run a query | result grid showing `SELECT * FROM "items" LIMIT 100` | captured |
+| Edit and save a Grid cell | `gridix-driver assert-reopened acceptance.db items name after` passed against the file on disk | captured |
+| Reopen the database and confirm the saved value | disconnect, reconnect, reload: grid shows `after` with no pending modification | captured |
+| Export the result as CSV, JSON, and SQL | — | not captured |
 
-This is an acceptance-evidence gap, not a confirmed product defect. `gridix-driver` supports only launch, keyboard input, screenshots, quit, and help; it cannot automate text entry, pointer actions, native file dialogs, or this end-to-end journey.
+Step 4 remains open. Export asks for a destination through `rfd::FileDialog::save_file()`,
+which needs a native file chooser (on Linux an `xdg-desktop-portal` file chooser). In a driven
+Xvfb session that dialog is not presented to the application, so no path comes back: no export
+file is written and the 导出数据 dialog stays open without a status message. Capturing the
+three exports requires an operator in a desktop session where the native dialog can appear.
+
+This is an acceptance-evidence boundary, not a confirmed product defect. `gridix-driver`
+now provides deterministic text entry (`type`), window-relative pointer actions (`move` and
+`click`), bounded state-based waits (`wait window` and `wait file`), exact-PID cleanup,
+read-only assertions for exported artifacts (`assert-export`, `assert-file`) and persisted
+SQLite values (`assert-reopened`). For example, a release operator can run:
+```text
+gridix-driver assert-reopened acceptance.db items name after
+gridix-driver assert-export csv acceptance.csv after
+gridix-driver assert-export json acceptance.json '"name":"after"'
+gridix-driver assert-export sql acceptance.sql "'after'" NULL
+```
+
+Those commands only validate the files and database supplied to them; they do not claim that
+the GUI created, edited, reopened, or exported them. Native file dialogs and semantic widget
+state remain outside the driver's scope, so the complete journey still requires an observed GUI
+run with retained screenshots and export artifacts.
+
+For a non-interactive launch, `gridix-driver launch --detach` returns after the window is ready
+and leaves the exact-PID session state for a later `quit`. When the regular `launch` command
+receives stdin EOF, it follows the same keep-alive behavior instead of cleaning up the window
+immediately. A self-managed Xvfb uses a per-run Xauthority cookie in a private 0700 temporary
+directory and the driver removes it on `quit`; install `xauth` with the Xvfb dependencies.
+Set `GRIDIX_DISPLAY` to choose the display used by both a self-managed Xvfb and Gridix/xdotool;
+set `XVFB_MANAGED=1` only when that display is managed outside the driver. These lifecycle
+options make smoke orchestration reproducible but do not expand the driver's scope into full
+SQLite GUI acceptance.
+
+## Export dialog without a native file chooser
+
+When the platform cannot present a native save dialog, confirming `导出数据` leaves the dialog
+open with no status message. `handle_export_with_config` writes `export_status` only after
+`rfd::FileDialog::save_file()` returns a path, so a failed or cancelled file chooser is
+indistinguishable from an export that never ran. This is a feedback gap rather than data loss;
+the workbook state is untouched.
 
 ## MySQL cancellation coverage boundaries
 

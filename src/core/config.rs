@@ -367,13 +367,24 @@ impl WorkbenchConfig {
         let viewport_width = sanitize_dimension(viewport_width, 1200.0);
         let combined_width = self.sidebar.width + self.right_inspector.width;
         if combined_width > viewport_width {
-            self.sidebar.width = self.sidebar.width.min(viewport_width * 0.45);
-            self.right_inspector.width = self.right_inspector.width.min(viewport_width * 0.35);
-            self.sidebar.normalize();
-            self.right_inspector.normalize();
+            self.sidebar.width = clamp_dimension_to_viewport(
+                self.sidebar.width,
+                self.sidebar.min_width,
+                self.sidebar.max_width,
+                viewport_width * SIDEBAR_VIEWPORT_MAX_RATIO,
+            );
+            self.right_inspector.width = clamp_dimension_to_viewport(
+                self.right_inspector.width,
+                self.right_inspector.min_width,
+                self.right_inspector.max_width,
+                viewport_width * RIGHT_INSPECTOR_VIEWPORT_MAX_RATIO,
+            );
         }
     }
 }
+
+const SIDEBAR_VIEWPORT_MAX_RATIO: f32 = 0.45;
+const RIGHT_INSPECTOR_VIEWPORT_MAX_RATIO: f32 = 0.35;
 
 #[derive(Debug, Serialize)]
 pub struct AppConfig {
@@ -525,6 +536,17 @@ fn normalize_dimension_triplet(
         *max_value = default_max;
     }
     *value = sanitize_dimension(*value, default_value).clamp(*min_value, *max_value);
+}
+
+fn clamp_dimension_to_viewport(
+    value: f32,
+    min_value: f32,
+    max_value: f32,
+    viewport_max: f32,
+) -> f32 {
+    let max_value = max_value.min(viewport_max);
+    let min_value = min_value.min(max_value);
+    value.clamp(min_value, max_value)
 }
 
 #[derive(Debug, Deserialize)]
@@ -948,7 +970,7 @@ impl AppConfig {
 mod tests {
     use super::{
         AppConfig, BottomPanelTab, CONFIG_VERSION_WORKBENCH, ResultPlacement, TableOpenMode,
-        WorkbenchActivity, WorkbenchDensity,
+        WorkbenchActivity, WorkbenchConfig, WorkbenchDensity,
     };
 
     #[test]
@@ -1082,6 +1104,17 @@ mod tests {
         assert_eq!(config.workbench.right_inspector.min_width, 260.0);
         assert_eq!(config.workbench.right_inspector.max_width, 480.0);
         assert_eq!(config.workbench.right_inspector.width, 260.0);
+    }
+
+    #[test]
+    fn workbench_widths_fit_tiny_viewport() {
+        let mut config = WorkbenchConfig::default();
+        config.normalize_for_viewport(400.0, 300.0);
+
+        assert!(config.sidebar.width + config.right_inspector.width <= 400.0);
+        assert_eq!(config.sidebar.width, 180.0);
+        assert_eq!(config.right_inspector.width, 140.0);
+        assert_eq!(config.bottom_panel.height, 165.0);
     }
 
     #[test]

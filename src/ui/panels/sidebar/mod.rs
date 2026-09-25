@@ -26,6 +26,7 @@ mod actions;
 mod connection_list;
 mod database_list;
 mod filter_panel;
+mod keyboard;
 mod routine_panel;
 mod state;
 mod table_list;
@@ -49,14 +50,13 @@ use state::{
 use table_list::TableList;
 use trigger_panel::TriggerPanel;
 
+use keyboard::{SidebarKeyAction, detect_key_action};
+
 use crate::core::KeyBindings;
 use crate::data::ConnectionManager;
 use crate::ui::SidebarSection;
+use crate::ui::shortcut_tooltip;
 use crate::ui::styles::{theme_muted_text, theme_selection_fill, theme_subtle_stroke};
-use crate::ui::{
-    LocalShortcut, consume_local_shortcut_with_text_priority, shortcut_tooltip,
-    text_entry_has_priority,
-};
 use egui::{self, Color32, CornerRadius, Key, Vec2};
 
 /// 分割条高度
@@ -65,34 +65,6 @@ const DIVIDER_HEIGHT: f32 = 6.0;
 pub struct Sidebar;
 
 use crate::ui::ColumnFilter;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SidebarKeyAction {
-    ItemPrev,
-    ItemNext,
-    ItemStart,
-    ItemEnd,
-    MoveLeft,
-    MoveRight,
-    Toggle,
-    Delete,
-    Activate,
-    Edit,
-    Rename,
-    Refresh,
-    InspectSchema,
-    AddFilterBelow,
-    AppendFilter,
-    DeleteFilterAlternative,
-    ClearFilters,
-    FilterColumnNext,
-    FilterColumnPrev,
-    FilterOperatorNext,
-    FilterOperatorPrev,
-    FilterLogicToggle,
-    FilterFocusInput,
-    FilterCaseToggle,
-}
 
 impl Sidebar {
     /// 在给定的 UI 区域内显示侧边栏内容
@@ -485,7 +457,7 @@ impl Sidebar {
             return;
         }
 
-        let key_action = Self::detect_key_action(ctx, panel_state);
+        let key_action = detect_key_action(ctx, panel_state);
         let selected_index = match focused_section {
             SidebarSection::Connections => &mut panel_state.selection.connections,
             SidebarSection::Databases => &mut panel_state.selection.databases,
@@ -735,179 +707,6 @@ impl Sidebar {
         if focused_section == SidebarSection::Triggers {
             panel_state.trigger_selected_index = panel_state.selection.triggers;
         }
-    }
-
-    fn detect_key_action(
-        ctx: &egui::Context,
-        panel_state: &mut SidebarPanelState,
-    ) -> Option<SidebarKeyAction> {
-        let text_entry_active = text_entry_has_priority(ctx);
-        ctx.input_mut(|i| {
-            if text_entry_active {
-                panel_state.command_buffer.clear();
-                return None;
-            }
-
-            if i.key_pressed(Key::G) && i.modifiers.is_none() {
-                if panel_state.command_buffer == "g" {
-                    panel_state.command_buffer.clear();
-                    return Some(SidebarKeyAction::ItemStart);
-                }
-
-                panel_state.command_buffer.clear();
-                panel_state.command_buffer.push('g');
-                return None;
-            }
-
-            if i.key_pressed(Key::S) && i.modifiers.is_none() && panel_state.command_buffer == "g" {
-                panel_state.command_buffer.clear();
-                return Some(SidebarKeyAction::InspectSchema);
-            }
-
-            let action = if i.key_pressed(Key::A) && i.modifiers.shift_only() {
-                Some(SidebarKeyAction::AppendFilter)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::SidebarItemNext,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::ItemNext)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::SidebarItemPrev,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::ItemPrev)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::SidebarItemStart,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::ItemStart)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::SidebarItemEnd,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::ItemEnd)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::SidebarMoveLeft,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::MoveLeft)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::SidebarMoveRight,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::MoveRight)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::SidebarToggle,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::Toggle)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::SidebarDelete,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::Delete)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::SidebarActivate,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::Activate)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::SidebarEdit,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::Edit)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::SidebarRename,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::Rename)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::SidebarRefresh,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::Refresh)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::FilterAdd,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::AddFilterBelow)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::FilterDelete,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::DeleteFilterAlternative)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::FilterClearAll,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::ClearFilters)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::FilterColumnNext,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::FilterColumnNext)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::FilterColumnPrev,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::FilterColumnPrev)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::FilterOperatorNext,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::FilterOperatorNext)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::FilterOperatorPrev,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::FilterOperatorPrev)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::FilterLogicToggle,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::FilterLogicToggle)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::FilterFocusInput,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::FilterFocusInput)
-            } else if consume_local_shortcut_with_text_priority(
-                i,
-                LocalShortcut::FilterCaseToggle,
-                text_entry_active,
-            ) {
-                Some(SidebarKeyAction::FilterCaseToggle)
-            } else {
-                None
-            };
-
-            if action.is_some() {
-                panel_state.command_buffer.clear();
-            }
-
-            action
-        })
     }
 
     fn detect_filter_input_exit(ctx: &egui::Context) -> bool {
@@ -1547,5 +1346,129 @@ mod tests {
                 table_name: "users".to_string(),
             })
         );
+    }
+    #[test]
+    fn navigation_moves_within_section_and_transfers_at_edges() {
+        let manager = active_manager_with_tables();
+        let mut panel_state = SidebarPanelState::default();
+        let mut filters = Vec::new();
+
+        let move_down = run_sidebar_key(
+            key_event(Key::J),
+            SidebarSection::Tables,
+            &mut panel_state,
+            2,
+            &manager,
+            &mut filters,
+        );
+        assert_eq!(panel_state.selection.tables, 1);
+        assert!(!move_down.has_action());
+
+        let move_up = run_sidebar_key(
+            key_event(Key::K),
+            SidebarSection::Tables,
+            &mut panel_state,
+            2,
+            &manager,
+            &mut filters,
+        );
+        assert_eq!(panel_state.selection.tables, 0);
+        assert!(!move_up.has_action());
+
+        let previous_section = run_sidebar_key(
+            key_event(Key::K),
+            SidebarSection::Tables,
+            &mut panel_state,
+            2,
+            &manager,
+            &mut filters,
+        );
+        assert_eq!(
+            previous_section.section_change,
+            Some(SidebarSection::Databases)
+        );
+
+        panel_state.selection.tables = 1;
+        let next_section = run_sidebar_key(
+            key_event(Key::J),
+            SidebarSection::Tables,
+            &mut panel_state,
+            2,
+            &manager,
+            &mut filters,
+        );
+        assert_eq!(next_section.section_change, Some(SidebarSection::Filters));
+    }
+
+    #[test]
+    fn panel_heights_are_zero_when_all_panels_are_hidden() {
+        let panel_state = SidebarPanelState {
+            show_connections: false,
+            show_filters: false,
+            show_triggers: false,
+            show_routines: false,
+            ..SidebarPanelState::default()
+        };
+
+        let heights = Sidebar::calculate_panel_heights(&panel_state, 480.0);
+
+        assert_eq!(heights.connections, 0.0);
+        assert_eq!(heights.filters, 0.0);
+        assert_eq!(heights.triggers, 0.0);
+        assert_eq!(heights.routines, 0.0);
+    }
+
+    #[test]
+    fn panel_heights_allocate_visible_space_after_dividers() {
+        let panel_state = SidebarPanelState {
+            show_triggers: true,
+            show_routines: true,
+            connections_ratio: 1.0,
+            filters_ratio: 1.0,
+            triggers_ratio: 1.0,
+            routines_ratio: 1.0,
+            ..SidebarPanelState::default()
+        };
+        let available_height = 400.0;
+
+        let heights = Sidebar::calculate_panel_heights(&panel_state, available_height);
+        let allocated_height = heights.connections
+            + heights.filters
+            + heights.triggers
+            + heights.routines
+            + 3.0 * DIVIDER_HEIGHT;
+
+        assert!((allocated_height - available_height).abs() < f32::EPSILON);
+        assert_eq!(heights.connections, heights.filters);
+        assert_eq!(heights.filters, heights.triggers);
+        assert_eq!(heights.triggers, heights.routines);
+    }
+
+    #[test]
+    fn panel_height_ratio_adjustment_clamps_visible_neighbors() {
+        let mut panel_state = SidebarPanelState::default();
+        let original_connections = panel_state.connections_ratio;
+        let original_filters = panel_state.filters_ratio;
+
+        Sidebar::adjust_panel_ratios(&mut panel_state, 0, 10_000.0);
+
+        assert_eq!(panel_state.connections_ratio, 0.8);
+        assert_eq!(panel_state.filters_ratio, 0.1);
+        assert!(panel_state.connections_ratio > original_connections);
+        assert!(panel_state.filters_ratio < original_filters);
+    }
+
+    #[test]
+    fn hidden_panel_does_not_change_when_adjusting_neighbor_ratio() {
+        let mut panel_state = SidebarPanelState {
+            show_filters: false,
+            ..SidebarPanelState::default()
+        };
+        let original_filters = panel_state.filters_ratio;
+
+        Sidebar::adjust_panel_ratios(&mut panel_state, 0, 25.0);
+
+        assert_eq!(panel_state.filters_ratio, original_filters);
+        assert!(panel_state.connections_ratio > 0.65);
     }
 }

@@ -108,7 +108,7 @@ impl DbManagerApp {
             // 守卫：target 为空时应自动关闭对话框，防止渲染空白内容
             if self.state.pending_delete_target.is_none() {
                 self.state.show_delete_confirm = false;
-                self.state.active_dialog_owner = None;
+                self.active_dialog_owner = None;
                 return results;
             }
             let mut confirm_delete = false;
@@ -469,16 +469,23 @@ impl DbManagerApp {
             self.handle_help_action(ctx, action);
         }
 
-        // 处理快捷键更新
+        // 保存成功后才替换运行时快捷键；失败时保留编辑副本以便重试。
         if let Some(keybindings) = results.updated_keybindings {
-            self.keybindings = keybindings;
-            ui::sync_runtime_local_shortcuts(&self.keybindings);
-            if let Err(e) = self.keybindings.save_to_disk() {
-                self.session
-                    .notifications
-                    .error(format!("快捷键保存失败: {}", e));
-            } else {
-                self.session.notifications.success("快捷键设置已保存");
+            match keybindings.save_to_disk() {
+                Ok(()) => {
+                    self.keybindings = keybindings;
+                    ui::sync_runtime_local_shortcuts(&self.keybindings);
+                    self.session.notifications.success("快捷键设置已保存");
+                }
+                Err(error) => {
+                    let message = format!("快捷键保存失败: {error}");
+                    self.state
+                        .keybindings_dialog_state
+                        .reopen_after_save_failure(keybindings, error);
+                    self.active_dialog_owner = Some(DialogId::Keybindings);
+                    self.session.notifications.error(message);
+                    ctx.request_repaint();
+                }
             }
         }
 

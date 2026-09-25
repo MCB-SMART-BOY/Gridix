@@ -10,14 +10,14 @@ use super::ids::SchemaRevision;
 use super::value::DbTypeInfo;
 
 /// 完整的数据库 schema 快照
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaCatalog {
     pub revision: SchemaRevision,
     pub tables: Vec<TableMetadata>,
 }
 
 /// 单表元数据
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableMetadata {
     pub name: String,
     /// 所在的 schema（PostgreSQL 的 public 等，SQLite 为空）
@@ -29,7 +29,7 @@ pub struct TableMetadata {
 }
 
 /// 列元数据
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnMetadata {
     pub name: String,
     /// 列序号（1-based）
@@ -41,14 +41,14 @@ pub struct ColumnMetadata {
 }
 
 /// 键（主键或唯一键）
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyMetadata {
     pub name: Option<String>,
     pub columns: Vec<String>,
 }
 
 /// 外键
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForeignKeyMetadata {
     pub name: Option<String>,
     pub from_columns: Vec<String>,

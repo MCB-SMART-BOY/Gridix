@@ -729,8 +729,8 @@ Messages:
 - Warnings and informational logs
 
 Explain:
-- Future query plan visualization
-- For now can show text output from EXPLAIN commands
+- Recent plan rows or the latest execution error from Explain queries
+- Reuses the typed `ResultSet` shape; cross-database plan AST visualization remains out of scope
 
 History:
 - Query history list or compact view

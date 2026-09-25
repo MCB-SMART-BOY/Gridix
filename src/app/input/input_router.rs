@@ -3473,4 +3473,86 @@ mod tests {
         assert!(app.state.show_er_diagram);
         assert!(app.state.er_diagram_state.has_pending_fit_to_view());
     }
+    #[test]
+    fn workspace_fallback_prefers_focus_transition_before_workspace_shortcut() {
+        let context = snapshot();
+        let ctx = egui::Context::default();
+        ctx.begin_pass(egui::RawInput::default());
+        let mut action_triggered = |action| action == Action::OpenThemeSelector;
+        let mut focus_transition = || Some(PendingFocusTransition::PrevFocusArea);
+
+        let resolved = ctx.input(|input| {
+            super::resolve_workspace_fallback_action_with(
+                context,
+                input,
+                &mut action_triggered,
+                &mut focus_transition,
+            )
+        });
+        let _ = ctx.end_pass();
+
+        assert_eq!(
+            resolved,
+            Some(ResolvedInputAction::HandledLocal(
+                RouterLocalAction::CommitFocusTransition(PendingFocusTransition::PrevFocusArea)
+            ))
+        );
+    }
+
+    #[test]
+    fn sidebar_filter_text_entry_blocks_focus_cycle_shortcut() {
+        let mut context = snapshot();
+        context.focus_area = FocusArea::Sidebar;
+        context.sidebar_section = SidebarSection::Filters;
+        context.filter_input_has_focus = true;
+
+        assert_eq!(
+            context.focus_scope(),
+            FocusScope::Sidebar(SidebarFocusScope::FiltersInput)
+        );
+        assert_eq!(context.input_mode(), InputMode::TextEntry);
+        assert_eq!(
+            resolve_event_with_keybindings(context, key_event(Key::Tab), &KeyBindings::default()),
+            ResolvedInputAction::NoOp
+        );
+    }
+
+    #[test]
+    fn focus_scope_transitions_preserve_surface_and_text_entry_semantics() {
+        let mut context = snapshot();
+        assert_eq!(
+            context.focus_scope(),
+            FocusScope::Grid(GridFocusScope::Normal)
+        );
+        assert_eq!(context.input_mode(), InputMode::Command);
+
+        context.focus_area = FocusArea::Sidebar;
+        context.sidebar_section = SidebarSection::Filters;
+        assert_eq!(
+            context.focus_scope(),
+            FocusScope::Sidebar(SidebarFocusScope::FiltersList)
+        );
+        assert_eq!(context.input_mode(), InputMode::Command);
+
+        context.filter_input_has_focus = true;
+        assert_eq!(
+            context.focus_scope(),
+            FocusScope::Sidebar(SidebarFocusScope::FiltersInput)
+        );
+        assert_eq!(context.input_mode(), InputMode::TextEntry);
+
+        context.focus_area = FocusArea::SqlEditor;
+        context.focus_sql_editor = true;
+        context.editor_mode = EditorMode::Insert;
+        assert_eq!(
+            context.focus_scope(),
+            FocusScope::Editor(EditorFocusScope::Insert)
+        );
+        assert_eq!(context.input_mode(), InputMode::TextEntry);
+
+        context.has_modal_dialog = true;
+        context.active_dialog = Some(DialogScope::Help);
+        assert_eq!(context.focus_scope(), FocusScope::Dialog(DialogScope::Help));
+        assert_eq!(context.input_mode(), InputMode::Command);
+    }
 }

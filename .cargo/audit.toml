@@ -5,10 +5,13 @@
 #   2. 仅对无法升级的传递依赖在此豁免
 
 [advisories]
-# paste 1.0.15 — egui_dock 的传递依赖（proc-macro，无运行时攻击面）
-# rustls-pemfile 2.2.0 — v3 尚未发布到 crates.io
-# crypto-bigint 0.7.4 — yanked，旧 russh 传递依赖
+# Exception owner: Gridix maintainers.
+# Review by: 2026-12-31. Remove each exception when the transitive dependency is
+# upgraded or an equivalent maintained replacement is available.
+# Scope: unmaintained transitive dependencies only; this does not waive CVEs.
 ignore = [
-    "RUSTSEC-2024-0436",  # paste unmaintained
-    "RUSTSEC-2025-0134",  # rustls-pemfile unmaintained
+    # paste 1.0.15 — egui_dock transitive proc-macro with no runtime attack surface.
+    "RUSTSEC-2024-0436",
+    # rustls-pemfile 2.2.0 — v3 is not available on crates.io yet.
+    "RUSTSEC-2025-0134",
 ]

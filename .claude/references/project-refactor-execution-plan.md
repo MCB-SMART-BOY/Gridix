@@ -20,7 +20,7 @@ The workbench UI redesign is only one track. The full refactor also covers confi
 ## Current Baseline
 
 Package:
-- `gridix` v7.1.0
+- `gridix` v7.2.0
 - Targets: lib, `gridix`, `gridix-driver`, `check-doc-links`
 - Test targets: `core_tests`, `database_tests`, `ddl_tests`, `edge_regression_tests`, `export_tests`, `grid_tests`, `mysql_cancel_integration`, `ssh_tests`, `ui_dialogs_tests`
 
@@ -519,7 +519,7 @@ Steps:
 5. Add empty states:
    - no result
    - no message
-   - explain not available
+   - explain recent plan or error state
    - no active tasks
 6. Query success should set bottom tab to Results when `auto_open_on_query`.
 7. Query failure should set bottom tab to Messages.

@@ -139,6 +139,8 @@ impl DbManagerApp {
     /// 每帧主流程：消息处理、快捷键、对话框、中心区域渲染与动作落地。
     pub(in crate::app) fn run_frame(&mut self, root_ui: &mut egui::Ui) {
         let ctx = root_ui.ctx().clone();
+        let viewport_rect = ctx.input(|input| input.content_rect());
+        self.normalize_workbench_for_viewport(viewport_rect.width(), viewport_rect.height());
         let mut toolbar_actions = ToolbarActions::default();
 
         self.reconcile_active_dialog_owner();
@@ -162,7 +164,7 @@ impl DbManagerApp {
 
         if was_connection_dialog_open && !self.state.show_connection_dialog && !save_connection {
             self.state.editing_connection_name = None;
-            self.state.new_config = ConnectionConfig::default();
+            self.state.new_config = ConnectionConfig::new("", crate::types::DatabaseType::SQLite);
         }
 
         // ===== Workbench shell =====
@@ -1410,6 +1412,22 @@ mod tests {
         let _ = ctx.end_pass();
     }
 
+    fn run_frame_with_viewport(
+        app: &mut DbManagerApp,
+        ctx: &egui::Context,
+        viewport_size: egui::Vec2,
+    ) {
+        let raw_input = RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, viewport_size)),
+            ..Default::default()
+        };
+
+        ctx.begin_pass(raw_input);
+        egui::Area::new(egui::Id::new("render_viewport_test_area"))
+            .show(ctx, |ui| app.run_frame(ui));
+        let _ = ctx.end_pass();
+    }
+
     fn prime_active_connection_with_tables(app: &mut DbManagerApp, tables: &[&str]) {
         let mut connection = Connection::new(ConnectionConfig::new("demo", DatabaseType::SQLite));
         connection.connected = true;
@@ -1516,6 +1534,25 @@ mod tests {
 
         let zero_height = clamped_sql_editor_height(240.0, 0.0);
         assert_eq!(zero_height, 0.0);
+    }
+
+    #[test]
+    fn first_frame_normalizes_restored_layout_to_content_viewport() {
+        let ctx = egui::Context::default();
+        let mut app = DbManagerApp::new_for_test();
+        app.app_config.workbench.sidebar.width = 460.0;
+        app.app_config.workbench.right_inspector.width = 480.0;
+        app.app_config.workbench.bottom_panel.height = 260.0;
+
+        run_frame_with_viewport(&mut app, &ctx, egui::vec2(400.0, 300.0));
+
+        assert_eq!(app.state.sidebar_width, 180.0);
+        assert_eq!(app.state.workbench.right_inspector.width, 140.0);
+        assert_eq!(app.state.workbench.bottom_panel.height, 165.0);
+
+        app.state.sidebar_width = 220.0;
+        run_frame_with_viewport(&mut app, &ctx, egui::vec2(400.0, 300.0));
+        assert_eq!(app.state.sidebar_width, 220.0);
     }
 
     #[test]

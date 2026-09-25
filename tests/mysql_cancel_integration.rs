@@ -2,9 +2,9 @@
 
 use std::time::{Duration, Instant};
 
-use gridix::data::{
-    ConnectionConfig, DatabaseType, DbError, execute_typed, execute_typed_cancellable,
-};
+use gridix::data::{ConnectionConfig, DbError, execute_typed, execute_typed_cancellable};
+mod common;
+use common::mysql_config_from_url;
 use gridix::domain::execution::StatementOutcome;
 use mysql_async::prelude::Queryable;
 use tokio_util::sync::CancellationToken;
@@ -14,30 +14,10 @@ const OBSERVER_TIMEOUT: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 fn parse_mysql_url(url: &str) -> Result<ConnectionConfig, &'static str> {
-    let rest = url
-        .strip_prefix("mysql://")
-        .ok_or("MySQL URL must start with mysql://")?;
-    let (user_info, rest) = rest
-        .split_once('@')
-        .ok_or("MySQL URL must include credentials")?;
-    let (user, password) = user_info.split_once(':').unwrap_or((user_info, ""));
-    let (host_port, database) = rest
-        .split_once('/')
-        .ok_or("MySQL URL must include database")?;
-    let (host, port_str) = host_port.split_once(':').unwrap_or((host_port, "3306"));
-    let port = port_str
-        .parse()
-        .map_err(|_| "MySQL URL port must be a u16")?;
-
-    Ok(ConnectionConfig {
-        db_type: DatabaseType::MySQL,
-        host: host.to_string(),
-        port,
-        username: user.to_string(),
-        password: password.to_string(),
-        database: database.to_string(),
-        ..Default::default()
-    })
+    if !url.starts_with("mysql://") {
+        return Err("MySQL URL must start with mysql://");
+    }
+    Ok(mysql_config_from_url(url))
 }
 
 async fn marker_is_visible(

@@ -534,12 +534,8 @@ async fn cancel_pg_query(
             .cancel_query(tokio_postgres::NoTls)
             .await
             .map_err(|e| DbError::Connection(format!("发送 PostgreSQL 取消请求失败: {}", e))),
-        PostgresSslMode::Prefer => token
-            .cancel_query(build_pg_tls_connector(config, true)?)
-            .await
-            .map_err(|e| DbError::Connection(format!("发送 PostgreSQL 取消请求失败: {}", e))),
         PostgresSslMode::Require | PostgresSslMode::VerifyCa | PostgresSslMode::VerifyFull => token
-            .cancel_query(build_pg_tls_connector(config, false)?)
+            .cancel_query(build_pg_tls_connector(config)?)
             .await
             .map_err(|e| DbError::Connection(format!("发送 PostgreSQL 取消请求失败: {}", e))),
     }
@@ -790,10 +786,11 @@ fn decode_pg_numeric(raw: PgNumericRaw) -> Result<String, String> {
     if raw.0.len() < HEADER_BYTES || !raw.0.len().is_multiple_of(2) {
         return Err("invalid NUMERIC binary payload length".into());
     }
-    let words: Vec<u16> = raw
-        .0
-        .chunks_exact(2)
-        .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+    let (chunks, remainder) = raw.0.as_chunks::<2>();
+    debug_assert!(remainder.is_empty());
+    let words: Vec<u16> = chunks
+        .iter()
+        .map(|chunk| u16::from_be_bytes(*chunk))
         .collect();
     let digit_count = usize::from(words[0]);
     if words.len() != digit_count + HEADER_BYTES / 2 {

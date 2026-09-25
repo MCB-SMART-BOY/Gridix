@@ -97,7 +97,7 @@ impl GridWorkspaceStore {
 /// # 迁移状态
 ///
 /// 架构目标已达成：session (~28 fields) + state (~57 fields) 聚合
-/// 当前：11 字段（迁移完成）
+/// 当前：12 字段（迁移完成）
 pub struct DbManagerApp {
     pub session: crate::session::Session,
     pub state: crate::state::UiState,
@@ -107,9 +107,11 @@ pub struct DbManagerApp {
     dock_state: egui_dock::DockState<ui::dock_tabs::DockTab>,
     keybindings: KeyBindings,
     command_palette_state: CommandPaletteState,
+    active_dialog_owner: Option<dialogs::host::DialogId>,
     pending_toggle_dark_mode: bool,
     config_dirty: bool,
     last_config_save: std::time::Instant,
+    should_normalize_workbench_for_viewport: bool,
 }
 
 // ===== SQL 编辑器访问方法（委托给 tab_manager，消除 self.sql 双源）=====
@@ -165,6 +167,32 @@ impl DbManagerApp {
             self.config_dirty = false;
             self.last_config_save = std::time::Instant::now();
         }
+    }
+
+    pub(in crate::app) fn normalize_workbench_for_viewport(
+        &mut self,
+        viewport_width: f32,
+        viewport_height: f32,
+    ) {
+        if !self.should_normalize_workbench_for_viewport
+            || !viewport_width.is_finite()
+            || viewport_width <= 0.0
+            || !viewport_height.is_finite()
+            || viewport_height <= 0.0
+        {
+            return;
+        }
+
+        let mut workbench = self.app_config.workbench.clone();
+        workbench.normalize_for_viewport(viewport_width, viewport_height);
+
+        self.state.show_sidebar = workbench.sidebar.visible;
+        self.state.sidebar_width = workbench.sidebar.width;
+        self.state.workbench.primary_sidebar.visible = workbench.sidebar.visible;
+        self.state.workbench.primary_sidebar.width = workbench.sidebar.width;
+        self.state.workbench.bottom_panel.height = workbench.bottom_panel.height;
+        self.state.workbench.right_inspector.width = workbench.right_inspector.width;
+        self.should_normalize_workbench_for_viewport = false;
     }
 }
 
@@ -250,9 +278,11 @@ impl DbManagerApp {
             dock_state,
             keybindings,
             command_palette_state: CommandPaletteState::default(),
+            active_dialog_owner: None,
             pending_toggle_dark_mode: false,
             config_dirty: false,
             last_config_save: std::time::Instant::now(),
+            should_normalize_workbench_for_viewport: true,
         };
         app.apply_workbench_activity_to_sidebar_panels();
         app.refresh_welcome_environment_status();
@@ -513,7 +543,7 @@ impl eframe::App for DbManagerApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{GridWorkspaceId, GridWorkspaceStore};
+    use super::{DbManagerApp, GridWorkspaceId, GridWorkspaceStore};
     use crate::ui::DataGridState;
 
     fn workspace(
@@ -672,5 +702,25 @@ mod tests {
 
         assert!(store.load(&keep).is_some());
         assert!(store.load(&drop).is_none());
+    }
+
+    #[test]
+    fn initial_workbench_normalization_updates_runtime_without_mutating_config() {
+        let mut app = DbManagerApp::new_for_test();
+        app.app_config.workbench.sidebar.width = 460.0;
+        app.app_config.workbench.right_inspector.width = 480.0;
+        app.app_config.workbench.bottom_panel.height = 260.0;
+
+        app.normalize_workbench_for_viewport(0.0, 300.0);
+        assert_eq!(app.state.sidebar_width, 280.0);
+
+        app.normalize_workbench_for_viewport(400.0, 300.0);
+
+        assert_eq!(app.state.sidebar_width, 180.0);
+        assert_eq!(app.state.workbench.right_inspector.width, 140.0);
+        assert_eq!(app.state.workbench.bottom_panel.height, 165.0);
+        assert_eq!(app.app_config.workbench.sidebar.width, 460.0);
+        assert_eq!(app.app_config.workbench.right_inspector.width, 480.0);
+        assert_eq!(app.app_config.workbench.bottom_panel.height, 260.0);
     }
 }

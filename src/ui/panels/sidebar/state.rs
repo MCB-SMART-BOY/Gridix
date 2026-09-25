@@ -855,4 +855,21 @@ mod tests {
         );
         assert_eq!(workflow.filter_workspace, SidebarFilterWorkspaceMode::List);
     }
+    #[test]
+    fn focusing_unavailable_section_exits_filter_input_mode_without_effect() {
+        let mut workflow = SidebarWorkflowState {
+            edge_transfer: true,
+            filter_workspace: SidebarFilterWorkspaceMode::Input,
+        };
+
+        assert_eq!(
+            reduce(
+                &mut workflow,
+                SidebarWorkflowAction::FocusSection(SidebarSection::Triggers),
+                flow(true, true, false, false, true, true),
+            ),
+            None
+        );
+        assert_eq!(workflow.filter_workspace, SidebarFilterWorkspaceMode::List);
+    }
 }

@@ -1256,7 +1256,8 @@ impl DbManagerApp {
                 Vec::new()
             }
             AppAction::OpenConnectionDialog => {
-                self.state.new_config = crate::data::ConnectionConfig::default();
+                self.state.new_config =
+                    crate::data::ConnectionConfig::new("", crate::types::DatabaseType::SQLite);
                 self.state.editing_connection_name = None;
                 self.open_dialog(DialogId::Connection);
                 Vec::new()

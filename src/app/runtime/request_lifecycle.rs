@@ -63,7 +63,9 @@ impl DbManagerApp {
             self.state.search_text = tab.search_text.clone();
             self.state.search_column = tab.search_column.clone();
             self.active_grid_workspace_enabled = tab.uses_grid_workspace;
-            query_bottom_panel_tab = if tab.last_error.is_some() {
+            query_bottom_panel_tab = if self.state.explain_state.should_show_for_tab(&tab.id) {
+                Some(crate::core::BottomPanelTab::Explain)
+            } else if tab.last_error.is_some() {
                 Some(crate::core::BottomPanelTab::Messages)
             } else if tab.result_set.is_some() {
                 Some(crate::core::BottomPanelTab::Results)
@@ -137,7 +139,6 @@ impl DbManagerApp {
                 .user_cancelled_query_requests
                 .remove(&request_id);
         }
-        self.state.pending_drop_requests.remove(&request_id);
         self.clear_tab_pending_request(request_id);
         self.session.refresh_executing_flag();
     }

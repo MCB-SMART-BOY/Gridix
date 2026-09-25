@@ -16,9 +16,16 @@ use crate::ui;
 use super::DbManagerApp;
 use super::message::Message;
 
-fn prepare_tab_for_query_execution(tab: &mut crate::ui::QueryTab, sql: &str, request_id: u64) {
+fn prepare_tab_for_query_execution(
+    tab: &mut crate::ui::QueryTab,
+    sql: &str,
+    request_id: u64,
+    preserve_result: bool,
+) {
     tab.sql = sql.to_string();
-    tab.result_set = None;
+    if !preserve_result {
+        tab.result_set = None;
+    }
     tab.modified = false;
     tab.executing = true;
     tab.last_message = None;
@@ -125,7 +132,7 @@ impl DbManagerApp {
             let tx = self.session.tx.clone();
             let request_id = self.session.next_connect_request_id();
 
-            // TaskRegistry 注册（双通道迁移）
+            // TaskRegistry 注册；完成事件统一走 RuntimeEvent。
             let key = crate::session::task_registry::OperationKey::Connect(connection_id);
             let (task_id, _cancel_token) = self.session.task_registry.register(
                 key.clone(),
@@ -137,9 +144,6 @@ impl DbManagerApp {
                 .pending_connect_requests
                 .insert(name.clone(), request_id);
             self.session.pending_database_requests.remove(&name);
-            self.session
-                .pending_active_tables_reload_requests
-                .remove(&name);
             self.session.pending_triggers_request = None;
             self.session.pending_routines_request = None;
             self.state.sidebar_panel_state.loading_triggers = false;
@@ -233,7 +237,7 @@ impl DbManagerApp {
     ///
     /// 与 `connect()`/`select_database()` 不同：不发"已连接/已选库"提示，
     /// 只在回包里静默刷新表列表与 autocomplete，避免每次 DDL 都弹连接提示。
-    /// 复用 `next_connect_request_id` 与专用的 active-table reload stale-guard。
+    /// TaskRegistry 的 `OperationKey::ActiveTables` 负责丢弃过期回包。
     pub(in crate::app) fn reload_active_tables(&mut self) {
         let Some(active_name) = self.session.manager.active.clone() else {
             return;
@@ -242,16 +246,20 @@ impl DbManagerApp {
             return;
         };
         let config = conn.config.clone();
+        let connection_id = conn.id;
         // SQLite 用文件路径作为库名；多库用 selected_database。
         let database = conn
             .selected_database
             .clone()
             .unwrap_or_else(|| config.database.clone());
         let tx = self.session.tx.clone();
-        let request_id = self.session.next_connect_request_id();
-        self.session
-            .pending_active_tables_reload_requests
-            .insert(active_name.clone(), request_id);
+        let key = crate::session::task_registry::OperationKey::ActiveTables {
+            connection: connection_id,
+        };
+        let (task_id, _cancel_token) = self.session.task_registry.register(
+            key.clone(),
+            crate::session::task_registry::TaskKind::ActiveTables,
+        );
 
         self.session.runtime.spawn(async move {
             use tokio::time::{Duration, timeout};
@@ -266,12 +274,17 @@ impl DbManagerApp {
                 Ok(Err(e)) => Err(e.to_string()),
                 Err(_) => Err(format!("刷新表列表超时 ({}秒)", timeout_secs)),
             };
+            use crate::session::runtime_event::{RuntimeEvent, RuntimeOutcome};
             if tx
-                .send(Message::ActiveTablesReloaded(
-                    active_name,
-                    request_id,
-                    tables_result,
-                ))
+                .send(Message::RuntimeEvent(RuntimeEvent {
+                    task_id,
+                    key,
+                    outcome: RuntimeOutcome::ActiveTablesReloaded {
+                        connection: connection_id,
+                        conn_name: active_name,
+                        result: tables_result,
+                    },
+                }))
                 .is_err()
             {
                 tracing::warn!("无法发送表列表刷新结果：接收端已关闭");
@@ -295,9 +308,6 @@ impl DbManagerApp {
         self.session
             .pending_database_requests
             .insert(active_name.clone(), (database.clone(), request_id));
-        self.session
-            .pending_active_tables_reload_requests
-            .remove(&active_name);
         self.session.pending_triggers_request = None;
         self.session.pending_routines_request = None;
         self.state.sidebar_panel_state.loading_triggers = false;
@@ -305,13 +315,13 @@ impl DbManagerApp {
         self.state.sidebar_panel_state.clear_triggers();
         self.state.sidebar_panel_state.clear_routines();
         self.session.refresh_connecting_flag();
-        // TaskRegistry 注册（双通道迁移）
+        // TaskRegistry 注册；完成事件统一走 RuntimeEvent。
         let db_key = crate::session::task_registry::OperationKey::SelectDatabase {
             connection: connection_id,
         };
         let (db_task_id, _cancel_token) = self.session.task_registry.register(
             db_key.clone(),
-            crate::session::task_registry::TaskKind::Connect,
+            crate::session::task_registry::TaskKind::SelectDatabase,
         );
 
         // 为 catalog 加载克隆必要值（第一个 spawn 会 move 它们）
@@ -336,27 +346,18 @@ impl DbManagerApp {
                 )),
             };
 
-            // RuntimeEvent 路径
             use crate::session::runtime_event::{RuntimeEvent, RuntimeOutcome};
-            let _ = tx.send(Message::RuntimeEvent(RuntimeEvent {
-                task_id: db_task_id,
-                key: db_key,
-                outcome: RuntimeOutcome::DatabaseSelected {
-                    connection: connection_id,
-                    conn_name: active_name.clone(),
-                    database: database.clone(),
-                    result: tables_result.clone(),
-                },
-            }));
-
-            // Legacy path
             if tx
-                .send(Message::DatabaseSelected(
-                    active_name,
-                    database,
-                    request_id,
-                    tables_result,
-                ))
+                .send(Message::RuntimeEvent(RuntimeEvent {
+                    task_id: db_task_id,
+                    key: db_key,
+                    outcome: RuntimeOutcome::DatabaseSelected {
+                        connection: connection_id,
+                        conn_name: active_name,
+                        database,
+                        result: tables_result,
+                    },
+                }))
                 .is_err()
             {
                 tracing::warn!("无法发送数据库选择结果：接收端已关闭");
@@ -415,9 +416,6 @@ impl DbManagerApp {
         self.cancel_queries_for_connection(&name);
         self.session.pending_connect_requests.remove(&name);
         self.session.pending_database_requests.remove(&name);
-        self.session
-            .pending_active_tables_reload_requests
-            .remove(&name);
         // Only clear metadata requests belonging to the disconnecting connection
         if self
             .session
@@ -435,9 +433,6 @@ impl DbManagerApp {
         {
             self.session.pending_routines_request = None;
         }
-        self.state
-            .pending_drop_requests
-            .retain(|_, (conn_name, _)| conn_name != &name);
         self.remove_grid_workspaces_for_connection(&name);
         if self.session.manager.active.as_deref() == Some(&name) {
             self.session.manager.active = None;
@@ -531,10 +526,19 @@ impl DbManagerApp {
         }
 
         let config = conn.config.clone();
+        let connection_id = conn.id;
         let tx = self.session.tx.clone();
         let connection_name = connection_name.to_string();
         let database_name = database.to_string();
         let remove_active_pool = conn.selected_database.as_deref() == Some(database);
+        let key = crate::session::task_registry::OperationKey::DatabaseDelete {
+            connection: connection_id,
+            database: database_name.clone(),
+        };
+        let (task_id, _cancel_token) = self.session.task_registry.register(
+            key.clone(),
+            crate::session::task_registry::TaskKind::DatabaseDelete,
+        );
 
         self.session.runtime.spawn(async move {
             let result = drop_database(&config, &database_name)
@@ -543,12 +547,18 @@ impl DbManagerApp {
             if result.is_ok() && remove_active_pool {
                 crate::data::POOL_MANAGER.remove_pool(&config).await;
             }
+            use crate::session::runtime_event::{RuntimeEvent, RuntimeOutcome};
             if tx
-                .send(Message::DatabaseDropped(
-                    connection_name,
-                    database_name,
-                    result,
-                ))
+                .send(Message::RuntimeEvent(RuntimeEvent {
+                    task_id,
+                    key,
+                    outcome: RuntimeOutcome::DatabaseDropped {
+                        connection: connection_id,
+                        conn_name: connection_name,
+                        database: database_name,
+                        result,
+                    },
+                }))
                 .is_err()
             {
                 tracing::warn!("无法发送数据库删除结果：接收端已关闭");
@@ -566,6 +576,7 @@ impl DbManagerApp {
             self.session.notifications.warning("请先连接数据库");
             return;
         }
+        let connection_id = conn.id;
         let target_connection = conn.config.name.clone();
 
         let use_backticks = matches!(conn.config.db_type, crate::data::DatabaseType::MySQL);
@@ -580,14 +591,32 @@ impl DbManagerApp {
         let tx = self.session.tx.clone();
         let table_name = table.to_string();
         let sql = format!("DROP TABLE {};", quoted_table);
+        let key = crate::session::task_registry::OperationKey::TableDelete {
+            connection: connection_id,
+            table: table_name.clone(),
+        };
+        let (task_id, _cancel_token) = self.session.task_registry.register(
+            key.clone(),
+            crate::session::task_registry::TaskKind::TableDelete,
+        );
 
         self.session.runtime.spawn(async move {
             let result = execute_typed(&config, &sql)
                 .await
                 .map(|_| ())
                 .map_err(|e| e.to_string());
+            use crate::session::runtime_event::{RuntimeEvent, RuntimeOutcome};
             if tx
-                .send(Message::TableDropped(target_connection, table_name, result))
+                .send(Message::RuntimeEvent(RuntimeEvent {
+                    task_id,
+                    key,
+                    outcome: RuntimeOutcome::TableDropped {
+                        connection: connection_id,
+                        conn_name: target_connection,
+                        table: table_name,
+                        result,
+                    },
+                }))
                 .is_err()
             {
                 tracing::warn!("无法发送表删除结果：接收端已关闭");
@@ -637,23 +666,28 @@ impl DbManagerApp {
         self.session.history_index = None;
 
         self.session.executing = true;
-        self.clear_result();
+        let is_explain = crate::domain::explain::is_explain_sql(&sql);
+        if !is_explain {
+            self.clear_result();
+        }
         self.session.last_query_time_ms = None;
         let request_id = self.session.next_query_request_id();
         let mut target_tab_id = String::new();
 
         // 同步 SQL 到当前 Tab 并设置执行状态
-        let mut previous_request_id = None;
         if let Some(tab) = self.session.tab_manager.get_active_mut() {
-            previous_request_id = tab.pending_request_id.take();
-            prepare_tab_for_query_execution(tab, &sql, request_id);
+            tab.pending_request_id.take();
+            prepare_tab_for_query_execution(tab, &sql, request_id, is_explain);
             target_tab_id = tab.id.clone();
         }
-        // TaskRegistry::register() 已在下方自动 supersede 同一 key 的旧任务
-        if let Some(_prev_request_id) = previous_request_id {
-            // 旧 request_id 仅用于清理 state.pending_drop_requests
-            self.state.pending_drop_requests.remove(&_prev_request_id);
+        if is_explain {
+            self.state
+                .explain_state
+                .begin(target_tab_id.clone(), sql.clone());
+        } else {
+            self.state.explain_state.hide_for_tab(&target_tab_id);
         }
+        // TaskRegistry::register() 已在下方自动 supersede 同一 key 的旧任务
 
         // 使用 QueryTab 的稳定 UUID 作为 DocumentId，保证同一 Tab 的连续查询
         // 能被 TaskRegistry 正确去重（同一 key 的新任务 supersede 旧任务）
@@ -1048,7 +1082,7 @@ mod tests {
             completeness: crate::domain::result::ResultCompleteness::Complete,
         }));
 
-        prepare_tab_for_query_execution(&mut tab, "select 2", 8);
+        prepare_tab_for_query_execution(&mut tab, "select 2", 8, false);
 
         assert_eq!(tab.sql, "select 2");
         assert!(tab.result_set.is_none());
@@ -1058,6 +1092,20 @@ mod tests {
         assert!(tab.executing);
         assert_eq!(tab.pending_request_id, Some(8));
         assert!(!tab.modified);
+    }
+
+    #[test]
+    fn prepare_tab_for_explain_preserves_stale_result() {
+        let mut tab = QueryTab::from_sql("select 1");
+        tab.result_set = Some(std::sync::Arc::new(
+            crate::domain::result::ResultSet::empty(),
+        ));
+
+        prepare_tab_for_query_execution(&mut tab, "EXPLAIN select 1", 9, true);
+
+        assert!(tab.result_set.is_some());
+        assert!(tab.executing);
+        assert_eq!(tab.pending_request_id, Some(9));
     }
 
     #[test]

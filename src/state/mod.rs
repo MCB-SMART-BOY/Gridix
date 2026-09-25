@@ -4,6 +4,7 @@
 //! 更多字段将在后续提交中逐步迁移。
 
 use crate::core::{HighlightColors, ThemeManager};
+use crate::domain::explain::ExplainState;
 use crate::ui::{CreateDbDialogState, CreateUserDialogState, DdlDialogState, HelpState};
 use crate::ui::{
     DataGridState, ERDiagramState, EditorMode, ExportConfig, FocusArea, ImportState, SidebarSection,
@@ -70,12 +71,11 @@ pub struct UiState {
     pub(crate) welcome_status: crate::ui::WelcomeStatusSummary,
     pub welcome_setup_target: crate::data::DatabaseType,
     pub welcome_setup_action_index: usize,
-    pub pending_drop_requests: std::collections::HashMap<u64, (String, String)>,
     pub pending_filter_input_focus: Option<usize>,
-    pub(crate) active_dialog_owner: Option<crate::app::dialogs::host::DialogId>,
     pub(crate) grid_state: DataGridState,
     pub(crate) sidebar_panel_state: SidebarPanelState,
     pub(crate) er_diagram_state: ERDiagramState,
+    pub(crate) explain_state: ExplainState,
     pub(crate) workbench: WorkbenchState,
 }
 
@@ -127,6 +127,7 @@ impl Default for UiState {
             selected_cell: None,
             toolbar_index: 0,
             help_scroll_offset: 0.0,
+            explain_state: ExplainState::default(),
             grid_state: DataGridState::default(),
             selected_table: None,
             new_config: crate::data::ConnectionConfig::default(),
@@ -136,11 +137,50 @@ impl Default for UiState {
             welcome_status: crate::ui::WelcomeStatusSummary::default(),
             welcome_setup_target: crate::data::DatabaseType::SQLite,
             welcome_setup_action_index: 0,
-            pending_drop_requests: std::collections::HashMap::new(),
             pending_filter_input_focus: None,
-            active_dialog_owner: None,
             sidebar_panel_state: SidebarPanelState::default(),
             workbench: WorkbenchState::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExplainState;
+
+    #[test]
+    fn explain_state_records_success_and_targets_query_tab() {
+        let mut state = ExplainState::default();
+        state.record_success(
+            "tab-1".to_string(),
+            "EXPLAIN SELECT 1".to_string(),
+            None,
+            12,
+        );
+
+        assert_eq!(state.query_tab_id.as_deref(), Some("tab-1"));
+        assert_eq!(state.sql.as_deref(), Some("EXPLAIN SELECT 1"));
+        assert!(state.result.is_none());
+        assert!(state.error.is_none());
+        assert_eq!(state.elapsed_ms, Some(12));
+        assert!(!state.is_running);
+        assert!(state.should_show_for_tab("tab-1"));
+        assert!(!state.should_show_for_tab("tab-2"));
+    }
+
+    #[test]
+    fn explain_state_hides_for_normal_query_without_dropping_recent_data() {
+        let mut state = ExplainState::default();
+        state.record_error(
+            "tab-1".to_string(),
+            "EXPLAIN SELECT 1".to_string(),
+            "syntax error".to_string(),
+            4,
+        );
+
+        state.hide_for_tab("tab-1");
+
+        assert_eq!(state.error.as_deref(), Some("syntax error"));
+        assert!(!state.should_show_for_tab("tab-1"));
     }
 }

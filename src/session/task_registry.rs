@@ -25,6 +25,18 @@ pub enum OperationKey {
         connection: ConnectionId,
         scope: MetadataScope,
     },
+    ActiveTables {
+        connection: ConnectionId,
+    },
+    DatabaseDelete {
+        connection: ConnectionId,
+        database: String,
+    },
+    TableDelete {
+        connection: ConnectionId,
+        table: String,
+    },
+    Import,
     GridSave {
         table_view: TableViewId,
     },
@@ -51,8 +63,13 @@ pub enum MetadataScope {
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub enum TaskKind {
     Connect,
+    SelectDatabase,
     Query,
     Metadata,
+    ActiveTables,
+    DatabaseDelete,
+    TableDelete,
+    Import,
     GridSave,
     Transfer,
     ErLoad,
@@ -131,11 +148,15 @@ impl TaskRegistry {
         self.tasks.insert(id, entry);
     }
 
-    /// 标记任务完成
+    /// 标记任务完成并撤销其 latest 映射。
+    ///
+    /// `register()` 允许任务在异步句柄 attach 前发送回包；完成时先撤销
+    /// latest，避免 cleanup 把尚未 attach 的新任务误判为孤儿。
     pub fn complete(&mut self, id: TaskId) {
         if let Some(entry) = self.tasks.get_mut(&id) {
             entry.state = TaskState::Completed;
         }
+        self.latest.retain(|_, task_id| *task_id != id);
     }
 
     /// 取消任务
@@ -182,9 +203,7 @@ impl TaskRegistry {
     pub fn cleanup(&mut self) {
         self.tasks
             .retain(|_, entry| matches!(entry.state, TaskState::Running));
-        // 清理 latest 中指向已移除任务的条目
-        self.latest
-            .retain(|_, task_id| self.tasks.contains_key(task_id));
+        // `complete()`/`cancel_by_key()` 已处理 latest；未 attach 的运行任务仍需保留映射。
     }
 
     fn request_cancellation(entry: &mut TaskEntry) {
@@ -244,6 +263,23 @@ mod tests {
             "completed task1 should not be current after task2 registered"
         );
         assert!(registry.is_current(&key, task2), "task2 should be current");
+    }
+
+    #[test]
+    fn cleanup_preserves_new_unattached_task_after_stale_completion() {
+        let mut registry = TaskRegistry::default();
+        let key = OperationKey::Import;
+
+        let (stale_task, _) = registry.register(key.clone(), TaskKind::Import);
+        let (current_task, _) = registry.register(key.clone(), TaskKind::Import);
+
+        registry.complete(stale_task);
+        registry.cleanup();
+        assert!(registry.is_current(&key, current_task));
+
+        registry.complete(current_task);
+        registry.cleanup();
+        assert_eq!(registry.task_id_for_key(&key), None);
     }
 
     #[test]

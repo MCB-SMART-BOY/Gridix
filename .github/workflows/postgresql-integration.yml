@@ -8,6 +8,9 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+permissions:
+  contents: read
+
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,7 +23,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres@sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb
         env:
           POSTGRES_PASSWORD: gridix
           POSTGRES_USER: gridix
@@ -33,17 +36,21 @@ jobs:
           --health-timeout=5s
           --health-retries=12
 
-    env:
       GRIDIX_TEST_PG_URL: postgres://gridix:gridix@127.0.0.1:5432/gridix_test
+      GRIDIX_TEST_PG_SSL_MODE: disable
+      GRIDIX_TEST_PG_CA_CERT: ""
+      GRIDIX_TEST_PG_TLS_SERVER_NAME: ""
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (2026-09-03)
+        with:
+          toolchain: 1.98.1
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: |
             ~/.cargo/registry
@@ -60,5 +67,6 @@ jobs:
       - name: Run PostgreSQL typed integration tests
         run: |
           : "${GRIDIX_TEST_PG_URL:?GRIDIX_TEST_PG_URL must be set for release acceptance}"
+          : "${GRIDIX_TEST_PG_SSL_MODE:?GRIDIX_TEST_PG_SSL_MODE must be set for release acceptance}"
           cargo test --test postgres_typed_e2e -- --nocapture --test-threads=1
           cargo test --test postgres_cancel_integration -- --nocapture --test-threads=1

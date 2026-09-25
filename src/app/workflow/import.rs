@@ -97,6 +97,11 @@ impl DbManagerApp {
             return;
         };
         let config = conn.config.clone();
+        let key = crate::session::task_registry::OperationKey::Import;
+        let (task_id, _cancel_token) = self
+            .session
+            .task_registry
+            .register(key.clone(), crate::session::task_registry::TaskKind::Import);
 
         self.close_dialog(DialogId::Import);
 
@@ -116,7 +121,15 @@ impl DbManagerApp {
                     .map_err(|e| e.to_string());
             let elapsed_ms = start.elapsed().as_millis() as u64;
 
-            if tx.send(Message::ImportDone(result, elapsed_ms)).is_err() {
+            use crate::session::runtime_event::{RuntimeEvent, RuntimeOutcome};
+            if tx
+                .send(Message::RuntimeEvent(RuntimeEvent {
+                    task_id,
+                    key,
+                    outcome: RuntimeOutcome::ImportDone { result, elapsed_ms },
+                }))
+                .is_err()
+            {
                 tracing::warn!("无法发送导入结果：接收端已关闭");
             }
         });

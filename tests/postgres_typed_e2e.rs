@@ -16,8 +16,12 @@
 
 use gridix::core::constants;
 use gridix::data::{
-    ConnectionConfig, DatabaseType, apply_mutations, execute_typed, load_schema_catalog,
+    ConnectionConfig, POOL_MANAGER, apply_mutations, execute_typed, load_schema_catalog,
 };
+use std::sync::Arc;
+mod common;
+use common::pg_config_from_env;
+
 use gridix::domain::execution::{ExecutionOutcome, StatementOutcome};
 use gridix::domain::ids::SchemaRevision;
 use gridix::domain::mutation::{
@@ -29,52 +33,7 @@ use gridix::domain::value::DbValue;
 // ── helpers ──
 
 fn pg_config() -> Option<ConnectionConfig> {
-    let url = std::env::var("GRIDIX_TEST_PG_URL").ok()?;
-    Some(parse_pg_url(&url))
-}
-
-/// Parse a `postgres://user:pass@host:port/dbname` URL into ConnectionConfig
-fn parse_pg_url(url: &str) -> ConnectionConfig {
-    // Strip scheme: postgres:// or postgresql://
-    let rest = url
-        .strip_prefix("postgresql://")
-        .or_else(|| url.strip_prefix("postgres://"))
-        .unwrap_or(url);
-
-    // Split at first '/' for database
-    let (authority, database) = match rest.split_once('/') {
-        Some((auth, db)) => (auth, db.to_string()),
-        None => (rest, String::new()),
-    };
-
-    // Split authority: user[:pass]@host[:port]
-    let (userinfo, hostport) = match authority.split_once('@') {
-        Some((ui, hp)) => (Some(ui), hp),
-        None => (None, authority),
-    };
-
-    let (username, password) = match userinfo {
-        Some(ui) => match ui.split_once(':') {
-            Some((u, p)) => (u.to_string(), p.to_string()),
-            None => (ui.to_string(), String::new()),
-        },
-        None => (String::new(), String::new()),
-    };
-
-    let (host, port) = match hostport.split_once(':') {
-        Some((h, p)) => (h.to_string(), p.parse::<u16>().unwrap_or(5432)),
-        None => (hostport.to_string(), 5432),
-    };
-
-    ConnectionConfig {
-        db_type: DatabaseType::PostgreSQL,
-        host,
-        port,
-        username,
-        password,
-        database,
-        ..Default::default()
-    }
+    pg_config_from_env()
 }
 
 fn col(name: &str) -> ColumnRef {
@@ -769,4 +728,39 @@ async fn catalog_load() {
     let _ = execute_typed(&config, "DROP TABLE IF EXISTS orders_pg_e2e").await;
     let _ = execute_typed(&config, "DROP TABLE IF EXISTS products_pg_e2e").await;
     let _ = execute_typed(&config, "DROP TABLE IF EXISTS logs_pg_e2e").await;
+}
+
+#[tokio::test]
+async fn pg_pool_reuses_handle_and_evicts_oldest_under_pressure() {
+    let Some(config) = pg_config() else {
+        eprintln!("SKIP: GRIDIX_TEST_PG_URL not set");
+        return;
+    };
+    POOL_MANAGER.clear_all().await;
+
+    let first = POOL_MANAGER
+        .get_pg_client(&config)
+        .await
+        .expect("PostgreSQL pool fixture must connect");
+    let reused = POOL_MANAGER
+        .get_pg_client(&config)
+        .await
+        .expect("PostgreSQL pool fixture must reuse its client");
+    assert!(Arc::ptr_eq(&first, &reused));
+
+    for index in 0..constants::database::pool::MAX_POSTGRES_CLIENTS {
+        let mut pressure_config = config.clone();
+        pressure_config.ssl_ca_cert = format!("gridix-pg-pressure-{index}");
+        POOL_MANAGER
+            .get_pg_client(&pressure_config)
+            .await
+            .expect("PostgreSQL pressure fixture must connect");
+    }
+
+    let recreated = POOL_MANAGER
+        .get_pg_client(&config)
+        .await
+        .expect("PostgreSQL pool must recreate an evicted client");
+    assert!(!Arc::ptr_eq(&first, &recreated));
+    POOL_MANAGER.clear_all().await;
 }

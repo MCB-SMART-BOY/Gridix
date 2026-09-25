@@ -161,7 +161,7 @@ GRIDIX_TEST_MYSQL_URL='<MySQL test URL>' \
   cargo test --test mysql_cancel_integration -- --nocapture --test-threads=1
 ```
 
-GitHub Actions runs the PostgreSQL and MySQL typed integration gates on pull requests, `main`, and `v*` tags, as well as by manual dispatch and a weekly schedule. Each gate preflights its required URL, uses its dedicated service container, and logs the serial test runs with `--nocapture`. These are release-acceptance gates, not a claim that a release has been published. A manual SQLite GUI journey (create, edit/save, reopen, and CSV/JSON/SQL export evidence) is still required for release acceptance; the current `gridix-driver` supports only `launch`, `key`, `ss`, `quit`, and `help`, so it cannot complete that journey automatically.
+GitHub Actions runs the PostgreSQL and MySQL typed integration gates on pull requests, `main`, and `v*` tags, as well as by manual dispatch and a weekly schedule. Each gate preflights its required URL, uses its dedicated service container, and logs the serial test runs with `--nocapture`. The main CI workflow also uploads a clean Xvfb/X11 GUI smoke artifact with `ra2_status=manual-required`; it does not replace the manual SQLite GUI journey. Run `scripts/gridix-sqlite-acceptance.sh <SHA>` to create the isolated session and validate retained create, edit/save, reopen, and CSV/JSON/SQL evidence.
 
 ## Contributing | 参与贡献
 - Issues: https://github.com/MCB-SMART-BOY/Gridix/issues

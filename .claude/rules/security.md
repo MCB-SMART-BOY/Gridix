@@ -35,4 +35,12 @@ grep -r "danger_accept_invalid_certs" src/data/pool.rs
 
 # Check for thread::spawn usage (should only be in test code)
 grep -r "std::thread::spawn" src/ --include='*.rs' | grep -v "#\[cfg(test)\]"
+
+# Dependency policy and filesystem security scans
+cargo deny check
+gitleaks detect --no-git --source . --config .gitleaks.toml
+trivy fs --scanners vuln,secret --skip-dirs target --skip-dirs .direnv --exit-code 1 .
 ```
+
+`.gitleaks.toml` must keep `[extend] useDefault = true`; without it the file defines no
+rules and every scan reports success regardless of content.

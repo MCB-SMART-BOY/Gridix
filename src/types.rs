@@ -57,15 +57,14 @@ impl DatabaseType {
 pub enum PostgresSslMode {
     /// 禁用 SSL
     Disable,
-    /// 优先使用 SSL，但允许不安全连接（默认）
+    /// 必须使用 SSL，并验证 CA 证书和主机名
     #[default]
-    Prefer,
+    #[serde(alias = "Prefer")]
+    VerifyFull,
     /// 必须使用 SSL
     Require,
     /// 验证 CA 证书
     VerifyCa,
-    /// 验证 CA 证书和主机名
-    VerifyFull,
 }
 
 impl PostgresSslMode {
@@ -73,7 +72,6 @@ impl PostgresSslMode {
     pub const fn display_name(&self) -> &'static str {
         match self {
             Self::Disable => "禁用",
-            Self::Prefer => "优先",
             Self::Require => "必需",
             Self::VerifyCa => "验证 CA",
             Self::VerifyFull => "完全验证",
@@ -84,10 +82,9 @@ impl PostgresSslMode {
     pub const fn description(&self) -> &'static str {
         match self {
             Self::Disable => "不使用 SSL 加密",
-            Self::Prefer => "优先 SSL，允许不安全连接",
-            Self::Require => "必须使用 SSL 加密",
-            Self::VerifyCa => "验证服务器 CA 证书",
-            Self::VerifyFull => "验证证书和主机名",
+            Self::Require => "必须使用 SSL，并验证服务器 CA 证书",
+            Self::VerifyCa => "验证服务器 CA 证书，不检查主机名",
+            Self::VerifyFull => "验证服务器 CA 证书和主机名",
         }
     }
 
@@ -95,7 +92,6 @@ impl PostgresSslMode {
     pub const fn all() -> &'static [PostgresSslMode] {
         &[
             Self::Disable,
-            Self::Prefer,
             Self::Require,
             Self::VerifyCa,
             Self::VerifyFull,
@@ -112,15 +108,14 @@ impl PostgresSslMode {
 pub enum MySqlSslMode {
     /// 禁用 SSL
     Disabled,
-    /// 优先使用 SSL，但允许不安全连接（默认）
+    /// 必须使用 SSL，并验证 CA 证书和主机名
     #[default]
-    Preferred,
+    #[serde(alias = "Preferred")]
+    VerifyIdentity,
     /// 必须使用 SSL
     Required,
     /// 验证 CA 证书
     VerifyCa,
-    /// 验证 CA 证书和主机名
-    VerifyIdentity,
 }
 
 impl MySqlSslMode {
@@ -128,7 +123,6 @@ impl MySqlSslMode {
     pub const fn display_name(&self) -> &'static str {
         match self {
             Self::Disabled => "禁用",
-            Self::Preferred => "优先",
             Self::Required => "必需",
             Self::VerifyCa => "验证 CA",
             Self::VerifyIdentity => "完全验证",
@@ -139,10 +133,9 @@ impl MySqlSslMode {
     pub const fn description(&self) -> &'static str {
         match self {
             Self::Disabled => "不使用 SSL 加密",
-            Self::Preferred => "优先 SSL，允许不安全连接",
-            Self::Required => "必须使用 SSL 加密",
-            Self::VerifyCa => "验证服务器 CA 证书",
-            Self::VerifyIdentity => "验证证书和主机名",
+            Self::Required => "必须使用 SSL，并验证服务器 CA 证书",
+            Self::VerifyCa => "验证服务器 CA 证书，不检查主机名",
+            Self::VerifyIdentity => "验证服务器 CA 证书和主机名",
         }
     }
 
@@ -150,14 +143,12 @@ impl MySqlSslMode {
     pub const fn all() -> &'static [MySqlSslMode] {
         &[
             Self::Disabled,
-            Self::Preferred,
             Self::Required,
             Self::VerifyCa,
             Self::VerifyIdentity,
         ]
     }
 }
-
 // ============================================================================
 // 应用错误类型
 // ============================================================================

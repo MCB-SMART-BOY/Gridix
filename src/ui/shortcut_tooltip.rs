@@ -831,7 +831,7 @@ mod tests {
     fn local_shortcut_text_uses_actual_binding_order() {
         let text = local_shortcut_text(LocalShortcut::SqlHistoryPrev);
 
-        assert_eq!(text, "Shift+Up / Shift+K");
+        assert_eq!(text, "Shift+Up / Ctrl+K");
     }
 
     #[test]

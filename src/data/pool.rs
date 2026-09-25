@@ -7,51 +7,6 @@ use crate::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-
-/// 跳过所有 TLS 证书验证（仅用于开发/自签证书场景）
-#[derive(Debug)]
-pub(crate) struct SkipCertVerification;
-
-impl rustls::client::danger::ServerCertVerifier for SkipCertVerification {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls::pki_types::CertificateDer<'_>,
-        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
-        _server_name: &rustls::pki_types::ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: rustls::pki_types::UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _message: &[u8],
-        _cert: &rustls::pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _message: &[u8],
-        _cert: &rustls::pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        vec![
-            rustls::SignatureScheme::RSA_PKCS1_SHA256,
-            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
-            rustls::SignatureScheme::RSA_PKCS1_SHA384,
-            rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
-        ]
-    }
-}
-
 use tokio::sync::{Mutex, RwLock};
 
 /// 全局连接池管理器
@@ -186,16 +141,9 @@ impl PoolManager {
                 // 不使用 SSL
                 Ok(opts.ssl_opts(None::<SslOpts>))
             }
-            MySqlSslMode::Preferred => {
-                // 优先 SSL，但接受无效证书（允许回退到不安全连接）
-                let ssl_opts = SslOpts::default()
-                    .with_danger_accept_invalid_certs(true)
-                    .with_danger_skip_domain_validation(true);
-                Ok(opts.ssl_opts(Some(ssl_opts)))
-            }
             MySqlSslMode::Required => {
-                // 必须使用 SSL，验证证书
-                let mut ssl_opts = SslOpts::default();
+                // 必须使用 SSL，验证 CA 证书但不验证主机名
+                let mut ssl_opts = SslOpts::default().with_danger_skip_domain_validation(true);
                 if !config.ssl_ca_cert.is_empty() {
                     let ca_path = Path::new(&config.ssl_ca_cert);
                     if !ca_path.exists() {
@@ -230,6 +178,10 @@ impl PoolManager {
             MySqlSslMode::VerifyIdentity => {
                 // 完全验证：验证 CA 证书和主机名
                 let mut ssl_opts = SslOpts::default();
+                if let Some(server_name) = config.tls_server_name.as_deref() {
+                    ssl_opts =
+                        ssl_opts.with_danger_tls_hostname_override(Some(server_name.to_owned()));
+                }
 
                 // 如果指定了 CA 证书路径
                 if !config.ssl_ca_cert.is_empty() {
@@ -304,19 +256,8 @@ impl PoolManager {
             PostgresSslMode::Disable => {
                 Self::connect_pg_plain(config, tokio_postgres::config::SslMode::Disable).await
             }
-            PostgresSslMode::Prefer => {
-                match Self::connect_pg_tls(config, true, tokio_postgres::config::SslMode::Prefer)
-                    .await
-                {
-                    Ok(pair) => Ok(pair),
-                    Err(_) => {
-                        Self::connect_pg_plain(config, tokio_postgres::config::SslMode::Disable)
-                            .await
-                    }
-                }
-            }
             PostgresSslMode::Require | PostgresSslMode::VerifyCa | PostgresSslMode::VerifyFull => {
-                Self::connect_pg_tls(config, false, tokio_postgres::config::SslMode::Require).await
+                Self::connect_pg_tls(config, tokio_postgres::config::SslMode::Require).await
             }
         }
     }
@@ -333,15 +274,13 @@ impl PoolManager {
         let handle = Self::spawn_pg_connection(conn, &config.pool_key());
         Ok((client, handle))
     }
-
     /// 使用 TLS 连接 PostgreSQL。返回客户端及其后台连接任务句柄。
     async fn connect_pg_tls(
         config: &ConnectionConfig,
-        accept_invalid_certs: bool,
         ssl_mode: tokio_postgres::config::SslMode,
     ) -> Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>), DbError> {
         let pg_config = build_pg_connection_config(config, ssl_mode)?;
-        let tls = build_pg_tls_connector(config, accept_invalid_certs)?;
+        let tls = build_pg_tls_connector(config)?;
         let (client, conn) = pg_config
             .connect(tls)
             .await
@@ -422,46 +361,132 @@ fn build_pg_connection_config(
     Ok(pg_config)
 }
 
-pub(crate) fn build_pg_tls_connector(
-    config: &ConnectionConfig,
-    accept_invalid_certs: bool,
-) -> Result<tokio_postgres_rustls::MakeRustlsConnect, DbError> {
+#[derive(Debug)]
+struct CaOnlyServerCertVerifier {
+    verifier: Arc<rustls::client::WebPkiServerVerifier>,
+}
+
+impl rustls::client::danger::ServerCertVerifier for CaOnlyServerCertVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &rustls::pki_types::CertificateDer<'_>,
+        intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        server_name: &rustls::pki_types::ServerName<'_>,
+        ocsp_response: &[u8],
+        now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        let result = rustls::client::danger::ServerCertVerifier::verify_server_cert(
+            self.verifier.as_ref(),
+            end_entity,
+            intermediates,
+            server_name,
+            ocsp_response,
+            now,
+        );
+        match result {
+            Err(rustls::Error::InvalidCertificate(
+                rustls::CertificateError::NotValidForName
+                | rustls::CertificateError::NotValidForNameContext { .. },
+            )) => Ok(rustls::client::danger::ServerCertVerified::assertion()),
+            result => result,
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::client::danger::ServerCertVerifier::verify_tls12_signature(
+            self.verifier.as_ref(),
+            message,
+            cert,
+            dss,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::client::danger::ServerCertVerifier::verify_tls13_signature(
+            self.verifier.as_ref(),
+            message,
+            cert,
+            dss,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        rustls::client::danger::ServerCertVerifier::supported_verify_schemes(self.verifier.as_ref())
+    }
+}
+
+fn load_pg_root_store(config: &ConnectionConfig) -> Result<rustls::RootCertStore, DbError> {
     use std::path::Path;
 
-    let config_builder = rustls::ClientConfig::builder();
-    let tls_config = if accept_invalid_certs {
-        config_builder
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(SkipCertVerification))
-            .with_no_client_auth()
-    } else if !config.ssl_ca_cert.is_empty() {
-        let ca_path = Path::new(&config.ssl_ca_cert);
-        if !ca_path.exists() {
-            return Err(DbError::Connection(format!(
-                "CA 证书文件不存在: {}",
-                config.ssl_ca_cert
-            )));
+    if config.ssl_ca_cert.is_empty() {
+        return Ok(rustls::RootCertStore::from_iter(
+            webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+        ));
+    }
+
+    let ca_path = Path::new(&config.ssl_ca_cert);
+    if !ca_path.exists() {
+        return Err(DbError::Connection(format!(
+            "CA 证书文件不存在: {}",
+            config.ssl_ca_cert
+        )));
+    }
+    let ca_data = std::fs::read(&config.ssl_ca_cert)
+        .map_err(|e| DbError::Connection(format!("读取 CA 证书失败: {}", e)))?;
+    let certs = rustls_pemfile::certs(&mut ca_data.as_slice())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| DbError::Connection(format!("解析 CA 证书失败: {}", e)))?;
+    let mut root_store = rustls::RootCertStore::empty();
+    for cert in certs {
+        root_store
+            .add(cert)
+            .map_err(|e| DbError::Connection(format!("添加 CA 证书失败: {}", e)))?;
+    }
+    Ok(root_store)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PgTlsVerifierMode {
+    CaOnly,
+    Full,
+}
+
+const fn pg_tls_verifier_mode(mode: PostgresSslMode) -> PgTlsVerifierMode {
+    match mode {
+        PostgresSslMode::Require | PostgresSslMode::VerifyCa => PgTlsVerifierMode::CaOnly,
+        PostgresSslMode::Disable | PostgresSslMode::VerifyFull => PgTlsVerifierMode::Full,
+    }
+}
+
+pub(crate) fn build_pg_tls_connector(
+    config: &ConnectionConfig,
+) -> Result<tokio_postgres_rustls::MakeRustlsConnect, DbError> {
+    let root_store = load_pg_root_store(config)?;
+    let tls_config = match pg_tls_verifier_mode(config.postgres_ssl_mode) {
+        PgTlsVerifierMode::CaOnly => {
+            let verifier = rustls::client::WebPkiServerVerifier::builder(Arc::new(root_store))
+                .build()
+                .map_err(|e| {
+                    DbError::Connection(format!("构建 PostgreSQL CA 验证器失败: {}", e))
+                })?;
+            rustls::ClientConfig::builder()
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(CaOnlyServerCertVerifier { verifier }))
+                .with_no_client_auth()
         }
-        let ca_data = std::fs::read(&config.ssl_ca_cert)
-            .map_err(|e| DbError::Connection(format!("读取 CA 证书失败: {}", e)))?;
-        let certs = rustls_pemfile::certs(&mut ca_data.as_slice())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| DbError::Connection(format!("解析 CA 证书失败: {}", e)))?;
-        let mut root_store = rustls::RootCertStore::empty();
-        for cert in certs {
-            root_store
-                .add(cert)
-                .map_err(|e| DbError::Connection(format!("添加 CA 证书失败: {}", e)))?;
-        }
-        config_builder
+        PgTlsVerifierMode::Full => rustls::ClientConfig::builder()
             .with_root_certificates(root_store)
-            .with_no_client_auth()
-    } else {
-        let root_store =
-            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        config_builder
-            .with_root_certificates(root_store)
-            .with_no_client_auth()
+            .with_no_client_auth(),
     };
 
     Ok(tokio_postgres_rustls::MakeRustlsConnect::new(tls_config))
@@ -476,3 +501,155 @@ impl Default for PoolManager {
 // 全局连接池实例
 pub static POOL_MANAGER: std::sync::LazyLock<PoolManager> =
     std::sync::LazyLock::new(PoolManager::new);
+#[cfg(test)]
+mod tests {
+    use super::{
+        PgTlsVerifierMode, PoolManager, build_pg_connection_config, build_pg_tls_connector,
+        pg_tls_verifier_mode,
+    };
+    use crate::data::ConnectionConfig;
+    use crate::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
+    use std::net::IpAddr;
+    use tokio_postgres::config::Host;
+    const TEST_TUNNEL_PORT: u16 = 15_432;
+    const TEST_ALTERNATE_TUNNEL_PORT: u16 = 15_433;
+
+    fn configured_mysql_ssl_opts(config: &ConnectionConfig) -> Option<mysql_async::SslOpts> {
+        let builder = PoolManager::configure_mysql_ssl(mysql_async::OptsBuilder::default(), config)
+            .expect("SSL options should be valid");
+        mysql_async::Opts::from(builder).ssl_opts().cloned()
+    }
+
+    #[test]
+    fn ssh_pool_key_reuses_tunnel_but_separates_tls_server_names() {
+        for db_type in [DatabaseType::PostgreSQL, DatabaseType::MySQL] {
+            let mut first = ConnectionConfig::new("test", db_type);
+            first.host = "127.0.0.1".to_string();
+            first.port = TEST_TUNNEL_PORT;
+            first.tls_server_name = Some("db.internal".to_string());
+            first.ssh_config.enabled = true;
+            first.ssh_config.ssh_host = "jump.internal".to_string();
+            first.ssh_config.ssh_port = 22;
+            first.ssh_config.ssh_username = "ssh-user".to_string();
+            first.ssh_config.remote_host = "db.internal".to_string();
+            first.ssh_config.remote_port = db_type.default_port();
+
+            let mut same_tunnel = first.clone();
+            same_tunnel.port = TEST_ALTERNATE_TUNNEL_PORT;
+            assert_eq!(
+                first.pool_key(),
+                same_tunnel.pool_key(),
+                "同一 SSH 隧道的本地端口变化不应改变连接池身份"
+            );
+
+            let mut different_tls_name = first.clone();
+            different_tls_name.tls_server_name = Some("db.alias.internal".to_string());
+            assert_ne!(
+                first.pool_key(),
+                different_tls_name.pool_key(),
+                "同一 SSH 隧道下不同 TLS server name 不应共享连接池"
+            );
+        }
+    }
+
+    #[test]
+    fn mysql_default_tls_verifies_certificate_and_hostname() {
+        let config = ConnectionConfig::new("test", DatabaseType::MySQL);
+        let ssl_opts = configured_mysql_ssl_opts(&config).expect("TLS must be enabled");
+
+        assert!(!ssl_opts.accept_invalid_certs());
+        assert!(!ssl_opts.skip_domain_validation());
+    }
+
+    #[test]
+    fn mysql_verify_identity_uses_original_hostname_through_tunnel() {
+        let mut config = ConnectionConfig::new("test", DatabaseType::MySQL);
+        config.host = "127.0.0.1".to_string();
+        config.tls_server_name = Some("db.example.com".to_string());
+
+        let ssl_opts = configured_mysql_ssl_opts(&config).expect("TLS must be enabled");
+
+        assert_eq!(ssl_opts.tls_hostname_override(), Some("db.example.com"));
+        assert!(!ssl_opts.skip_domain_validation());
+    }
+
+    #[test]
+    fn mysql_verify_ca_keeps_hostname_validation_disabled_through_tunnel() {
+        let mut config = ConnectionConfig::new("test", DatabaseType::MySQL);
+        config.host = "127.0.0.1".to_string();
+        config.tls_server_name = Some("db.example.com".to_string());
+        config.mysql_ssl_mode = MySqlSslMode::VerifyCa;
+
+        let ssl_opts = configured_mysql_ssl_opts(&config).expect("TLS must be enabled");
+
+        assert!(ssl_opts.tls_hostname_override().is_none());
+        assert!(ssl_opts.skip_domain_validation());
+    }
+
+    #[test]
+    fn mysql_required_verifies_ca_without_hostname_validation_through_tunnel() {
+        let mut config = ConnectionConfig::new("test", DatabaseType::MySQL);
+        config.host = "127.0.0.1".to_string();
+        config.tls_server_name = Some("db.example.com".to_string());
+        config.mysql_ssl_mode = MySqlSslMode::Required;
+
+        let ssl_opts = configured_mysql_ssl_opts(&config).expect("TLS must be enabled");
+
+        assert!(!ssl_opts.accept_invalid_certs());
+        assert!(ssl_opts.skip_domain_validation());
+        assert!(ssl_opts.tls_hostname_override().is_none());
+    }
+
+    #[test]
+    fn postgres_require_uses_ca_only_verifier() {
+        assert_eq!(
+            pg_tls_verifier_mode(PostgresSslMode::Require),
+            PgTlsVerifierMode::CaOnly
+        );
+        assert_eq!(
+            pg_tls_verifier_mode(PostgresSslMode::VerifyCa),
+            PgTlsVerifierMode::CaOnly
+        );
+        assert_eq!(
+            pg_tls_verifier_mode(PostgresSslMode::VerifyFull),
+            PgTlsVerifierMode::Full
+        );
+    }
+
+    #[test]
+    fn postgres_tunneled_endpoint_uses_loopback_tcp_and_original_tls_host() {
+        let mut config = ConnectionConfig::new("test", DatabaseType::PostgreSQL);
+        config.host = "127.0.0.1".to_string();
+        config.port = TEST_TUNNEL_PORT;
+        config.tls_server_name = Some("db.example.com".to_string());
+
+        let pg_config =
+            build_pg_connection_config(&config, tokio_postgres::config::SslMode::Require)
+                .expect("PostgreSQL config should parse");
+
+        assert!(matches!(
+            pg_config.get_hosts(),
+            [Host::Tcp(host)] if host == "db.example.com"
+        ));
+        assert_eq!(
+            pg_config.get_hostaddrs(),
+            &[IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]
+        );
+    }
+
+    #[test]
+    fn mysql_disabled_mode_removes_tls_options() {
+        let mut config = ConnectionConfig::new("test", DatabaseType::MySQL);
+        config.mysql_ssl_mode = MySqlSslMode::Disabled;
+
+        assert!(configured_mysql_ssl_opts(&config).is_none());
+    }
+
+    #[test]
+    fn postgres_tls_rejects_missing_custom_ca() {
+        let mut config = ConnectionConfig::new("test", DatabaseType::PostgreSQL);
+        config.ssl_ca_cert = "/path/that/does/not/exist.pem".to_string();
+
+        assert!(build_pg_tls_connector(&config).is_err());
+    }
+}

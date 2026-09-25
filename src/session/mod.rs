@@ -48,7 +48,6 @@ pub struct Session {
     // ── 请求追踪 ──
     pub pending_connect_requests: HashMap<String, u64>,
     pub pending_database_requests: HashMap<String, (String, u64)>,
-    pub pending_active_tables_reload_requests: HashMap<String, u64>,
     pub pending_triggers_request: Option<(String, Option<String>, u64)>,
     pub pending_routines_request: Option<(String, Option<String>, u64)>,
     pub user_cancelled_query_requests: HashSet<u64>,
@@ -100,7 +99,6 @@ impl Session {
             next_metadata_request_id: 0,
             pending_connect_requests: HashMap::new(),
             pending_database_requests: HashMap::new(),
-            pending_active_tables_reload_requests: HashMap::new(),
             pending_triggers_request: None,
             pending_routines_request: None,
             user_cancelled_query_requests: HashSet::new(),

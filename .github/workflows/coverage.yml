@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: '0 5 * * 1'
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -15,13 +18,15 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (2026-09-03)
+        with:
+          toolchain: 1.98.1
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: |
             ~/.cargo/registry
@@ -36,13 +41,13 @@ jobs:
           sudo apt-get install -y libgtk-3-dev
 
       - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin --locked
+        run: cargo install --git https://github.com/xd009642/tarpaulin --rev fadda2ea25490209d495107acbf624c7ca8ae73c --locked cargo-tarpaulin
 
       - name: Generate coverage
         run: cargo tarpaulin --out Xml --output-dir coverage
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24 # v5.4.3
         with:
           files: coverage/cobertura.xml
           fail_ci_if_error: false

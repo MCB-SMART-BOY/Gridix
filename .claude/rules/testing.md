@@ -114,6 +114,7 @@ async fn test_query() {
 - Run the narrowest affected test while iterating, then `cargo test --workspace --all-features` before merge.
 - If testing egui keyboard behavior, use `egui::Event::Key` with `Key::Character` or `Key::Named`.
 - PostgreSQL/MySQL typed and cancellation integration tests read `GRIDIX_TEST_PG_URL` / `GRIDIX_TEST_MYSQL_URL`. Without a URL they may return locally; CI must preflight a non-empty URL and run them serially with `--nocapture --test-threads=1`.
+- Fixture-bound acceptance suites (`tests/tls_acceptance.rs`, `tests/ssh_acceptance.rs`) run only with `GRIDIX_ACCEPTANCE=1`, which the dedicated acceptance workflows set. Without the flag they skip with a printed reason so `cargo test --workspace --all-features` stays green; with it, `common::required_env` keeps a missing fixture a hard failure.
 - Server-side cancellation acceptance must observe a unique query marker, cancel it, observe `DbError::Cancelled`, confirm the marker disappears, then prove the connection remains usable. Do not replace this with fixed sleeps or task-abort assertions.
 - Session tests should not require `egui::Context`.
 - Data layer tests should not require `Session`.
@@ -132,4 +133,5 @@ async fn test_query() {
 
 - Backend Actions workflows—not an unconfigured local test run—are the PostgreSQL/MySQL acceptance gates for PRs, `main`, and `v*` tags.
 - RA2 remains a manual SQLite GUI journey: it requires initial, saved, and reopened-result screenshots plus non-empty CSV/JSON/SQL exports. CSV must contain `after`, JSON `"name":"after"`, and SQL `'after'` with `NULL`; `gridix --ci-check` and driver screenshots alone do not prove this journey.
+- Status 2026-09-25: the screenshots and the persisted-value assertion (`gridix-driver assert-reopened … items name after`) were captured in a driven Xvfb session. The three export artifacts remain uncaptured because `rfd` needs a native save dialog that the driven session cannot present; see `docs/LIMITATIONS.md`.
 - Do not report a release or RA2 as accepted without the corresponding observed evidence.

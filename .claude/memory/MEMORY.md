@@ -6,7 +6,7 @@
 
 ## Current State
 
-- **Version**: 7.1.0
+- **Version**: 7.2.0
 - **Branch**: `main` (sole branch after consolidation; `dev`, `EDU`, `master` deleted)
-- **Test status**: 619 passed, 0 failed, 0 warnings
+- **Test status**: Full-suite status must be taken from the latest CI run; this index is not a release proof.
 - **TLS**: rustls 0.23 stack — zero native-tls/openssl dependencies

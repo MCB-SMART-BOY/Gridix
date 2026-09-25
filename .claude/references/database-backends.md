@@ -40,6 +40,11 @@ Do not substitute task abort for these database protocols. A pre-cancelled token
 
 The release-acceptance workflow covers direct `mysql:8.4` connections with the minimum observer and `KILL QUERY` privileges (`PROCESS`, `CONNECTION_ADMIN`). It does not yet cover TLS, SSH tunnels, or execution-pool capacity pressure. Its post-cancellation `SELECT 1` proves that the pool can execute another query; it does not prove reuse of the exact `Conn` that was cancelled. These are coverage boundaries, not known functional failures.
 
+## SSL behavior
+
+- PostgreSQL: `Disable` uses plaintext; `Prefer` tries SSL and falls back to plaintext on failure; `Require`, `VerifyCa`, and `VerifyFull` require SSL.
+- MySQL: `Disabled` uses plaintext; `Preferred` uses SSL without certificate or hostname validation and has no plaintext fallback; `Required` validates certificates, `VerifyCa` validates the CA without hostname validation, and `VerifyIdentity` validates both the CA and hostname.
+
 ## Adding a new backend
 
 1. Add variant to `DatabaseType` in `src/types.rs`

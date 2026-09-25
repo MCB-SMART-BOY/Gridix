@@ -6,6 +6,7 @@ use eframe::egui;
 
 use super::{DbManagerApp, Message};
 use crate::domain::execution::StatementOutcome;
+use crate::domain::explain::is_explain_sql;
 use crate::ui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,30 +164,7 @@ impl DbManagerApp {
     pub fn handle_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.session.rx.try_recv() {
             match msg {
-                Message::RuntimeEvent(event) => {
-                    self.handle_runtime_event(ctx, event);
-                }
-                Message::DatabaseSelected(conn_name, db_name, request_id, result) => {
-                    self.handle_database_selected(ctx, conn_name, db_name, request_id, result);
-                }
-                Message::DatabaseDropped(conn_name, db_name, result) => {
-                    self.handle_database_dropped(ctx, conn_name, db_name, result);
-                }
-                Message::TableDropped(conn_name, table_name, result) => {
-                    self.handle_table_dropped(ctx, conn_name, table_name, result);
-                }
-                Message::ActiveTablesReloaded(conn_name, request_id, result) => {
-                    self.handle_active_tables_reloaded(ctx, conn_name, request_id, result);
-                }
-                Message::ImportDone(result, elapsed_ms) => {
-                    self.handle_import_done(ctx, result, elapsed_ms);
-                }
-                Message::TriggersFetched(conn_name, db_name, request_id, result) => {
-                    self.handle_triggers_fetched(ctx, conn_name, db_name, request_id, result);
-                }
-                Message::RoutinesFetched(conn_name, db_name, request_id, result) => {
-                    self.handle_routines_fetched(ctx, conn_name, db_name, request_id, result);
-                }
+                Message::RuntimeEvent(event) => self.handle_runtime_event(ctx, event),
             }
         }
         if self.session.needs_repaint {
@@ -330,14 +308,35 @@ impl DbManagerApp {
         self.session.needs_repaint = true;
     }
 
+    fn does_runtime_connection_match(
+        &self,
+        conn_name: &str,
+        connection: crate::domain::ids::ConnectionId,
+    ) -> bool {
+        self.session
+            .manager
+            .connections
+            .get(conn_name)
+            .is_some_and(|conn| conn.id == connection)
+    }
+
     /// 处理数据库删除完成消息
     fn handle_database_dropped(
         &mut self,
         _ctx: &egui::Context,
+        connection: crate::domain::ids::ConnectionId,
         conn_name: String,
         db_name: String,
         result: Result<(), String>,
     ) {
+        if !self.does_runtime_connection_match(&conn_name, connection) {
+            tracing::debug!(
+                connection = ?connection,
+                conn_name = %conn_name,
+                "忽略连接身份不匹配的数据库删除回包"
+            );
+            return;
+        }
         let is_active = self.session.manager.active.as_deref() == Some(conn_name.as_str());
 
         match result {
@@ -392,10 +391,19 @@ impl DbManagerApp {
     fn handle_table_dropped(
         &mut self,
         _ctx: &egui::Context,
+        connection: crate::domain::ids::ConnectionId,
         conn_name: String,
         table_name: String,
         result: Result<(), String>,
     ) {
+        if !self.does_runtime_connection_match(&conn_name, connection) {
+            tracing::debug!(
+                connection = ?connection,
+                conn_name = %conn_name,
+                "忽略连接身份不匹配的表删除回包"
+            );
+            return;
+        }
         let is_active = self.session.manager.active.as_deref() == Some(conn_name.as_str());
 
         match result {
@@ -441,21 +449,16 @@ impl DbManagerApp {
     fn handle_active_tables_reloaded(
         &mut self,
         _ctx: &egui::Context,
+        connection: crate::domain::ids::ConnectionId,
         conn_name: String,
-        request_id: u64,
         result: Result<Vec<String>, String>,
     ) {
         let is_active = self.session.manager.active.as_deref() == Some(conn_name.as_str());
-        let is_latest = self
-            .session
-            .pending_active_tables_reload_requests
-            .get(&conn_name)
-            .is_some_and(|pending_id| *pending_id == request_id);
-        if !is_active || !is_latest {
+        if !is_active || !self.does_runtime_connection_match(&conn_name, connection) {
             tracing::debug!(
-                connection = %conn_name,
-                request_id,
-                "忽略过期表列表刷新"
+                connection = ?connection,
+                conn_name = %conn_name,
+                "忽略非当前连接的表列表刷新"
             );
             return;
         }
@@ -466,9 +469,6 @@ impl DbManagerApp {
                     conn.tables = tables.clone();
                 }
                 self.session.autocomplete.set_tables(tables);
-                self.session
-                    .pending_active_tables_reload_requests
-                    .remove(&conn_name);
             }
             Err(e) => {
                 tracing::warn!(connection = %conn_name, error = %e, "刷新表列表失败");
@@ -479,8 +479,8 @@ impl DbManagerApp {
 
     /// schema 变更失效级联：DDL 成功后重载受影响的派生视图。
     ///
-    /// 仅对当前 active 连接生效（回包能走到这里已保证非 stale）。
-    /// 复用既有重载原语，不新增异步通道；各原语自带 request_id/generation stale-guard。
+    /// 仅对当前 active 连接生效；异步完成统一通过 TaskRegistry stale guard。
+    /// 复用既有重载原语，不新增异步通道。
     ///
     /// 修复审计 ER-4（编辑器 CREATE/DROP/ALTER TABLE 后 ER 不刷新）、
     /// ER-6（表结构变更后 ER 陈旧）、SM-8（CREATE/DROP TRIGGER/ROUTINE 后侧栏陈旧）。
@@ -754,6 +754,29 @@ impl DbManagerApp {
                     .unwrap_or(0);
                 self.handle_database_selected(ctx, conn_name, database, request_id, result);
             }
+            RuntimeOutcome::ActiveTablesReloaded {
+                connection,
+                conn_name,
+                result,
+            } => {
+                self.handle_active_tables_reloaded(ctx, connection, conn_name, result);
+            }
+            RuntimeOutcome::DatabaseDropped {
+                connection,
+                conn_name,
+                database,
+                result,
+            } => {
+                self.handle_database_dropped(ctx, connection, conn_name, database, result);
+            }
+            RuntimeOutcome::TableDropped {
+                connection,
+                conn_name,
+                table,
+                result,
+            } => {
+                self.handle_table_dropped(ctx, connection, conn_name, table, result);
+            }
             RuntimeOutcome::GridSaved {
                 result,
                 table,
@@ -773,6 +796,9 @@ impl DbManagerApp {
                 self.handle_query_execution_finished(
                     ctx, sql, conn_name, tab_id, result, elapsed_ms,
                 );
+            }
+            RuntimeOutcome::ImportDone { result, elapsed_ms } => {
+                self.handle_import_done(ctx, result, elapsed_ms);
             }
             RuntimeOutcome::CatalogLoaded {
                 connection_id,
@@ -797,6 +823,54 @@ impl DbManagerApp {
                     tracing::warn!(connection_id = ?connection_id, database = %database, error = %e, "Schema 目录加载失败");
                 }
             },
+            RuntimeOutcome::TriggersFetched {
+                connection,
+                database,
+                result,
+            } => {
+                if let Some((conn_name, pending_db, request_id)) =
+                    self.session.pending_triggers_request.clone()
+                {
+                    if self
+                        .session
+                        .manager
+                        .connections
+                        .get(&conn_name)
+                        .is_some_and(|conn| conn.id == connection)
+                        && pending_db == database
+                    {
+                        self.handle_triggers_fetched(ctx, conn_name, database, request_id, result);
+                    } else {
+                        tracing::debug!(?connection, "忽略不匹配连接上下文的触发器回包");
+                    }
+                } else {
+                    tracing::debug!(?connection, "忽略没有待处理请求的触发器回包");
+                }
+            }
+            RuntimeOutcome::RoutinesFetched {
+                connection,
+                database,
+                result,
+            } => {
+                if let Some((conn_name, pending_db, request_id)) =
+                    self.session.pending_routines_request.clone()
+                {
+                    if self
+                        .session
+                        .manager
+                        .connections
+                        .get(&conn_name)
+                        .is_some_and(|conn| conn.id == connection)
+                        && pending_db == database
+                    {
+                        self.handle_routines_fetched(ctx, conn_name, database, request_id, result);
+                    } else {
+                        tracing::debug!(?connection, "忽略不匹配连接上下文的存储过程回包");
+                    }
+                } else {
+                    tracing::debug!(?connection, "忽略没有待处理请求的存储过程回包");
+                }
+            }
             _ => {
                 tracing::debug!(task_id = ?event.task_id, "收到未迁移的 RuntimeEvent");
             }
@@ -828,6 +902,7 @@ impl DbManagerApp {
             return;
         };
         let is_active_tab = tab_index == self.session.tab_manager.active_index;
+        let is_explain = is_explain_sql(&sql);
         let sql_hints = crate::data::analyze_sql_for_ui(&sql);
         let is_update_or_delete = sql_hints.is_update_or_delete;
         let is_insert = sql_hints.is_insert;
@@ -871,17 +946,32 @@ impl DbManagerApp {
 
                 self.session
                     .query_history
-                    .add(sql, db_type, true, affected_rows);
+                    .add(sql.clone(), db_type, true, affected_rows);
 
                 if let Some(tab) = self.session.tab_manager.tabs.get_mut(tab_index) {
-                    tab.result_set = typed_arc.clone();
+                    if !is_explain {
+                        tab.result_set = typed_arc.clone();
+                    }
                     tab.executing = false;
                     tab.last_error = None;
                     tab.pending_request_id = None;
                     tab.query_time_ms = Some(elapsed_ms);
                 }
+                if is_explain {
+                    self.state.explain_state.record_success(
+                        tab_id.clone(),
+                        sql.clone(),
+                        typed_arc.clone(),
+                        elapsed_ms,
+                    );
+                } else {
+                    self.state.explain_state.hide_for_tab(&tab_id);
+                }
                 if is_active_tab {
-                    let msg = if columns_empty {
+                    self.session.last_query_time_ms = Some(elapsed_ms);
+                    let msg = if is_explain {
+                        format!("Explain 完成，返回 {} 行 ({}ms)", row_count, elapsed_ms)
+                    } else if columns_empty {
                         format!(
                             "执行成功，影响 {} 行 ({}ms)",
                             affected_rows.unwrap_or(0),
@@ -890,33 +980,37 @@ impl DbManagerApp {
                     } else {
                         format!("查询完成，返回 {} 行 ({}ms)", row_count, elapsed_ms)
                     };
-                    self.session.last_query_time_ms = Some(elapsed_ms);
                     self.session.notifications.success(&msg);
-                    self.state.selected_row = None;
-                    self.state.selected_cell = None;
-                    self.clear_search();
-                    if is_update_or_delete {
-                        self.state.grid_state.scroll_to_row = Some(self.state.grid_state.cursor.0);
-                    } else if is_insert {
-                        let last_row = row_count.saturating_sub(1);
-                        self.state.grid_state.cursor = (last_row, 0);
-                        self.state.grid_state.scroll_to_row = Some(last_row);
+                    if is_explain {
+                        self.reveal_bottom_panel_for_query(crate::core::BottomPanelTab::Explain);
+                    } else {
+                        self.state.selected_row = None;
+                        self.state.selected_cell = None;
+                        self.clear_search();
+                        if is_update_or_delete {
+                            self.state.grid_state.scroll_to_row =
+                                Some(self.state.grid_state.cursor.0);
+                        } else if is_insert {
+                            let last_row = row_count.saturating_sub(1);
+                            self.state.grid_state.cursor = (last_row, 0);
+                            self.state.grid_state.scroll_to_row = Some(last_row);
+                        }
+                        if self.state.focus_area == crate::ui::FocusArea::DataGrid {
+                            self.state.grid_state.focused = true;
+                        }
+                        if let Some(table) = &self.state.selected_table.clone()
+                            && !columns_empty
+                            && let Some(arc) = &typed_arc
+                        {
+                            self.session
+                                .autocomplete
+                                .set_columns(table.clone(), arc.column_names());
+                        }
+                        self.state.grid_state.result_set = typed_arc;
+                        self.reveal_bottom_panel_for_query(crate::core::BottomPanelTab::Results);
+                        self.state.grid_state.rows_to_delete.clear();
+                        self.persist_active_grid_workspace();
                     }
-                    if self.state.focus_area == crate::ui::FocusArea::DataGrid {
-                        self.state.grid_state.focused = true;
-                    }
-                    if let Some(table) = &self.state.selected_table.clone()
-                        && !columns_empty
-                        && let Some(arc) = &typed_arc
-                    {
-                        self.session
-                            .autocomplete
-                            .set_columns(table.clone(), arc.column_names());
-                    }
-                    self.state.grid_state.result_set = typed_arc;
-                    self.reveal_bottom_panel_for_query(crate::core::BottomPanelTab::Results);
-                    self.state.grid_state.rows_to_delete.clear();
-                    self.persist_active_grid_workspace();
                 }
                 if is_drop_table
                     && let Some(conn) = self.session.manager.connections.get_mut(&conn_name)
@@ -932,7 +1026,20 @@ impl DbManagerApp {
                 if let Some(tab) = self.session.tab_manager.tabs.get_mut(tab_index) {
                     tab.pending_request_id = None;
                     tab.executing = false;
-                    tab.last_error = Some(e.clone());
+                    if !is_explain {
+                        tab.last_error = Some(e.clone());
+                    }
+                }
+                if is_explain {
+                    self.state.explain_state.record_error(
+                        tab_id.clone(),
+                        sql.clone(),
+                        e.clone(),
+                        elapsed_ms,
+                    );
+                    if is_active_tab {
+                        self.reveal_bottom_panel_for_query(crate::core::BottomPanelTab::Explain);
+                    }
                 }
             }
         }
@@ -947,10 +1054,14 @@ mod tests {
         resolve_er_diagram_ready_state, schema_invalidation_for,
         select_ready_state_er_layout_strategy,
     };
+    use crate::app::DbManagerApp;
     use crate::data::{
         Connection, ConnectionConfig, DatabaseType, ImportExecutionReport, analyze_sql_for_ui,
     };
+    use crate::domain::execution::ExecutionOutcome;
+    use crate::domain::result::ResultSet;
     use crate::ui::{ERLayoutStrategy, ERTable, RelationType, Relationship, RelationshipOrigin};
+    use eframe::egui;
 
     #[test]
     fn schema_invalidation_maps_ddl_to_reloads() {
@@ -1019,6 +1130,92 @@ mod tests {
             classify_grid_save_outcome(&err),
             GridSaveOutcome::RolledBackKeepEdits
         );
+    }
+
+    #[test]
+    fn explain_success_uses_explain_surface_without_replacing_results() {
+        let mut app = DbManagerApp::new_for_test();
+        let previous_result = std::sync::Arc::new(ResultSet::empty());
+        app.state.grid_state.result_set = Some(previous_result.clone());
+        app.session
+            .tab_manager
+            .get_active_mut()
+            .expect("test app should have an active query tab")
+            .result_set = Some(previous_result);
+        let tab_id = app
+            .session
+            .tab_manager
+            .get_active()
+            .expect("test app should have an active query tab")
+            .id
+            .clone();
+
+        app.handle_query_execution_finished(
+            &egui::Context::default(),
+            "EXPLAIN SELECT 1".to_string(),
+            "missing".to_string(),
+            tab_id.clone(),
+            Ok(ExecutionOutcome::single_result(ResultSet::empty())),
+            12,
+        );
+
+        assert!(app.state.explain_state.should_show_for_tab(&tab_id));
+        assert!(app.state.explain_state.result.is_some());
+        assert!(app.state.grid_state.result_set.is_some());
+        assert_eq!(
+            app.state.workbench.bottom_panel.active_tab,
+            crate::core::BottomPanelTab::Explain
+        );
+        assert!(
+            app.session
+                .tab_manager
+                .get_active()
+                .and_then(|tab| tab.result_set.as_ref())
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn explain_error_is_retained_and_reveals_explain_surface() {
+        let mut app = DbManagerApp::new_for_test();
+        let tab_id = app
+            .session
+            .tab_manager
+            .get_active()
+            .expect("test app should have an active query tab")
+            .id
+            .clone();
+        if let Some(tab) = app.session.tab_manager.get_active_mut() {
+            tab.executing = true;
+            tab.pending_request_id = Some(7);
+        }
+
+        app.handle_query_execution_finished(
+            &egui::Context::default(),
+            "EXPLAIN SELECT missing_column".to_string(),
+            "missing".to_string(),
+            tab_id.clone(),
+            Err("no such column: missing_column".to_string()),
+            3,
+        );
+
+        assert_eq!(
+            app.state.explain_state.error.as_deref(),
+            Some("no such column: missing_column")
+        );
+        assert!(app.state.explain_state.should_show_for_tab(&tab_id));
+        assert_eq!(
+            app.state.workbench.bottom_panel.active_tab,
+            crate::core::BottomPanelTab::Explain
+        );
+        let tab = app
+            .session
+            .tab_manager
+            .get_active()
+            .expect("test app should have an active query tab");
+        assert!(!tab.executing);
+        assert_eq!(tab.pending_request_id, None);
+        assert_eq!(tab.last_error, None);
     }
 
     #[test]
@@ -1467,7 +1664,7 @@ mod tests {
     }
 
     #[test]
-    fn active_tables_reload_stale_completion_does_not_overwrite_latest_tables_or_autocomplete() {
+    fn active_tables_runtime_event_stale_guard_preserves_latest_tables() {
         let mut app = crate::app::DbManagerApp::new_for_test();
         let ctx = egui::Context::default();
         let connection_name = "demo".to_string();
@@ -1477,39 +1674,53 @@ mod tests {
         ));
         connection.connected = true;
         connection.tables = vec!["initial".to_string()];
+        let connection_id = connection.id;
         app.session
             .manager
             .connections
             .insert(connection_name.clone(), connection);
         app.session.manager.active = Some(connection_name.clone());
-        app.session
-            .pending_active_tables_reload_requests
-            .insert(connection_name.clone(), 1);
-        app.session
-            .pending_active_tables_reload_requests
-            .insert(connection_name.clone(), 2);
 
-        app.handle_active_tables_reloaded(
-            &ctx,
-            connection_name.clone(),
-            2,
-            Ok(vec!["latest".to_string()]),
+        let key = crate::session::task_registry::OperationKey::ActiveTables {
+            connection: connection_id,
+        };
+        let (stale_task_id, _) = app.session.task_registry.register(
+            key.clone(),
+            crate::session::task_registry::TaskKind::ActiveTables,
         );
-        app.handle_active_tables_reloaded(
+        let (current_task_id, _) = app.session.task_registry.register(
+            key.clone(),
+            crate::session::task_registry::TaskKind::ActiveTables,
+        );
+
+        app.handle_runtime_event(
             &ctx,
-            connection_name.clone(),
-            1,
-            Ok(vec!["stale".to_string()]),
+            crate::session::runtime_event::RuntimeEvent {
+                task_id: stale_task_id,
+                key: key.clone(),
+                outcome: crate::session::runtime_event::RuntimeOutcome::ActiveTablesReloaded {
+                    connection: connection_id,
+                    conn_name: connection_name.clone(),
+                    result: Ok(vec!["stale".to_string()]),
+                },
+            },
+        );
+        app.handle_runtime_event(
+            &ctx,
+            crate::session::runtime_event::RuntimeEvent {
+                task_id: current_task_id,
+                key,
+                outcome: crate::session::runtime_event::RuntimeOutcome::ActiveTablesReloaded {
+                    connection: connection_id,
+                    conn_name: connection_name.clone(),
+                    result: Ok(vec!["latest".to_string()]),
+                },
+            },
         );
 
         assert_eq!(
             app.session.manager.connections[&connection_name].tables,
             vec!["latest".to_string()]
-        );
-        assert!(
-            !app.session
-                .pending_active_tables_reload_requests
-                .contains_key(&connection_name)
         );
         let completions = app.session.autocomplete.get_completions("lat", 3);
         assert!(
@@ -1521,6 +1732,59 @@ mod tests {
             !completions
                 .iter()
                 .any(|completion| completion.label == "stale")
+        );
+    }
+
+    #[test]
+    fn import_runtime_event_stale_guard_finishes_only_current_import() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let ctx = egui::Context::default();
+        app.session.import_executing = true;
+        app.session.refresh_executing_flag();
+
+        let key = crate::session::task_registry::OperationKey::Import;
+        let (stale_task_id, _) = app
+            .session
+            .task_registry
+            .register(key.clone(), crate::session::task_registry::TaskKind::Import);
+        let (current_task_id, _) = app
+            .session
+            .task_registry
+            .register(key.clone(), crate::session::task_registry::TaskKind::Import);
+
+        app.handle_runtime_event(
+            &ctx,
+            crate::session::runtime_event::RuntimeEvent {
+                task_id: stale_task_id,
+                key: key.clone(),
+                outcome: crate::session::runtime_event::RuntimeOutcome::ImportDone {
+                    result: Err("stale import".to_string()),
+                    elapsed_ms: 1,
+                },
+            },
+        );
+        assert!(app.session.import_executing);
+
+        let mut report = ImportExecutionReport::new(1);
+        report.succeeded = 1;
+        app.handle_runtime_event(
+            &ctx,
+            crate::session::runtime_event::RuntimeEvent {
+                task_id: current_task_id,
+                key,
+                outcome: crate::session::runtime_event::RuntimeOutcome::ImportDone {
+                    result: Ok(report),
+                    elapsed_ms: 2,
+                },
+            },
+        );
+
+        assert!(!app.session.import_executing);
+        assert!(
+            app.session
+                .notifications
+                .latest_message()
+                .is_some_and(|message| message.contains("导入完成"))
         );
     }
 

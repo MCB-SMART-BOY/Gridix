@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 本文件记录项目的重要变更。
 
 ## [Unreleased]
+- Added single-table `SchemaSnapshot`/`SchemaDiff` metadata comparison with a quoted, read-only SQL preview. Schema migrations are not executed; SQLite constraint and column-definition changes remain explicit review warnings.
+  新增单表 `SchemaSnapshot`/`SchemaDiff` 元数据比较与带标识符引用的只读 SQL preview。不执行 schema 迁移；SQLite 约束和列定义变化会明确保留为人工审核警告。
+- Added a dedicated Explain output surface. Explain executions retain the normal Results surface, while the latest plan rows or execution error are rendered in BottomPanel::Explain using the shared `ResultSet` shape; no cross-database plan AST is introduced.
+  新增专用 Explain 输出 surface。Explain 执行会保留普通 Results surface，最近计划行或执行错误改在 BottomPanel::Explain 中渲染；继续复用通用 `ResultSet`，不引入跨数据库执行计划 AST。
+- Extended `gridix-driver` with deterministic text entry (`type`), window-relative pointer actions (`move`, `click`), bounded state waits (`wait window`, `wait file`), detached launch (`launch --detach`), and read-only artifact assertions (`assert-file`, `assert-export`, `assert-reopened`).
+  扩展 `gridix-driver`：确定性文本输入（`type`）、窗口相对指针操作（`move`、`click`）、有界状态等待（`wait window`、`wait file`）、分离式启动（`launch --detach`）以及只读 artifacts 断言（`assert-file`、`assert-export`、`assert-reopened`）。
+- Added TLS and SSH backend acceptance workflows. `tests/tls_acceptance.rs` and `tests/ssh_acceptance.rs` run only with `GRIDIX_ACCEPTANCE=1`; without it they skip with a printed reason, and with it a missing fixture variable is still a hard failure.
+  新增 TLS 与 SSH 后端验收工作流。`tests/tls_acceptance.rs` 与 `tests/ssh_acceptance.rs` 仅在 `GRIDIX_ACCEPTANCE=1` 时运行；未设置时打印原因并跳过，设置后缺少 fixture 变量仍然是硬失败。
+- Added `deny.toml` and `.gitleaks.toml` and wired dependency-policy, secret, and filesystem scans into CI. Refreshed the GUI smoke-evidence job and the coverage/docs workflows; all third-party actions and container images are pinned by commit SHA and digest.
+  新增 `deny.toml` 与 `.gitleaks.toml`，并将依赖策略、密钥与文件系统扫描接入 CI。更新 GUI smoke 证据任务与 coverage/docs 工作流；所有第三方 action 与容器镜像均按 commit SHA 与 digest 固定。
+
+### Release acceptance
+- The driven SQLite GUI journey now covers connection creation, query execution, Grid edit and save, and reopen persistence (`gridix-driver assert-reopened … items name after`). CSV/JSON/SQL export evidence is still missing: export needs a native save dialog, which the driven Xvfb session cannot present. See `docs/LIMITATIONS.md`.
+  受驱动的 SQLite GUI journey 现已覆盖创建连接、执行查询、Grid 编辑保存与重开持久化（`gridix-driver assert-reopened … items name after`）。CSV/JSON/SQL 导出证据仍缺失：导出需要原生保存对话框，受驱动的 Xvfb 会话无法呈现该对话框。详见 `docs/LIMITATIONS.md`。
 
 ## [7.2.0] - 2026-08-08
 ### Added
@@ -17,8 +31,8 @@ All notable changes to this project are documented in this file.
   PostgreSQL 在参数绑定和结果解码中以精确的 `DbValue::Decimal` 文本保留 `NUMERIC` 值。MySQL 时间类型输入拒绝大于或等于一秒的纳秒值。
 
 ### Release acceptance
-- Backend Actions checks are release-acceptance gates, not a statement that any release has been published. A manually observed SQLite GUI journey—create, edit/save, reopen, and CSV/JSON/SQL export evidence—remains required. The current `gridix-driver` cannot automate that journey because it supports only `launch`, `key`, `ss`, `quit`, and `help`.
-  后端 Actions 检查是发布验收门，不代表任何版本已经发布。仍需人工观察 SQLite GUI journey：创建、编辑/保存、重新打开，以及 CSV/JSON/SQL 导出证据。当前 `gridix-driver` 仅支持 `launch`、`key`、`ss`、`quit` 与 `help`，因此无法自动完成该流程。
+- Backend Actions checks are release-acceptance gates, not a statement that any release has been published. A manually observed SQLite GUI journey—create, edit/save, reopen, and CSV/JSON/SQL export evidence—remains required. `gridix-driver` supports launch, raw keyboard/text/pointer input, waits, screenshots, and artifact assertions, but cannot automate native file dialogs or replace the semantic GUI journey.
+  后端 Actions 检查是发布验收门，不代表任何版本已经发布。仍需人工观察 SQLite GUI journey：创建、编辑/保存、重新打开，以及 CSV/JSON/SQL 导出证据。`gridix-driver` 支持启动、原始键盘/文本/指针输入、等待、截图和 artifacts 断言，但不能自动操作原生文件对话框，也不能替代语义化 GUI journey。
 
 ### Known limitations
 - Documented the current functional limitations and release-acceptance boundaries: in-flight SQLite cancellation is not guaranteed, the manual SQLite GUI journey remains unrecorded, advanced MySQL cancellation environments are unverified, SSH credential hardening is pending, and narrow dialogs can overflow horizontally.

@@ -2,9 +2,9 @@
 
 use std::time::{Duration, Instant};
 
-use gridix::data::{
-    ConnectionConfig, DatabaseType, DbError, execute_typed, execute_typed_cancellable,
-};
+use gridix::data::{ConnectionConfig, DbError, execute_typed, execute_typed_cancellable};
+mod common;
+use common::pg_config_from_url;
 use gridix::domain::execution::StatementOutcome;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -14,44 +14,9 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 fn pg_config() -> Result<Option<(String, ConnectionConfig)>, std::env::VarError> {
     match std::env::var("GRIDIX_TEST_PG_URL") {
-        Ok(url) => Ok(Some((url.clone(), parse_pg_url(&url)))),
+        Ok(url) => Ok(Some((url.clone(), pg_config_from_url(&url)))),
         Err(std::env::VarError::NotPresent) => Ok(None),
         Err(error) => Err(error),
-    }
-}
-
-fn parse_pg_url(url: &str) -> ConnectionConfig {
-    let rest = url
-        .strip_prefix("postgresql://")
-        .or_else(|| url.strip_prefix("postgres://"))
-        .unwrap_or(url);
-    let (authority, database) = rest
-        .split_once('/')
-        .map_or((rest, String::new()), |(auth, db)| (auth, db.to_string()));
-    let (userinfo, hostport) = authority
-        .split_once('@')
-        .map_or((None, authority), |(ui, hp)| (Some(ui), hp));
-    let (username, password) = userinfo.map_or_else(
-        || (String::new(), String::new()),
-        |ui| match ui.split_once(':') {
-            Some((user, password)) => (user.to_string(), password.to_string()),
-            None => (ui.to_string(), String::new()),
-        },
-    );
-    let (host, port) = hostport
-        .split_once(':')
-        .map_or((hostport.to_string(), 5432), |(host, port)| {
-            (host.to_string(), port.parse::<u16>().unwrap_or(5432))
-        });
-
-    ConnectionConfig {
-        db_type: DatabaseType::PostgreSQL,
-        host,
-        port,
-        username,
-        password,
-        database,
-        ..Default::default()
     }
 }
 

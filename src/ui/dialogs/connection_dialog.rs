@@ -711,8 +711,7 @@ impl ConnectionDialog {
             ui,
             match config.mysql_ssl_mode {
                 MySqlSslMode::Disabled => "不使用加密，数据以明文传输。",
-                MySqlSslMode::Preferred => "优先使用 SSL，服务端不支持时回退为明文。",
-                MySqlSslMode::Required => "必须使用 SSL，但不验证服务器证书。",
+                MySqlSslMode::Required => "必须使用 SSL，并验证服务器 CA 证书。",
                 MySqlSslMode::VerifyCa => "验证服务器 CA 证书，不检查主机名。",
                 MySqlSslMode::VerifyIdentity => "同时验证 CA 证书与服务器主机名。",
             },
@@ -767,8 +766,7 @@ impl ConnectionDialog {
             ui,
             match config.postgres_ssl_mode {
                 PostgresSslMode::Disable => "不使用加密，数据以明文传输。",
-                PostgresSslMode::Prefer => "优先使用 SSL，服务端不支持时回退为明文。",
-                PostgresSslMode::Require => "必须使用 SSL，但不验证服务器证书。",
+                PostgresSslMode::Require => "必须使用 SSL，并验证服务器 CA 证书。",
                 PostgresSslMode::VerifyCa => "验证服务器 CA 证书，不检查主机名。",
                 PostgresSslMode::VerifyFull => "同时验证 CA 证书与服务器主机名。",
             },

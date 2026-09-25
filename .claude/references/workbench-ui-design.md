@@ -374,7 +374,7 @@ Tasks:
 - Add `BottomPanelTab`.
 - Move data grid rendering to `BottomPanel::Results`.
 - Move query errors/messages to `BottomPanel::Messages`.
-- Prepare `Explain` tab for future query plan visualization.
+- Keep `Explain` as a dedicated output surface for recent typed plan rows/errors; cross-database plan AST visualization remains out of scope.
 
 Acceptance:
 - SQL editor can remain visible while results update below it.

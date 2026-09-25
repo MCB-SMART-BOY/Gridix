@@ -1,0 +1,59 @@
+name: Backend SSH Acceptance
+
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ssh-tunnel:
+    name: SSH Tunnel PostgreSQL Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GRIDIX_ACCEPTANCE: "1"
+      GRIDIX_TEST_SSH_HOST: ${{ secrets.GRIDIX_TEST_SSH_HOST }}
+      GRIDIX_TEST_SSH_PORT: ${{ secrets.GRIDIX_TEST_SSH_PORT }}
+      GRIDIX_TEST_SSH_USERNAME: ${{ secrets.GRIDIX_TEST_SSH_USERNAME }}
+      GRIDIX_TEST_SSH_PASSWORD: ${{ secrets.GRIDIX_TEST_SSH_PASSWORD }}
+      GRIDIX_TEST_SSH_REMOTE_HOST: ${{ secrets.GRIDIX_TEST_SSH_REMOTE_HOST }}
+      GRIDIX_TEST_SSH_REMOTE_PORT: ${{ secrets.GRIDIX_TEST_SSH_REMOTE_PORT }}
+      GRIDIX_TEST_SSH_PG_URL: ${{ secrets.GRIDIX_TEST_SSH_PG_URL }}
+      GRIDIX_TEST_SSH_KNOWN_HOSTS: ${{ secrets.GRIDIX_TEST_SSH_KNOWN_HOSTS }}
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (2026-09-03)
+        with:
+          toolchain: 1.98.1
+
+      - name: Install Linux dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev
+
+      - name: Configure SSH host key fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${GRIDIX_TEST_SSH_KNOWN_HOSTS:?GRIDIX_TEST_SSH_KNOWN_HOSTS secret must be configured}"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$GRIDIX_TEST_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Run SSH tunnel acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${GRIDIX_TEST_SSH_HOST:?GRIDIX_TEST_SSH_HOST secret must be configured}"
+          : "${GRIDIX_TEST_SSH_PORT:?GRIDIX_TEST_SSH_PORT secret must be configured}"
+          : "${GRIDIX_TEST_SSH_USERNAME:?GRIDIX_TEST_SSH_USERNAME secret must be configured}"
+          : "${GRIDIX_TEST_SSH_PASSWORD:?GRIDIX_TEST_SSH_PASSWORD secret must be configured}"
+          : "${GRIDIX_TEST_SSH_REMOTE_HOST:?GRIDIX_TEST_SSH_REMOTE_HOST secret must be configured}"
+          : "${GRIDIX_TEST_SSH_REMOTE_PORT:?GRIDIX_TEST_SSH_REMOTE_PORT secret must be configured}"
+          : "${GRIDIX_TEST_SSH_PG_URL:?GRIDIX_TEST_SSH_PG_URL secret must be configured}"
+          : "${GRIDIX_ACCEPTANCE:?GRIDIX_ACCEPTANCE must be 1 for acceptance runs}"
+          cargo test --test ssh_acceptance -- --nocapture --test-threads=1

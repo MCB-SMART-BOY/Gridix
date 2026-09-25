@@ -145,14 +145,13 @@ impl DbManagerApp {
 
     pub(in crate::app) fn reconcile_active_dialog_owner(&mut self) {
         if self
-            .state
             .active_dialog_owner
             .is_some_and(|id| self.is_dialog_visible(id))
         {
             return;
         }
 
-        self.state.active_dialog_owner = self.dialog_host_snapshot().active_dialog();
+        self.active_dialog_owner = self.dialog_host_snapshot().active_dialog();
     }
 
     pub(in crate::app) fn open_dialog(&mut self, id: DialogId) {
@@ -183,7 +182,7 @@ impl DbManagerApp {
             DialogId::CommandPalette => self.command_palette_state.open(),
         }
 
-        self.state.active_dialog_owner = Some(id);
+        self.active_dialog_owner = Some(id);
     }
 
     /// 关闭除 `keep` 和 WelcomeSetup 之外的所有主对话框，保证至多一个对话框持有输入。
@@ -229,8 +228,8 @@ impl DbManagerApp {
             DialogId::CommandPalette => self.command_palette_state.close(),
         }
 
-        if self.state.active_dialog_owner == Some(id) {
-            self.state.active_dialog_owner = None;
+        if self.active_dialog_owner == Some(id) {
+            self.active_dialog_owner = None;
         }
         self.reconcile_active_dialog_owner();
     }
@@ -244,8 +243,7 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn active_dialog_id(&self) -> Option<DialogId> {
-        self.state
-            .active_dialog_owner
+        self.active_dialog_owner
             .filter(|id| self.is_dialog_visible(*id))
             .or_else(|| self.dialog_host_snapshot().active_dialog())
     }

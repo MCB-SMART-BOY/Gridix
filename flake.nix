@@ -108,7 +108,10 @@
             with pkgs;
             [
               cargo-audit
+              cargo-deny
               deadnix
+              gitleaks
+              trivy
               rustup
               pkg-config
               xorg-server

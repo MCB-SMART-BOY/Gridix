@@ -24,8 +24,11 @@ cargo audit
 ## 2. Release-acceptance evidence
 
 - PostgreSQL and MySQL typed/cancellation Actions workflows must succeed for the candidate SHA. They run on PRs, `main`, and `v*` tags, preflight `GRIDIX_TEST_PG_URL` / `GRIDIX_TEST_MYSQL_URL`, and run serial integration tests with service containers.
-- RA2 is still a manual SQLite GUI journey, not an automated driver check. Preserve initial-result, saved-result, and reopened-result screenshots under `/tmp/gridix-release-acceptance/<SHA>/`, plus non-empty `acceptance.csv`, `acceptance.json`, and `acceptance.sql`. The exports must show `after`, `"name":"after"`, and `'after'` with `NULL`, respectively.
-- `gridix-driver` only supports launch, key, screenshot, quit, and help; it cannot complete dialog, text-entry, or export interactions. Do not mark RA2 accepted without the manual artifacts.
+- TLS and SSH acceptance live in the separate `Backend TLS Acceptance` (`tls-acceptance.yml`, runs on PRs/`main`/tags and weekly) and `Backend SSH Acceptance` (`ssh-acceptance.yml`, manual dispatch with repository secrets) workflows. They are not `needs` dependencies of the `release` job, so record their result for the candidate SHA explicitly instead of assuming the release job enforced them.
+- The main CI workflow must also produce the clean Xvfb/X11 GUI smoke artifact. Its manifest must retain `ra2_status=manual-required`; this is a launch/screenshot proof, not full SQLite acceptance.
+- RA2 remains a manual SQLite GUI journey. Run `scripts/gridix-sqlite-acceptance.sh <SHA>` and preserve initial-result, saved-result, and reopened-result screenshots under `/tmp/gridix-release-acceptance/<SHA>/`, plus non-empty `acceptance.csv`, `acceptance.json`, and `acceptance.sql`. The exports must show `after`, `"name":"after"`, and `'after'` with `NULL`, respectively.
+- Current gap (2026-09-25): the screenshots and the `assert-reopened` persistence check are captured, but the three exports are not. Export needs a native save dialog, which a driven Xvfb session cannot present, so a release candidate still needs an operator export run in a desktop session.
+- `gridix-driver` supports keyboard, text, pointer, wait, screenshot, and artifact assertions, but native dialogs and semantic GUI actions remain manual. Do not mark RA2 accepted without the manual artifacts.
 - Record the observed workflow run URLs and artifacts. Do not claim a release is published until the release result is observed.
 
 ## 3. Version bump

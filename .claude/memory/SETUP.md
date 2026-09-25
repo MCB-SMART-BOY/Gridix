@@ -4,10 +4,10 @@ Gridix uses Claude Code's persistent memory system at `.claude/memory/` (project
 
 ## Project State
 
-- **Version**: 7.1.0
+- **Version**: 7.2.0
 - **Branch**: `main` only
 - **TLS**: rustls built-in — no openssl required
-- **Tests**: 619 passed
+- **Tests**: Full-suite status must be taken from the latest CI run; this memory entry is not a release proof.
 
 ## How it works
 

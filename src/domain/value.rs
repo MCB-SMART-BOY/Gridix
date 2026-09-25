@@ -106,8 +106,7 @@ pub enum DbTypeFamily {
     Other,
 }
 
-/// 列的完整类型信息
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DbTypeInfo {
     pub family: DbTypeFamily,
     /// 数据库原生类型名（如 "INTEGER", "character varying(255)", "bigint"）

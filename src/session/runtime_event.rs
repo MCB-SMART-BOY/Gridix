@@ -31,6 +31,29 @@ pub enum RuntimeOutcome {
         result: Result<Vec<String>, String>,
     },
 
+    /// 当前连接的表列表静默重载完成
+    ActiveTablesReloaded {
+        connection: ConnectionId,
+        conn_name: String,
+        result: Result<Vec<String>, String>,
+    },
+
+    /// 数据库删除完成
+    DatabaseDropped {
+        connection: ConnectionId,
+        conn_name: String,
+        database: String,
+        result: Result<(), String>,
+    },
+
+    /// 表删除完成
+    TableDropped {
+        connection: ConnectionId,
+        conn_name: String,
+        table: String,
+        result: Result<(), String>,
+    },
+
     /// 查询执行完成
     ExecutionFinished {
         document: DocumentId,

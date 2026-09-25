@@ -140,7 +140,7 @@ fn test_ssh_pool_key_is_stable_after_runtime_host_rewrite() {
     let mut effective = base.clone();
     effective.host = "127.0.0.1".to_string();
     effective.port = 15432;
-
+    effective.tls_server_name = Some("db.internal".to_string());
     assert_eq!(base.pool_key(), effective.pool_key());
 
     // auth_fingerprint 不再包含密码 — 同一身份（host+port+user+auth_method）产生相同 pool_key
@@ -181,10 +181,78 @@ fn test_connection_config_sqlite_defaults_to_local_file() {
 }
 
 #[test]
-fn test_connection_config_ssl_mode_defaults() {
+fn test_connection_config_ssl_mode_defaults_to_verification() {
     let config = ConnectionConfig::default();
-    assert_eq!(config.postgres_ssl_mode, PostgresSslMode::Prefer);
-    assert_eq!(config.mysql_ssl_mode, MySqlSslMode::Preferred);
+    assert_eq!(config.postgres_ssl_mode, PostgresSslMode::VerifyFull);
+    assert_eq!(config.mysql_ssl_mode, MySqlSslMode::VerifyIdentity);
+}
+
+#[test]
+fn test_connection_config_new_uses_strict_ssl_modes() {
+    let config = ConnectionConfig::new("new", DatabaseType::PostgreSQL);
+
+    assert_eq!(config.postgres_ssl_mode, PostgresSslMode::VerifyFull);
+    assert_eq!(config.mysql_ssl_mode, MySqlSslMode::VerifyIdentity);
+}
+
+#[test]
+fn test_connection_config_legacy_toml_defaults_to_verification() {
+    let config: ConnectionConfig = toml::from_str(
+        r#"
+name = "legacy"
+db_type = "PostgreSQL"
+host = "db.example.com"
+port = 5432
+username = "user"
+database = "app"
+"#,
+    )
+    .expect("legacy connection config should parse");
+
+    assert_eq!(config.postgres_ssl_mode, PostgresSslMode::VerifyFull);
+    assert_eq!(config.mysql_ssl_mode, MySqlSslMode::VerifyIdentity);
+    assert!(config.ssl_ca_cert.is_empty());
+}
+
+#[test]
+fn test_connection_config_legacy_tls_aliases_are_strict() {
+    let config: ConnectionConfig = toml::from_str(
+        r#"
+name = "legacy-alias"
+db_type = "MySQL"
+host = "db.example.com"
+port = 3306
+username = "user"
+postgres_ssl_mode = "Prefer"
+mysql_ssl_mode = "Preferred"
+"#,
+    )
+    .expect("legacy TLS aliases should parse");
+
+    assert_eq!(config.postgres_ssl_mode, PostgresSslMode::VerifyFull);
+    assert_eq!(config.mysql_ssl_mode, MySqlSslMode::VerifyIdentity);
+}
+
+#[test]
+fn test_connection_config_toml_preserves_explicit_ssl_modes() {
+    let config: ConnectionConfig = toml::from_str(
+        r#"
+name = "secure"
+db_type = "PostgreSQL"
+host = "db.example.com"
+port = 5432
+username = "user"
+database = "app"
+postgres_ssl_mode = "VerifyFull"
+mysql_ssl_mode = "Required"
+ssl_ca_cert = "/etc/ssl/db-ca.pem"
+"#,
+    )
+    .expect("explicit SSL configuration should parse");
+
+    assert_eq!(config.postgres_ssl_mode, PostgresSslMode::VerifyFull);
+    assert_eq!(config.mysql_ssl_mode, MySqlSslMode::Required);
+    assert_eq!(config.ssl_ca_cert, "/etc/ssl/db-ca.pem");
 }
 
 #[test]

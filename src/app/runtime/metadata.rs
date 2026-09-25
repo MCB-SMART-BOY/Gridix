@@ -3,6 +3,7 @@
 //! 包含触发器、存储过程等按需异步加载逻辑。
 
 use crate::core::constants;
+use crate::session::runtime_event::{RuntimeEvent, RuntimeOutcome};
 
 use super::{DbManagerApp, Message};
 
@@ -18,7 +19,7 @@ impl DbManagerApp {
             let request_id = self.session.next_metadata_request_id();
             let tx = self.session.tx.clone();
 
-            // TaskRegistry 注册（双通道迁移）
+            // TaskRegistry 注册；完成事件统一走 RuntimeEvent。
             let meta_key = crate::session::task_registry::OperationKey::Metadata {
                 connection: connection_id,
                 scope: crate::session::task_registry::MetadataScope::Triggers,
@@ -45,26 +46,15 @@ impl DbManagerApp {
                 .map_err(|_| format!("加载触发器超时 ({}秒)", timeout_secs))
                 .and_then(|r| r.map_err(|e| e.to_string()));
 
-                // RuntimeEvent path — send first to avoid move conflicts
-                {
-                    use crate::session::runtime_event::{RuntimeEvent, RuntimeOutcome};
-                    let _ = tx.send(Message::RuntimeEvent(RuntimeEvent {
-                        task_id,
-                        key: meta_key,
-                        outcome: RuntimeOutcome::TriggersFetched {
-                            connection: connection_id,
-                            database: database.clone(),
-                            result: result.clone(),
-                        },
-                    }));
-                }
-
-                // Legacy path
-                let legacy_msg =
-                    Message::TriggersFetched(active_name, database, request_id, result);
-                if tx.send(legacy_msg).is_err() {
-                    tracing::warn!("无法发送触发器数据：接收端已关闭");
-                }
+                let _ = tx.send(Message::RuntimeEvent(RuntimeEvent {
+                    task_id,
+                    key: meta_key,
+                    outcome: RuntimeOutcome::TriggersFetched {
+                        connection: connection_id,
+                        database: database.clone(),
+                        result,
+                    },
+                }));
             });
         }
     }
@@ -78,7 +68,7 @@ impl DbManagerApp {
             let request_id = self.session.next_metadata_request_id();
             let tx = self.session.tx.clone();
 
-            // TaskRegistry 注册（双通道迁移）
+            // TaskRegistry 注册；完成事件统一走 RuntimeEvent。
             let meta_key = crate::session::task_registry::OperationKey::Metadata {
                 connection: connection_id,
                 scope: crate::session::task_registry::MetadataScope::Routines,
@@ -104,25 +94,15 @@ impl DbManagerApp {
                 .await
                 .map_err(|_| format!("加载存储过程超时 ({}秒)", timeout_secs))
                 .and_then(|r| r.map_err(|e| e.to_string()));
-                {
-                    use crate::session::runtime_event::{RuntimeEvent, RuntimeOutcome};
-                    let _ = tx.send(Message::RuntimeEvent(RuntimeEvent {
-                        task_id,
-                        key: meta_key,
-                        outcome: RuntimeOutcome::RoutinesFetched {
-                            connection: connection_id,
-                            database: database.clone(),
-                            result: result.clone(),
-                        },
-                    }));
-                }
-
-                // Legacy path
-                let legacy_msg =
-                    Message::RoutinesFetched(active_name, database, request_id, result);
-                if tx.send(legacy_msg).is_err() {
-                    tracing::warn!("无法发送存储过程数据：接收端已关闭");
-                }
+                let _ = tx.send(Message::RuntimeEvent(RuntimeEvent {
+                    task_id,
+                    key: meta_key,
+                    outcome: RuntimeOutcome::RoutinesFetched {
+                        connection: connection_id,
+                        database: database.clone(),
+                        result,
+                    },
+                }));
             });
         }
     }

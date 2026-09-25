@@ -43,7 +43,7 @@ pub use query::{
     ConnectResult, ImportExecutionReport, RoutineInfo, RoutineType, TriggerInfo, apply_mutations,
     connect_database, drop_database, execute_import_batch, execute_typed,
     execute_typed_cancellable, get_routines, get_tables_for_database, get_triggers,
-    infer_type_family, infer_value, load_schema_catalog,
+    infer_type_family, infer_value, load_schema_catalog, load_schema_snapshot,
 };
 pub(crate) use query::{SqlUiHints, analyze_sql_for_ui};
 

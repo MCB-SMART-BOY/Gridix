@@ -51,11 +51,15 @@ Defined in `keybindings.rs::scope_resolution_chain()`.
 2. **Parent-shadowing**: parent + child share key → Warning (child wins)
 3. **Text-entry conflict**: unmodified alphanumeric in text-entry scope → Error
 
-Diagnostics shown in KeyBindings dialog, never written to disk.
+Diagnostics shown in KeyBindings dialog, never written to disk.  Load/read/parse
+failures are retained as structured `LoadFailure` diagnostics and fall back to
+the built-in keymap so the user can repair and retry.
 
 ## Persistence
 
 Active keymap: `~/.config/gridix/keymap.toml` (TOML, atomic write, 0o600).
+The runtime keybindings are replaced only after a save succeeds; failed writes
+keep the edited candidate open in the dialog for retry.
 Legacy `config.toml.keybindings` field is read-only for migration.
 
 ## Change recipes

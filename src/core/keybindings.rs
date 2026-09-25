@@ -23,12 +23,15 @@ pub struct KeyBinding {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeymapDiagnosticSeverity {
+    Info,
     Warning,
     Error,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeymapDiagnosticCode {
+    /// keymap.toml 无法读取、解析或初始化。
+    LoadFailure,
     UnknownSection,
     UnknownAction,
     InvalidBinding,
@@ -1194,6 +1197,12 @@ impl KeyBindings {
         let Some(path) = Self::keymap_path() else {
             tracing::warn!("无法找到 keymap.toml 路径，回退到内置快捷键");
             let mut bindings = Self::default();
+            bindings.push_diagnostic(
+                KeymapDiagnosticSeverity::Error,
+                KeymapDiagnosticCode::LoadFailure,
+                "keymap.toml",
+                "无法定位 keymap.toml 路径；运行时已回退到内置默认快捷键，请检查配置目录后重试。",
+            );
             if Self::has_legacy_customizations(legacy) {
                 bindings.push_diagnostic(
                     KeymapDiagnosticSeverity::Warning,
@@ -1209,16 +1218,7 @@ impl KeyBindings {
             Ok(bindings) => bindings,
             Err(error) => {
                 tracing::warn!(error = %error, path = ?path, "加载 keymap.toml 失败，回退到默认/迁移键位");
-                let mut bindings = Self::default();
-                if Self::has_legacy_customizations(legacy) {
-                    bindings.push_diagnostic(
-                        KeymapDiagnosticSeverity::Warning,
-                        KeymapDiagnosticCode::LegacyConfigMigrationPending,
-                        "config.toml.keybindings",
-                        "检测到旧版 config.toml 内联快捷键，但 keymap.toml 加载失败；运行时已回退到默认 keymap，请手动迁移后重试。",
-                    );
-                }
-                bindings
+                Self::fallback_after_load_failure(&path, legacy, error)
             }
         }
     }
@@ -1453,6 +1453,9 @@ impl KeyBindings {
             .any(|existing| existing == &diagnostic)
         {
             match diagnostic.severity {
+                KeymapDiagnosticSeverity::Info => {
+                    tracing::debug!(path = %diagnostic.path, message = %diagnostic.message, "keymap info");
+                }
                 KeymapDiagnosticSeverity::Warning => {
                     tracing::warn!(path = %diagnostic.path, message = %diagnostic.message, "keymap warning");
                 }
@@ -1469,6 +1472,32 @@ impl KeyBindings {
         legacy.bindings != defaults.bindings
             || !legacy.local_bindings.is_empty()
             || !legacy.local_sequences.is_empty()
+    }
+
+    fn fallback_after_load_failure(
+        path: &Path,
+        legacy: &KeyBindings,
+        error: impl Into<String>,
+    ) -> Self {
+        let mut bindings = Self::default();
+        let error = error.into();
+        bindings.push_diagnostic(
+            KeymapDiagnosticSeverity::Error,
+            KeymapDiagnosticCode::LoadFailure,
+            path.display().to_string(),
+            format!(
+                "加载 keymap.toml 失败：{error}。运行时已回退到内置默认快捷键；修复文件后重新打开设置并保存即可重试。"
+            ),
+        );
+        if Self::has_legacy_customizations(legacy) {
+            bindings.push_diagnostic(
+                KeymapDiagnosticSeverity::Warning,
+                KeymapDiagnosticCode::LegacyConfigMigrationPending,
+                "config.toml.keybindings",
+                "检测到旧版 config.toml 内联快捷键，但 keymap.toml 加载失败；运行时已回退到默认 keymap，请手动迁移后重试。",
+            );
+        }
+        bindings
     }
 
     fn load_or_init_from_path(path: &Path, legacy: &KeyBindings) -> Result<Self, String> {
@@ -2138,7 +2167,7 @@ impl KeyBindings {
                         );
                     } else if Self::scopes_shadow_each_other(left_scope, right_scope) {
                         self.push_diagnostic(
-                            KeymapDiagnosticSeverity::Warning,
+                            KeymapDiagnosticSeverity::Info,
                             KeymapDiagnosticCode::ParentShadowing,
                             left_id.as_str(),
                             format!(
@@ -2149,7 +2178,7 @@ impl KeyBindings {
                             ),
                         );
                         self.push_diagnostic(
-                            KeymapDiagnosticSeverity::Warning,
+                            KeymapDiagnosticSeverity::Info,
                             KeymapDiagnosticCode::ParentShadowing,
                             right_id.as_str(),
                             format!(
@@ -2180,7 +2209,7 @@ impl KeyBindings {
                     .any(|binding| binding == &global_binding)
                 {
                     self.push_diagnostic(
-                        KeymapDiagnosticSeverity::Warning,
+                        KeymapDiagnosticSeverity::Info,
                         KeymapDiagnosticCode::WorkspaceFallbackShadowingTextEntry,
                         action.keymap_name(),
                         format!(
@@ -2243,6 +2272,27 @@ mod tests {
         assert!(loaded.diagnostics().iter().any(|diagnostic| {
             diagnostic.code == KeymapDiagnosticCode::LegacyConfigMigrationPending
         }));
+    }
+
+    #[test]
+    fn load_failure_falls_back_and_exposes_structured_diagnostic() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("keymap.toml");
+        fs::write(&path, "[global\n").unwrap();
+
+        let error = KeyBindings::load_or_init_from_path(&path, &KeyBindings::default())
+            .expect_err("invalid TOML must fail loading");
+        let loaded =
+            KeyBindings::fallback_after_load_failure(&path, &KeyBindings::default(), error);
+
+        assert_eq!(loaded.display(Action::NewConnection), "Ctrl+N");
+        let diagnostic = loaded
+            .diagnostics()
+            .iter()
+            .find(|diagnostic| diagnostic.code == KeymapDiagnosticCode::LoadFailure)
+            .expect("load failure must be visible as a structured diagnostic");
+        assert_eq!(diagnostic.path, path.display().to_string());
+        assert!(diagnostic.message.contains("回退到内置默认快捷键"));
     }
 
     #[test]
@@ -2480,5 +2530,20 @@ show_help = "Ctrl+H"
         assert!(content.contains("copy_row = ["));
         assert!(content.contains("\"yy\""));
         assert!(content.contains("\"Y\""));
+    }
+    #[test]
+    fn print_default_keymap_diagnostics_for_investigation() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("keymap.toml");
+        let defaults = KeyBindings::default();
+        defaults.save_to_path(&path).unwrap();
+        let content = fs::read_to_string(path).unwrap();
+        let loaded = KeyBindings::parse_keymap(&content).unwrap();
+        for diagnostic in loaded.diagnostics() {
+            println!(
+                "{:?} {:?} {}: {}",
+                diagnostic.severity, diagnostic.code, diagnostic.path, diagnostic.message
+            );
+        }
     }
 }

@@ -12,13 +12,17 @@ use super::picker_shell::{
     LayeredPickerLayout, LayeredPickerWidths, PickerDialogShell, PickerNavAction, PickerPaneFocus,
     PickerPaneMode,
 };
-use crate::core::{Action, KeyBinding, KeyBindings, KeyCode, KeyModifiers, KeymapDiagnosticCode};
+use crate::core::{
+    Action, KeyBinding, KeyBindings, KeyCode, KeyModifiers, KeymapDiagnostic, KeymapDiagnosticCode,
+    KeymapDiagnosticSeverity,
+};
 use crate::ui::components::{
     GridCommandShortcut, GridSequenceConflictKind, grid_command_sequence_conflict,
     grid_command_shortcuts, normalize_grid_command_sequence,
 };
 use crate::ui::shortcut_tooltip::LocalShortcut;
-use crate::ui::styles::theme_warn;
+use crate::ui::styles::{theme_error, theme_warn};
+
 use eframe::egui::{self, Key, RichText};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -293,6 +297,8 @@ pub struct KeyBindingsDialogState {
     has_changes: bool,
     /// 冲突提示
     conflict_message: Option<String>,
+    /// 保存 keymap.toml 失败时保留编辑副本并显示的错误。
+    save_error: Option<String>,
 }
 
 impl KeyBindingsDialogState {
@@ -319,6 +325,21 @@ impl KeyBindingsDialogState {
         self.show_issue_only = false;
         self.has_changes = false;
         self.conflict_message = None;
+        self.save_error = None;
+    }
+
+    /// 保存失败后重新打开编辑副本，等待用户修复路径或权限后重试。
+    pub fn reopen_after_save_failure(&mut self, bindings: KeyBindings, error: impl Into<String>) {
+        self.show = true;
+        self.bindings = bindings;
+        self.keymap_path = KeyBindings::keymap_path();
+        self.recording = false;
+        self.recorded_key = None;
+        self.recorded_modifiers = KeyModifiers::NONE;
+        self.recording_mode = RecordingMode::Replace;
+        self.has_changes = true;
+        self.conflict_message = None;
+        self.save_error = Some(error.into());
     }
 
     /// 关闭对话框
@@ -327,6 +348,7 @@ impl KeyBindingsDialogState {
         self.recording = false;
         self.recording_mode = RecordingMode::Replace;
         self.pane_focus = PickerPaneFocus::Navigator;
+        self.save_error = None;
     }
 
     /// 重置为默认快捷键
@@ -1493,6 +1515,95 @@ impl KeyBindingsDialog {
         }
     }
 
+    fn diagnostic_counts(diagnostics: &[KeymapDiagnostic]) -> (usize, usize, usize) {
+        diagnostics.iter().fold(
+            (0, 0, 0),
+            |(errors, warnings, infos), diagnostic| match diagnostic.severity {
+                KeymapDiagnosticSeverity::Error => (errors + 1, warnings, infos),
+                KeymapDiagnosticSeverity::Warning => (errors, warnings + 1, infos),
+                KeymapDiagnosticSeverity::Info => (errors, warnings, infos + 1),
+            },
+        )
+    }
+
+    fn diagnostic_severity_label(severity: KeymapDiagnosticSeverity) -> &'static str {
+        match severity {
+            KeymapDiagnosticSeverity::Error => "错误",
+            KeymapDiagnosticSeverity::Warning => "警告",
+            KeymapDiagnosticSeverity::Info => "提示",
+        }
+    }
+
+    fn show_keymap_diagnostic_summary(
+        ui: &mut egui::Ui,
+        diagnostics: &[KeymapDiagnostic],
+        color: egui::Color32,
+    ) {
+        if diagnostics.is_empty() {
+            return;
+        }
+
+        let (errors, warnings, infos) = Self::diagnostic_counts(diagnostics);
+        ui.label(
+            RichText::new(format!(
+                "加载/解析结果：{errors} 个错误、{warnings} 个警告、{infos} 个提示。"
+            ))
+            .small()
+            .color(color),
+        );
+        for diagnostic in diagnostics.iter().take(5) {
+            ui.label(
+                RichText::new(format!(
+                    "• [{}] {}: {}",
+                    Self::diagnostic_severity_label(diagnostic.severity),
+                    diagnostic.path,
+                    diagnostic.message
+                ))
+                .small()
+                .color(color),
+            );
+        }
+        if diagnostics.len() > 5 {
+            ui.label(
+                RichText::new(format!(
+                    "另有 {} 条诊断，请查看对应作用域。",
+                    diagnostics.len() - 5
+                ))
+                .small()
+                .weak(),
+            );
+        }
+    }
+
+    fn show_keymap_diagnostic_banner(ui: &mut egui::Ui, state: &KeyBindingsDialogState) {
+        let diagnostics = state.bindings.diagnostics();
+        if state.save_error.is_none() && diagnostics.is_empty() {
+            return;
+        }
+        let save_error = state.save_error.as_deref().unwrap_or("");
+        let (errors, _, _) = Self::diagnostic_counts(diagnostics);
+        let color = if !save_error.is_empty() || errors > 0 {
+            theme_error(ui.visuals())
+        } else {
+            theme_warn(ui.visuals())
+        };
+
+        DialogContent::card(ui, Some(color), |ui| {
+            ui.label(RichText::new("keymap 诊断").small().strong().color(color));
+            ui.add_space(4.0);
+            if !save_error.is_empty() {
+                ui.label(
+                    RichText::new(format!(
+                        "保存失败：{save_error}。当前编辑内容未替换运行时快捷键，请修复后点击“保存”重试。"
+                    ))
+                    .small()
+                    .color(color),
+                );
+            }
+            Self::show_keymap_diagnostic_summary(ui, diagnostics, color);
+        });
+    }
+
     fn apply_ui_actions(
         state: &mut KeyBindingsDialogState,
         actions: Vec<KeyBindingsDialogUiAction>,
@@ -1778,6 +1889,7 @@ impl KeyBindingsDialog {
                             );
                         },
                     );
+                    Self::show_keymap_diagnostic_banner(ui, &snapshot);
                     ui.add_space(8.0);
                 },
                 |_ui| {},
@@ -2629,7 +2741,10 @@ mod tests {
         KeyBindingsDialogState, KeyBindingsDialogUiAction, PickerPaneFocus, PickerPaneMode,
         RecordingMode, ScopeTreeSelection,
     };
-    use crate::core::{KeyBinding, KeyBindings, KeyCode, KeyModifiers};
+    use crate::core::{
+        KeyBinding, KeyBindings, KeyCode, KeyModifiers, KeymapDiagnostic, KeymapDiagnosticCode,
+        KeymapDiagnosticSeverity,
+    };
     use crate::ui::components::{GridCommandShortcut, GridSequenceConflictKind};
     use crate::ui::shortcut_tooltip::LocalShortcut;
 
@@ -2659,6 +2774,57 @@ mod tests {
             response.request_focus();
         });
         let _ = ctx.end_pass();
+    }
+
+    #[test]
+    fn diagnostic_counts_group_load_errors_for_top_level_summary() {
+        let diagnostics = vec![
+            KeymapDiagnostic {
+                severity: KeymapDiagnosticSeverity::Error,
+                code: KeymapDiagnosticCode::LoadFailure,
+                path: "keymap.toml".to_string(),
+                message: "parse failed".to_string(),
+            },
+            KeymapDiagnostic {
+                severity: KeymapDiagnosticSeverity::Warning,
+                code: KeymapDiagnosticCode::UnknownAction,
+                path: "global.unknown".to_string(),
+                message: "unknown action".to_string(),
+            },
+            KeymapDiagnostic {
+                severity: KeymapDiagnosticSeverity::Info,
+                code: KeymapDiagnosticCode::ParentShadowing,
+                path: "dialog.help.scroll_up".to_string(),
+                message: "shadowed".to_string(),
+            },
+        ];
+
+        assert_eq!(
+            KeyBindingsDialog::diagnostic_counts(&diagnostics),
+            (1, 1, 1)
+        );
+    }
+
+    #[test]
+    fn save_failure_reopens_dialog_with_candidate_for_retry() {
+        let mut state = KeyBindingsDialogState::default();
+        state.open(&KeyBindings::default());
+        let mut candidate = KeyBindings::default();
+        candidate.set(
+            crate::core::Action::ShowHelp,
+            KeyBinding::key_only(KeyCode::F2),
+        );
+
+        state.close();
+        state.reopen_after_save_failure(candidate.clone(), "permission denied");
+
+        assert!(state.show);
+        assert!(state.has_changes);
+        assert_eq!(
+            state.get_bindings().display(crate::core::Action::ShowHelp),
+            "F2"
+        );
+        assert_eq!(state.save_error.as_deref(), Some("permission denied"));
     }
 
     #[test]

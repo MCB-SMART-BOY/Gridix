@@ -1,0 +1,14 @@
+title = "Gridix gitleaks configuration"
+
+# Extend the upstream default rule set. Without this section the configuration
+# would define no rules at all and every scan would report "no leaks found"
+# regardless of content.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated build and local environment artifacts are not source-controlled inputs."
+paths = [
+  '''target/.*''',
+  '''\.direnv/.*''',
+]

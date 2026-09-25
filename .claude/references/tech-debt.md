@@ -16,8 +16,8 @@ v7.1.0 historical consolidation context; this ledger tracks current implementati
 - [x] SQLite driver coverage and application error typing
 - [x] database → data rename
 - [x] 3 cross-audit fixes (handler guards, layer imports, state consistency)
-- [x] Typed runtime query cutover: `TaskRegistry` + `RuntimeEvent` with cooperative cancellation
-
+- [x] Typed runtime query and metadata cutover: `TaskRegistry` + `RuntimeEvent` with cooperative cancellation; trigger/routine completions no longer duplicate legacy messages
+- [x] Dialog ownership moved from `UiState` to `DbManagerApp`, removing the state → app dependency
 ## Critical logic paths (current design)
 
 | Path | Status |
@@ -32,9 +32,13 @@ v7.1.0 historical consolidation context; this ledger tracks current implementati
 ## Remaining (non-critical)
 
 - FrameEffects types defined, not wired (needs_repaint works as minimal decoupling)
+- Four request-id "stale guards" in `src/app/runtime/handler.rs` (lines ~184, ~247, ~615, ~666) compare a request id against the same value they were dispatched with, so they are always true. The effective stale protection is `TaskRegistry::is_current()` plus `metadata_context_matches_current`; the `pending_{triggers,routines}_request` id fields are inert and should be collapsed.
+- `cancel_queries_for_connection(&str)` ignores its connection name and cancels every active query, because `OperationKey::Query` carries only the document. Disconnecting one connection therefore cancels in-flight queries of other connections; rename to reflect the real scope, or add the connection to the key.
+- Trigger/routine metadata tasks are registered but never attached, so `cancel_by_key` has no handle: supersede/connection switches only end them through the internal timeout instead of cooperative cancellation.
+- `SchemaSnapshot`/`SchemaDiff` and `load_schema_snapshot` are library API with unit tests only; no app/ui/bin consumer exists, so the Schema diff roadmap item stays open until a surface or CLI entry point consumes them.
 - Driver and grid-filter coverage remains uneven outside the typed integration paths.
 - Several UI/input modules remain oversized and should be split only with behavior-preserving characterization coverage.
-- Historical migration residue may remain in legacy message/request-ID types, but new query runtime work must use `TaskRegistry` + `RuntimeEvent`, not pending-query maps or `QueryDone`.
-- Release acceptance remains incomplete: the required manual SQLite GUI create/query/edit/save/reopen/export evidence has not been captured.
+- Historical migration residue may remain in legacy connection/database/table/import message/request-ID types; new query and metadata runtime work must use `TaskRegistry` + `RuntimeEvent`, not pending-query maps or duplicate legacy sends.
+- Release acceptance is partially captured (2026-09-25 driven Xvfb run): connection create, query, Grid edit/save, and reopen persistence passed, including `gridix-driver assert-reopened … items name after` against the file on disk. The CSV/JSON/SQL export evidence is still missing because export needs a native save dialog that the driven session cannot present; see `docs/LIMITATIONS.md`.
 - MySQL cancellation evidence currently covers direct `mysql:8.4` with observer/KILL permissions only; TLS, SSH tunnel, execution-pool capacity pressure, and reuse of the exact cancelled `Conn` are not covered.
 - Session fields all pub (single-crate project, no practical risk)

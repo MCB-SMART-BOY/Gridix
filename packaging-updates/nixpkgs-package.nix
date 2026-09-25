@@ -9,8 +9,11 @@
   pkg-config,
   wrapGAppsHook3,
   gtk3,
-  openssl,
   xdotool,
+  wayland,
+  libxkbcommon,
+  libglvnd,
+  mesa,
 }:
 
 rustPlatform.buildRustPackage (finalAttrs: {
@@ -35,8 +38,11 @@ rustPlatform.buildRustPackage (finalAttrs: {
 
   buildInputs = [
     gtk3
-    openssl
     xdotool
+    wayland
+    libxkbcommon
+    libglvnd
+    mesa
   ];
 
   preCheck = ''

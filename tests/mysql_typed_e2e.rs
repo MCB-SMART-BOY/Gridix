@@ -13,9 +13,14 @@
 //! - DEFAULT 值
 //! - Schema 目录加载
 
+use gridix::core::constants;
 use gridix::data::{
-    ConnectionConfig, DatabaseType, apply_mutations, execute_typed, load_schema_catalog,
+    ConnectionConfig, POOL_MANAGER, apply_mutations, execute_typed, load_schema_catalog,
 };
+use std::sync::Arc;
+mod common;
+use common::mysql_config_from_env;
+
 use gridix::domain::execution::{ExecutionOutcome, StatementOutcome};
 use gridix::domain::ids::SchemaRevision;
 use gridix::domain::mutation::{
@@ -27,28 +32,8 @@ use gridix::domain::value::{DbDate, DbDateTime, DbTime, DbValue};
 // ── helpers ──
 
 /// 从 GRIDIX_TEST_MYSQL_URL 环境变量解析 MySQL 连接配置。
-/// 格式：mysql://user:password@host:port/database
 fn mysql_config() -> Option<ConnectionConfig> {
-    let url = std::env::var("GRIDIX_TEST_MYSQL_URL").ok()?;
-
-    let rest = url.strip_prefix("mysql://")?;
-
-    let (user_info, rest) = rest.split_once('@')?;
-    let (user, password) = user_info.split_once(':').unwrap_or((user_info, ""));
-
-    let (host_port, database) = rest.split_once('/')?;
-    let (host, port_str) = host_port.split_once(':').unwrap_or((host_port, "3306"));
-    let port: u16 = port_str.parse().ok()?;
-
-    Some(ConnectionConfig {
-        db_type: DatabaseType::MySQL,
-        host: host.to_string(),
-        port,
-        username: user.to_string(),
-        password: password.to_string(),
-        database: database.to_string(),
-        ..Default::default()
-    })
+    mysql_config_from_env()
 }
 
 fn col(name: &str) -> ColumnRef {
@@ -666,4 +651,38 @@ async fn catalog_load() {
     let _ = execute_typed(&config, "DROP TABLE IF EXISTS orders").await;
     let _ = execute_typed(&config, "DROP TABLE IF EXISTS products").await;
     let _ = execute_typed(&config, "DROP TABLE IF EXISTS logs").await;
+}
+
+#[tokio::test]
+async fn mysql_pool_reuses_handle_and_evicts_oldest_under_pressure() {
+    let Some(config) = mysql_config() else {
+        eprintln!("SKIP: GRIDIX_TEST_MYSQL_URL not set");
+        return;
+    };
+    POOL_MANAGER.clear_all().await;
+
+    let first = POOL_MANAGER
+        .get_mysql_pool(&config)
+        .await
+        .expect("MySQL pool fixture must connect");
+    let reused = POOL_MANAGER
+        .get_mysql_pool(&config)
+        .await
+        .expect("MySQL pool fixture must reuse its handle");
+    assert!(Arc::ptr_eq(&first.metrics(), &reused.metrics()));
+
+    for index in 0..constants::database::pool::MAX_MYSQL_POOLS {
+        let mut pressure_config = config.clone();
+        pressure_config.ssl_ca_cert = format!("gridix-mysql-pressure-{index}");
+        POOL_MANAGER
+            .get_mysql_pool(&pressure_config)
+            .await
+            .expect("MySQL pressure fixture must connect");
+    }
+
+    assert!(
+        first.get_conn().await.is_err(),
+        "the oldest MySQL pool must be disconnected after eviction"
+    );
+    POOL_MANAGER.clear_all().await;
 }

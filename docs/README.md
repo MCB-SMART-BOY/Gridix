@@ -20,9 +20,11 @@ The typed execution surface is `execute_typed` and `execute_typed_cancellable`. 
 
 Cancellation is backend-specific. PostgreSQL sends a driver `CancelToken` request and waits for the original query to return; MySQL uses the execution connection ID with a separately opened TLS-configured control connection that issues `KILL QUERY` and then waits for the original query. SQLite's synchronous `rusqlite` execution cannot safely interrupt a statement that has already started, so the cancellable API does not promise in-flight SQLite cancellation.
 
-### Backend release-acceptance gates
+### Backend and GUI release-acceptance gates
 
-The [PostgreSQL integration workflow](../.github/workflows/postgresql-integration.yml) and [MySQL integration workflow](../.github/workflows/mysql-integration.yml) run typed execution and server-cancellation integration tests on pull requests, pushes to `main`, and `v*` tags; both also retain manual dispatch and weekly scheduled runs. The workflows require non-empty `GRIDIX_TEST_PG_URL` or `GRIDIX_TEST_MYSQL_URL`, respectively, before testing, and run each fixed-table test binary serially with `--nocapture`.
+The PostgreSQL and MySQL acceptance jobs in the main CI workflow are required dependencies of the tag release job. They run typed execution and server-cancellation integration tests before a GitHub Release can be published. The standalone PostgreSQL/MySQL workflows remain useful for scheduled, manual, PR, and `main` diagnostics.
+
+The main CI workflow also runs a clean Xvfb/X11 GUI smoke job on `main`, tags, and manual dispatch. It uploads a manifest and initial screenshot, but records `ra2_status=manual-required`; this smoke does not claim that native dialogs or the full SQLite journey succeeded.
 
 Run the same binaries locally against disposable databases:
 
@@ -38,6 +40,6 @@ GRIDIX_TEST_MYSQL_URL='<MySQL test URL>' \
   cargo test --test mysql_cancel_integration -- --nocapture --test-threads=1
 ```
 
-These Actions checks are release-acceptance gates, not evidence that a release has been published. Release acceptance still requires a manually observed SQLite GUI journey covering create, edit/save, reopen, and CSV/JSON/SQL export. `gridix-driver` currently supports only `launch`, `key`, `ss`, `quit`, and `help`; it cannot drive the required text entry, pointer actions, dialogs, or wait-for behavior for that journey.
+The CI acceptance jobs are release-acceptance gates, not evidence that a release has been published. Release acceptance still requires a manually observed SQLite GUI journey covering create, edit/save, reopen, and CSV/JSON/SQL export. Run `scripts/gridix-sqlite-acceptance.sh <SHA>` after building the release binaries; it creates an isolated Xvfb session, an operator runbook, and validates the retained screenshots, database value, and exports. `gridix-driver` supports launch, keyboard, text, pointer, wait, screenshot, and artifact assertions, but native dialogs and semantic GUI actions remain manual.
 
 **Code is the source of truth.** `.claude/` stays in sync with code.

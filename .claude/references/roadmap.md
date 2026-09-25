@@ -32,6 +32,7 @@
 
 - [x] T0: 状态基准线
 - [x] T1: Query lifecycle clean cutover — `TaskRegistry` + `RuntimeEvent`，查询以 cooperative cancellation 收束
+  - 元数据触发器/存储过程回包也已切换到 `RuntimeEvent`，不再重复发送 legacy 消息
 - [x] T2: Typed execution 生产查询主路径 — `execute_typed` / `execute_typed_cancellable`
 - [x] T3: `SchemaCatalog` application closure
 - [x] T4: Grid 使用 `ResultSet` + typed `MutationBatch` 保存
@@ -43,8 +44,8 @@
 
 ## 短期 — 功能发布
 
-- [ ] 查询计划可视化 (EXPLAIN)
-- [ ] Schema diff 工具
+- [x] 查询计划输出 (EXPLAIN) — 使用通用 `ResultSet` 的专用 Explain surface，保留最近结果/错误；不引入跨数据库 AST
+- [ ] Schema diff 工具 — `SchemaSnapshot`/`SchemaDiff` 与只读 SQL preview 已作为库级 API 实现并有单测，但 app/ui/bin 尚无消费方，用户不可达；缺 surface 或 CLI 入口
 - [ ] 大结果集虚拟滚动
 - [ ] 系统主题自动切换
 
