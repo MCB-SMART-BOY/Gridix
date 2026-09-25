@@ -51,6 +51,7 @@ jobs:
         run: |
           set -euo pipefail
           tls_dir="$RUNNER_TEMP/gridix-pg-tls"
+          pg_image="postgres@sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb"
           mkdir -p "$tls_dir"
           openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
             -keyout "$tls_dir/ca.key" -out "$tls_dir/ca.crt" \
@@ -71,7 +72,10 @@ jobs:
           hostssl all all ::0/0 scram-sha-256
           EOF
           chmod 600 "$tls_dir/server.key"
-          sudo chown 999:999 "$tls_dir/server.key"
+          # 私钥必须由数据库用户或 root 持有；uid 随发行版变化（该 Alpine 镜像的 postgres 是 70），
+          # 因此从镜像本身取，而不是沿用 MySQL 镜像的固定 999。
+          pg_uid=$(docker run --rm --entrypoint id "$pg_image" -u postgres)
+          sudo chown "$pg_uid" "$tls_dir/server.key"
           echo "GRIDIX_TEST_PG_CA_CERT=$tls_dir/ca.crt" >> "$GITHUB_ENV"
           docker run --detach --name gridix-postgres-tls \
             --env POSTGRES_PASSWORD=gridix \
@@ -79,7 +83,7 @@ jobs:
             --env POSTGRES_DB=gridix_test \
             --publish 5433:5432 \
             --volume "$tls_dir:/tls:ro" \
-            postgres@sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb \
+            "$pg_image" \
             postgres -c ssl=on -c ssl_cert_file=/tls/server.crt \
             -c ssl_key_file=/tls/server.key -c hba_file=/tls/pg_hba.conf
           for attempt in $(seq 1 60); do

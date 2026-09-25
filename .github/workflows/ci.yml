@@ -68,12 +68,12 @@ jobs:
 
       - name: Dependency policy audit
         run: |
-          cargo install --git https://github.com/EmbarkStudios/cargo-deny --rev baa02b0a0c54e0578aae6bb7c7181ad00dc290af --locked cargo-deny
+          cargo install --git https://github.com/EmbarkStudios/cargo-deny --rev 87da103c554376c89a641116f835a41073a9d774 --locked cargo-deny # v0.20.2
           cargo deny check
 
       - name: Security audit
         run: |
-          cargo install --git https://github.com/RustSec/rustsec --rev 18e58c28d9e6a542a167f19057c97554ec9b845f --locked cargo-audit
+          cargo install --git https://github.com/RustSec/rustsec --rev 281452c35cf0870969042374110f099a411bc185 --locked cargo-audit # v0.22.2
           cargo audit
 
       - name: Secret scan
