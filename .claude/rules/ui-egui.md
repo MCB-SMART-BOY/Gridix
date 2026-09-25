@@ -107,6 +107,52 @@ brand colors (DB-type chips). Everything that conveys text/state/selection must 
   `constrain_to(content_rect)` so no dialog grows past the viewport; Escape closers belong
   to the dialog itself or to `resolve_escape_fallback` for the workspace overlays.
 
+### Responsive dialog rows
+
+`src/ui/dialogs/responsive.rs` is the single source for form-row layout: row-width classes
+(`WIDE_ROW_THRESHOLD` 720.0 / `MEDIUM_ROW_THRESHOLD` 560.0), `RowMetrics` (label column per
+dialog), `control_width`, `responsive_row`, `show_responsive_labeled_row`,
+`show_responsive_text_row`, `show_responsive_combo_row`.
+
+- Label + control rows go through these helpers, never through `ui.horizontal` plus a fixed
+  `desired_width`: fixed widths overflow once the viewport is narrower than the row's intrinsic
+  width. Each dialog keeps its own `ROW_METRICS` constant plus thin wrappers so call sites stay
+  unchanged; the two thresholds exist only here.
+- Option rows that are not label/control pairs (button groups, delimiter pickers) use
+  `ui.horizontal_wrapped` so they wrap instead of overflowing. `ExportDialog`'s option rows are
+  the reference case.
+- The helpers are covered by headless render tests that measure content width against the
+  available width (`row_width_class_classifies_threshold_boundaries`,
+  `labeled_row_never_exceeds_narrow_viewport`, `labeled_row_keeps_preferred_width_when_room_allows`,
+  `overlong_label_is_truncated_to_its_column`, `label_width_is_zero_only_in_narrow_rows`,
+  `export_option_rows_fit_narrow_viewport`). New dialog rows should extend that style of proof
+  instead of asserting layout constants.
+- `DdlDialog` and `ImportDialog` use the same thresholds from this module; do not reintroduce local
+  copies of the 720/560 constants or a second `ResponsiveRowClass`.
+- Wide/medium labels are rendered with `Label::truncate()`: inside a horizontal child `Ui`,
+  `add_sized` gives the label `wrap.max_width = INFINITY`, so an over-long label would widen the
+  label column and push the control out of the row.
+
+### System theme following
+
+`AppConfig.theme_follows_system` + `core::theme::resolve_dark_mode(system_is_dark, current_is_dark)`
+(the `None` case means the platform exposes no system theme, so the current mode is kept). The
+decision "do we follow at all" lives in the caller; the pure function only maps system preference to
+a mode.
+
+- `sync_system_theme` runs every frame and applies `dark_theme`/`light_theme` whenever the applied
+  `ThemeManager::current` differs from the resolved mode - not only when `is_dark_mode` changes.
+  This is what repairs the state left by a restart, where the startup style comes from
+  `theme_preset` while the follow mode is derived from `is_dark_mode`.
+- Any explicit theme choice must disable following first (`Ctrl+D`/toolbar toggle and the theme
+  picker both do), otherwise the next frame overwrites it.
+- `ThemeManager::apply` pins the egui theme slot via `Context::set_theme`. The default
+  `ThemePreference::System` would otherwise switch to the other slot on a system theme change and <!-- doc-symbols: ignore: egui API -->
+  show egui's built-in style, which Gridix never writes.
+- Proof: `follow_mode_reapplies_stored_mode_after_restart` and
+  `applying_a_theme_pins_the_egui_theme_slot` (`src/app/surfaces/preferences.rs`) plus the pure
+  function tests in `src/core/theme.rs`.
+
 ## Borrow checker pattern
 
 During rendering: `&self.session` (read-only) + `&mut self.state` (UI mutations). Disjoint fields — guaranteed safe by Rust.

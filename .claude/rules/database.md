@@ -1,8 +1,8 @@
 ---
 paths:
   - src/data/**/*.rs
-  - src/session/database.rs
-  - src/session/handler.rs
+  - src/app/runtime/database.rs
+  - src/app/runtime/handler.rs
 ---
 
 # Gridix database rules
@@ -41,7 +41,7 @@ Orchestrator: `data/query/mod.rs` dispatches via `match db_type`. **No trait** â
 
 ## Read-only schema diff
 
-- `data::load_schema_snapshot(config, revision, table_name)` only reads the existing backend metadata and returns a domain `SchemaSnapshot`.
+- The Schema diff dialog reads `SchemaSnapshot::from_catalog` directly (the `load_schema_snapshot`/`load_snapshot` loaders were removed as dead code once the dialog moved to that path). <!-- doc-symbols: ignore: both symbols were deleted -->
 - `SchemaDiff` compares one current table with one target table and `sql_preview()`/`to_sql_preview()` only render SQL text; no migration statement is executed.
 - SQLite column-definition, primary-key, unique-key, and foreign-key changes are emitted as review warnings rather than unsafe automatic migrations. Identifier names are quoted with `IdentifierDialect`.
 ## Release-acceptance backend gates

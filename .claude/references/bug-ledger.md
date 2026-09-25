@@ -13,7 +13,7 @@ From the v4.1.0 → v6.1.0 recovery audit. Historical resolved entries remain be
 
 - **RA2 SQLite GUI evidence**: the manual create/query/edit/save/reopen/export journey still lacks captured artifacts. This is an incomplete release-acceptance evidence item, not evidence of a product defect.
 - **MySQL cancellation coverage**: CI exercises direct `mysql:8.4` with observer and `KILL QUERY` permissions. TLS, SSH tunnel, execution-pool pressure, and reuse of the exact cancelled connection remain untested boundaries, not known failures.
-- **G41-B007**: dialog horizontal overflow can occur from fixed-width row content in narrow viewports. The remaining low-frequency surfaces are `CreateDbDialog`, `CreateUserDialog`, and `ExportDialog`.
+
 ## Resolved during recovery (v4.1.0 → v6.1.0)
 
 | ID | symptom | root cause | fix |
@@ -27,3 +27,4 @@ From the v4.1.0 → v6.1.0 recovery audit. Historical resolved entries remain be
 | G41-B011 | AboutDialog section stack | No brand design | Lighter brand page layout |
 | G41-B012 | Help/KeyBindings header wasted height | No shared compact header | Shared compact header component |
 | G41-B013 | DataGrid column headers invisible in dark theme | Hardcoded colors | Theme-aware text colors |
+| G41-B007 | Dialog horizontal overflow in narrow viewports | Fixed-width rows (`desired_width`, `ui.horizontal`) in `CreateDbDialog`/`CreateUserDialog`/`ExportDialog` | Shared responsive row helpers (`src/ui/dialogs/responsive.rs`) + `ui.horizontal_wrapped` option rows, with headless width measurements as proof |

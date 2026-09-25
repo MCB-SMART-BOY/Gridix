@@ -47,13 +47,13 @@
 - [x] 查询计划输出 (EXPLAIN) — 使用通用 `ResultSet` 的专用 Explain surface，保留最近结果/错误；不引入跨数据库 AST
 - [x] Schema diff 工具 — `SchemaSnapshot`/`SchemaDiff` 库级 API 已有单测；`SchemaDiffDialog` 提供用户可达入口（命令面板 `compare_schema`），从活动连接已加载的 schema 目录同步取两个快照，渲染列/键/外键差异与迁移 SQL 预览（只读，不执行 SQL）
 - [x] 大结果集虚拟滚动 — 渲染层用 `egui_extras::TableBuilder::rows` 只实例化可见行，过滤结果经 `FilterCache` 仅在失效时重算；超过 `MAX_RESULT_SET_ROWS`(500k) 按 `ResultCompleteness::Truncated` 截断并在网格顶部提示。数据层大结果集行为由 MySQL/PostgreSQL typed e2e 的 `large_result_set` 覆盖；剩余边界是单次结果仍受 500k 行内存上限约束
-- [ ] 系统主题自动切换
+- [x] 系统主题自动切换 — `AppConfig.theme_follows_system` + `core::theme::resolve_dark_mode`（纯函数，`None` 表示平台未提供系统主题时保持当前模式）；每帧 `sync_system_theme` 在生效主题与解析结果不一致时重建样式（含纠正重启后由 `theme_preset` 留下的残留），主题选择器内的「跟随系统主题」开关负责开关，显式确认主题与 Ctrl+D 都会关闭跟随，避免下一帧被系统覆盖；`ThemeManager::apply` 同时钉住 egui 主题槽
 
 ## 中期 — 质量
 
 - [ ] data/query/ 驱动测试全覆盖
 - [ ] Session::poll_messages() 完整实现
-- [ ] 超大文件拆分 — `app/input/input_router/` 已拆为 5 个生产子模块 + 8 个测试文件（最大 512 行），`ui/panels/sidebar/` 按键处理已拆出 `keyboard.rs`；`keybindings_dialog.rs`、`core/keybindings.rs`、`runtime/handler.rs`、`sidebar/mod.rs` 仍偏大且缺少同等的行为保持覆盖率
+- [ ] 超大文件拆分 — `app/input/input_router/` 已拆为 5 个生产子模块 + 8 个测试文件（最大 526 行），`ui/panels/sidebar/` 按键处理已拆出 `keyboard.rs`；`keybindings_dialog.rs`、`core/keybindings.rs`、`runtime/handler.rs`、`sidebar/mod.rs` 仍偏大且缺少同等的行为保持覆盖率
 
 ## 长期
 

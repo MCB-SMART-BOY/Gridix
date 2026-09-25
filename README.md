@@ -117,7 +117,7 @@ sudo zypper install gtk3-devel libxdo-devel
 | Learning / 学习 | Tool quick start + database knowledge roadmap |
 | Modeling / 建模 | ER diagram and relationship navigation |
 | Security / 安全 | Encrypted credentials, SSH tunnel, SSL/TLS |
-| Theming / 主题 | Built-in themes, default dark theme: Tokyo Night Storm |
+| Theming / 主题 | Built-in themes, default Tokyo Night Storm, optional system-theme following / 内置主题，默认 Tokyo Night Storm，可开启跟随系统主题 |
 
 ## Database Support | 数据库支持
 | Database | Typed runtime | Cancellation semantics |

@@ -89,7 +89,7 @@ src/
 │   ├── dialogs/host.rs  # DialogId (17 variants), active_dialog_owner
 │   ├── input/           # Keyboard routing (8-stage dispatch pipeline)
 │   │   ├── input_router/  # 路由入口 + 拆分后的子模块
-│   │   │   ├── mod.rs     # impl DbManagerApp 输入入口 (512 lines)
+│   │   │   ├── mod.rs     # impl DbManagerApp 输入入口 (526 lines)
 │   │   │   ├── scopes.rs  # 作用域/焦点/文本输入守卫类型
 │   │   │   ├── actions.rs # 局部动作类型 + 快捷键常量表
 │   │   │   ├── context.rs # InputContextSnapshot（可测试的纯数据）
