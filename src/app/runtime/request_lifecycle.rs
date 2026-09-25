@@ -29,8 +29,9 @@ impl DbManagerApp {
                     tab.id.as_bytes(),
                 ))
             });
-        let key = crate::session::task_registry::OperationKey::Query { document };
-        self.session.task_registry.cancel_by_key(&key);
+        self.session
+            .task_registry
+            .cancel_queries_for_document(document);
         // 保留 request_id 清理用于旧路径
         self.session
             .user_cancelled_query_requests
@@ -126,8 +127,9 @@ impl DbManagerApp {
                         tab_id.as_bytes(),
                     ))
                 });
-            let key = crate::session::task_registry::OperationKey::Query { document };
-            self.session.task_registry.cancel_by_key(&key);
+            self.session
+                .task_registry
+                .cancel_queries_for_document(document);
         }
 
         if user_visible {
@@ -143,19 +145,14 @@ impl DbManagerApp {
         self.session.refresh_executing_flag();
     }
 
-    /// 取消某个连接关联的所有查询请求
-    pub(in crate::app) fn cancel_queries_for_connection(&mut self, _conn_name: &str) {
-        // 通过 TaskRegistry 取消所有活跃查询
-        let query_keys: Vec<crate::session::task_registry::OperationKey> = self
-            .session
+    /// 取消某个连接关联的所有查询请求（仅该连接本身，不影响其它连接）。
+    pub(in crate::app) fn cancel_queries_for_connection(
+        &mut self,
+        connection: crate::domain::ids::ConnectionId,
+    ) {
+        self.session
             .task_registry
-            .active_keys()
-            .filter(|(k, _)| matches!(k, crate::session::task_registry::OperationKey::Query { .. }))
-            .map(|(k, _)| k.clone())
-            .collect();
-        for key in query_keys {
-            self.session.task_registry.cancel_by_key(&key);
-        }
+            .cancel_queries_for_connection(connection);
     }
 
     fn clear_tab_pending_request(&mut self, request_id: u64) {

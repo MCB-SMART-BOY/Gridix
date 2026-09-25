@@ -14,7 +14,6 @@ use super::*;
 use crate::core::constants;
 use crate::domain::ids::SchemaRevision;
 use crate::domain::metadata::SchemaCatalog;
-use crate::domain::schema_diff::SchemaSnapshot;
 use crate::domain::value::{DbTypeFamily, DbTypeInfo, DbValue};
 use std::future::Future;
 use std::sync::Arc;
@@ -193,44 +192,6 @@ pub async fn load_schema_catalog(
         DatabaseType::MySQL => mysql::load_catalog(&effective_config, revision).await,
     }
 }
-/// 加载单表 schema snapshot；仅读取现有元数据，不执行迁移。
-///
-/// `revision` 与统一 catalog 保持一致，便于调用方继续使用 stale-guard。
-pub async fn load_schema_snapshot(
-    config: &ConnectionConfig,
-    revision: SchemaRevision,
-    table_name: &str,
-) -> Result<SchemaSnapshot, DbError> {
-    let (effective_config, _tunnel) = setup_ssh_tunnel_if_enabled(config).await?;
-    let table_name = table_name.to_string();
-    match effective_config.db_type {
-        DatabaseType::SQLite => {
-            let config = effective_config.clone();
-            tokio::task::spawn_blocking(move || {
-                sqlite::load_snapshot(&config, revision, &table_name)
-            })
-            .await
-            .map_err(|e| DbError::Query(e.to_string()))?
-        }
-        DatabaseType::PostgreSQL => {
-            let catalog = postgres::load_catalog(&effective_config, revision).await?;
-            snapshot_from_catalog(catalog, &table_name)
-        }
-        DatabaseType::MySQL => {
-            let catalog = mysql::load_catalog(&effective_config, revision).await?;
-            snapshot_from_catalog(catalog, &table_name)
-        }
-    }
-}
-
-fn snapshot_from_catalog(
-    catalog: SchemaCatalog,
-    table_name: &str,
-) -> Result<SchemaSnapshot, DbError> {
-    SchemaSnapshot::from_catalog(&catalog, table_name)
-        .ok_or_else(|| DbError::Query(format!("加载表 schema 失败：未找到表 {}", table_name)))
-}
-
 /// 以参数化方式执行 MutationBatch（统一 dispatcher）
 ///
 /// 三后端统一入口：SQLite 同步执行，PostgreSQL/MySQL 异步执行。

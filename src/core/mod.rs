@@ -43,7 +43,7 @@ pub use notification::{Notification, NotificationLevel, NotificationManager};
 pub use progress::{ProgressManager, ProgressTask};
 #[allow(unused_imports)] // 公开 API
 pub use syntax::{HighlightColors, SqlHighlighter, clear_highlight_cache, highlight_sql};
-pub use theme::{ThemeManager, ThemePreset};
+pub use theme::{ThemeManager, ThemePreset, resolve_dark_mode};
 #[allow(unused_imports)] // 公开 API，供应用层与 UI 的传输工作流使用
 pub use transfer::{
     TransferDelimitedOptions, TransferDirection, TransferExecutionPayload, TransferExecutionPlan,

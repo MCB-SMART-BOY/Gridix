@@ -19,6 +19,8 @@ pub enum OperationKey {
         connection: ConnectionId,
     },
     Query {
+        /// 查询所属连接:断开某个连接只取消它自己的在途查询。
+        connection: ConnectionId,
         document: DocumentId,
     },
     Metadata {
@@ -199,6 +201,33 @@ impl TaskRegistry {
         }
     }
 
+    /// 取消所有满足 `predicate` 的当前任务。
+    fn cancel_matching(&mut self, predicate: impl Fn(&OperationKey) -> bool) {
+        let keys: Vec<OperationKey> = self
+            .latest
+            .keys()
+            .filter(|key| predicate(key))
+            .cloned()
+            .collect();
+        for key in keys {
+            self.cancel_by_key(&key);
+        }
+    }
+
+    /// 取消指定连接上所有在途查询（断开连接时使用）。
+    pub fn cancel_queries_for_connection(&mut self, connection: ConnectionId) {
+        self.cancel_matching(
+            |key| matches!(key, OperationKey::Query { connection: c, .. } if *c == connection),
+        );
+    }
+
+    /// 取消指定文档的查询（按 Tab 取消时使用，不关心它属于哪个连接）。
+    pub fn cancel_queries_for_document(&mut self, document: DocumentId) {
+        self.cancel_matching(
+            |key| matches!(key, OperationKey::Query { document: d, .. } if *d == document),
+        );
+    }
+
     /// 移除已完成的任务（清理内存）
     pub fn cleanup(&mut self) {
         self.tasks
@@ -316,7 +345,9 @@ mod tests {
     #[tokio::test]
     async fn cancel_query_retains_entry_until_completion_and_cleanup() {
         let mut registry = TaskRegistry::default();
+        let connection = crate::domain::ids::ConnectionId::from(uuid::Uuid::new_v4());
         let key = OperationKey::Query {
+            connection,
             document: crate::domain::ids::DocumentId::from(uuid::Uuid::new_v4()),
         };
         let (task_id, token) = registry.register(key.clone(), TaskKind::Query);
@@ -356,8 +387,12 @@ mod tests {
     #[test]
     fn same_document_new_query_supersedes_old() {
         let mut registry = TaskRegistry::default();
+        let connection = crate::domain::ids::ConnectionId::from(uuid::Uuid::new_v4());
         let doc = crate::domain::ids::DocumentId::from(uuid::Uuid::new_v4());
-        let key = OperationKey::Query { document: doc };
+        let key = OperationKey::Query {
+            connection,
+            document: doc,
+        };
 
         let (task1, _t1) = registry.register(key.clone(), TaskKind::Query);
         let (task2, _t2) = registry.register(key.clone(), TaskKind::Query);
@@ -374,13 +409,20 @@ mod tests {
         let mut registry = TaskRegistry::default();
         let doc_a = crate::domain::ids::DocumentId::from(uuid::Uuid::new_v4());
         let doc_b = crate::domain::ids::DocumentId::from(uuid::Uuid::new_v4());
+        let connection = crate::domain::ids::ConnectionId::from(uuid::Uuid::new_v4());
         assert_ne!(
             doc_a, doc_b,
             "different documents should have different IDs"
         );
 
-        let key_a = OperationKey::Query { document: doc_a };
-        let key_b = OperationKey::Query { document: doc_b };
+        let key_a = OperationKey::Query {
+            connection,
+            document: doc_a,
+        };
+        let key_b = OperationKey::Query {
+            connection,
+            document: doc_b,
+        };
 
         let (task_a1, _t1) = registry.register(key_a.clone(), TaskKind::Query);
         let (task_b1, _t2) = registry.register(key_b.clone(), TaskKind::Query);
@@ -403,8 +445,12 @@ mod tests {
     #[test]
     fn stale_query_completion_is_detected() {
         let mut registry = TaskRegistry::default();
+        let connection = crate::domain::ids::ConnectionId::from(uuid::Uuid::new_v4());
         let doc = crate::domain::ids::DocumentId::from(uuid::Uuid::new_v4());
-        let key = OperationKey::Query { document: doc };
+        let key = OperationKey::Query {
+            connection,
+            document: doc,
+        };
 
         let (task1, _t1) = registry.register(key.clone(), TaskKind::Query);
         let (task2, _t2) = registry.register(key.clone(), TaskKind::Query);
@@ -419,5 +465,99 @@ mod tests {
             registry.is_current(&key, task2),
             "task2 should remain current"
         );
+    }
+
+    #[tokio::test]
+    async fn cancel_queries_for_connection_only_cancels_that_connection() {
+        let mut registry = TaskRegistry::default();
+        let connection_a = crate::domain::ids::ConnectionId::from(uuid::Uuid::new_v4());
+        let connection_b = crate::domain::ids::ConnectionId::from(uuid::Uuid::new_v4());
+        let key_a = OperationKey::Query {
+            connection: connection_a,
+            document: crate::domain::ids::DocumentId::from(uuid::Uuid::new_v4()),
+        };
+        let key_b = OperationKey::Query {
+            connection: connection_b,
+            document: crate::domain::ids::DocumentId::from(uuid::Uuid::new_v4()),
+        };
+
+        let (task_a, token_a) = registry.register(key_a.clone(), TaskKind::Query);
+        let (task_b, token_b) = registry.register(key_b.clone(), TaskKind::Query);
+        let handle_a = tokio::spawn(async {});
+        let handle_b = tokio::spawn(async {});
+        registry.attach(
+            task_a,
+            key_a.clone(),
+            TaskKind::Query,
+            handle_a,
+            token_a.clone(),
+        );
+        registry.attach(
+            task_b,
+            key_b.clone(),
+            TaskKind::Query,
+            handle_b,
+            token_b.clone(),
+        );
+
+        registry.cancel_queries_for_connection(connection_a);
+
+        assert!(
+            token_a.is_cancelled(),
+            "disconnecting a connection must cancel its own in-flight query"
+        );
+        assert!(
+            !registry.is_current(&key_a, task_a),
+            "the cancelled query must reject its late completion"
+        );
+        assert!(
+            !token_b.is_cancelled(),
+            "another connection's query must keep running"
+        );
+        assert!(
+            registry.is_current(&key_b, task_b),
+            "another connection's query must stay current"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_queries_for_document_ignores_connection() {
+        let mut registry = TaskRegistry::default();
+        let document = crate::domain::ids::DocumentId::from(uuid::Uuid::new_v4());
+        let connection = crate::domain::ids::ConnectionId::from(uuid::Uuid::new_v4());
+        let key = OperationKey::Query {
+            connection,
+            document,
+        };
+        let other_key = OperationKey::Query {
+            connection: crate::domain::ids::ConnectionId::from(uuid::Uuid::new_v4()),
+            document: crate::domain::ids::DocumentId::from(uuid::Uuid::new_v4()),
+        };
+
+        let (task, token) = registry.register(key.clone(), TaskKind::Query);
+        let (other_task, other_token) = registry.register(other_key.clone(), TaskKind::Query);
+        let handle = tokio::spawn(async {});
+        let other_handle = tokio::spawn(async {});
+        registry.attach(task, key.clone(), TaskKind::Query, handle, token.clone());
+        registry.attach(
+            other_task,
+            other_key.clone(),
+            TaskKind::Query,
+            other_handle,
+            other_token.clone(),
+        );
+
+        registry.cancel_queries_for_document(document);
+
+        assert!(
+            token.is_cancelled(),
+            "cancelling by tab document must cancel that document's query"
+        );
+        assert!(!registry.is_current(&key, task));
+        assert!(
+            !other_token.is_cancelled(),
+            "unrelated documents must keep running"
+        );
+        assert!(registry.is_current(&other_key, other_task));
     }
 }

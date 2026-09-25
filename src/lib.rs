@@ -73,7 +73,6 @@ pub use data::{
     // 异步操作
     connect_database,
     get_tables_for_database,
-    load_schema_snapshot,
 };
 
 /// UI 组件的便捷访问

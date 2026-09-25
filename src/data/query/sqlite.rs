@@ -462,7 +462,6 @@ use crate::domain::ids::SchemaRevision;
 use crate::domain::metadata::{
     ColumnMetadata as CatalogColumn, ForeignKeyMetadata, KeyMetadata, SchemaCatalog, TableMetadata,
 };
-use crate::domain::schema_diff::SchemaSnapshot;
 
 /// 一次性加载 SQLite 数据库的完整 schema catalog。
 ///
@@ -590,16 +589,6 @@ pub(crate) fn load_catalog(
     }
 
     Ok(SchemaCatalog { revision, tables })
-}
-/// 加载 SQLite 单表 schema snapshot；仅读取元数据，不执行任何迁移。
-pub(crate) fn load_snapshot(
-    config: &ConnectionConfig,
-    revision: SchemaRevision,
-    table_name: &str,
-) -> Result<SchemaSnapshot, DbError> {
-    let catalog = load_catalog(config, revision)?;
-    SchemaSnapshot::from_catalog(&catalog, table_name)
-        .ok_or_else(|| DbError::Query(format!("加载表 schema 失败：未找到表 {}", table_name)))
 }
 /// SQLite 声明类型 → DbTypeFamily
 fn sqlite_decl_type_to_family(decl_type: &str) -> DbTypeFamily {
@@ -1340,9 +1329,15 @@ mod tests {
     }
     #[test]
     fn schema_snapshot_diff_preview_is_read_only() {
+        use crate::domain::schema_diff::SchemaSnapshot;
+
         let (_db, config) =
             temp_db("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);");
-        let current = super::load_snapshot(&config, SchemaRevision(7), "users").unwrap();
+        let current = SchemaSnapshot::from_catalog(
+            &super::load_catalog(&config, SchemaRevision(7)).unwrap(),
+            "users",
+        )
+        .expect("users table should have a snapshot");
         let mut desired_table = current.table_metadata().clone();
         desired_table
             .columns
@@ -1365,7 +1360,11 @@ mod tests {
         assert_eq!(current.table_name(), "users");
         assert_eq!(diff.added_columns.len(), 1);
         assert!(preview.contains("ALTER TABLE \"users\" ADD COLUMN \"email\" TEXT;"));
-        let unchanged = super::load_snapshot(&config, SchemaRevision(7), "users").unwrap();
+        let unchanged = SchemaSnapshot::from_catalog(
+            &super::load_catalog(&config, SchemaRevision(7)).unwrap(),
+            "users",
+        )
+        .expect("users table should still have a snapshot");
         assert_eq!(unchanged.table_metadata().columns.len(), 2);
     }
 }

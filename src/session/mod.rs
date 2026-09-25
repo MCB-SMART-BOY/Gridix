@@ -41,15 +41,16 @@ pub struct Session {
     pub grid_save_executing: bool,
 
     // ── 请求 ID 序列（私有：只能通过方法生成，保证单调递增）──
-    next_connect_request_id: u64,
     next_query_request_id: u64,
-    next_metadata_request_id: u64,
 
     // ── 请求追踪 ──
-    pub pending_connect_requests: HashMap<String, u64>,
-    pub pending_database_requests: HashMap<String, (String, u64)>,
-    pub pending_triggers_request: Option<(String, Option<String>, u64)>,
-    pub pending_routines_request: Option<(String, Option<String>, u64)>,
+    // 这些映射只表达"是否有该连接/该数据库的在途请求"：
+    // 过期回包由 `TaskRegistry::is_current()` 与上下文匹配守卫丢弃，
+    // 因此不再保存请求 ID（保存后只能和自己比较，恒为真）。
+    pub pending_connect_requests: HashSet<String>,
+    pub pending_database_requests: HashMap<String, String>,
+    pub pending_triggers_request: Option<(String, Option<String>)>,
+    pub pending_routines_request: Option<(String, Option<String>)>,
     pub user_cancelled_query_requests: HashSet<u64>,
     /// 统一任务注册表（逐步替代上方 pending_* 字段）
     pub task_registry: task_registry::TaskRegistry,
@@ -94,10 +95,8 @@ impl Session {
             executing: false,
             import_executing: false,
             grid_save_executing: false,
-            next_connect_request_id: 0,
             next_query_request_id: 0,
-            next_metadata_request_id: 0,
-            pending_connect_requests: HashMap::new(),
+            pending_connect_requests: HashSet::new(),
             pending_database_requests: HashMap::new(),
             pending_triggers_request: None,
             pending_routines_request: None,
@@ -156,23 +155,15 @@ impl Session {
         *counter
     }
 
-    pub fn next_connect_request_id(&mut self) -> u64 {
-        Self::next_nonzero_request_id(&mut self.next_connect_request_id)
-    }
-
     pub fn next_query_request_id(&mut self) -> u64 {
         Self::next_nonzero_request_id(&mut self.next_query_request_id)
-    }
-
-    pub fn next_metadata_request_id(&mut self) -> u64 {
-        Self::next_nonzero_request_id(&mut self.next_metadata_request_id)
     }
 
     // ── 执行状态刷新 ──
 
     pub fn refresh_connecting_flag(&mut self) {
         let has_pending = self.manager.active.as_ref().is_some_and(|active_name| {
-            self.pending_connect_requests.contains_key(active_name)
+            self.pending_connect_requests.contains(active_name)
                 || self.pending_database_requests.contains_key(active_name)
         });
         self.connecting = has_pending;

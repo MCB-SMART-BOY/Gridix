@@ -177,19 +177,24 @@ impl DbManagerApp {
     fn handle_connected_with_tables(
         &mut self,
         _ctx: &egui::Context,
+        connection: crate::domain::ids::ConnectionId,
         name: String,
-        request_id: u64,
         result: Result<Vec<String>, String>,
     ) {
-        let is_latest = self
-            .session
-            .pending_connect_requests
-            .get(&name)
-            .is_some_and(|id| *id == request_id);
-        if !is_latest {
+        // 连接必须仍是回包所指的那一个：同名重建（编辑连接配置）会分配新的 `ConnectionId`，
+        // 旧连接的慢回包否则会写进新连接对象并顶掉新回包。
+        if !self.does_runtime_connection_match(&name, connection) {
             tracing::debug!(
                 connection = %name,
-                request_id,
+                "忽略连接到其他连接实例的回包"
+            );
+            return;
+        }
+        // 请求是否仍在途由 pending 表表达；过期回包由事件入口的
+        // `TaskRegistry::is_current()` 拦截，无需再比较请求号。
+        if !self.session.pending_connect_requests.contains(&name) {
+            tracing::debug!(
+                connection = %name,
                 "忽略过期连接回包（SQLite）"
             );
             return;
@@ -239,23 +244,28 @@ impl DbManagerApp {
     fn handle_database_selected(
         &mut self,
         _ctx: &egui::Context,
+        connection: crate::domain::ids::ConnectionId,
         conn_name: String,
         db_name: String,
-        request_id: u64,
         result: Result<Vec<String>, String>,
     ) {
-        let is_latest = self
-            .session
-            .pending_database_requests
-            .get(&conn_name)
-            .is_some_and(|(pending_db, pending_id)| {
-                pending_db == &db_name && *pending_id == request_id
-            });
-        if !is_latest {
+        if !self.does_runtime_connection_match(&conn_name, connection) {
             tracing::debug!(
                 connection = %conn_name,
                 database = %db_name,
-                request_id,
+                "忽略连接到其他连接实例的切库回包"
+            );
+            return;
+        }
+        let still_pending = self
+            .session
+            .pending_database_requests
+            .get(&conn_name)
+            .is_some_and(|pending_db| pending_db == &db_name);
+        if !still_pending {
+            tracing::debug!(
+                connection = %conn_name,
+                database = %db_name,
                 "忽略过期数据库切换回包"
             );
             return;
@@ -609,23 +619,10 @@ impl DbManagerApp {
         _ctx: &egui::Context,
         conn_name: String,
         db_name: Option<String>,
-        request_id: u64,
         result: Result<Vec<crate::data::TriggerInfo>, String>,
     ) {
-        let is_latest = self.session.pending_triggers_request.as_ref().is_some_and(
-            |(pending_conn, pending_db, pending_id)| {
-                pending_conn == &conn_name && pending_db == &db_name && *pending_id == request_id
-            },
-        );
-        if !is_latest {
-            tracing::debug!(
-                connection = %conn_name,
-                database = ?db_name,
-                request_id,
-                "忽略过期触发器回包（请求ID不匹配）"
-            );
-            return;
-        }
+        // 回包有效性由事件分支判定（连接 id + database 匹配）与
+        // `metadata_context_matches_current` 判定；这里只把 pending 视为"在途"并消费它。
         self.session.pending_triggers_request = None;
 
         if !self.metadata_context_matches_current(&conn_name, &db_name) {
@@ -660,23 +657,10 @@ impl DbManagerApp {
         _ctx: &egui::Context,
         conn_name: String,
         db_name: Option<String>,
-        request_id: u64,
         result: Result<Vec<crate::data::RoutineInfo>, String>,
     ) {
-        let is_latest = self.session.pending_routines_request.as_ref().is_some_and(
-            |(pending_conn, pending_db, pending_id)| {
-                pending_conn == &conn_name && pending_db == &db_name && *pending_id == request_id
-            },
-        );
-        if !is_latest {
-            tracing::debug!(
-                connection = %conn_name,
-                database = ?db_name,
-                request_id,
-                "忽略过期存储过程回包（请求ID不匹配）"
-            );
-            return;
-        }
+        // 回包有效性由事件分支判定（连接 id + database 匹配）与
+        // `metadata_context_matches_current` 判定；这里只把 pending 视为"在途"并消费它。
         self.session.pending_routines_request = None;
 
         if !self.metadata_context_matches_current(&conn_name, &db_name) {
@@ -730,29 +714,19 @@ impl DbManagerApp {
         use crate::session::runtime_event::RuntimeOutcome;
         match event.outcome {
             RuntimeOutcome::Connected {
-                conn_name, result, ..
+                connection,
+                conn_name,
+                result,
             } => {
-                let request_id = self
-                    .session
-                    .pending_connect_requests
-                    .get(&conn_name)
-                    .copied()
-                    .unwrap_or(0);
-                self.handle_connected_with_tables(ctx, conn_name, request_id, result);
+                self.handle_connected_with_tables(ctx, connection, conn_name, result);
             }
             RuntimeOutcome::DatabaseSelected {
+                connection,
                 conn_name,
                 database,
                 result,
-                ..
             } => {
-                let request_id = self
-                    .session
-                    .pending_database_requests
-                    .get(&conn_name)
-                    .map(|(_, id)| *id)
-                    .unwrap_or(0);
-                self.handle_database_selected(ctx, conn_name, database, request_id, result);
+                self.handle_database_selected(ctx, connection, conn_name, database, result);
             }
             RuntimeOutcome::ActiveTablesReloaded {
                 connection,
@@ -828,8 +802,7 @@ impl DbManagerApp {
                 database,
                 result,
             } => {
-                if let Some((conn_name, pending_db, request_id)) =
-                    self.session.pending_triggers_request.clone()
+                if let Some((conn_name, pending_db)) = self.session.pending_triggers_request.clone()
                 {
                     if self
                         .session
@@ -839,7 +812,7 @@ impl DbManagerApp {
                         .is_some_and(|conn| conn.id == connection)
                         && pending_db == database
                     {
-                        self.handle_triggers_fetched(ctx, conn_name, database, request_id, result);
+                        self.handle_triggers_fetched(ctx, conn_name, database, result);
                     } else {
                         tracing::debug!(?connection, "忽略不匹配连接上下文的触发器回包");
                     }
@@ -852,8 +825,7 @@ impl DbManagerApp {
                 database,
                 result,
             } => {
-                if let Some((conn_name, pending_db, request_id)) =
-                    self.session.pending_routines_request.clone()
+                if let Some((conn_name, pending_db)) = self.session.pending_routines_request.clone()
                 {
                     if self
                         .session
@@ -863,7 +835,7 @@ impl DbManagerApp {
                         .is_some_and(|conn| conn.id == connection)
                         && pending_db == database
                     {
-                        self.handle_routines_fetched(ctx, conn_name, database, request_id, result);
+                        self.handle_routines_fetched(ctx, conn_name, database, result);
                     } else {
                         tracing::debug!(?connection, "忽略不匹配连接上下文的存储过程回包");
                     }
@@ -1803,7 +1775,10 @@ mod tests {
         let document = crate::domain::ids::DocumentId::from(
             uuid::Uuid::parse_str(&tab_id).expect("query tab IDs are UUIDs"),
         );
-        let key = crate::session::task_registry::OperationKey::Query { document };
+        let key = crate::session::task_registry::OperationKey::Query {
+            connection: crate::domain::ids::ConnectionId::from(uuid::Uuid::new_v4()),
+            document,
+        };
         let (stale_task_id, stale_token) = app
             .session
             .task_registry
@@ -1866,5 +1841,215 @@ mod tests {
         );
         assert!(tab.last_error.is_none());
         assert!(app.session.task_registry.is_current(&key, current_task_id));
+    }
+
+    #[test]
+    fn triggers_event_without_pending_request_does_not_replace_list() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let ctx = egui::Context::default();
+        let connection_id = crate::domain::ids::ConnectionId::from(uuid::Uuid::new_v4());
+        let key = crate::session::task_registry::OperationKey::Metadata {
+            connection: connection_id,
+            scope: crate::session::task_registry::MetadataScope::Triggers,
+        };
+        let (task_id, token) = app.session.task_registry.register(
+            key.clone(),
+            crate::session::task_registry::TaskKind::Metadata,
+        );
+        let handle = app
+            .session
+            .runtime
+            .spawn(async { std::future::pending::<()>().await });
+        app.session.task_registry.attach(
+            task_id,
+            key.clone(),
+            crate::session::task_registry::TaskKind::Metadata,
+            handle,
+            token,
+        );
+
+        let sentinel = vec![crate::data::TriggerInfo {
+            name: "keep_me".to_string(),
+            table_name: "t".to_string(),
+            event: "INSERT".to_string(),
+            timing: "AFTER".to_string(),
+            definition: String::new(),
+        }];
+        app.state.sidebar_panel_state.set_triggers(sentinel);
+        assert!(app.session.pending_triggers_request.is_none());
+
+        app.handle_runtime_event(
+            &ctx,
+            crate::session::runtime_event::RuntimeEvent {
+                task_id,
+                key,
+                outcome: crate::session::runtime_event::RuntimeOutcome::TriggersFetched {
+                    connection: connection_id,
+                    database: None,
+                    result: Ok(Vec::new()),
+                },
+            },
+        );
+
+        assert_eq!(app.state.sidebar_panel_state.triggers.len(), 1);
+        assert_eq!(app.state.sidebar_panel_state.triggers[0].name, "keep_me");
+        assert!(app.state.sidebar_panel_state.error_triggers.is_none());
+    }
+
+    #[test]
+    fn triggers_event_for_inactive_connection_does_not_replace_list() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let ctx = egui::Context::default();
+        let mut active_config =
+            crate::data::ConnectionConfig::new("active_conn", crate::types::DatabaseType::SQLite);
+        active_config.database = "active.db".to_string();
+        app.session.manager.add(active_config);
+        let mut other_config =
+            crate::data::ConnectionConfig::new("other_conn", crate::types::DatabaseType::SQLite);
+        other_config.database = "other.db".to_string();
+        app.session.manager.add(other_config);
+        app.session.manager.active = Some("active_conn".to_string());
+
+        let other_id = app
+            .session
+            .manager
+            .connection_id("other_conn")
+            .expect("other connection is registered");
+        let active_database = app
+            .session
+            .manager
+            .connections
+            .get("active_conn")
+            .and_then(|conn| conn.selected_database.clone());
+        app.session.pending_triggers_request =
+            Some(("active_conn".to_string(), active_database.clone()));
+
+        let key = crate::session::task_registry::OperationKey::Metadata {
+            connection: other_id,
+            scope: crate::session::task_registry::MetadataScope::Triggers,
+        };
+        let (task_id, token) = app.session.task_registry.register(
+            key.clone(),
+            crate::session::task_registry::TaskKind::Metadata,
+        );
+        let handle = app
+            .session
+            .runtime
+            .spawn(async { std::future::pending::<()>().await });
+        app.session.task_registry.attach(
+            task_id,
+            key.clone(),
+            crate::session::task_registry::TaskKind::Metadata,
+            handle,
+            token,
+        );
+
+        let sentinel = vec![crate::data::TriggerInfo {
+            name: "active_trigger".to_string(),
+            table_name: "t".to_string(),
+            event: "INSERT".to_string(),
+            timing: "AFTER".to_string(),
+            definition: String::new(),
+        }];
+        app.state.sidebar_panel_state.set_triggers(sentinel);
+        app.state.sidebar_panel_state.loading_triggers = true;
+
+        app.handle_runtime_event(
+            &ctx,
+            crate::session::runtime_event::RuntimeEvent {
+                task_id,
+                key,
+                outcome: crate::session::runtime_event::RuntimeOutcome::TriggersFetched {
+                    connection: other_id,
+                    database: active_database.clone(),
+                    result: Ok(Vec::new()),
+                },
+            },
+        );
+
+        assert_eq!(app.state.sidebar_panel_state.triggers.len(), 1);
+        assert_eq!(
+            app.state.sidebar_panel_state.triggers[0].name,
+            "active_trigger"
+        );
+        assert_eq!(
+            app.session.pending_triggers_request,
+            Some(("active_conn".to_string(), active_database)),
+            "a foreign reply must not consume the active request"
+        );
+        assert!(app.state.sidebar_panel_state.loading_triggers);
+    }
+
+    #[test]
+    fn connected_event_from_superseded_connection_instance_is_ignored() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        let ctx = egui::Context::default();
+        let config =
+            crate::data::ConnectionConfig::new("rebuild", crate::types::DatabaseType::SQLite);
+        app.session.manager.add(config.clone());
+        let stale_id = app
+            .session
+            .manager
+            .connection_id("rebuild")
+            .expect("registered");
+        app.session.manager.active = Some("rebuild".to_string());
+        app.session
+            .pending_connect_requests
+            .insert("rebuild".to_string());
+
+        // 编辑同名连接配置会替换连接实例并分配新的 `ConnectionId`，旧任务仍持旧 id。
+        app.session.manager.connections.remove("rebuild");
+        app.session.manager.add(config);
+        let fresh_id = app
+            .session
+            .manager
+            .connection_id("rebuild")
+            .expect("re-registered");
+        assert_ne!(stale_id, fresh_id);
+
+        let key = crate::session::task_registry::OperationKey::Connect(stale_id);
+        let (task_id, token) = app.session.task_registry.register(
+            key.clone(),
+            crate::session::task_registry::TaskKind::Connect,
+        );
+        let handle = app
+            .session
+            .runtime
+            .spawn(async { std::future::pending::<()>().await });
+        app.session.task_registry.attach(
+            task_id,
+            key.clone(),
+            crate::session::task_registry::TaskKind::Connect,
+            handle,
+            token,
+        );
+
+        app.handle_runtime_event(
+            &ctx,
+            crate::session::runtime_event::RuntimeEvent {
+                task_id,
+                key,
+                outcome: crate::session::runtime_event::RuntimeOutcome::Connected {
+                    connection: stale_id,
+                    conn_name: "rebuild".to_string(),
+                    result: Ok(vec!["stale_table".to_string()]),
+                },
+            },
+        );
+
+        let conn = app
+            .session
+            .manager
+            .connections
+            .get("rebuild")
+            .expect("connection remains registered");
+        assert!(!conn.connected, "旧连接实例的回包不得把新实例标记为已连接");
+        assert!(conn.tables.is_empty());
+        assert!(
+            !app.session
+                .notifications
+                .latest_message()
+                .is_some_and(|message| message.contains("已连接到"))
+        );
     }
 }

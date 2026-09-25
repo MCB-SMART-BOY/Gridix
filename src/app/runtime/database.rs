@@ -130,7 +130,6 @@ impl DbManagerApp {
             let config = conn.config.clone();
             let connection_id = conn.id;
             let tx = self.session.tx.clone();
-            let request_id = self.session.next_connect_request_id();
 
             // TaskRegistry 注册；完成事件统一走 RuntimeEvent。
             let key = crate::session::task_registry::OperationKey::Connect(connection_id);
@@ -140,9 +139,7 @@ impl DbManagerApp {
             );
 
             self.session.manager.active = Some(name.clone());
-            self.session
-                .pending_connect_requests
-                .insert(name.clone(), request_id);
+            self.session.pending_connect_requests.insert(name.clone());
             self.session.pending_database_requests.remove(&name);
             self.session.pending_triggers_request = None;
             self.session.pending_routines_request = None;
@@ -303,11 +300,10 @@ impl DbManagerApp {
         let config = conn.config.clone();
         let connection_id = conn.id;
         let tx = self.session.tx.clone();
-        let request_id = self.session.next_connect_request_id();
 
         self.session
             .pending_database_requests
-            .insert(active_name.clone(), (database.clone(), request_id));
+            .insert(active_name.clone(), database.clone());
         self.session.pending_triggers_request = None;
         self.session.pending_routines_request = None;
         self.state.sidebar_panel_state.loading_triggers = false;
@@ -393,6 +389,14 @@ impl DbManagerApp {
 
     /// 断开数据库连接
     pub(in crate::app) fn disconnect(&mut self, name: String) {
+        // 断开前先取出连接标识:断开后连接已从注册表移除。
+        let connection_id = self
+            .session
+            .manager
+            .connections
+            .get(&name)
+            .map(|conn| conn.id);
+
         // 清理 SSH 隧道和连接池
         if let Some(conn) = self.session.manager.connections.get(&name) {
             let config = conn.config.clone();
@@ -413,25 +417,32 @@ impl DbManagerApp {
         }
 
         self.session.manager.disconnect(&name);
-        self.cancel_queries_for_connection(&name);
+        if let Some(connection_id) = connection_id {
+            self.cancel_queries_for_connection(connection_id);
+        }
         self.session.pending_connect_requests.remove(&name);
         self.session.pending_database_requests.remove(&name);
-        // Only clear metadata requests belonging to the disconnecting connection
+        // Only clear metadata requests belonging to the disconnecting connection.
+        // The loading flags must be released here too: the stale reply is dropped by the
+        // event arm without touching them, and the active-connection block below only runs
+        // when the disconnecting connection is the active one (review F3).
         if self
             .session
             .pending_triggers_request
             .as_ref()
-            .is_some_and(|(cn, _, _)| cn == &name)
+            .is_some_and(|(cn, _)| cn == &name)
         {
             self.session.pending_triggers_request = None;
+            self.state.sidebar_panel_state.loading_triggers = false;
         }
         if self
             .session
             .pending_routines_request
             .as_ref()
-            .is_some_and(|(cn, _, _)| cn == &name)
+            .is_some_and(|(cn, _)| cn == &name)
         {
             self.session.pending_routines_request = None;
+            self.state.sidebar_panel_state.loading_routines = false;
         }
         self.remove_grid_workspaces_for_connection(&name);
         if self.session.manager.active.as_deref() == Some(&name) {
@@ -644,6 +655,7 @@ impl DbManagerApp {
         };
 
         let config = conn.config.clone();
+        let connection_id = conn.id;
         let tx = self.session.tx.clone();
 
         tracing::info!(connection = %active_name, sql_length = sql.len(), "开始执行查询");
@@ -705,6 +717,7 @@ impl DbManagerApp {
 
         // TaskRegistry 注册 — 保存 cancel_token 用于取消
         let query_key = crate::session::task_registry::OperationKey::Query {
+            connection: connection_id,
             document: query_document_id,
         };
         let (query_task_id, cancel_token) = self.session.task_registry.register(
@@ -969,6 +982,30 @@ mod tests {
         connection_error_warrants_onboarding, prepare_tab_for_query_execution,
         ssh_password_ref_for_deletion,
     };
+
+    #[test]
+    fn disconnect_releases_metadata_loading_for_inactive_connection() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        app.session.manager.add(crate::data::ConnectionConfig::new(
+            "active_conn",
+            crate::types::DatabaseType::SQLite,
+        ));
+        app.session.manager.add(crate::data::ConnectionConfig::new(
+            "other_conn",
+            crate::types::DatabaseType::SQLite,
+        ));
+        app.session.manager.active = Some("active_conn".to_string());
+        app.session.pending_triggers_request = Some(("other_conn".to_string(), None));
+        app.state.sidebar_panel_state.loading_triggers = true;
+
+        app.disconnect("other_conn".to_string());
+
+        assert!(app.session.pending_triggers_request.is_none());
+        assert!(
+            !app.state.sidebar_panel_state.loading_triggers,
+            "断开非活跃连接也必须释放元数据加载标记"
+        );
+    }
 
     #[test]
     fn onboarding_opens_only_for_setup_errors_not_transient() {

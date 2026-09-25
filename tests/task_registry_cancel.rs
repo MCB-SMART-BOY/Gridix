@@ -5,12 +5,13 @@
 
 use std::time::Duration;
 
-use gridix::domain::ids::DocumentId;
+use gridix::domain::ids::{ConnectionId, DocumentId};
 use gridix::session::task_registry::{OperationKey, TaskKind, TaskRegistry};
 use tokio_util::sync::CancellationToken;
 
 fn make_query_key() -> OperationKey {
     OperationKey::Query {
+        connection: ConnectionId::from(uuid::Uuid::new_v4()),
         document: DocumentId::from(uuid::Uuid::new_v4()),
     }
 }
