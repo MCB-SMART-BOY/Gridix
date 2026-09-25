@@ -1,5 +1,7 @@
 # Gridix Workbench UI Design
 
+<!-- doc-symbols: ignore-file — historical design snapshot; paths and symbols describe the implementation at that time -->
+
 ## Goal
 
 Gridix should feel like a database-focused editor workbench, closer to VS Code/Zed than a traditional dialog-heavy desktop utility.

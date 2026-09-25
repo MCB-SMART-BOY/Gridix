@@ -1,6 +1,6 @@
 # Dialog shell contracts & responsive design
 
-From `docs/recovery/20-dialog-layout-audit.md` and `43-dialog-responsive-row-design.md`.
+（原始布局审计记录未入库；本文档是唯一在库描述。）
 
 ## 4 shell contracts
 
@@ -23,14 +23,14 @@ which relies on the `egui::Modal` backdrop and registers the modal layer through
 `responsive_heights` and `constrain_to(content_rect)`, so a dialog cannot grow past the
 viewport.
 
-egui's widget hit test does not consult the modal layer (`hit_test` filters by `Order`
+egui's widget hit test does not consult the modal layer (`egui::hit_test` filters by `Order`
 only), so the modal layer alone cannot stop background clicks; the pointer blocker owns
 that half of the contract. `src/ui/dialogs/common.rs` tests
 `dialog_shell_blocking_swallows_clicks_on_lower_layers` and
 `dialog_shell_without_blocking_lets_lower_layers_receive_clicks` pin both directions.
 
 Escape closes the workspace overlays (Help, History, ER) through
-`InputRouterContext::resolve_escape_fallback`; each dialog consumes Escape inside its own
+`InputContextSnapshot::resolve_escape_fallback`; each dialog consumes Escape inside its own
 window.
 
 ## Responsive row widths

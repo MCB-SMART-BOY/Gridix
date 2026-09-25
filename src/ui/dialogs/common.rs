@@ -1623,6 +1623,8 @@ mod tests {
     struct PointerScenario {
         background_clicks: usize,
         dialog_clicks: usize,
+        background_hovered: bool,
+        dialog_hovered: bool,
         background_center: Option<egui::Pos2>,
         dialog_button_center: Option<egui::Pos2>,
     }
@@ -1652,6 +1654,7 @@ mod tests {
                     ui.button("背景按钮")
                 });
             self.background_center = Some(background.inner.rect.center());
+            self.background_hovered = background.inner.hovered();
             if background.inner.clicked() {
                 self.background_clicks += 1;
             }
@@ -1665,6 +1668,7 @@ mod tests {
             };
             if let Some(button) = dialog.and_then(|inner| inner.inner) {
                 self.dialog_button_center = Some(button.rect.center());
+                self.dialog_hovered = button.hovered();
                 if button.clicked() {
                     self.dialog_clicks += 1;
                 }
@@ -1721,13 +1725,21 @@ mod tests {
         scenario.prime(&ctx, true);
         scenario.run(&ctx, true, PointerAction::ClickBackground);
 
+        // 活性对照在同一模块的 `dialog_shell_without_blocking_lets_lower_layers_receive_clicks`：
+        // 同一场景去掉阻断外壳后既会收到点击、也会出现 hover，所以这里的“无点击/无 hover”
+        // 不是控件缺失导致的假通过。
         assert_eq!(
             scenario.background_clicks, 0,
             "对话框打开时下层控件不应收到点击"
         );
+        assert!(
+            !scenario.background_hovered,
+            "阻断层应同时吞掉下层 hover：对话框打开时下层不应出现悬停反馈"
+        );
 
         scenario.run(&ctx, true, PointerAction::ClickDialog);
         assert_eq!(scenario.dialog_clicks, 1, "对话框自身仍可交互");
+        assert!(scenario.dialog_hovered, "对话框自身控件应保持 hover 反馈");
     }
 
     #[test]
@@ -1738,6 +1750,10 @@ mod tests {
         scenario.run(&ctx, false, PointerAction::ClickBackground);
 
         assert_eq!(scenario.background_clicks, 1, "非阻断外壳不应吞掉下层点击");
+        assert!(
+            scenario.background_hovered,
+            "非阻断外壳下下层控件应保持 hover 反馈（阻断断言的反向对照）"
+        );
 
         scenario.run(&ctx, false, PointerAction::ClickDialog);
         assert_eq!(scenario.dialog_clicks, 1);

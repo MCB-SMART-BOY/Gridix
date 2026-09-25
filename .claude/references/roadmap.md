@@ -53,7 +53,7 @@
 
 - [ ] data/query/ 驱动测试全覆盖
 - [ ] Session::poll_messages() 完整实现
-- [ ] 超大文件拆分 — `app/input/input_router.rs` 已拆为 5 个生产子模块 + 8 个测试文件（最大 512 行），`ui/panels/sidebar/` 按键处理已拆出 `keyboard.rs`；`keybindings_dialog.rs`、`core/keybindings.rs`、`runtime/handler.rs`、`sidebar/mod.rs` 仍偏大且缺少同等的行为保持覆盖率
+- [ ] 超大文件拆分 — `app/input/input_router/` 已拆为 5 个生产子模块 + 8 个测试文件（最大 512 行），`ui/panels/sidebar/` 按键处理已拆出 `keyboard.rs`；`keybindings_dialog.rs`、`core/keybindings.rs`、`runtime/handler.rs`、`sidebar/mod.rs` 仍偏大且缺少同等的行为保持覆盖率
 
 ## 长期
 

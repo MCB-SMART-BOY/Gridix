@@ -31,7 +31,7 @@ Keypress → input_router.rs (8-stage pipeline)
 | Keymap engine | `core/keybindings.rs` | `Action` (35 variants), `KeyBindings`, `KeyBinding::parse()`, scope_resolution_chain(), conflict detection |
 | Command registry | `core/commands.rs` | ~100 `ScopedCommand` entries with `default_bindings` |
 | UI shortcuts | `ui/shortcut_tooltip.rs` | `LocalShortcut` (141 variants), `config_key()`, runtime overrides |
-| Routing pipeline | `app/input/input_router.rs` | `FocusScope`, `resolve_input_action_with()`, `TextEntryGuard` |
+| Routing pipeline | `app/input/input_router/mod.rs` | `FocusScope`, `resolve_input_action_with()`, `TextEntryGuard` |
 | Action system | `app/action/action_system.rs` | `AppAction` → `AppEffect`, `command_descriptors()`, availability |
 
 ## Scope inheritance

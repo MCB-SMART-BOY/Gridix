@@ -63,6 +63,9 @@ jobs:
       - name: Doc links
         run: cargo run --bin check-doc-links
 
+      - name: Doc symbols and file references
+        run: cargo run --bin check-doc-symbols
+
       - name: Dependency policy audit
         run: |
           cargo install --git https://github.com/EmbarkStudios/cargo-deny --rev baa02b0a0c54e0578aae6bb7c7181ad00dc290af --locked cargo-deny

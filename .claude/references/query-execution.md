@@ -1,18 +1,18 @@
 # Query execution trace
 
-From `docs/recovery/02-query-execution-trace.md`. The full chain from user action to rendered result.
+（原始追踪记录未入库；本文档是唯一在库描述。）The full chain from user action to rendered result.
 
 ## End-to-end chain
 
 ```
-handle_sql_editor_actions() → QueryRuntime::execute()
+handle_sql_editor_actions() → DbManagerApp::execute()
 → TaskRegistry::register(OperationKey::Query)
 → tokio task → execute_typed_cancellable()
 → Message::RuntimeEvent(RuntimeEvent { task_id, key, outcome })
 → handle_messages() → TaskRegistry::is_current() → render
 ```
 
-`RuntimeEvent` is the completion protocol for the typed runtime path. The event carries the `TaskId` and `OperationKey`; only the current task for that key may update UI state. Older `Message::QueryDone` and pending-query descriptions are historical migration context, not the lifecycle to extend.
+`RuntimeEvent` is the completion protocol for the typed runtime path. The event carries the `TaskId` and `OperationKey`; only the current task for that key may update UI state. Older `Message::QueryDone` and pending-query descriptions are historical migration context, not the lifecycle to extend. <!-- doc-symbols: ignore: names removed migration-era types on purpose -->
 
 ## Authority model
 
@@ -32,13 +32,13 @@ Non-query task kinds retain their abort-on-cancellation behavior. Query cancella
 
 ## Error rendering
 
-Query errors are rendered as a **Welcome surface** with the error message, not as a blank result pane. The `is_cancelled_query_error()` function checks both Chinese and English error messages.
+Query errors surface through the workspace Welcome surface, which renders `welcome_status` via `ui::Welcome::show` — not as a blank result pane. Cancellation arrives through the same error channel as `DbError::Cancelled`, and a user-requested cancel is reported by the `was_cancelled` flag on the emitted frame effect.
 
 ## Remaining UX and migration context
 
 1. `QueryTab` is the SQL authority; active-tab result fields are render mirrors rather than a second request lifecycle.
 2. Cancellation feedback is transient; there is no persistent “query was cancelled” indicator.
-3. Legacy `Message::QueryDone` and request-ID structures may still exist for migration compatibility, but must not be used for new query runtime behavior.
+3. Legacy request-ID structures may still exist for migration compatibility, but new query runtime behavior must use the `TaskRegistry` + `RuntimeEvent` path.
 
 ## Verification
 

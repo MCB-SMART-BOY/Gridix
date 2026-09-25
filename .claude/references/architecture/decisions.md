@@ -28,13 +28,13 @@ Key architectural decisions for Gridix, with context and rationale.
 **Date:** 2026-06  
 **Status:** Implemented
 
-**Context:** A `DatabaseDriver` trait with ~11 operations was defined in `database/driver.rs` but never implemented.
+**Context:** A `DatabaseDriver` trait with ~11 operations was defined in `database/driver.rs` but never implemented. <!-- doc-symbols: ignore: ADR records the rejected trait and its deleted file -->
 
 **Decision:** Use `match db_type` dispatch in `data/query/mod.rs` instead of a trait-based abstraction.
 
 **Rationale:** SQLite (sync, spawn_blocking), PostgreSQL (async), and MySQL (async, pooled) have fundamentally different execution models. A trait forces identical signatures onto incompatible backends. Enum dispatch allows each backend to use its natural pattern without boxing overhead.
 
-**Result:** `database/driver.rs` deleted. Dispatch remains in `data/query/mod.rs`.
+**Result:** `database/driver.rs` deleted. Dispatch remains in `data/query/mod.rs`. <!-- doc-symbols: ignore: names the file deleted by this ADR -->
 
 ---
 

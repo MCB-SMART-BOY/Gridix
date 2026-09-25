@@ -1,5 +1,7 @@
 # Gridix UI Refactor Configuration And Design Spec
 
+<!-- doc-symbols: ignore-file — historical design spec; paths and symbols describe the implementation at that time -->
+
 ## Purpose
 
 This document is the implementation-level plan for the first fixed-region compatibility shell. It is useful for understanding Phases 0-7, but the final layout target is now Dockable Workbench v2.

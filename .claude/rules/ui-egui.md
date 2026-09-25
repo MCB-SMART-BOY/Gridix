@@ -29,7 +29,7 @@ pub struct DbManagerApp {
 
 ## egui_dock layout
 
-`src/ui/dock_tabs.rs` — DockTab, WorkspaceViewer, sync_all(). `sync_all()` reads from `self.session.tab_manager`.
+`src/ui/dock_tabs.rs` — DockTab, WorkspaceViewer, `refresh_dock_from_session()`. `refresh_dock_from_session()` reads from `self.session.tab_manager`; `ensure_surface_tab()`/`has_surface_tab()` manage surface tabs.
 
 ## Workbench shell
 
@@ -62,7 +62,7 @@ Rules:
 - Icon-only surface controls should use `SurfaceAction` plus `surface_icon_button()` or the same tooltip contract; no bare icon button without function name and shortcut/command metadata.
 - Do not render ActivityBar/SurfaceRail beside TopBar in the default layout. If a rail returns later, it must have a distinct optional/movable launcher role and descriptor-driven icons through `surface_icon_glyph()` plus `WorkbenchSurfaceDescriptor::tooltip()`.
 - Next expected slice: split navigation surface state, then migrate remaining fixed-region chrome into the shared surface shell before reducing Help/History/Settings dialogs.
-- Do not add new permanent left/right/bottom content regions unless they are implemented as movable `WorkbenchSurface` items or explicitly marked as compatibility adapters.
+- Do not add new permanent left/right/bottom content regions unless they are implemented as movable `WorkbenchSurfaceKind` items or explicitly marked as compatibility adapters.
 - New surface UI must follow `references/gridix-ui-visual-system-v2.md`: shared surface header/body/footer anatomy, icon-first repeated chrome, tooltip with function name and shortcut/command metadata, and no redundant text labels in rails/toolbars.
 - Dialog/workspace utility UI must follow `references/gridix-ui-visual-system-v2.md`: use shared `DialogContent`, `WorkspaceDialogShell`, and `PickerDialogShell` chrome for shortcut settings, Help/Learning, action menus, theme menus, and similar utility surfaces. Prefer restrained modal/list-row design with keycap hints and quiet selection states; do not reintroduce raw multi-line buttons, ad-hoc separators, default-looking egui utility lists, or decorative rail/pill/card stacking for these flows.
 - ER diagram rendering must follow `references/er-contracts.md`: schema-canvas background, themed database object cards, PK/FK badges, relationship halo/endpoints/cardinality labels, and no regression to plain boxes plus thin connector lines.
@@ -88,7 +88,7 @@ brand colors (DB-type chips). Everything that conveys text/state/selection must 
 
 ## Dialog shells
 
-4 contracts in `ui/components/dialogs/common.rs`: Blocking Modal, Form Dialog Shell, Workspace Dialog Shell, Utility Overlay.
+4 contracts in `ui/dialogs/common.rs`: Blocking Modal, Form Dialog Shell, Workspace Dialog Shell, Utility Overlay.
 
 - Dialogs holding input render through `DialogShell::show_blocking`
   (`src/ui/dialogs/common.rs`): it lays a full-screen interactive area above the workbench
@@ -97,7 +97,7 @@ brand colors (DB-type chips). Everything that conveys text/state/selection must 
   and is for the popup family (toolbar menus, theme chooser) only. Confirm dialogs use
   `DialogWindow::blocking`, whose `egui::Modal` backdrop blocks and registers the modal
   layer.
-- egui's widget hit test ignores the modal layer (`hit_test` filters by `Order` only), so a
+- egui's widget hit test ignores the modal layer (`egui::hit_test` filters by `Order` only), so a
   surface that only calls `register_modal_layer` still leaks pointer clicks to the
   workbench. Keep the pointer blocker in every new blocking surface, and let
   `HistoryPanel`/workspace overlays keep using `show_pointer_blocker` when they draw their

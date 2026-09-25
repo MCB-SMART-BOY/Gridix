@@ -16,20 +16,20 @@ Three backends with divergent patterns:
 - **PostgreSQL**: async via `tokio-postgres`. Single `Arc<Client>` per connection.
 - **MySQL**: async via `mysql_async`. Pool-based with idle TTL + health checks.
 
-Orchestrator: `data/query/mod.rs` dispatches via `match db_type`. **No trait** — `match db_type` is the correct pattern for three backends with fundamentally different execution models. A previous `DatabaseDriver` trait was deleted as dead code.
+Orchestrator: `data/query/mod.rs` dispatches via `match db_type`. **No trait** — `match db_type` is the correct pattern for three backends with fundamentally different execution models. A previous `DatabaseDriver` trait was deleted as dead code. <!-- doc-symbols: ignore: deliberately names the removed trait -->
 
 ## Connection lifecycle
 
-1. `Session::connect()` in `session/database.rs` → spawns async task with timeout
+1. `DbManagerApp::connect()` in `app/runtime/database.rs` → spawns async task with timeout
 2. `data::connect_database()` in `data/query/mod.rs` → SSH tunnel setup → backend-specific connect
-3. Result via `Message::ConnectedWithTables/Databases` on mpsc channel
-4. `Session::poll_messages()` dispatches to handler → validates request_id → updates session state → emits `FrameEffects`
+3. Result via `Message::RuntimeEvent` (`RuntimeOutcome::Connected`) on the mpsc channel, stale-guarded by `TaskRegistry`
+4. `handle_messages()` (`app/runtime/handler.rs`) dispatches on the UI thread → validates task identity → updates session state → emits `FrameEffects` (the planned Session::poll_messages split described in `session/mod.rs` is still pending)
 
 ## Typed execution and cancellation
 
 - Public typed entry points are `execute_typed(config, sql)` and `execute_typed_cancellable(config, sql, cancellation)`.
 - **SQLite** runs synchronously in `spawn_blocking` and has no supported in-flight cancellation contract.
-- **PostgreSQL** uses the executing client's `CancelToken`; cancellation sends `CancelRequest` and then awaits the original query future, mapping the server cancellation to `DbError::Cancelled`.
+- **PostgreSQL** uses the executing client's `CancelToken`; cancellation sends `CancelRequest` and then awaits the original query future, mapping the server cancellation to `DbError::Cancelled`. <!-- doc-symbols: ignore: PostgreSQL wire-protocol message name -->
 - **MySQL** records the execution `Conn::id()` and opens a separate TLS-configured control `Conn` to issue `KILL QUERY <connection_id>`; never derive the ID from SQL or user input.
 - Cancellation is cooperative for runtime query tasks. It is not a substitute for aborting unrelated task kinds.
 
@@ -64,10 +64,10 @@ This is deliberate — avoids sentinel values for distinguishing NULL from empty
 ## Grid save (transactional batch)
 
 Grid cell edits/inserts/deletes are saved as ONE atomic transaction, not N independent queries:
-- `DbManagerApp::execute_grid_save(table, statements)` → `execute_import_batch(&config, statements, use_transaction=true, stop_on_error=true)`.
-- Result via `Message::GridSaveDone { result, table, request_id, elapsed_ms }` → `handle_grid_save_done`.
+- `DbManagerApp::execute_grid_save_typed()` converts the staged edits into a typed `MutationBatch` (`domain/mutation.rs`) and runs it through `execute_import_batch(&config, statements, use_transaction=true, stop_on_error=true)`.
+- Result via `RuntimeOutcome::GridSaved { table_view, table, result, elapsed_ms }`, handled by the grid-save runtime-event handler.
 - Committed (failed == 0) → `clear_edits()` + `RefreshSelectedTable`; rolled back → keep edits + error.
-- `db_type` MUST be threaded into `generate_save_sql` for correct identifier quoting (MySQL backticks, PG/SQLite double-quotes). Do NOT pass `db_type=None` from the grid UI layer.
+- `db_type` MUST travel with the `MutationBatch` so identifier quoting stays correct (MySQL backticks, PG/SQLite double-quotes); the historical `generate_save_sql` string path is gone. <!-- doc-symbols: ignore: names the removed pre-typed save path -->
 - Do NOT revert to looping `execute()` per statement — that reintroduces partial-commit (audit B2) and post-save stale edits (audit B1).
 
 ## Password security

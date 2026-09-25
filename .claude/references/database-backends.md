@@ -65,7 +65,7 @@ Required backend responsibilities are dispatched from `data/query/mod.rs` rather
 
 SQLite (sync/spawn_blocking), PostgreSQL (async/direct), MySQL (async/pooled) have fundamentally different execution models. A trait forces identical signatures onto incompatible patterns. Enum dispatch allows each backend to use its natural pattern.
 
-Previous attempt: `DatabaseDriver` trait in `database/driver.rs` (deleted as dead code).
+Previous attempt: `DatabaseDriver` trait in `database/driver.rs` (deleted as dead code). <!-- doc-symbols: ignore: names the removed trait and its deleted file -->
 
 ## Pool management
 

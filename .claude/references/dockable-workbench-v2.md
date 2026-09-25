@@ -1,5 +1,7 @@
 # Gridix Dockable Workbench v2
 
+<!-- doc-symbols: ignore-file — historical design snapshot; paths and symbols describe the implementation at that time -->
+
 ## Purpose
 
 This document supersedes the fixed-region interpretation of the Workbench UI.

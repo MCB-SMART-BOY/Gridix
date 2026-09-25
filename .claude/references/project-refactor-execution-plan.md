@@ -1,5 +1,7 @@
 # Gridix Project Refactor Execution Plan
 
+<!-- doc-symbols: ignore-file — historical execution plan; paths and symbols describe the implementation at that time -->
+
 ## Purpose
 
 This is the project-wide refactor route for Gridix. It is written so an agent or engineer can execute it phase by phase without needing to redesign the plan.

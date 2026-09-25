@@ -15,7 +15,7 @@ env:
 
 jobs:
   links:
-    name: Validate markdown links
+    name: Validate markdown links and doc symbols
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -39,3 +39,6 @@ jobs:
 
       - name: Check doc links
         run: cargo run --bin check-doc-links
+
+      - name: Check doc symbols and file references
+        run: cargo run --bin check-doc-symbols

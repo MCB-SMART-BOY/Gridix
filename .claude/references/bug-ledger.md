@@ -6,7 +6,7 @@ From the v4.1.0 → v6.1.0 recovery audit. Historical resolved entries remain be
 
 | ID | symptom | root cause | fix |
 |---|---|---|---|
-| AUD-B1 | Grid edits stayed "modified" after a successful save | Historical `QueryDone` save path cleared only `rows_to_delete`, never `modified_cells`/`new_rows` | Replaced by typed grid-save completion handling that clears edits and refreshes only after a committed batch |
+| AUD-B1 | Grid edits stayed "modified" after a successful save | Historical `QueryDone` save path cleared only `rows_to_delete`, never `modified_cells`/`new_rows` <!-- doc-symbols: ignore: names the removed pre-typed save path --> | Replaced by typed grid-save completion handling that clears edits and refreshes only after a committed batch |
 | AUD-B2 | Multi-statement save partially committed on error | Each statement ran as an independent asynchronous operation | Transactional typed mutation batch with all-or-nothing behavior |
 | AUD-B3 | MySQL grid save emitted double-quoted identifiers in strict mode | Database type was not threaded to SQL generation | Typed MySQL mutation path now binds values and owns backend SQL generation |
 ## Current observations and acceptance boundaries (not bugs)

@@ -106,7 +106,7 @@ sudo zypper install gtk3-devel libxdo-devel
   Gridix 采用作用域感知的键盘优先交互模型。
 - `Tab / Shift+Tab` are default bindings for `next_focus_area / prev_focus_area`, not unconditional global-first keys.
   `Tab / Shift+Tab` 是 `next_focus_area / prev_focus_area` 的默认绑定，不是无条件 global-first 按键。
-- Full area-by-area guide / 分区域完整指南: see `.claude/CLAUDE.md` keyboard routing section
+- Full area-by-area guide / 分区域完整指南: see the keyboard routing pipeline in `app/input/input_router/mod.rs` and the `/keybindings` skill
 
 ## Core Features | 核心能力
 | Area | Description |
@@ -123,7 +123,7 @@ sudo zypper install gtk3-devel libxdo-devel
 | Database | Typed runtime | Cancellation semantics |
 |---|---|---|
 | SQLite | Local file DB, bundled driver / 本地文件库，内置驱动 | The typed API accepts a cancellation token, but an already-running synchronous `rusqlite` statement is not interrupted. |
-| PostgreSQL | Async typed execution; `NUMERIC` parameters and results preserve exact `DbValue::Decimal` text | A cancellation token sends PostgreSQL `CancelRequest` through the driver's `CancelToken`, then waits for the executing query to finish with the cancellation result. |
+| PostgreSQL | Async typed execution; `NUMERIC` parameters and results preserve exact `DbValue::Decimal` text | A cancellation token sends PostgreSQL `CancelRequest` through the driver's `CancelToken`, then waits for the executing query to finish with the cancellation result. <!-- doc-symbols: ignore: PostgreSQL wire-protocol message name -->
 | MySQL/MariaDB | Async typed execution + SSL/TLS options; temporal inputs reject nanoseconds at or above one second | A cancellation token keeps the execution connection's `Conn::id`, opens a separate TLS-configured control connection, sends `KILL QUERY`, then waits for the original query to finish. |
 
 The public typed entry points are `execute_typed` and `execute_typed_cancellable`. The cancellable entry is cooperative: PostgreSQL and MySQL can request server-side cancellation; SQLite does not promise in-flight statement interruption.

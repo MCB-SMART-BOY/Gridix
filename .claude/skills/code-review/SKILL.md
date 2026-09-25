@@ -51,4 +51,5 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 cargo run --bin check-doc-links
+cargo run --bin check-doc-symbols
 ```

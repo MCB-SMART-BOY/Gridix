@@ -11,7 +11,7 @@ paths:
 
 - Store passwords in OS keyring via `password_ref` UUID, NOT in config.toml
 - Mark sensitive fields `#[serde(skip_serializing)]`
-- Validate SSL certificates in Required mode (use system CA, not `danger_accept_invalid_certs`)
+- Validate SSL certificates in Required mode (use system CA, not `danger_accept_invalid_certs`) <!-- doc-symbols: ignore: external TLS option that must not be used -->
 - Use `unwrap_or_else(|e| e.into_inner())` for Mutex poison recovery
 - Log SSH host key SHA-256 fingerprints in `known_hosts` error messages
 - Keep `pub(crate) mod app` — never make app module fully public

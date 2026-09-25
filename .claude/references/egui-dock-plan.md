@@ -1,5 +1,7 @@
 # egui_dock integration — COMPLETED v6.1.0
 
+<!-- doc-symbols: ignore-file — historical plan; paths and symbols describe the implementation at that time -->
+
 Status update 2026-06-18: this historical plan described the original dock integration. The current workbench model has since replaced the old query-output plus standalone SQL split with EditorArea document/view tabs: `SqlDocument`, `TableData`, `ErDiagram`, `SchemaObject`, `Welcome`, and `AuxPanel`. Use `references/project-refactor-execution-plan.md` and `references/workbench-ui-refactor-spec.md` for current execution.
 
 ## Implemented

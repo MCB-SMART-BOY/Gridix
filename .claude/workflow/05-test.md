@@ -29,6 +29,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo doc --workspace --no-deps
 cargo run --bin check-doc-links
+cargo run --bin check-doc-symbols
 cargo audit
 ```
 

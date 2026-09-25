@@ -32,6 +32,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo doc --workspace --no-deps
 cargo run --bin check-doc-links
+cargo run --bin check-doc-symbols
 ```
 
 ## 4. Security audit
@@ -58,5 +59,5 @@ cargo run --bin gridix-driver -- quit
 ## One-liner
 
 ```bash
-cargo fmt --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace --all-features && cargo doc --workspace --no-deps && cargo run --bin check-doc-links && cargo audit && echo "PASS"
+cargo fmt --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace --all-features && cargo doc --workspace --no-deps && cargo run --bin check-doc-links && cargo run --bin check-doc-symbols && cargo audit && echo "PASS"
 ```

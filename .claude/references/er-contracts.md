@@ -1,6 +1,6 @@
 # ER diagram design contracts
 
-Merged from `docs/recovery/44,47,48,49,50,51`. These govern ER diagram changes.
+（原始 ER 设计记录未入库；本文档是唯一在库描述。）These govern ER diagram changes.
 
 ## Role
 
@@ -31,10 +31,10 @@ Focus: `FocusArea::ErDiagram` in the `Sidebar → DataGrid → ErDiagram → Sql
 
 20+ fields in `ERDiagramState`:
 - **Loaded graph**: `tables`, `relationships` (produced by `load_er_diagram_data()`)
-- **Viewport**: `viewport_offset`, `viewport_zoom` (viewport mode only)
-- **Selection**: `selected_table_index`, `interaction_mode` (Focused/Viewport)
-- **Lifecycle**: `loading`, `layout_snapshot` (for incremental stability), `load_generation`
-- **Stale-guard**: `load_generation` is monotonic, bumped by `begin_loading()`/`clear()`. Async ER fetches (`ERTableColumnsFetched`/`ForeignKeysFetched`) carry the generation; handlers drop mismatched responses so a disconnected/old connection's schema cannot write into a new connection's ER state (audit B6-ER). Disconnect clears `er_diagram_state`, which bumps the generation.
+- **Viewport**: `pan_offset`, `zoom` (viewport mode only)
+- **Selection**: `selected_table` (index into `tables`), `interaction_mode()` (`ERDiagramInteractionMode::Navigation`/`Viewport`)
+- **Lifecycle**: `loading`, `needs_layout`, `capture_layout_snapshot()`/`restore_layout_snapshot_if_exact_match()` (for incremental stability), `current_load_generation()`
+- **Stale-guard**: `load_generation` is monotonic, bumped by `begin_loading()`/`clear()`. Async ER metadata fetches carry the generation through `RuntimeEvent` (`TaskId` + `OperationKey::Metadata`); handlers drop mismatched responses so a disconnected/old connection's schema cannot write into a new connection's ER state (audit B6-ER). Disconnect clears `er_diagram_state`, which bumps the generation.
 
 ## Token map (visual design)
 

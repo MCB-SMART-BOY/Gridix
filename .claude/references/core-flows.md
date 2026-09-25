@@ -22,12 +22,12 @@ These features must not break during refactoring.
 |---|---|---|---|
 | Start/Init | `bootstrap::run()` → `DbManagerApp::new()` | tokio runtime, config, fonts | medium |
 | Connect/Disconnect | `app/runtime/database.rs` → `connect()`, `disconnect()` | Session.manager, pool, SSH | high |
-| Tab create/switch/close | `Session.tab_manager` + `dock_tabs.rs::sync_all()` | QueryTabManager, GridWorkspaceStore | high |
-| SQL edit/execute | `app/runtime/database.rs` → `QueryRuntime::execute()` | QueryTab SQL/result, `TaskRegistry`, `RuntimeEvent` | high |
+| Tab create/switch/close | `Session.tab_manager` + `dock_tabs.rs::refresh_dock_from_session()` | QueryTabManager, GridWorkspaceStore | high |
+| SQL edit/execute | `app/runtime/database.rs` → `execute()` | QueryTab SQL/result, `TaskRegistry`, `RuntimeEvent` | high |
 | Query result display | runtime-event handler → `RuntimeOutcome::ExecutionFinished` | task identity, active-tab mirrors | high |
 | Grid edit/save | `app/runtime/database.rs` → `execute_grid_save_typed()` | DataGridState, `MutationBatch`, modified cells | high |
 | Destructive actions | dialog → confirm → `confirm_pending_delete()` | pending_delete_target | high |
-| Dialog lifecycle | `State::open_dialog()` / close / confirm / cancel | DialogId, active_dialog_owner | high |
+| Dialog lifecycle | `DbManagerApp::open_dialog()` / close / confirm / cancel (`app/dialogs/host.rs`) | DialogId, active_dialog_owner | high |
 | ER diagram | `app/runtime/er_diagram.rs` → `load_er_diagram_data()` | ERDiagramState, layout, viewport | medium |
 
 ## System invariants

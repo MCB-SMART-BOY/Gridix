@@ -1,5 +1,7 @@
 # Release-readiness audit — 2026-06-21
 
+<!-- doc-symbols: ignore-file — dated audit snapshot; paths and symbols describe the implementation at that time -->
+
 Scope: completeness of logic chains, operation linkage (联动), and visual/interaction
 design across the whole app. Method: 7 read-only static sweeps mapped onto the 9 core
 flows in `core-flows.md`, cross-checked against `bug-ledger.md` / `tech-debt.md`.

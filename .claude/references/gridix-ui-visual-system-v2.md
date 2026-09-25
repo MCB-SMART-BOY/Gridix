@@ -1,5 +1,7 @@
 # Gridix UI Visual And Interaction System v2
 
+<!-- doc-symbols: ignore-file — design vocabulary (surface and preset names), not code symbols -->
+
 ## Purpose
 
 Gridix should reach the interaction quality of VS Code and Zed, but remain database-native. The goal is not to copy their pixels; it is to copy the discipline:

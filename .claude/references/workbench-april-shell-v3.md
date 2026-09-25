@@ -1,5 +1,7 @@
 # Gridix Workbench April Shell v3
 
+<!-- doc-symbols: ignore-file — historical design snapshot; paths and symbols describe the implementation at that time -->
+
 ## Purpose
 
 This is the corrected UI architecture after the sidebar toggle regression.

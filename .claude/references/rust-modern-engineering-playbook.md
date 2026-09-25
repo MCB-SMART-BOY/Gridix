@@ -1,5 +1,7 @@
 # Rust Modern Engineering Playbook
 
+<!-- doc-symbols: ignore-file — general engineering methodology; backticked names include third-party crates, not project symbols -->
+
 ## Purpose
 
 Use this playbook for Rust projects. It complements `~/.codex/references/modern-software-engineering-workflow.md`.

@@ -1743,4 +1743,68 @@ mod tests {
         );
         assert!(!app.state.er_diagram_state.is_viewport_mode());
     }
+
+    fn key_event(key: Key, modifiers: Modifiers) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }
+    }
+
+    /// 对话框打开时登记 modal layer（指针契约）并屏蔽工作区快捷键，关闭后两者都恢复。
+    ///
+    /// 键盘阻断来自对话框的 input owner/scope，modal layer 负责指针；这里同时钉住两条契约
+    /// 以及"关闭后不残留 modal layer"。
+    #[test]
+    fn blocking_dialog_registers_modal_layer_and_gates_workspace_shortcuts() {
+        let ctx = egui::Context::default();
+        let mut app = DbManagerApp::new_for_test();
+        let viewport = egui::vec2(1588.0, 950.0);
+
+        let focus_before = app.state.focus_area;
+        run_frame_with_event(&mut app, &ctx, key_event(Key::F1, Modifiers::NONE));
+        assert!(app.state.show_help, "F1 应打开帮助对话框");
+        assert_eq!(
+            app.state.focus_area, focus_before,
+            "打开对话框不应改写工作区焦点区域"
+        );
+        assert_eq!(
+            ctx.memory(|memory| memory.top_modal_layer()),
+            Some(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("dialog.help")
+            )),
+            "帮助对话框应把自身图层登记为 modal layer"
+        );
+
+        let sidebar_before = app.state.show_sidebar;
+        run_frame_with_event(&mut app, &ctx, key_event(Key::B, Modifiers::CTRL));
+        assert_eq!(
+            app.state.show_sidebar, sidebar_before,
+            "对话框打开时 Ctrl+B 不应切换侧边栏"
+        );
+
+        run_frame_with_event(&mut app, &ctx, key_event(Key::Escape, Modifiers::NONE));
+        assert!(!app.state.show_help, "Esc 应由对话框自身消费并关闭它");
+        assert_eq!(
+            app.state.focus_area, focus_before,
+            "关闭对话框不应改写工作区焦点区域"
+        );
+
+        run_frame_with_viewport(&mut app, &ctx, viewport);
+        assert_eq!(
+            ctx.memory(|memory| memory.top_modal_layer()),
+            None,
+            "对话框关闭后不应残留 modal layer"
+        );
+
+        run_frame_with_event(&mut app, &ctx, key_event(Key::B, Modifiers::CTRL));
+        assert_ne!(
+            app.state.show_sidebar, sidebar_before,
+            "对话框关闭后 Ctrl+B 应恢复生效"
+        );
+    }
 }

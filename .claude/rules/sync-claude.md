@@ -8,15 +8,16 @@ paths:
 
 # After code changes: update `.claude/`
 
-Every code change that affects architecture, conventions, APIs, or behavior must be reflected in `.claude/`. The primary source of truth is `~/.codex/`; `.claude/` is a mirror with Claude Code-specific enhancements (`paths:` frontmatter, adapted system skills, this sync file).
+Every code change that affects architecture, conventions, APIs, or behavior must be reflected in `.claude/`. `.claude/` is the project's in-repo engineering knowledge base and the only actively maintained harness copy; the historical `~/.codex/` mirror no longer exists, so there is nothing to sync from.
 
-## Dual-ecosystem note
+## Doc symbol gate
 
-Gridix maintains parallel AI harnesses:
-- `~/.codex/` — primary, actively maintained by Codex sessions
-- `.claude/` — mirror + Claude Code adaptations
+`cargo run --bin check-doc-symbols` validates that `.claude/**`, `docs/**`, `README.md`, and `CLAUDE.md` only reference project symbols that exist in `src/`/`tests/` and repo files that exist on disk. Run it after editing docs; CI runs it in `ci.yml` and `docs.yml`.
 
-When updating one, update the other. Use `rsync -av ~/.codex/{references,rules,templates,workflow,skills,memory}/ .claude/{references,rules,templates,workflow,skills,memory}/` to sync content from Codex to Claude.
+- Naming a removed symbol or a designed-but-never-implemented API is a failure — fix the reference, not the check.
+- Deliberate external/removed references (an egui variant, a rejected trait, migration-era types) end their line with the per-line ignore marker documented in `src/bin/check_doc_symbols.rs`.
+- Dated snapshots, design drafts, and general methodology docs carry the file-level ignore marker in an HTML comment line; the checker prints every skipped file so exemptions stay visible.
+- Only backticked spans are checked, fenced code blocks and spans containing whitespace or parameter lists are skipped, and file references must be path-qualified and use a checked extension. `self.sql`-style field access, bare file names, globs, and brace lists are outside the check surface.
 
 ## What to check
 
@@ -24,6 +25,7 @@ When updating one, update the other. Use `rsync -av ~/.codex/{references,rules,t
 |---|---|
 | Engineering workflow / delivery policy changed | `references/modern-software-engineering-workflow.md`, `workflow/README.md`, `references/workflow.md` |
 | Rust quality gate / Cargo tooling changed | `references/rust-modern-engineering-playbook.md`, `rules/testing.md`, relevant skill docs |
+| Doc validation tooling changed | `rules/sync-claude.md`, `rules/testing.md`, `CLAUDE.md` quick commands, `skills/pr-prep/SKILL.md`, `.github/workflows/{ci,docs}.yml` |
 | New module / moved file | `CLAUDE.md` module map, relevant `rules/` paths |
 | New dialog / changed dialog shell | `references/dialog-audit.md`, `rules/ui-egui.md` |
 | Workbench layout / panel model change | `references/workbench-ui-design.md`, `references/workbench-ui-refactor-spec.md`, `references/dockable-workbench-v2.md`, `references/gridix-ui-visual-system-v2.md`, `rules/ui-egui.md` |

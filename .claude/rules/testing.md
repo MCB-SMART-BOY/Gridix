@@ -36,6 +36,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo doc --workspace --no-deps
 cargo run --bin check-doc-links
+cargo run --bin check-doc-symbols
 cargo audit
 ```
 
@@ -112,7 +113,7 @@ async fn test_query() {
 ## Rules
 
 - Run the narrowest affected test while iterating, then `cargo test --workspace --all-features` before merge.
-- If testing egui keyboard behavior, use `egui::Event::Key` with `Key::Character` or `Key::Named`.
+- If testing egui keyboard behavior, use `egui::Event::Key` with `Key::Character` or `Key::Named`. <!-- doc-symbols: ignore: egui enum variants, not project symbols -->
 - PostgreSQL/MySQL typed and cancellation integration tests read `GRIDIX_TEST_PG_URL` / `GRIDIX_TEST_MYSQL_URL`. Without a URL they may return locally; CI must preflight a non-empty URL and run them serially with `--nocapture --test-threads=1`.
 - Fixture-bound acceptance suites (`tests/tls_acceptance.rs`, `tests/ssh_acceptance.rs`) run only with `GRIDIX_ACCEPTANCE=1`, which the dedicated acceptance workflows set. Without the flag they skip with a printed reason so `cargo test --workspace --all-features` stays green; with it, `common::required_env` keeps a missing fixture a hard failure.
 - Server-side cancellation acceptance must observe a unique query marker, cancel it, observe `DbError::Cancelled`, confirm the marker disappears, then prove the connection remains usable. Do not replace this with fixed sleeps or task-abort assertions.

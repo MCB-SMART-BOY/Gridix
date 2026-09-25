@@ -27,7 +27,7 @@ Bridge between data/ (Layer 1) and state/ (Layer 3).
 - `active_sql()`, `set_active_sql()`, `ensure_active_tab()`
 - `next_connect_request_id()`, `next_query_request_id()`, `next_metadata_request_id()`
 - `refresh_connecting_flag()`, `refresh_executing_flag()`
-- `track_query_task()`
+- `task_registry` — typed task registry (`register`/`complete`/`cancel`) that supersedes the pending-request maps for new runtime work
 
 ## Message handling
 

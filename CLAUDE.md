@@ -4,9 +4,9 @@ Keyboard-first cross-platform database management desktop app.
 Rust + eframe/egui 0.34.1. SQLite, PostgreSQL, MySQL.
 Tokio async runtime. Helix-inspired modal editing throughout.
 
-**Deps:** russh 0.61, tokio-postgres 0.7.18, rusqlite 0.39, mysql_async 0.36, egui_dock 0.19.
+**Deps:** russh 0.62.5, tokio-postgres 0.7.18, rusqlite 0.39, mysql_async 0.36, egui_dock 0.19.
 **Toolchain:** rust-toolchain.toml (stable), cargo-audit in CI.
-**Binaries:** `gridix` (GUI), `check-doc-links` (link validator), `gridix-driver` (headless driver).
+**Binaries:** `gridix` (GUI), `check-doc-links` (link validator), `check-doc-symbols` (doc symbol/file-reference validator), `gridix-driver` (headless driver).
 **Code is the source of truth.** When docs and code disagree, code wins. Update `.claude/` after code changes (`.claude/rules/sync-claude.md`).
 
 ## Quick commands
@@ -14,7 +14,7 @@ Tokio async runtime. Helix-inspired modal editing throughout.
 ```bash
 cargo build --release
 cargo test --workspace --all-features
-cargo fmt --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace --all-features && cargo doc --workspace --no-deps && cargo run --bin check-doc-links && cargo audit  # full validation
+cargo fmt --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace --all-features && cargo doc --workspace --no-deps && cargo run --bin check-doc-links && cargo run --bin check-doc-symbols && cargo audit  # full validation
 ```
 
 ## Task navigation
@@ -55,7 +55,7 @@ src/
 ├── types.rs             # Layer -1: shared types — DatabaseType, PostgresSslMode, MySqlSslMode
 ├── core/                # Layer 0: pure functions, no side effects
 │   ├── config.rs        # AppConfig (TOML, atomic temp-file+rename, Unix 0o600)
-│   ├── keybindings.rs   # Action (35 variants), KeyBindings, keymap.toml engine
+│   ├── keybindings.rs   # Action (~40 variants), KeyBindings, keymap.toml engine
 │   ├── commands.rs      # ~100 ScopedCommand entries with default_bindings
 │   ├── hash.rs           # sha256_hex — shared hash utilities
 │   ├── syntax.rs        # SQL highlighting — custom tokenizer
@@ -73,11 +73,11 @@ src/
 │   ├── connection.rs    # ConnectionManager — HashMap registry, active tracking
 │   ├── pool.rs          # Manual pooling: MySQL (TTL+LRU), PG (health-check), SQLite none
 │   ├── ssh_tunnel.rs    # russh SSH port forwarding, known_hosts + fingerprint verification
-│   ├── error.rs         # DbError (2 variants: Connection, Query)
+│   ├── error.rs         # DbError — typed variants: Cancelled, Timeout, Connection, Authentication, ConstraintViolation, Query, Tls, Ssh, …
 │   └── query/           # mod.rs orchestrator + sqlite.rs (sync), postgres.rs, mysql.rs (async)
 ├── session/             # Layer 2: connection lifecycle + tab management + async dispatch
 │   ├── mod.rs           # Session struct (~30 fields): runtime, mpsc, manager, tab_manager, request tracking
-│   ├── message.rs       # Message enum (13 variants, ALL carry request_id: u64)
+│   ├── message.rs       # Message enum: single `RuntimeEvent(RuntimeEvent)` variant; task identity via `TaskId` + `OperationKey`
 │   └── tab.rs           # QueryTab (pure data), QueryTabManager (tabs + active index)
 │       (pending: migrate app/runtime/{database,handler,lifecycle,metadata,er_diagram}.rs)
 ├── state/               # Layer 3: UI state — no DB logic
@@ -110,9 +110,9 @@ src/
 │   │   ├── workbench.rs # Workbench surface rendering orchestration
 │   └── workflow/        # export, import, help, welcome
 └── ui/                  # Layer 4: egui rendering — widgets, components, styling
-    ├── dock_tabs.rs     # egui_dock integration — DockTab, WorkspaceViewer, sync_all()
+    ├── dock_tabs.rs     # egui_dock integration — DockTab, WorkspaceViewer, refresh_dock_from_session()
     ├── styles.rs        # SUCCESS/DANGER/GRAY/MUTED from egui Visuals
-    ├── shortcut_tooltip.rs  # LocalShortcut (141 variants), config_key() paths
+    ├── shortcut_tooltip.rs  # LocalShortcut (~137 variants), config_key() paths
     ├── components/      # grid (10 files), sql_editor, toolbar (4 files),
     │   │                   query_tabs (tab bar rendering), welcome, er_diagram (render),
     │   │                   notifications, progress_indicator

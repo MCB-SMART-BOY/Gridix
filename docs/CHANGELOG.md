@@ -1,5 +1,7 @@
 # Changelog
 
+<!-- doc-symbols: ignore-file — release history; symbols describe past releases -->
+
 All notable changes to this project are documented in this file.  
 本文件记录项目的重要变更。
 
@@ -8,8 +10,12 @@ All notable changes to this project are documented in this file.
   对话框窗口不再让工作台保持可交互：`DialogShell::show_blocking` 现在会在工作台之上、对话框窗口之下铺设全屏指针阻断层，并把对话框图层登记为当前帧的 modal layer，因此对话框打开时侧边栏、工具栏、工作台与 dock surface 不再响应点击与拖拽。阻断层是必需的：egui 的控件命中测试只按 `Order` 过滤，不读 modal layer。
 - `HistoryPanel` joins the same contract: it draws its own window and now lays the shared pointer blocker before registering the modal layer.
   `HistoryPanel` 纳入同一契约：它自行绘制窗口，现在会先铺设共享指针阻断层，再登记 modal layer。
-- Added regression tests for both directions of the contract: a blocking shell swallows clicks aimed at lower layers while the dialog's own controls stay live, and a plain shell keeps lower layers reachable.
-  新增契约双向回归测试：阻断外壳吞掉指向下层的点击而对话框自身控件仍可交互，普通外壳保留下层可达性。
+- Added regression tests for both directions of the contract: a blocking shell swallows clicks aimed at lower layers while the dialog's own controls stay live, and a plain shell keeps lower layers reachable. The pointer scenario now also asserts hover: a blocking shell suppresses hover feedback on lower layers while the dialog's own controls keep it.
+  新增契约双向回归测试：阻断外壳吞掉指向下层的点击而对话框自身控件仍可交互，普通外壳保留下层可达性。指针场景现在同时断言 hover：阻断外壳会抑制下层悬停反馈，而对话框自身控件保留反馈。
+- Added a headless keyboard journey test: `F1` opens the help dialog, the dialog layer is registered as the frame's modal layer, `Ctrl+B` is blocked while it is open, `Escape` is consumed by the dialog, and after closing the modal layer is cleared, the workspace shortcut works again, and the workspace focus area is unchanged throughout. This pins the keyboard contract without Xvfb, so the driven-session artifacts are no longer the only evidence for it.
+  新增无头键盘旅程测试：`F1` 打开帮助对话框、对话框图层被登记为当前帧 modal layer、打开期间 `Ctrl+B` 被阻断、`Escape` 由对话框消费；关闭后 modal layer 清除、工作区快捷键恢复、工作区焦点区域全程不变。该测试无需 Xvfb 即可钉住键盘契约，驱动会话的合成输入产物不再是唯一证据。
+- Added `check-doc-symbols`, a docs gate that fails CI when `.claude/**`, `docs/**`, `README.md`, or `CLAUDE.md` reference a project symbol that does not exist in `src/`/`tests/` or a path-qualified file reference that is not on disk (fenced code, globs, brace lists, and bare file names are out of scope). It reports every file-level exemption it skips, and it drove a documentation-accuracy pass: stale API names (`sync_all`, `QueryRuntime::execute`, `InputRouterContext`, `track_query_task`), deleted paths (`database/driver.rs`, `docs/recovery/*`), and outdated counts in `CLAUDE.md` are corrected, while dated snapshots and design drafts are marked as exempt instead of silently failing.
+  新增文档门禁 `check-doc-symbols`：当 `.claude/**`、`docs/**`、`README.md` 或 `CLAUDE.md` 引用了 `src/`/`tests/` 中不存在的项目符号，或指向带路径限定却不存在的文件时 CI 失败（围栏代码、glob、花括号展开与裸文件名不在检查面）。它会列出每一处被跳过的文件级豁免，并推动了一轮文档准确性修整：过时的 API 名（`sync_all`、`QueryRuntime::execute`、`InputRouterContext`、`track_query_task`）、已删除的路径（`database/driver.rs`、`docs/recovery/*`）以及 `CLAUDE.md` 中过时的计数已更正，而历史快照与设计草案改为显式豁免而不是静默失败。
 - Added single-table `SchemaSnapshot`/`SchemaDiff` metadata comparison with a quoted, read-only SQL preview. Schema migrations are not executed; SQLite constraint and column-definition changes remain explicit review warnings.
   新增单表 `SchemaSnapshot`/`SchemaDiff` 元数据比较与带标识符引用的只读 SQL preview。不执行 schema 迁移；SQLite 约束和列定义变化会明确保留为人工审核警告。
 - Added a dedicated Explain output surface. Explain executions retain the normal Results surface, while the latest plan rows or execution error are rendered in BottomPanel::Explain using the shared `ResultSet` shape; no cross-database plan AST is introduced.

@@ -143,6 +143,10 @@ name = "check-doc-links"
 path = "src/bin/check_doc_links.rs"
 
 [[bin]]
+name = "check-doc-symbols"
+path = "src/bin/check_doc_symbols.rs"
+
+[[bin]]
 name = "gridix-driver"
 path = "src/bin/gridix_driver.rs"
 
