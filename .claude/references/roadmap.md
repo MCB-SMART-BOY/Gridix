@@ -37,7 +37,7 @@
 - [x] T3: `SchemaCatalog` application closure
 - [x] T4: Grid 使用 `ResultSet` + typed `MutationBatch` 保存
 - [x] T5: PostgreSQL/MySQL typed mutation、catalog 与类型边界支持
-- [ ] T6: Release Acceptance — PostgreSQL/MySQL workflow 是已配置的验收门；SQLite GUI journey 的人工证据仍未完成
+- [ ] T6: Release Acceptance — PostgreSQL/MySQL workflow 是已配置的验收门；SQLite GUI journey 已于 2026-09-25 用 Xvfb + gridix-driver 驱动取证（连接创建、查询、Grid 编辑保存、重开后校验通过），CSV/JSON/SQL 导出证据仍缺（原生保存对话框无法在驱动会话中呈现，见 `docs/LIMITATIONS.md`）
 
 这表示实现状态，不表示任何版本已经发布或已通过完整发布验收。
 
@@ -53,7 +53,7 @@
 
 - [ ] data/query/ 驱动测试全覆盖
 - [ ] Session::poll_messages() 完整实现
-- [ ] 超大文件拆分
+- [ ] 超大文件拆分 — `app/input/input_router.rs` 已拆为 5 个生产子模块 + 8 个测试文件（最大 512 行），`ui/panels/sidebar/` 按键处理已拆出 `keyboard.rs`；`keybindings_dialog.rs`、`core/keybindings.rs`、`runtime/handler.rs`、`sidebar/mod.rs` 仍偏大且缺少同等的行为保持覆盖率
 
 ## 长期
 

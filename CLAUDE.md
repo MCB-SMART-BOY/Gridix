@@ -88,7 +88,13 @@ src/
 │   ├── action/          # AppAction (44 variants) → AppEffect, command palette, CommandDescriptor registry
 │   ├── dialogs/host.rs  # DialogId (17 variants), active_dialog_owner
 │   ├── input/           # Keyboard routing (8-stage dispatch pipeline)
-│   │   ├── input_router.rs (3370 lines)
+│   │   ├── input_router/  # 路由入口 + 拆分后的子模块
+│   │   │   ├── mod.rs     # impl DbManagerApp 输入入口 (512 lines)
+│   │   │   ├── scopes.rs  # 作用域/焦点/文本输入守卫类型
+│   │   │   ├── actions.rs # 局部动作类型 + 快捷键常量表
+│   │   │   ├── context.rs # InputContextSnapshot（可测试的纯数据）
+│   │   │   ├── resolve.rs # 纯解析函数
+│   │   │   └── tests/     # 按行为领域拆分的 86 个用例
 │   │   ├── owner.rs     # InputOwner: Recording|Modal|TextEntry|Select|Command|Disabled
 │   │   └── keyboard.rs  # focus_cycle_areas, zoom shortcuts
 │   ├── runtime/         # tokio → mpsc → UI thread (gradually migrating to session/)
