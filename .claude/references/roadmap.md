@@ -45,8 +45,8 @@
 ## 短期 — 功能发布
 
 - [x] 查询计划输出 (EXPLAIN) — 使用通用 `ResultSet` 的专用 Explain surface，保留最近结果/错误；不引入跨数据库 AST
-- [ ] Schema diff 工具 — `SchemaSnapshot`/`SchemaDiff` 与只读 SQL preview 已作为库级 API 实现并有单测，但 app/ui/bin 尚无消费方，用户不可达；缺 surface 或 CLI 入口
-- [ ] 大结果集虚拟滚动
+- [x] Schema diff 工具 — `SchemaSnapshot`/`SchemaDiff` 库级 API 已有单测；`SchemaDiffDialog` 提供用户可达入口（命令面板 `compare_schema`），从活动连接已加载的 schema 目录同步取两个快照，渲染列/键/外键差异与迁移 SQL 预览（只读，不执行 SQL）
+- [x] 大结果集虚拟滚动 — 渲染层用 `egui_extras::TableBuilder::rows` 只实例化可见行，过滤结果经 `FilterCache` 仅在失效时重算；超过 `MAX_RESULT_SET_ROWS`(500k) 按 `ResultCompleteness::Truncated` 截断并在网格顶部提示。数据层大结果集行为由 MySQL/PostgreSQL typed e2e 的 `large_result_set` 覆盖；剩余边界是单次结果仍受 500k 行内存上限约束
 - [ ] 系统主题自动切换
 
 ## 中期 — 质量

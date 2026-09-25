@@ -85,7 +85,7 @@ src/
 │   └── workbench.rs     # WorkbenchState: activity bar, bottom panel, status bar, right inspector
 ├── app/                 # Transitional: DbManagerApp — being decomposed into Session + UiState
 │   ├── mod.rs           # DbManagerApp (~11 fields, target reached: ~11)
-│   ├── action/          # AppAction (44 variants) → AppEffect, command palette, CommandDescriptor registry
+│   ├── action/          # AppAction (60 variants) → AppEffect, command palette, CommandDescriptor registry
 │   ├── dialogs/host.rs  # DialogId (17 variants), active_dialog_owner
 │   ├── input/           # Keyboard routing (8-stage dispatch pipeline)
 │   │   ├── input_router/  # 路由入口 + 拆分后的子模块
@@ -117,7 +117,8 @@ src/
     │   │                   query_tabs (tab bar rendering), welcome, er_diagram (render),
     │   │                   notifications, progress_indicator
     │   ├── dialogs/     # connection, export, import, help, ddl, keybindings,
-    │   │                   about, create_db, create_user, picker_shell, toolbar_menu, toolbar_theme
+    │   │                   about, create_db, create_user, picker_shell, toolbar_menu,
+    │   │                   toolbar_theme, schema_diff
     │   └── panels/      # sidebar (8 files, ~4300 lines), history_panel
     ├── workbench/       # Workbench UI: activity bar, bottom panel, right inspector, shell, status bar, surface
     └── surfaces/        # render.rs, dialogs.rs, preferences.rs (thin wrappers delegating to app/)

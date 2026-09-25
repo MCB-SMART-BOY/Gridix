@@ -14,6 +14,12 @@ All notable changes to this project are documented in this file.
   新增 TLS 与 SSH 后端验收工作流。`tests/tls_acceptance.rs` 与 `tests/ssh_acceptance.rs` 仅在 `GRIDIX_ACCEPTANCE=1` 时运行；未设置时打印原因并跳过，设置后缺少 fixture 变量仍然是硬失败。
 - Added `deny.toml` and `.gitleaks.toml` and wired dependency-policy, secret, and filesystem scans into CI. Refreshed the GUI smoke-evidence job and the coverage/docs workflows; all third-party actions and container images are pinned by commit SHA and digest.
   新增 `deny.toml` 与 `.gitleaks.toml`，并将依赖策略、密钥与文件系统扫描接入 CI。更新 GUI smoke 证据任务与 coverage/docs 工作流；所有第三方 action 与容器镜像均按 commit SHA 与 digest 固定。
+- Added the read-only Schema diff dialog as the user-reachable consumer of `SchemaSnapshot`/`SchemaDiff` (command palette `compare_schema`). It compares two tables of the active connection from the already loaded catalog, previews the differences as statements directed at the source table, and never executes SQL.
+  新增只读 Schema 对比对话框，作为 `SchemaSnapshot`/`SchemaDiff` 的用户可达入口（命令面板 `compare_schema`）。它在已加载的目录内比较活动连接的两张表，把差异预览为针对源表的语句，且从不执行 SQL。
+- Split pool acceptance into `tests/mysql_pool_acceptance.rs` and `tests/postgres_pool_acceptance.rs` so each backend workflow needs only its own URL. Both integration workflows and the `ci.yml` acceptance jobs run their suite under a preflight that requires `GRIDIX_ACCEPTANCE=1` verbatim.
+  连接池验收拆分为 `tests/mysql_pool_acceptance.rs` 与 `tests/postgres_pool_acceptance.rs`，每个后端工作流只需自己的 URL。两个 integration workflow 与 `ci.yml` 的验收任务都在要求 `GRIDIX_ACCEPTANCE=1` 取值的预检下运行对应套件。
+- `gridix-driver` falls back to `xdotool windowfocus` when `_NET_ACTIVE_WINDOW` is unavailable (WM-less Xvfb) and delivers `type` to the focused window instead of using `--window`, so driven sessions work without a window manager.
+  `gridix-driver` 在 `_NET_ACTIVE_WINDOW` 不可用时（无窗口管理器的 Xvfb）回退到 `xdotool windowfocus`，并把 `type` 投递到聚焦窗口而不是通过 `--window`，因此在没有窗口管理器的会话中驱动依然可用。
 
 ### Release acceptance
 - The driven SQLite GUI journey now covers connection creation, query execution, Grid edit and save, and reopen persistence (`gridix-driver assert-reopened … items name after`). CSV/JSON/SQL export evidence is still missing: export needs a native save dialog, which the driven Xvfb session cannot present. See `docs/LIMITATIONS.md`.

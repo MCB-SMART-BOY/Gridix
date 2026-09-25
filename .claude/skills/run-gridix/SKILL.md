@@ -103,3 +103,10 @@ The PostgreSQL equivalent uses `GRIDIX_TEST_PG_URL`. Missing URLs may locally sk
 - **Build needs gtk3 dev headers** — `libgtk-3-dev` not just `libgtk-3-0`
 - **Keymap warnings on startup** are non-fatal — scope conflict diagnostics, deeper scope wins
 - **First build**: ~200 crates, ~2GB in `target/`
+- **Window activation**: the driver's own Xvfb has no window manager, so `windowactivate`
+  fails there and `key`/`type`/`move`/`click` fall back to `xdotool windowfocus`
+  (`XSetInputFocus`). That fallback line goes to stderr; a successful `key:`/`typed …`
+  line on stdout means the request was accepted, not that the window holds focus.
+- **Typing**: `type` targets the focused window (no `xdotool --window`), because synthetic
+  events are ignored by egui/winit. Send `Ctrl+P` (or click) first when the target widget
+  may not have focus — text typed in Helix-normal mode is discarded.
