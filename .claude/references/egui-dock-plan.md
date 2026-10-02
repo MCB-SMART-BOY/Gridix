@@ -117,11 +117,12 @@ With `DockArea`, focus is also shared with the SQL editor and ER diagram nodes.
 areas — it only changes how the existing areas are laid out.
 
 ### Concern 5: egui_dock API compatibility
-**Risk:** egui_dock 0.19 requires Rust 1.92 (Gridix has 1.96). API surface:
-`DockArea::new()`, `show_inside()`, `DockState::new()`, `TabViewer` trait.
-All are stable, well-documented APIs. No known breaking changes in 0.19.
+**Risk:** egui_dock 0.21.1 targets egui 0.36 and requires `TabViewer::id()` to return a
+stable ID for each logical tab. Title-only identity can collide when visible titles match.
 
-**Mitigation:** Low risk. egui_dock is the most popular egui docking crate (194K downloads/month).
+**Mitigation:** `WorkspaceViewer::id()` derives IDs from the surface kind or document
+identity, while `DockArea::show_inside()` and `DockState` remain the layout integration
+points. Compile and exercise dock rendering whenever egui/egui_dock move together.
 
 ### Concern 6: Resize persistence
 **Risk:** `DockState` split ratios are reset on app restart unless persisted.

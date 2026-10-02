@@ -18,15 +18,15 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (2026-09-03)
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
         with:
-          toolchain: 1.98.1
+          toolchain: nightly
 
       - name: Cache cargo
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -41,13 +41,13 @@ jobs:
           sudo apt-get install -y libgtk-3-dev
 
       - name: Install cargo-tarpaulin
-        run: cargo install --git https://github.com/xd009642/tarpaulin --rev fadda2ea25490209d495107acbf624c7ca8ae73c --locked cargo-tarpaulin
+        run: cargo install --git https://github.com/xd009642/tarpaulin --rev 94f7cf7662e4b010009a660a03c4c5bd4a5e3b95 --locked cargo-tarpaulin # v0.37.5
 
       - name: Generate coverage
         run: cargo tarpaulin --out Xml --output-dir coverage
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24 # v5.4.3
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: coverage/cobertura.xml
           fail_ci_if_error: false

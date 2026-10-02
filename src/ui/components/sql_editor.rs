@@ -418,7 +418,7 @@ impl SqlEditor {
                                     if ui.input(|i| i.key_pressed(Key::O)) {
                                         let cursor_pos = output
                                             .cursor_range
-                                            .map(|r| r.primary.index)
+                                            .map(|r| usize::from(r.primary.index))
                                             .unwrap_or(sql_input.chars().count());
                                         let (_, line_end) = get_line_bounds(sql_input, cursor_pos);
                                         sql_input.insert(line_end, '\n');
@@ -440,7 +440,7 @@ impl SqlEditor {
                             // 获取光标位置
                             let cursor_pos = output
                                 .cursor_range
-                                .map(|range| range.primary.index)
+                                .map(|range| usize::from(range.primary.index))
                                 .unwrap_or(sql_input.chars().count());
                             status_cursor_pos = cursor_pos;
 
@@ -1119,7 +1119,7 @@ mod tests {
                 &mut completion_cursor_target,
             );
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert_eq!(sql, "SELECT ");
         assert_eq!(completion_cursor_target, Some("SELECT ".chars().count()));
@@ -1139,22 +1139,24 @@ mod tests {
         let mut editor_mode = EditorMode::Insert;
 
         let raw_input = egui::RawInput {
-            events: vec![egui::Event::Key {
-                key: Key::Enter,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers: egui::Modifiers {
+            events: vec![
+                egui::Event::ModifiersChanged(egui::Modifiers {
                     ctrl: true,
                     command: true,
                     ..egui::Modifiers::NONE
+                }),
+                egui::Event::Key {
+                    key: Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers {
+                        ctrl: true,
+                        command: true,
+                        ..egui::Modifiers::NONE
+                    },
                 },
-            }],
-            modifiers: egui::Modifiers {
-                ctrl: true,
-                command: true,
-                ..egui::Modifiers::NONE
-            },
+            ],
             ..Default::default()
         };
 
@@ -1179,7 +1181,7 @@ mod tests {
                 )
             })
             .inner;
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert!(!actions.execute);
         assert!(!actions.explain);

@@ -1,11 +1,11 @@
 # Gridix
 
 Keyboard-first cross-platform database management desktop app.
-Rust + eframe/egui 0.34.1. SQLite, PostgreSQL, MySQL.
+Rust + eframe/egui 0.36.2. SQLite, PostgreSQL, MySQL.
 Tokio async runtime. Helix-inspired modal editing throughout.
 
-**Deps:** russh 0.62.5, tokio-postgres 0.7.18, rusqlite 0.39, mysql_async 0.36, egui_dock 0.19.
-**Toolchain:** rust-toolchain.toml (stable), cargo-audit in CI.
+**Deps:** russh 0.63.3, tokio-postgres 0.7.18, rusqlite 0.40.2, mysql_async 0.37.1, egui_dock 0.21.1.
+**Toolchain:** `rust-toolchain.toml` selects nightly Rust with rustfmt and clippy. CI and source-build packaging use nightly; the Nix flake uses its own configured nightly toolchain. The nightly channel moves over time, so record `rustc --version` with validation evidence.
 **Binaries:** `gridix` (GUI), `check-doc-links` (link validator), `check-doc-symbols` (doc symbol/file-reference validator), `gridix-driver` (headless driver).
 **Code is the source of truth.** When docs and code disagree, code wins. Update `.claude/` after code changes (`.claude/rules/sync-claude.md`).
 

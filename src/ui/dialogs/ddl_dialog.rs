@@ -1091,14 +1091,16 @@ mod tests {
 
     fn begin_key_pass(ctx: &egui::Context, key: Key) {
         ctx.begin_pass(RawInput {
-            events: vec![Event::Key {
-                key,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers: Modifiers::NONE,
-            }],
-            modifiers: Modifiers::NONE,
+            events: vec![
+                egui::Event::ModifiersChanged(Modifiers::NONE),
+                Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
             ..Default::default()
         });
     }
@@ -1111,7 +1113,7 @@ mod tests {
                 ui.add(egui::TextEdit::singleline(&mut text).id_salt("ddl_shortcut_text_input"));
             response.request_focus();
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1123,7 +1125,7 @@ mod tests {
 
         assert_eq!(action, Some(DdlKeyAction::ColumnNext));
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1136,7 +1138,7 @@ mod tests {
 
         assert_eq!(action, None);
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1160,6 +1162,6 @@ mod tests {
             assert!(column_height < 320.0);
             assert!(preview_height <= 180.0);
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 }

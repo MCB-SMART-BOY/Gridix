@@ -30,6 +30,7 @@ pub struct DbManagerApp {
 ## egui_dock layout
 
 `src/ui/dock_tabs.rs` — DockTab, WorkspaceViewer, `refresh_dock_from_session()`. `refresh_dock_from_session()` reads from `self.session.tab_manager`; `ensure_surface_tab()`/`has_surface_tab()` manage surface tabs.
+egui_dock 0.21 uses `TabViewer::id()` for per-tab UI identity; derive IDs from stable surface/document identity, not the visible title alone. egui 0.36 ID arguments used with `Id::new`, `id_salt`, or `push_id` require both `Hash` and `Debug`; migrate caller bounds without changing the hashed identity.
 
 ## Workbench shell
 

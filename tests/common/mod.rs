@@ -169,14 +169,16 @@ use egui::{Event, Key, Modifiers, RawInput};
 /// Inject a keypress event into an egui context via `begin_pass`.
 pub fn begin_key_pass(ctx: &egui::Context, key: Key) {
     ctx.begin_pass(RawInput {
-        events: vec![Event::Key {
-            key,
-            physical_key: None,
-            pressed: true,
-            repeat: false,
-            modifiers: Modifiers::NONE,
-        }],
-        modifiers: Modifiers::NONE,
+        events: vec![
+            Event::ModifiersChanged(Modifiers::NONE),
+            Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            },
+        ],
         ..Default::default()
     });
 }
@@ -191,7 +193,7 @@ pub fn focus_text_input(ctx: &egui::Context) {
             ui.add(egui::TextEdit::singleline(&mut text).id_salt("shared_test_text_input"));
         response.request_focus();
     });
-    let _ = ctx.end_pass();
+    ctx.end_pass().textures_delta.clear();
 }
 
 // ===== 连接池验收辅助（需要真实服务端；见 tests/mysql_pool_acceptance.rs）=====

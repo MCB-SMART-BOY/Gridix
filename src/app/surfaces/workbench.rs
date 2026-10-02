@@ -1836,21 +1836,23 @@ mod tests {
         app.state.toolbar_index = 3;
 
         ctx.begin_pass(egui::RawInput {
-            events: vec![egui::Event::Key {
-                key: egui::Key::Enter,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers: egui::Modifiers::NONE,
-            }],
-            modifiers: egui::Modifiers::NONE,
+            events: vec![
+                egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
             ..Default::default()
         });
         egui::Area::new(egui::Id::new("top_bar_keyboard_test")).show(&ctx, |ui| {
             let actions = app.render_top_bar(ui);
             app.handle_toolbar_actions(ui.ctx(), actions);
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert_eq!(app.active_dialog_id(), Some(DialogId::ToolbarActionsMenu));
     }

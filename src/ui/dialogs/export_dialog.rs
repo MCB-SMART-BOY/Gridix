@@ -904,7 +904,7 @@ mod tests {
             );
         });
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         // 每行都必须真的渲染出内容,且不得超出窄视口。
         for (name, width) in [
@@ -934,8 +934,10 @@ mod tests {
 
     fn begin_key_pass(ctx: &egui::Context, key: Key) {
         ctx.begin_pass(RawInput {
-            events: vec![key_event(key)],
-            modifiers: Modifiers::NONE,
+            events: vec![
+                egui::Event::ModifiersChanged(Modifiers::NONE),
+                key_event(key),
+            ],
             ..Default::default()
         });
     }
@@ -948,7 +950,7 @@ mod tests {
                 ui.add(egui::TextEdit::singleline(&mut text).id_salt("export_shortcut_text_input"));
             response.request_focus();
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -960,7 +962,7 @@ mod tests {
 
         assert_eq!(action, Some(ExportKeyAction::SetFormat(ExportFormat::Json)));
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -972,7 +974,7 @@ mod tests {
 
         assert_eq!(action, None);
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -985,6 +987,6 @@ mod tests {
 
         assert_eq!(action, None);
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 }

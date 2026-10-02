@@ -310,6 +310,24 @@ impl ImportState {
     }
 }
 
+/// 导入操作结果
+#[derive(Debug, Clone, Default)]
+pub enum ImportAction {
+    /// 无操作
+    #[default]
+    None,
+    /// 选择文件
+    SelectFile,
+    /// 刷新预览
+    RefreshPreview,
+    /// 执行导入
+    Execute,
+    /// 复制到编辑器
+    CopyToEditor(String),
+    /// 关闭对话框
+    Close,
+}
+
 #[cfg(test)]
 mod tests {
     use super::ImportFormat;
@@ -336,22 +354,4 @@ mod tests {
         assert_eq!(ImportFormat::from_extension("TAB"), ImportFormat::Tsv);
         assert_eq!(ImportFormat::from_extension("csv"), ImportFormat::Csv);
     }
-}
-
-/// 导入操作结果
-#[derive(Debug, Clone, Default)]
-pub enum ImportAction {
-    /// 无操作
-    #[default]
-    None,
-    /// 选择文件
-    SelectFile,
-    /// 刷新预览
-    RefreshPreview,
-    /// 执行导入
-    Execute,
-    /// 复制到编辑器
-    CopyToEditor(String),
-    /// 关闭对话框
-    Close,
 }

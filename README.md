@@ -65,6 +65,8 @@ Download from / 从 [GitHub Releases](https://github.com/MCB-SMART-BOY/Gridix/re
 | macOS | arm64 | `gridix-macos-arm64.tar.gz` |
 
 ### Build From Source | 源码构建
+The source build uses the Rust nightly toolchain selected by `rust-toolchain.toml`. Install it with `rustup toolchain install nightly --profile minimal --component rustfmt,clippy`; record `rustc --version` when reporting build failures because nightly moves.
+
 ```bash
 git clone https://github.com/MCB-SMART-BOY/Gridix.git
 cd Gridix

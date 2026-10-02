@@ -231,12 +231,11 @@ mod tests {
             _ => Modifiers::NONE,
         };
         ctx.begin_pass(RawInput {
-            events: vec![event],
-            modifiers,
+            events: vec![egui::Event::ModifiersChanged(modifiers), event],
             ..Default::default()
         });
         let action = detect_key_action(ctx, panel_state);
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
         action
     }
 

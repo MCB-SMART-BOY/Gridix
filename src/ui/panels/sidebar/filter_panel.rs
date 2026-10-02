@@ -516,15 +516,17 @@ mod tests {
     fn run_filter_input_key(key: Key) -> bool {
         let ctx = Context::default();
         ctx.begin_pass(RawInput {
-            events: vec![key_event(key)],
-            modifiers: Modifiers::NONE,
+            events: vec![
+                egui::Event::ModifiersChanged(Modifiers::NONE),
+                key_event(key),
+            ],
             ..Default::default()
         });
         let mut consumed = false;
         Area::new(Id::new("filter_input_key_test")).show(&ctx, |ui| {
             consumed = consume_filter_input_dismiss(ui);
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
         consumed
     }
 

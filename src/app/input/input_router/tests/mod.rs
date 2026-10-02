@@ -90,8 +90,7 @@ fn resolve_event(
     };
     let ctx = egui::Context::default();
     let raw_input = egui::RawInput {
-        events: vec![event],
-        modifiers,
+        events: vec![egui::Event::ModifiersChanged(modifiers), event],
         ..Default::default()
     };
 
@@ -106,7 +105,7 @@ fn resolve_event(
             || None,
         )
     });
-    let _ = ctx.end_pass();
+    ctx.end_pass().textures_delta.clear();
     resolved
 }
 
@@ -121,8 +120,7 @@ fn resolve_event_with_keybindings(
     };
     let ctx = egui::Context::default();
     let raw_input = egui::RawInput {
-        events: vec![event],
-        modifiers,
+        events: vec![egui::Event::ModifiersChanged(modifiers), event],
         ..Default::default()
     };
 
@@ -139,6 +137,6 @@ fn resolve_event_with_keybindings(
             || super::focus_area_switch_triggered_in_input(keybindings, input),
         )
     });
-    let _ = ctx.end_pass();
+    ctx.end_pass().textures_delta.clear();
     resolved
 }

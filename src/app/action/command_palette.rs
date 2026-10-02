@@ -316,15 +316,17 @@ mod tests {
     fn run_palette_key(key: Key) -> Option<CommandPaletteKeyAction> {
         let ctx = Context::default();
         ctx.begin_pass(RawInput {
-            events: vec![key_event(key)],
-            modifiers: Modifiers::NONE,
+            events: vec![
+                egui::Event::ModifiersChanged(Modifiers::NONE),
+                key_event(key),
+            ],
             ..Default::default()
         });
         let mut action = None;
         Area::new(Id::new("command_palette_key_test")).show(&ctx, |ui| {
             action = consume_palette_key_action(ui);
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
         action
     }
 
@@ -418,12 +420,14 @@ mod tests {
         );
 
         ctx.begin_pass(RawInput {
-            events: vec![key_event(Key::Enter)],
-            modifiers: Modifiers::NONE,
+            events: vec![
+                egui::Event::ModifiersChanged(Modifiers::NONE),
+                key_event(Key::Enter),
+            ],
             ..Default::default()
         });
         app.render_command_palette(&ctx);
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert!(!app.command_palette_state.open);
         assert!(app.state.show_er_diagram);

@@ -25,6 +25,9 @@ pkg-config: can't find xdo
 ### Rust not installed
 → `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source "$HOME/.cargo/env"`
 
+### Nightly toolchain unavailable
+→ Run `rustup toolchain install nightly --profile minimal --component rustfmt,clippy`; then check `rustc --version` from the project root. Do not silently fall back to stable for CI or source builds.
+
 ## App won't start
 
 ### No X server (headless)

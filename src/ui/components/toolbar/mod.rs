@@ -423,14 +423,16 @@ mod tests {
     fn run_toolbar_key(key: Key, toolbar_index: &mut usize, actions: &mut ToolbarActions) {
         let ctx = Context::default();
         ctx.begin_pass(RawInput {
-            events: vec![key_event(key)],
-            modifiers: Modifiers::NONE,
+            events: vec![
+                egui::Event::ModifiersChanged(Modifiers::NONE),
+                key_event(key),
+            ],
             ..Default::default()
         });
         Area::new(Id::new("toolbar_keyboard_test")).show(&ctx, |ui| {
             Toolbar::handle_keyboard(ui, toolbar_index, actions);
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]

@@ -1897,8 +1897,10 @@ mod tests {
     ) -> (ERDiagramState, super::ERDiagramResponse) {
         let ctx = Context::default();
         ctx.begin_pass(RawInput {
-            events: vec![key_event_with_modifiers(key, modifiers)],
-            modifiers,
+            events: vec![
+                egui::Event::ModifiersChanged(modifiers),
+                key_event_with_modifiers(key, modifiers),
+            ],
             ..Default::default()
         });
         let mut state = ERDiagramState::new();
@@ -1909,7 +1911,7 @@ mod tests {
         Area::new(Id::new("er_diagram_key_test")).show(&ctx, |ui| {
             response = state.show(ui, &ThemePreset::default(), is_focused);
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
         (state, response)
     }
 
@@ -1942,7 +1944,7 @@ mod tests {
         Area::new(Id::new(("er_diagram_theme_test", theme as u32))).show(&ctx, |ui| {
             response = state.show(ui, &theme, is_focused);
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
         response
     }
 

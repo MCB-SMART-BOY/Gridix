@@ -723,7 +723,7 @@ mod tests {
             ));
         });
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
         (header.expect("rendered connection header"), actions)
     }
 

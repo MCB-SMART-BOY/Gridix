@@ -1046,28 +1046,32 @@ mod tests {
 
     fn begin_key_pass(ctx: &egui::Context, key: Key) {
         ctx.begin_pass(RawInput {
-            events: vec![Event::Key {
-                key,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers: Modifiers::NONE,
-            }],
-            modifiers: Modifiers::NONE,
+            events: vec![
+                egui::Event::ModifiersChanged(Modifiers::NONE),
+                Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
             ..Default::default()
         });
     }
 
     fn begin_key_pass_with_modifiers(ctx: &egui::Context, key: Key, modifiers: Modifiers) {
         ctx.begin_pass(RawInput {
-            events: vec![Event::Key {
-                key,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers,
-            }],
-            modifiers,
+            events: vec![
+                egui::Event::ModifiersChanged(modifiers),
+                Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                },
+            ],
             ..Default::default()
         });
     }
@@ -1089,7 +1093,7 @@ mod tests {
             );
             response.request_focus();
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     fn valid_server_config() -> ConnectionConfig {
@@ -1117,7 +1121,7 @@ mod tests {
             ))
         );
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1129,7 +1133,7 @@ mod tests {
 
         assert_eq!(action, None);
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1147,7 +1151,7 @@ mod tests {
             ))
         );
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         let ctx = egui::Context::default();
         begin_key_pass_with_modifiers(&ctx, Key::O, ctrl_modifiers());
@@ -1156,7 +1160,7 @@ mod tests {
 
         assert_eq!(action, None);
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1169,6 +1173,6 @@ mod tests {
 
         assert_eq!(action, None);
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 }

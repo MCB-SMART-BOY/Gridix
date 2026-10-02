@@ -4,6 +4,10 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -11,11 +15,29 @@
       self,
       nixpkgs,
       flake-utils,
+      rust-overlay,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ rust-overlay.overlays.default ];
+        };
+        # Match the project's nightly profile with rustfmt and clippy available.
+        rustToolchain = pkgs.rust-bin.selectLatestNightlyWith (
+          toolchain:
+          toolchain.minimal.override {
+            extensions = [
+              "rustfmt"
+              "clippy"
+            ];
+          }
+        );
+        rustPlatform = pkgs.makeRustPlatform {
+          cargo = rustToolchain;
+          rustc = rustToolchain;
+        };
         cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
         commonBuildInputs = with pkgs; [
         ];
@@ -28,7 +50,7 @@
           mesa
         ];
         runtimeLibraryPath = pkgs.lib.makeLibraryPath linuxRuntimeLibs;
-        gridixPackage = pkgs.rustPlatform.buildRustPackage rec {
+        gridixPackage = rustPlatform.buildRustPackage rec {
           pname = "gridix";
           version = cargoToml.package.version;
 
@@ -45,8 +67,8 @@
 
           buildInputs =
             commonBuildInputs
-            ++ pkgs.lib.optionals pkgs.stdenv.isLinux linuxRuntimeLibs
-            ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux linuxRuntimeLibs
+            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
               pkgs.darwin.apple_sdk.frameworks.AppKit
               pkgs.darwin.apple_sdk.frameworks.CoreGraphics
               pkgs.darwin.apple_sdk.frameworks.CoreText
@@ -55,7 +77,7 @@
               pkgs.darwin.apple_sdk.frameworks.QuartzCore
             ];
 
-          postFixup = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+          postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
             wrapProgram "$out/bin/gridix" \
               --prefix LD_LIBRARY_PATH : "${runtimeLibraryPath}" \
               --set-default __EGL_VENDOR_LIBRARY_DIRS "${pkgs.mesa}/share/glvnd/egl_vendor.d" \
@@ -112,13 +134,13 @@
               deadnix
               gitleaks
               trivy
-              rustup
+              rustToolchain
               pkg-config
               xorg-server
               imagemagick
             ]
-            ++ pkgs.lib.optionals pkgs.stdenv.isLinux linuxRuntimeLibs
-            ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux linuxRuntimeLibs
+            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
               pkgs.darwin.apple_sdk.frameworks.AppKit
               pkgs.darwin.apple_sdk.frameworks.CoreGraphics
               pkgs.darwin.apple_sdk.frameworks.CoreText
@@ -127,7 +149,7 @@
               pkgs.darwin.apple_sdk.frameworks.QuartzCore
             ];
 
-          shellHook = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+          shellHook = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
             export LD_LIBRARY_PATH="${runtimeLibraryPath}:''${LD_LIBRARY_PATH:-}"
             export __EGL_VENDOR_LIBRARY_DIRS="${pkgs.mesa}/share/glvnd/egl_vendor.d"
             export LIBGL_DRIVERS_PATH="${pkgs.mesa}/lib/dri"

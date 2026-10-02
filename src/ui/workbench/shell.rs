@@ -30,7 +30,7 @@ impl WorkbenchShell {
     ) {
         egui::CentralPanel::default()
             .frame(frame)
-            .show_inside(root_ui, |ui| {
+            .show(root_ui, |ui| {
                 if let Some(status_bar) = self.status_bar {
                     let status_height = 24.0;
                     let content_height = (ui.available_height() - status_height).max(0.0);

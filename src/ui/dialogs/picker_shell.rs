@@ -422,7 +422,7 @@ impl PickerDialogShell {
 
     pub(crate) fn entry(
         ui: &mut egui::Ui,
-        id_source: impl Hash,
+        id_source: impl Hash + std::fmt::Debug,
         opened: bool,
         selected: bool,
         title: &str,

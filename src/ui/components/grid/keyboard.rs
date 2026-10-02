@@ -1482,8 +1482,7 @@ mod tests {
         };
         let ctx = egui::Context::default();
         let raw_input = egui::RawInput {
-            events: vec![event],
-            modifiers,
+            events: vec![egui::Event::ModifiersChanged(modifiers), event],
             ..Default::default()
         };
         let filtered_rows: Vec<usize> = (0..result.row_count).collect();
@@ -1495,7 +1494,7 @@ mod tests {
         egui::Area::new(egui::Id::new("grid_keyboard_test_area")).show(&ctx, |ui| {
             handle_keyboard(ui, state, result, &row_view, keybindings, &mut actions);
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         actions
     }

@@ -1016,8 +1016,7 @@ mod tests {
         };
         let ctx = Context::default();
         ctx.begin_pass(RawInput {
-            events: vec![event],
-            modifiers,
+            events: vec![egui::Event::ModifiersChanged(modifiers), event],
             ..Default::default()
         });
 
@@ -1033,7 +1032,7 @@ mod tests {
             filters,
             &mut actions,
         );
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
         actions
     }
 

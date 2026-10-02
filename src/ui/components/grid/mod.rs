@@ -990,8 +990,10 @@ mod tests {
         let ctx = egui::Context::default();
         let mut returned_actions = DataGridActions::default();
         let raw_input = RawInput {
-            events: vec![key_event(key)],
-            modifiers: Modifiers::NONE,
+            events: vec![
+                egui::Event::ModifiersChanged(Modifiers::NONE),
+                key_event(key),
+            ],
             ..Default::default()
         };
 
@@ -1012,7 +1014,7 @@ mod tests {
             );
             returned_actions = actions;
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         returned_actions
     }

@@ -1402,14 +1402,13 @@ mod tests {
             _ => Modifiers::NONE,
         };
         let raw_input = RawInput {
-            events: vec![event],
-            modifiers,
+            events: vec![egui::Event::ModifiersChanged(modifiers), event],
             ..Default::default()
         };
 
         ctx.begin_pass(raw_input);
         egui::Area::new(egui::Id::new("render_frame_test_area")).show(ctx, |ui| app.run_frame(ui));
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     fn run_frame_with_viewport(
@@ -1425,7 +1424,7 @@ mod tests {
         ctx.begin_pass(raw_input);
         egui::Area::new(egui::Id::new("render_viewport_test_area"))
             .show(ctx, |ui| app.run_frame(ui));
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     fn prime_active_connection_with_tables(app: &mut DbManagerApp, tables: &[&str]) {

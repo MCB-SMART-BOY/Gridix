@@ -617,7 +617,7 @@ impl DialogContent {
     /// 渲染统一的代码/预览容器，并允许显式指定滚动区 ID。
     pub fn code_surface_with_id(
         ui: &mut egui::Ui,
-        id_salt: impl Hash,
+        id_salt: impl Hash + std::fmt::Debug,
         max_height: f32,
         content: impl FnOnce(&mut egui::Ui),
     ) {
@@ -649,7 +649,12 @@ impl DialogContent {
     }
 
     /// 渲染带显式 ID 的统一代码文本块。
-    pub fn code_block_with_id(ui: &mut egui::Ui, id_salt: impl Hash, text: &str, max_height: f32) {
+    pub fn code_block_with_id(
+        ui: &mut egui::Ui,
+        id_salt: impl Hash + std::fmt::Debug,
+        text: &str,
+        max_height: f32,
+    ) {
         Self::code_surface_with_id(ui, id_salt, max_height, |ui| {
             ui.label(
                 RichText::new(text)
@@ -1027,7 +1032,11 @@ impl DialogWindow {
     }
 
     /// 创建阻塞式 modal 对话框壳层。
-    pub fn blocking(ctx: &egui::Context, id: impl Hash, style: &DialogStyle) -> egui::Modal {
+    pub fn blocking(
+        ctx: &egui::Context,
+        id: impl Hash + std::fmt::Debug,
+        style: &DialogStyle,
+    ) -> egui::Modal {
         let backdrop_alpha = if ctx.global_style().visuals.dark_mode {
             132
         } else {
@@ -1052,7 +1061,7 @@ impl DialogWindow {
     /// `id` 是跨帧稳定的窗口身份；标题可以变化，窗口 id 不变。
     pub fn standard<'a>(
         ctx: &egui::Context,
-        id: impl Hash,
+        id: impl Hash + std::fmt::Debug,
         title: &'a str,
         style: &DialogStyle,
     ) -> DialogShell<'a> {
@@ -1078,7 +1087,7 @@ impl DialogWindow {
     /// 创建可调整大小的对话框窗口。
     pub fn resizable<'a>(
         ctx: &egui::Context,
-        id: impl Hash,
+        id: impl Hash + std::fmt::Debug,
         title: &'a str,
         style: &DialogStyle,
     ) -> DialogShell<'a> {
@@ -1106,7 +1115,7 @@ impl DialogWindow {
     /// 创建可拖拽、可调整大小的工作台型对话框窗口。
     pub fn workspace<'a>(
         ctx: &egui::Context,
-        id: impl Hash,
+        id: impl Hash + std::fmt::Debug,
         title: &'a str,
         style: &DialogStyle,
         default_width: f32,
@@ -1141,7 +1150,7 @@ impl DialogWindow {
     /// 创建固定大小的对话框窗口
     pub fn fixed<'a>(
         ctx: &egui::Context,
-        id: impl Hash,
+        id: impl Hash + std::fmt::Debug,
         title: &'a str,
         width: f32,
         height: f32,
@@ -1169,7 +1178,7 @@ impl DialogWindow {
     /// 创建固定尺寸且沿用指定样式范围的对话框窗口。
     pub fn fixed_style<'a>(
         ctx: &egui::Context,
-        id: impl Hash,
+        id: impl Hash + std::fmt::Debug,
         title: &'a str,
         style: &DialogStyle,
         width: f32,
@@ -1209,7 +1218,7 @@ pub struct DialogShell<'a> {
 }
 
 impl<'a> DialogShell<'a> {
-    fn new(id: impl Hash, window: egui::Window<'a>) -> Self {
+    fn new(id: impl Hash + std::fmt::Debug, window: egui::Window<'a>) -> Self {
         let id = egui::Id::new(id);
         Self {
             window: window.id(id),
@@ -1282,7 +1291,7 @@ impl<'a> DialogShell<'a> {
 /// （侧边栏、工具栏、工作台、dock 面板）都被阻断。
 /// egui 的 widget 命中测试不读 modal layer（`hit_test` 只按 order 过滤），
 /// 所以阻断必须由这一层承担，[`register_modal_layer`] 只负责焦点范围。
-pub fn show_pointer_blocker(ctx: &egui::Context, id: impl Hash) {
+pub fn show_pointer_blocker(ctx: &egui::Context, id: impl Hash + std::fmt::Debug) {
     let rect = ctx.content_rect();
     egui::Area::new(egui::Id::new(("dialog_pointer_blocker", egui::Id::new(id))))
         .order(egui::Order::Foreground)
@@ -1304,7 +1313,7 @@ pub fn register_modal_layer(ctx: &egui::Context, layer: egui::LayerId) {
 ///
 /// 直接构造窗口（不经 [`DialogShell`]）的对话框用它与 [`register_modal_layer`] 配对，
 /// 保证窗口所在图层与登记图层一致。
-pub fn blocking_layer(id: impl Hash) -> egui::LayerId {
+pub fn blocking_layer(id: impl Hash + std::fmt::Debug) -> egui::LayerId {
     egui::LayerId::new(egui::Order::Foreground, egui::Id::new(id))
 }
 
@@ -1316,7 +1325,7 @@ pub(crate) struct WorkspaceDialogShell;
 impl WorkspaceDialogShell {
     pub(crate) fn show(
         ui: &mut egui::Ui,
-        id_source: impl Hash,
+        id_source: impl Hash + std::fmt::Debug,
         header: impl FnOnce(&mut egui::Ui),
         subheader: impl FnOnce(&mut egui::Ui),
         body: impl FnOnce(&mut egui::Ui),
@@ -1336,7 +1345,7 @@ impl WorkspaceDialogShell {
                     .inner_margin(egui::Margin::symmetric(0, 6)),
             )
             .resizable(false)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 footer(ui);
             });
 
@@ -1347,7 +1356,7 @@ impl WorkspaceDialogShell {
                     .inner_margin(egui::Margin::same(0)),
             )
             .resizable(false)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 header(ui);
             });
 
@@ -1358,7 +1367,7 @@ impl WorkspaceDialogShell {
                     .inner_margin(egui::Margin::same(0)),
             )
             .resizable(false)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 subheader(ui);
             });
 
@@ -1368,7 +1377,7 @@ impl WorkspaceDialogShell {
                     .fill(Color32::TRANSPARENT)
                     .inner_margin(egui::Margin::same(0)),
             )
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 body(ui);
             });
     }
@@ -1409,7 +1418,7 @@ pub(crate) struct FormDialogShell;
 impl FormDialogShell {
     pub(crate) fn show(
         ui: &mut egui::Ui,
-        id_source: impl Hash,
+        id_source: impl Hash + std::fmt::Debug,
         header: impl FnOnce(&mut egui::Ui),
         body: impl FnOnce(&mut egui::Ui, &mut FormDialogBodyContext),
         footer: impl FnOnce(&mut egui::Ui),
@@ -1419,20 +1428,20 @@ impl FormDialogShell {
         egui::Panel::bottom(shell_id.with("footer"))
             .frame(egui::Frame::NONE)
             .resizable(false)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 footer(ui);
             });
 
         egui::Panel::top(shell_id.with("header"))
             .frame(egui::Frame::NONE)
             .resizable(false)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 header(ui);
             });
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ScrollArea::vertical()
                     .id_salt(shell_id.with("body"))
                     .show(ui, |ui| {
@@ -1467,8 +1476,10 @@ mod tests {
 
     fn begin_key_pass(ctx: &egui::Context, key: Key) {
         ctx.begin_pass(RawInput {
-            events: vec![key_event(key)],
-            modifiers: Modifiers::NONE,
+            events: vec![
+                egui::Event::ModifiersChanged(Modifiers::NONE),
+                key_event(key),
+            ],
             ..Default::default()
         });
     }
@@ -1481,7 +1492,7 @@ mod tests {
                 ui.add(egui::TextEdit::singleline(&mut text).id_salt("dialog_shortcut_text_input"));
             response.request_focus();
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1491,7 +1502,7 @@ mod tests {
 
         assert!(DialogShortcutContext::new(&ctx).consume(LocalShortcut::Dismiss));
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1501,7 +1512,7 @@ mod tests {
 
         assert!(DialogShortcutContext::new(&ctx).consume_command("dialog.common.dismiss"));
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1513,7 +1524,7 @@ mod tests {
         assert!(text_entry_has_priority(&ctx));
         assert!(!DialogShortcutContext::new(&ctx).consume(LocalShortcut::Dismiss));
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1528,7 +1539,7 @@ mod tests {
 
         assert_eq!(action, Some(true));
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1543,7 +1554,7 @@ mod tests {
 
         assert_eq!(action, Some(true));
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1674,7 +1685,7 @@ mod tests {
                 }
             }
 
-            let _ = ctx.end_pass();
+            ctx.end_pass().textures_delta.clear();
         }
 
         /// 渲染预热帧：首帧发布控件，之后才可能命中；注入点击前必须先调用。
@@ -1715,7 +1726,7 @@ mod tests {
             ctx.memory(|memory| memory.top_modal_layer()),
             Some(super::blocking_layer("dialog.shell_test"))
         );
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]

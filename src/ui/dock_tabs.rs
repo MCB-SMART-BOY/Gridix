@@ -46,7 +46,7 @@ pub enum DockTab {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AuxPanelKind {
     Help,
     Keybindings,
@@ -212,8 +212,8 @@ fn sync_sql_documents(state: &mut DockState<DockTab>, tab_manager: &crate::ui::Q
             }
         }
         // 如果找到了，追加到该 leaf；否则用 split_right 创建新的
-        for i in next_index..mgr_count {
-            let title = tab_manager.tabs[i].title.clone();
+        for (i, query_tab) in tab_manager.tabs.iter().enumerate().skip(next_index) {
+            let title = query_tab.title.clone();
             let tab = if use_surface_documents {
                 DockTab::surface_with_title(WorkbenchSurfaceKind::SqlDocument { index: i }, title)
             } else {
@@ -331,12 +331,37 @@ fn uses_surface_documents(state: &DockState<DockTab>) -> bool {
 
 // ── TabViewer ─────────────────────────────────────────────────────────
 
+fn sql_document_dock_id(tab_manager: &crate::ui::QueryTabManager, index: usize) -> egui::Id {
+    match tab_manager.tabs.get(index) {
+        Some(tab) => egui::Id::new(("dock-sql", tab.id.as_str())),
+        None => egui::Id::new(("dock-sql-index", index)),
+    }
+}
+
 pub struct WorkspaceViewer<'a> {
     pub app: &'a mut DbManagerApp,
 }
 
 impl TabViewer for WorkspaceViewer<'_> {
     type Tab = DockTab;
+
+    fn id(&mut self, tab: &mut Self::Tab) -> egui::Id {
+        match tab {
+            DockTab::Surface {
+                kind: WorkbenchSurfaceKind::SqlDocument { index },
+                ..
+            }
+            | DockTab::SqlDocument { index, .. } => {
+                sql_document_dock_id(self.app.tab_manager(), *index)
+            }
+            DockTab::Surface { kind, .. } => egui::Id::new(("dock-surface", kind)),
+            DockTab::TableData { title } => egui::Id::new(("dock-table", title)),
+            DockTab::ErDiagram => egui::Id::new("dock-er"),
+            DockTab::SchemaObject { title } => egui::Id::new(("dock-schema", title)),
+            DockTab::Welcome => egui::Id::new("dock-welcome"),
+            DockTab::AuxPanel { kind, .. } => egui::Id::new(("dock-aux", kind)),
+        }
+    }
 
     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
         match tab {
@@ -497,6 +522,22 @@ mod tests {
             docs,
             vec![(0, "first".to_string()), (1, "second".to_string())]
         );
+    }
+
+    #[test]
+    fn sql_document_dock_id_survives_preceding_tab_close() {
+        let mut manager = QueryTabManager::new();
+        manager.new_tab();
+        manager.tabs[0].title = "same title".to_string();
+        manager.tabs[1].title = "same title".to_string();
+
+        let first_id = sql_document_dock_id(&manager, 0);
+        let second_id = sql_document_dock_id(&manager, 1);
+        assert_ne!(first_id, second_id);
+
+        manager.close_tab(0);
+
+        assert_eq!(sql_document_dock_id(&manager, 0), second_id);
     }
 
     #[test]

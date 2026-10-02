@@ -2761,8 +2761,10 @@ mod tests {
 
     fn begin_key_pass(ctx: &egui::Context, key: Key) {
         ctx.begin_pass(RawInput {
-            events: vec![key_event(key)],
-            modifiers: Modifiers::NONE,
+            events: vec![
+                egui::Event::ModifiersChanged(Modifiers::NONE),
+                key_event(key),
+            ],
             ..Default::default()
         });
     }
@@ -2774,7 +2776,7 @@ mod tests {
             let response = ui.add(egui::TextEdit::singleline(&mut text).id_salt("kbd_dialog_text"));
             response.request_focus();
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -3428,7 +3430,7 @@ mod tests {
         let ctx = egui::Context::default();
         begin_key_pass(&ctx, Key::Escape);
         let handled = ctx.input(|i| state.consume_recording_input(i));
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert!(handled);
         assert!(!state.is_recording());
@@ -3450,7 +3452,7 @@ mod tests {
         let ctx = egui::Context::default();
         begin_key_pass(&ctx, Key::Q);
         let handled = ctx.input(|i| state.consume_recording_input(i));
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert!(handled);
         assert!(!state.is_recording());
@@ -3468,7 +3470,7 @@ mod tests {
 
         begin_key_pass(&ctx, Key::Escape);
         let frame_action = KeyBindingsDialog::handle_keyboard_input(&ctx, &mut state);
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert_eq!(frame_action, Some(KeyBindingsDialogFrameAction::Close));
     }
@@ -3482,7 +3484,7 @@ mod tests {
         focus_text_input(&ctx);
         begin_key_pass(&ctx, Key::Q);
         let frame_action = KeyBindingsDialog::handle_keyboard_input(&ctx, &mut state);
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert_eq!(frame_action, None);
     }
@@ -3499,7 +3501,7 @@ mod tests {
 
         begin_key_pass(&ctx, Key::Escape);
         let frame_action = KeyBindingsDialog::handle_keyboard_input(&ctx, &mut state);
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert_eq!(frame_action, None);
         assert!(!state.is_recording());
@@ -3517,7 +3519,7 @@ mod tests {
 
         begin_key_pass(&ctx, Key::Q);
         let frame_action = KeyBindingsDialog::handle_keyboard_input(&ctx, &mut state);
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         assert_eq!(frame_action, None);
         assert!(!state.is_recording());

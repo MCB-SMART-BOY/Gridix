@@ -909,8 +909,10 @@ mod tests {
 
     fn begin_key_pass_with_modifiers(ctx: &egui::Context, key: Key, modifiers: Modifiers) {
         ctx.begin_pass(RawInput {
-            events: vec![key_event(key, modifiers)],
-            modifiers,
+            events: vec![
+                egui::Event::ModifiersChanged(modifiers),
+                key_event(key, modifiers),
+            ],
             ..Default::default()
         });
     }
@@ -931,7 +933,7 @@ mod tests {
                 ui.add(egui::TextEdit::singleline(&mut text).id_salt("import_shortcut_text_input"));
             response.request_focus();
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -982,7 +984,7 @@ mod tests {
 
         assert_eq!(action, Some(ImportKeyAction::SetFormat(ImportFormat::Tsv)));
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -994,7 +996,7 @@ mod tests {
 
         assert_eq!(action, None);
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1006,7 +1008,7 @@ mod tests {
 
         assert_eq!(action, Some(ImportKeyAction::RefreshPreview));
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -1019,6 +1021,6 @@ mod tests {
 
         assert_eq!(action, None);
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 }

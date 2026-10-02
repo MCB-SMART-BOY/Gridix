@@ -51,18 +51,16 @@ Use optional tools only if installed and configured. Do not block a task on miss
 
 ## Toolchain
 
-Recommended:
-- Pin toolchain in `rust-toolchain.toml`.
-- Set MSRV explicitly if publishing a library.
-- Keep `Cargo.lock` for applications and binaries.
-- Use workspace-level lints where appropriate.
-
-Example:
+Project policy:
+- `rust-toolchain.toml` selects nightly with `rustfmt` and `clippy`; CI and source builds use the same channel. Record the resolved `rustc --version` when reporting checks because nightly moves.
+- Keep `Cargo.lock` for application and binary reproducibility.
+- Set MSRV explicitly if publishing a stable-channel library; this project currently uses nightly.
 
 ```toml
 [toolchain]
-channel = "stable"
+channel = "nightly"
 components = ["rustfmt", "clippy"]
+profile = "minimal"
 ```
 
 ## Cargo Structure

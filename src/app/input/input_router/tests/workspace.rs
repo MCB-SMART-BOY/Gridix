@@ -253,7 +253,7 @@ fn workspace_fallback_prefers_focus_transition_before_workspace_shortcut() {
             &mut focus_transition,
         )
     });
-    let _ = ctx.end_pass();
+    ctx.end_pass().textures_delta.clear();
 
     assert_eq!(
         resolved,

@@ -82,11 +82,12 @@ Grid cell edits/inserts/deletes are saved as ONE atomic transaction, not N indep
 `data/query/mod.rs` + `data/pool.rs` + `data/ssh_tunnel.rs`:
 - `SshTunnelManager` singleton via `std::sync::LazyLock`
 - Tunnels cached by name with `get_or_create`/`stop`
-- `russh` + `known_hosts` verification with SHA-256 fingerprint logging
+- `russh` host-key callback checks `known_hosts`; rejects certificates, unknown keys, mismatches, and read errors with `Ok(false)` after logging diagnostic context.
+- Host certificates are explicitly rejected (no certificate CA policy); ordinary server public keys must pass `known_hosts`.
 - Runtime TCP endpoint rewrites to `127.0.0.1:<dynamic_port>` while preserving the original database host as `tls_server_name`
 - PostgreSQL uses `host=<tls_server_name>` plus `hostaddr=<loopback>`; MySQL uses `tls_hostname_override` for `VerifyIdentity`
 - `pool_route_key_material()` includes the SSH tunnel identity and original TLS server name; rewritten loopback endpoints do not split a reusable pool, while different TLS names cannot share one.
-- `SshError::HostKeyVerification` — distinct error variant for known_hosts mismatch vs. missing known_hosts
+- SSH host-key mismatch and missing-entry diagnostics are logged at the callback boundary; the callback does not propagate a distinct `SshError::HostKeyVerification` to the caller.
 - SSH passwords and private key passphrases are `#[serde(skip_serializing)]`
 
 ## Error handling

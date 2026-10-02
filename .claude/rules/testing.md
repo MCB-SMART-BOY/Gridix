@@ -56,6 +56,8 @@ cargo bench
 - External integration: `tests/*.rs` — use `use gridix::*;`, no `#[cfg(test)]` wrapper
 - Inline unit: `#[cfg(test)] mod tests { use super::*; ... }` in source files
 - Shared test utilities: `tests/common/mod.rs` provides `begin_key_pass()` and `focus_text_input()`
+- egui 0.36 `RawInput` has no `modifiers` field. Inject `Event::ModifiersChanged(...)` before a key event and keep `Event::Key.modifiers` consistent; prefer `begin_key_pass()` for shared integration tests.
+- egui 0.36 panics if a headless test drops an `end_pass()` output with unapplied texture deltas. Test helpers that do not own a renderer must call `ctx.end_pass().textures_delta.clear()`; production renderers must apply the delta instead.
 
 ## Patterns
 

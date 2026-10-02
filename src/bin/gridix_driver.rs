@@ -318,6 +318,44 @@ fn wait_for_window(
     }
 }
 
+/// Unlike a standalone `wait-window`, launch owns both children and can report
+/// whether the application or X server exited instead of masking that as a timeout.
+fn wait_for_launch_window(
+    display: &str,
+    xauth_path: Option<&Path>,
+    gridix: &mut Child,
+    xvfb: &mut Option<ManagedXvfb>,
+) -> Result<String, String> {
+    let started = Instant::now();
+    loop {
+        if let Some(status) = gridix
+            .try_wait()
+            .map_err(|error| format!("check gridix process: {error}"))?
+        {
+            return Err(format!("gridix exited before window appeared: {status}"));
+        }
+        if let Some(server) = xvfb
+            && let Some(status) = server
+                .child
+                .try_wait()
+                .map_err(|error| format!("check Xvfb process: {error}"))?
+        {
+            return Err(format!("Xvfb exited before window appeared: {status}"));
+        }
+        match find_window_on(display, xauth_path) {
+            Ok(window_id) => return Ok(window_id),
+            Err(error) if error == WINDOW_NOT_FOUND => {}
+            Err(error) => return Err(error),
+        }
+        if started.elapsed() >= Duration::from_secs(WINDOW_TIMEOUT) {
+            return Err(format!(
+                "window not found after {WINDOW_TIMEOUT}s (no gridix or managed Xvfb exit observed)"
+            ));
+        }
+        thread::sleep(POLL_INTERVAL);
+    }
+}
+
 fn wait_for_file(path: &Path, timeout_secs: u64) -> Result<(), String> {
     let started = Instant::now();
     let timeout = Duration::from_secs(timeout_secs);
@@ -573,13 +611,14 @@ fn cmd_launch() -> Result<(Option<ManagedXvfb>, Child, String), String> {
     };
 
     println!("waiting for window (up to {WINDOW_TIMEOUT}s)...");
-    let window_id = match wait_for_window(&display, WINDOW_TIMEOUT, xauth_path.as_deref()) {
-        Ok(window_id) => window_id,
-        Err(error) => {
-            stop_children(&mut xvfb, &mut gridix);
-            return Err(combine_cleanup_error(error, cleanup_xvfb_auth(&mut xvfb)));
-        }
-    };
+    let window_id =
+        match wait_for_launch_window(&display, xauth_path.as_deref(), &mut gridix, &mut xvfb) {
+            Ok(window_id) => window_id,
+            Err(error) => {
+                stop_children(&mut xvfb, &mut gridix);
+                return Err(combine_cleanup_error(error, cleanup_xvfb_auth(&mut xvfb)));
+            }
+        };
 
     let state = DriverState {
         display,

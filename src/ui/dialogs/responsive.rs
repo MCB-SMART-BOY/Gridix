@@ -206,7 +206,7 @@ mod tests {
             });
             content_width = ui.min_rect().width();
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
 
         (
             content_width,

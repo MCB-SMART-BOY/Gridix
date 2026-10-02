@@ -22,6 +22,7 @@ sudo dnf install gtk3-devel ImageMagick xdotool xorg-x11-server-Xvfb xorg-x11-xa
 ```
 
 Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y`
+Install the project toolchain after rustup: `rustup toolchain install nightly --profile minimal --component rustfmt,clippy`. `rust-toolchain.toml` selects nightly for `cargo` automatically; capture `rustc --version` when diagnosing a moving nightly.
 
 Nix (alternative): `nix run github:MCB-SMART-BOY/Gridix` or `nix develop`
 

@@ -237,15 +237,17 @@ mod tests {
     fn run_tab_bar_key(key: Key, tab_count: usize, active_index: usize) -> TabBarActions {
         let ctx = Context::default();
         ctx.begin_pass(RawInput {
-            events: vec![key_event(key)],
-            modifiers: Modifiers::NONE,
+            events: vec![
+                egui::Event::ModifiersChanged(Modifiers::NONE),
+                key_event(key),
+            ],
             ..Default::default()
         });
         let mut actions = TabBarActions::default();
         Area::new(Id::new("query_tab_keyboard_test")).show(&ctx, |ui| {
             QueryTabBar::handle_keyboard(ui, tab_count, active_index, &mut actions);
         });
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
         actions
     }
 

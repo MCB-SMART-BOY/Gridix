@@ -715,14 +715,16 @@ mod tests {
 
     fn begin_key_pass(ctx: &egui::Context, key: Key, modifiers: Modifiers) {
         ctx.begin_pass(RawInput {
-            events: vec![Event::Key {
-                key,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers,
-            }],
-            modifiers,
+            events: vec![
+                egui::Event::ModifiersChanged(modifiers),
+                Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                },
+            ],
             ..Default::default()
         });
     }
@@ -736,7 +738,7 @@ mod tests {
 
         assert_eq!(action, Some(WelcomeSetupKeyAction::FocusNext));
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]
@@ -753,7 +755,7 @@ mod tests {
             ))
         );
 
-        let _ = ctx.end_pass();
+        ctx.end_pass().textures_delta.clear();
     }
 
     #[test]

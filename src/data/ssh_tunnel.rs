@@ -3,13 +3,12 @@
 //! 提供 SSH 隧道功能，允许通过 SSH 跳板机连接远程数据库。
 
 use russh::client::{Config, Handle, Handler};
-use russh::keys::{PrivateKeyWithHashAlg, ssh_key};
+use russh::keys::{HashAlg, PrivateKeyWithHashAlg, PublicKeyOrCertificate};
 use serde::{Deserialize, Serialize};
-use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::copy_bidirectional;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, RwLock};
 
@@ -231,53 +230,56 @@ impl SshClientHandler {
 impl Handler for SshClientHandler {
     type Error = russh::Error;
 
-    #[allow(clippy::manual_async_fn)]
-    fn check_server_key(
+    async fn check_server_key(
         &mut self,
-        server_public_key: &ssh_key::PublicKey,
-    ) -> impl Future<Output = Result<bool, Self::Error>> + Send {
-        let host = self.host.clone();
-        let port = self.port;
-        let server_public_key = server_public_key.clone();
+        server_identity: &PublicKeyOrCertificate,
+    ) -> Result<bool, Self::Error> {
+        let PublicKeyOrCertificate::PublicKey { key, .. } = server_identity else {
+            tracing::error!(
+                host = %self.host,
+                port = self.port,
+                "SSH 主机证书不受信任：未配置证书 CA 验证，拒绝连接"
+            );
+            return Ok(false);
+        };
 
-        async move {
-            // 计算服务器公钥 SHA-256 指纹用于错误提示
-            let fp = {
-                use base64::Engine;
-                let key_str = server_public_key.to_string();
-                let hash = ring::digest::digest(&ring::digest::SHA256, key_str.as_bytes());
-                format!(
-                    "SHA256:{}",
-                    base64::engine::general_purpose::STANDARD.encode(hash.as_ref())
-                )
-            };
+        let fingerprint = key.fingerprint(HashAlg::Sha256);
 
-            match russh::keys::check_known_hosts(&host, port, &server_public_key) {
-                Ok(true) => Ok(true),
-                Ok(false) => {
-                    tracing::error!(
-                        host = %host,
-                        port,
-                        fingerprint = %fp,
-                        "SSH 主机密钥不匹配：known_hosts 中已有不同密钥。\
-                         可能是服务器重装或中间人攻击。\
-                         如果确认服务器已重装，请运行: ssh-keygen -R [{}]:{}",
-                        host, port,
-                    );
-                    Ok(false)
-                }
-                Err(e) => {
-                    tracing::error!(
-                        host = %host,
-                        port,
-                        fingerprint = %fp,
-                        error = %e,
-                        "SSH 主机密钥不在 known_hosts 中。\
-                         请先通过 ssh <user>@{} 手动连接以信任主机密钥",
-                        host,
-                    );
-                    Ok(false)
-                }
+        match russh::keys::check_known_hosts(&self.host, self.port, key) {
+            Ok(true) => Ok(true),
+            Ok(false) => {
+                tracing::error!(
+                    host = %self.host,
+                    port = self.port,
+                    fingerprint = %fingerprint,
+                    "SSH 主机密钥不在 known_hosts 中。\
+                     请先通过 ssh <user>@{} 手动连接以信任主机密钥",
+                    self.host,
+                );
+                Ok(false)
+            }
+            Err(russh::keys::Error::KeyChanged { line }) => {
+                tracing::error!(
+                    host = %self.host,
+                    port = self.port,
+                    fingerprint = %fingerprint,
+                    known_hosts_line = line,
+                    "SSH 主机密钥不匹配：known_hosts 中已有不同密钥。\
+                     可能是服务器重装或中间人攻击。\
+                     如果确认服务器已重装，请运行: ssh-keygen -R [{}]:{}",
+                    self.host, self.port,
+                );
+                Ok(false)
+            }
+            Err(error) => {
+                tracing::error!(
+                    host = %self.host,
+                    port = self.port,
+                    fingerprint = %fingerprint,
+                    error = %error,
+                    "读取 known_hosts 失败，拒绝 SSH 连接"
+                );
+                Ok(false)
             }
         }
     }
@@ -428,55 +430,18 @@ impl SshTunnel {
         remote_host: &str,
         remote_port: u16,
     ) -> Result<(), SshError> {
-        // 通过 SSH 创建到远程主机的通道
         let channel = {
             let handle = ssh_handle.lock().await;
             handle
                 .channel_open_direct_tcpip(remote_host, remote_port as u32, "127.0.0.1", 0)
                 .await
-                .map_err(|e| SshError::Tunnel(format!("创建通道失败: {}", e)))?
+                .map_err(|error| SshError::Tunnel(format!("创建通道失败: {error}")))?
         };
-
-        // 双向转发数据
-        let (mut local_read, mut local_write) = local_stream.split();
         let mut channel_stream = channel.into_stream();
-        let (mut channel_read, mut channel_write) = tokio::io::split(&mut channel_stream);
 
-        let local_to_remote = async {
-            let mut buf = [0u8; 8192];
-            loop {
-                match local_read.read(&mut buf).await {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        if channel_write.write_all(&buf[..n]).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        };
-
-        let remote_to_local = async {
-            let mut buf = [0u8; 8192];
-            loop {
-                match channel_read.read(&mut buf).await {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        if local_write.write_all(&buf[..n]).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        };
-
-        tokio::select! {
-            _ = local_to_remote => {}
-            _ = remote_to_local => {}
-        }
-
+        copy_bidirectional(&mut local_stream, &mut channel_stream)
+            .await
+            .map_err(|error| SshError::Tunnel(format!("双向转发失败: {error}")))?;
         Ok(())
     }
 
