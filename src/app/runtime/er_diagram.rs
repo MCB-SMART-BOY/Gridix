@@ -10,6 +10,7 @@ use crate::ui;
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ErDiagramLoadPlan {
     NoActiveConnection,
+    AwaitingConnection,
     EmptyTables {
         db_name: String,
     },
@@ -25,18 +26,24 @@ fn plan_er_diagram_load(active_connection: Option<&Connection>) -> ErDiagramLoad
         return ErDiagramLoadPlan::NoActiveConnection;
     };
 
-    let tables = conn.tables.clone();
-    let db_name = conn
-        .selected_database
-        .clone()
-        .unwrap_or_else(|| "未选择".to_string());
+    if !conn.connected {
+        return ErDiagramLoadPlan::AwaitingConnection;
+    }
 
-    if tables.is_empty() {
+    let db_name = conn.selected_database.clone().unwrap_or_else(|| {
+        if conn.config.db_type == crate::data::DatabaseType::SQLite {
+            conn.config.database.clone()
+        } else {
+            "未选择".to_string()
+        }
+    });
+
+    if conn.tables.is_empty() {
         return ErDiagramLoadPlan::EmptyTables { db_name };
     }
 
     ErDiagramLoadPlan::Load {
-        tables,
+        tables: conn.tables.clone(),
         db_name,
         connection_id: conn.id,
     }
@@ -52,6 +59,10 @@ impl DbManagerApp {
             ErDiagramLoadPlan::NoActiveConnection => {
                 self.state.er_diagram_state.clear();
                 self.session.notifications.warning("请先连接数据库");
+                self.state.er_diagram_state.loading = false;
+            }
+            ErDiagramLoadPlan::AwaitingConnection => {
+                self.state.er_diagram_state.clear();
                 self.state.er_diagram_state.loading = false;
             }
             ErDiagramLoadPlan::EmptyTables { db_name } => {
@@ -238,7 +249,13 @@ impl DbManagerApp {
 #[cfg(test)]
 mod tests {
     use super::{ErDiagramLoadPlan, plan_er_diagram_load};
+    use crate::app::DbManagerApp;
     use crate::data::{Connection, ConnectionConfig, DatabaseType};
+    use crate::domain::ids::SchemaRevision;
+    use crate::domain::metadata::{
+        ColumnMetadata, ForeignKeyMetadata, SchemaCatalog, TableMetadata,
+    };
+    use crate::domain::value::{DbTypeFamily, DbTypeInfo};
 
     fn sqlite_connection(name: &str) -> Connection {
         Connection::new(ConnectionConfig::new(name, DatabaseType::SQLite))
@@ -267,8 +284,22 @@ mod tests {
     }
 
     #[test]
-    fn er_diagram_load_plan_preserves_tables_and_falls_back_to_unselected_database_name() {
+    fn er_diagram_load_before_connection_completes_does_not_report_empty_database() {
+        let mut app = DbManagerApp::new_for_test();
+        let mut config = ConnectionConfig::new("demo", DatabaseType::SQLite);
+        config.database = "/tmp/er-diagram.sqlite".into();
+        app.session.manager.add(config);
+        app.session.manager.active = Some("demo".into());
+
+        app.load_er_diagram_data();
+
+        assert!(app.session.notifications.is_empty());
+    }
+
+    #[test]
+    fn er_diagram_load_plan_uses_sqlite_file_path_for_catalog_identity() {
         let mut connection = sqlite_connection("demo");
+        connection.config.database = "/tmp/er-diagram.sqlite".to_string();
         connection.connected = true;
         connection.tables = vec!["users".to_string(), "orders".to_string()];
 
@@ -278,12 +309,95 @@ mod tests {
                 db_name,
                 connection_id,
             } => {
-                assert_eq!(db_name, "未选择");
+                assert_eq!(db_name, connection.config.database);
                 assert_eq!(tables, vec!["users", "orders"]);
                 // connection_id 是由 ConnectionId::default() 生成的 UUID
                 assert_eq!(connection_id, connection.id);
             }
             other => panic!("unexpected load plan: {other:?}"),
         }
+    }
+    #[test]
+    fn sqlite_er_load_uses_file_catalog_for_columns_and_foreign_keys() {
+        let mut app = DbManagerApp::new_for_test();
+        let mut config = ConnectionConfig::new("demo", DatabaseType::SQLite);
+        config.database = "/tmp/er-diagram.sqlite".into();
+        app.session.manager.add(config);
+        app.session.manager.active = Some("demo".into());
+        let conn = app
+            .session
+            .manager
+            .connections
+            .get_mut("demo")
+            .expect("connection");
+        conn.set_connected(vec!["users".into(), "orders".into()]);
+        let conn_id = conn.id;
+        let column = |name: &str, is_primary_key| ColumnMetadata {
+            name: name.into(),
+            position: 1,
+            type_info: DbTypeInfo {
+                family: DbTypeFamily::Integer,
+                native_name: "INTEGER".into(),
+                nullable: Some(false),
+            },
+            is_nullable: false,
+            is_primary_key,
+            default_value: None,
+        };
+        let catalog = SchemaCatalog {
+            revision: SchemaRevision(0),
+            tables: vec![
+                TableMetadata {
+                    name: "users".into(),
+                    schema: None,
+                    columns: vec![column("id", true)],
+                    primary_key: None,
+                    unique_keys: vec![],
+                    foreign_keys: vec![],
+                },
+                TableMetadata {
+                    name: "orders".into(),
+                    schema: None,
+                    columns: vec![column("id", true), column("user_id", false)],
+                    primary_key: None,
+                    unique_keys: vec![],
+                    foreign_keys: vec![ForeignKeyMetadata {
+                        name: None,
+                        from_columns: vec!["user_id".into()],
+                        ref_table: "users".into(),
+                        ref_columns: vec!["id".into()],
+                    }],
+                },
+            ],
+        };
+        app.load_er_diagram_data();
+        assert!(
+            app.state
+                .er_diagram_state
+                .tables
+                .iter()
+                .all(|table| table.columns.is_empty())
+        );
+        app.session
+            .schema_catalogs
+            .insert((conn_id, "/tmp/er-diagram.sqlite".into()), catalog);
+        app.load_er_diagram_data();
+        let orders = app
+            .state
+            .er_diagram_state
+            .tables
+            .iter()
+            .find(|table| table.name == "orders")
+            .expect("orders");
+        assert_eq!(orders.columns.len(), 2);
+        assert!(
+            orders
+                .columns
+                .iter()
+                .find(|column| column.name == "user_id")
+                .expect("FK column")
+                .is_foreign_key
+        );
+        assert_eq!(app.state.er_diagram_state.relationships.len(), 1);
     }
 }

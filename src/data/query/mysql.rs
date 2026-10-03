@@ -122,6 +122,10 @@ pub(crate) async fn execute_batch(
     use_transaction: bool,
     stop_on_error: bool,
 ) -> Result<ImportExecutionReport, DbError> {
+    if use_transaction {
+        crate::core::validate_wrapped_import_statements(statements, crate::core::SqlDialect::MySql)
+            .map_err(|error| DbError::Query(format!("MySQL 事务导入拒绝执行: {error}")))?;
+    }
     let pool = POOL_MANAGER.get_mysql_pool(config).await?;
 
     let mut conn = pool
@@ -141,23 +145,34 @@ pub(crate) async fn execute_batch(
     }
 
     for (index, statement) in statements.iter().enumerate() {
-        let exec_result = conn.query_iter(statement).await;
-        match exec_result {
-            Ok(result) => {
-                drop(result);
-                report.succeeded += 1;
-            }
+        match conn.query_drop(statement).await {
+            Ok(()) => report.succeeded += 1,
             Err(e) => {
                 let err_msg = format!("第 {} 条语句执行失败: {}", index + 1, e);
 
                 if use_transaction {
-                    if let Err(rollback_err) = conn.query_drop("ROLLBACK").await {
-                        return Err(DbError::Query(format!(
-                            "事务回滚失败（原错误: {}，回滚错误: {}）",
-                            err_msg, rollback_err
-                        )));
-                    }
-                    return Err(DbError::Query(format!("事务已回滚，{}", err_msg)));
+                    rollback_mysql_with_warning_check(&mut conn)
+                        .await
+                        .map_err(|source| DbError::ImportOutcomeUnknown {
+                            backend: "MySQL",
+                            operation: "ROLLBACK",
+                            context: err_msg.clone(),
+                            source: Box::new(source),
+                        })?;
+                    return Err(DbError::Query(format!("事务已回滚，{err_msg}")));
+                }
+
+                if e.is_fatal() {
+                    return Err(DbError::ImportOutcomeUnknown {
+                        backend: "MySQL",
+                        operation: "STATEMENT",
+                        context: format!(
+                            "第 {} 条语句执行失败，此前已成功 {} 条语句",
+                            index + 1,
+                            report.succeeded
+                        ),
+                        source: Box::new(e),
+                    });
                 }
 
                 report.failed += 1;
@@ -175,10 +190,54 @@ pub(crate) async fn execute_batch(
     if use_transaction {
         conn.query_drop("COMMIT")
             .await
-            .map_err(|e| DbError::Query(format!("提交事务失败: {}", e)))?;
+            .map_err(|source| DbError::ImportOutcomeUnknown {
+                backend: "MySQL",
+                operation: "COMMIT",
+                context: "batch import".into(),
+                source: Box::new(source),
+            })?;
     }
 
     Ok(report)
+}
+
+/// MySQL may acknowledge ROLLBACK while retaining writes to non-transactional tables.
+#[derive(Debug, thiserror::Error)]
+enum MySqlRollbackError {
+    #[error("ROLLBACK acknowledgement failed: {0}")]
+    Rollback(#[source] mysql_async::Error),
+    #[error("ROLLBACK reported warning {code}: {message}")]
+    Warning { code: u16, message: String },
+    #[error("ROLLBACK reported {count} warnings but SHOW WARNINGS returned none")]
+    MissingWarnings { count: u16 },
+    #[error("SHOW WARNINGS after ROLLBACK failed: {0}")]
+    Inspection(#[source] mysql_async::Error),
+}
+
+async fn rollback_mysql_with_warning_check(
+    conn: &mut mysql_async::Conn,
+) -> Result<(), MySqlRollbackError> {
+    conn.query_drop("ROLLBACK")
+        .await
+        .map_err(MySqlRollbackError::Rollback)?;
+    let warning_count = conn.get_warnings();
+    if warning_count == 0 {
+        return Ok(());
+    }
+
+    // Read the diagnostics before issuing any other statement on this connection.
+    let warnings: Vec<(String, u16, String)> = conn
+        .query("SHOW WARNINGS")
+        .await
+        .map_err(MySqlRollbackError::Inspection)?;
+    let (_, code, message) =
+        warnings
+            .into_iter()
+            .next()
+            .ok_or(MySqlRollbackError::MissingWarnings {
+                count: warning_count,
+            })?;
+    Err(MySqlRollbackError::Warning { code, message })
 }
 
 /// 获取 MySQL 触发器
@@ -396,7 +455,7 @@ pub(crate) async fn load_catalog(
             .exec(
                 "SELECT COLUMN_NAME FROM information_schema.STATISTICS \
                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? \
-                   AND INDEX_NAME = 'PRIMARY'",
+                   AND INDEX_NAME = 'PRIMARY' ORDER BY SEQ_IN_INDEX",
                 (table_name.as_str(),),
             )
             .await
@@ -416,27 +475,72 @@ pub(crate) async fn load_catalog(
             })
         };
 
-        // 4. 外键
+        // Index statistics distinguish full-column unique keys from partial-prefix
+        // or expression indexes, which cannot identify the complete column tuple.
+        let unique_rows: Vec<mysql_async::Row> = conn
+            .exec(
+                "SELECT INDEX_NAME, COLUMN_NAME FROM information_schema.STATISTICS \
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? \
+                   AND NON_UNIQUE = 0 AND INDEX_NAME <> 'PRIMARY' \
+                   AND INDEX_NAME NOT IN ( \
+                       SELECT INDEX_NAME FROM information_schema.STATISTICS \
+                       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? \
+                         AND (SUB_PART IS NOT NULL OR COLUMN_NAME IS NULL)) \
+                 ORDER BY INDEX_NAME, SEQ_IN_INDEX",
+                (table_name.as_str(), table_name.as_str()),
+            )
+            .await
+            .map_err(|e| DbError::Query(format!("查询 {table_name} 唯一键失败: {e}")))?;
+        let mut unique_map = std::collections::BTreeMap::<String, KeyMetadata>::new();
+        for row in unique_rows {
+            let name: String = row.get(0).unwrap_or_default();
+            let key = unique_map
+                .entry(name.clone())
+                .or_insert_with(|| KeyMetadata {
+                    name: Some(name),
+                    columns: Vec::new(),
+                });
+            key.columns
+                .push(row.get::<String, _>(1).unwrap_or_default());
+        }
+        let unique_keys = unique_map.into_values().collect();
+
         let fk_rows: Vec<mysql_async::Row> = conn
             .exec(
-                "SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME \
+                "SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_SCHEMA, \
+                        REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME \
                  FROM information_schema.KEY_COLUMN_USAGE \
                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? \
-                   AND REFERENCED_TABLE_NAME IS NOT NULL",
+                   AND REFERENCED_TABLE_NAME IS NOT NULL \
+                 ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION",
                 (table_name.as_str(),),
             )
             .await
-            .map_err(|e| DbError::Query(format!("查询外键失败: {}", e)))?;
-
-        let foreign_keys: Vec<ForeignKeyMetadata> = fk_rows
-            .iter()
-            .map(|r| ForeignKeyMetadata {
-                name: None,
-                from_columns: vec![r.get::<String, _>(0).unwrap_or_default()],
-                ref_table: r.get::<String, _>(1).unwrap_or_default(),
-                ref_columns: vec![r.get::<String, _>(2).unwrap_or_default()],
-            })
-            .collect();
+            .map_err(|e| DbError::Query(format!("查询 {table_name} 外键失败: {e}")))?;
+        let mut fk_map = std::collections::BTreeMap::<String, ForeignKeyMetadata>::new();
+        for row in fk_rows {
+            let name: String = row.get(0).unwrap_or_default();
+            let ref_schema: String = row.get(2).unwrap_or_default();
+            let ref_table: String = row.get(3).unwrap_or_default();
+            let ref_table = if ref_schema == schema_name {
+                ref_table
+            } else {
+                format!("{ref_schema}.{ref_table}")
+            };
+            let fk = fk_map
+                .entry(name.clone())
+                .or_insert_with(|| ForeignKeyMetadata {
+                    name: Some(name),
+                    from_columns: Vec::new(),
+                    ref_table,
+                    ref_columns: Vec::new(),
+                });
+            fk.from_columns
+                .push(row.get::<String, _>(1).unwrap_or_default());
+            fk.ref_columns
+                .push(row.get::<String, _>(4).unwrap_or_default());
+        }
+        let foreign_keys = fk_map.into_values().collect();
 
         let is_pk = |col_name: &str| pk_columns.iter().any(|pk| pk == col_name);
 
@@ -469,7 +573,7 @@ pub(crate) async fn load_catalog(
             schema: Some(schema_name.clone()),
             columns,
             primary_key,
-            unique_keys: Vec::new(),
+            unique_keys,
             foreign_keys,
         });
     }
@@ -482,7 +586,7 @@ pub(crate) async fn load_catalog(
 use crate::domain::execution::ExecutionOutcome;
 use crate::domain::result::{ResultColumn, ResultCompleteness, ResultSet};
 use crate::domain::value::{DbTypeFamily, DbTypeInfo, DbValue};
-use mysql_async::consts::{ColumnFlags, ColumnType};
+use mysql_async::consts::ColumnType;
 
 use mysql_async::prelude::Queryable;
 
@@ -512,14 +616,18 @@ pub(crate) async fn execute_typed_cancellable(
         return Err(DbError::Cancelled);
     }
 
-    let pool = POOL_MANAGER
-        .get_mysql_pool(config)
-        .await
-        .map_err(|e| DbError::Connection(format!("MySQL 连接池获取失败: {}", e)))?;
-    let mut conn = pool
-        .get_conn()
-        .await
-        .map_err(|e| DbError::Connection(format!("MySQL 执行连接获取失败: {}", e)))?;
+    let pool = tokio::select! {
+        result = POOL_MANAGER.get_mysql_pool(config) => {
+            result.map_err(|e| DbError::Connection(format!("MySQL 连接池获取失败: {e}")))?
+        }
+        _ = cancellation.cancelled() => return Err(DbError::Cancelled),
+    };
+    let mut conn = tokio::select! {
+        result = pool.get_conn() => {
+            result.map_err(|e| DbError::Connection(format!("MySQL 执行连接获取失败: {e}")))?
+        }
+        _ = cancellation.cancelled() => return Err(DbError::Cancelled),
+    };
 
     if cancellation.is_cancelled() {
         return Err(DbError::Cancelled);
@@ -650,28 +758,25 @@ fn mysql_value_to_dbvalue(val: mysql_async::Value, column: &mysql_async::Column)
         Value::UInt(u) => DbValue::UInt(u),
         Value::Float(f) => DbValue::Float(f as f64),
         Value::Double(d) => DbValue::Float(d),
-        Value::Bytes(bytes) => match column.column_type() {
-            ColumnType::MYSQL_TYPE_BIT => DbValue::Bytes(std::sync::Arc::from(bytes)),
-            ColumnType::MYSQL_TYPE_BLOB
-            | ColumnType::MYSQL_TYPE_LONG_BLOB
-            | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
-            | ColumnType::MYSQL_TYPE_TINY_BLOB
-                if column.flags().contains(ColumnFlags::BINARY_FLAG) =>
-            {
-                DbValue::Bytes(std::sync::Arc::from(bytes))
-            }
-            ColumnType::MYSQL_TYPE_DECIMAL | ColumnType::MYSQL_TYPE_NEWDECIMAL => {
-                String::from_utf8(bytes)
+        Value::Bytes(bytes) => {
+            if matches!(
+                column.column_type(),
+                ColumnType::MYSQL_TYPE_DECIMAL | ColumnType::MYSQL_TYPE_NEWDECIMAL
+            ) {
+                return String::from_utf8(bytes)
                     .map(DbValue::Decimal)
-                    .unwrap_or_else(|error| DbValue::Other {
-                        native_type: "DECIMAL".to_string(),
-                        display: error.to_string(),
-                    })
+                    .unwrap_or_else(|error| {
+                        DbValue::Bytes(std::sync::Arc::from(error.into_bytes()))
+                    });
             }
-            _ => String::from_utf8(bytes)
-                .map(DbValue::Text)
-                .unwrap_or(DbValue::Null),
-        },
+            if column.character_set() == 63 || column.column_type() == ColumnType::MYSQL_TYPE_BIT {
+                return DbValue::Bytes(std::sync::Arc::from(bytes));
+            }
+            match String::from_utf8(bytes) {
+                Ok(text) => DbValue::Text(text),
+                Err(error) => DbValue::Bytes(std::sync::Arc::from(error.into_bytes())),
+            }
+        }
         Value::Date(y, m, d, h, mi, s, us) => {
             if matches!(
                 column.column_type(),
@@ -874,6 +979,22 @@ fn is_valid_mysql_date(year: i32, month: u8, day: u8) -> bool {
     (1..=days_in_month).contains(&day)
 }
 
+fn check_mysql_expected_rows(
+    actual: u64,
+    expected: ExpectedRows,
+    operation: &str,
+) -> Result<(), DbError> {
+    match expected {
+        ExpectedRows::Exactly(n) if actual != n => Err(DbError::Query(format!(
+            "MySQL {operation}: expected {n} rows, affected {actual}"
+        ))),
+        ExpectedRows::AtLeast(n) if actual < n => Err(DbError::Query(format!(
+            "MySQL {operation}: expected at least {n} rows, affected {actual}"
+        ))),
+        _ => Ok(()),
+    }
+}
+
 /// 以参数化方式执行 MutationBatch（MySQL 实现）。
 pub(crate) async fn apply_mutations(
     config: &ConnectionConfig,
@@ -976,13 +1097,7 @@ pub(crate) async fn apply_mutations(
                         .await
                         .map_err(|e| DbError::Query(format!("MySQL UPDATE: {e}")))?;
                     let n = conn.affected_rows();
-                    if let ExpectedRows::Exactly(e) = expected_rows
-                        && n != *e
-                    {
-                        return Err(DbError::Query(format!(
-                            "MySQL UPDATE: expected {e} rows, affected {n}"
-                        )));
-                    }
+                    check_mysql_expected_rows(n, *expected_rows, "UPDATE")?;
                     n
                 }
                 Mutation::Delete {
@@ -1010,13 +1125,7 @@ pub(crate) async fn apply_mutations(
                         .await
                         .map_err(|e| DbError::Query(format!("MySQL DELETE: {e}")))?;
                     let n = conn.affected_rows();
-                    if let ExpectedRows::Exactly(e) = expected_rows
-                        && n != *e
-                    {
-                        return Err(DbError::Query(format!(
-                            "MySQL DELETE: expected {e} rows, affected {n}"
-                        )));
-                    }
+                    check_mysql_expected_rows(n, *expected_rows, "DELETE")?;
                     n
                 }
             };
@@ -1032,7 +1141,12 @@ pub(crate) async fn apply_mutations(
                 affected,
                 all_success: true,
             }),
-            Err(commit_error) => rollback_mysql_transaction(&mut conn, commit_error).await,
+            Err(source) => Err(DbError::MutationOutcomeUnknown {
+                backend: "MySQL",
+                operation: "COMMIT",
+                context: "commit acknowledgement unavailable".into(),
+                source: Box::new(source),
+            }),
         },
         Err(error) => rollback_mysql_transaction(&mut conn, error).await,
     }
@@ -1040,15 +1154,16 @@ pub(crate) async fn apply_mutations(
 
 async fn rollback_mysql_transaction(
     conn: &mut mysql_async::Conn,
-    original_error: impl std::fmt::Display,
+    original_error: DbError,
 ) -> Result<MutationBatchResult, DbError> {
-    match conn.query_drop("ROLLBACK").await {
-        Ok(()) => Err(DbError::Query(format!(
-            "MySQL mutation failed: {original_error}"
-        ))),
-        Err(rollback_error) => Err(DbError::Query(format!(
-            "MySQL mutation failed: {original_error}; rollback failed: {rollback_error}"
-        ))),
+    match rollback_mysql_with_warning_check(conn).await {
+        Ok(()) => Err(original_error),
+        Err(source) => Err(DbError::MutationOutcomeUnknown {
+            backend: "MySQL",
+            operation: "ROLLBACK",
+            context: format!("rollback after {original_error}"),
+            source: Box::new(source),
+        }),
     }
 }
 

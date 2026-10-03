@@ -31,6 +31,17 @@ pub struct DbManagerApp {
 
 `src/ui/dock_tabs.rs` — DockTab, WorkspaceViewer, `refresh_dock_from_session()`. `refresh_dock_from_session()` reads from `self.session.tab_manager`; `ensure_surface_tab()`/`has_surface_tab()` manage surface tabs.
 egui_dock 0.21 uses `TabViewer::id()` for per-tab UI identity; derive IDs from stable surface/document identity, not the visible title alone. egui 0.36 ID arguments used with `Id::new`, `id_salt`, or `push_id` require both `Hash` and `Debug`; migrate caller bounds without changing the hashed identity.
+SQL `DockTab` entries retain their document UUID independently of their projected session index.
+`sync_sql_documents()` updates only the index/title by UUID; dragging dock tabs must never
+rebind a surface to another SQL document. Dock title clicks, keyboard navigation and actions
+must navigate through `activate_query_tab()` so the departing grid draft is persisted and
+the target document is activated in the dock. Merely painting a split SQL surface must not
+change the session active document. Result/Explain surfaces resolve their own
+`query_tab_id`, never silently display the currently active document's result.
+Inactive result grids render a non-interactive copy of their owner's draft until clicked,
+then navigate to that owner before allowing edits; split SQL documents use the same rule.
+DockArea's temporary fallback must merge newly revealed surfaces into the live dock on
+frame completion without reopening its default seed.
 
 ## Workbench shell
 

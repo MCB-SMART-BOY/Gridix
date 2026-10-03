@@ -143,6 +143,13 @@ pub(crate) async fn execute_batch(
     use_transaction: bool,
     stop_on_error: bool,
 ) -> Result<ImportExecutionReport, DbError> {
+    if use_transaction {
+        crate::core::validate_wrapped_import_statements(
+            statements,
+            crate::core::SqlDialect::Postgres,
+        )
+        .map_err(|error| DbError::Query(format!("PostgreSQL 导入事务校验失败: {error}")))?;
+    }
     let client = POOL_MANAGER.get_pg_client(config).await?;
     let client = client.lock().await;
 
@@ -163,13 +170,31 @@ pub(crate) async fn execute_batch(
             let err_msg = format!("第 {} 条语句执行失败: {}", index + 1, e);
 
             if use_transaction {
-                if let Err(rollback_err) = client.batch_execute("ROLLBACK").await {
-                    return Err(DbError::Query(format!(
-                        "事务回滚失败（原错误: {}，回滚错误: {}）",
-                        err_msg, rollback_err
-                    )));
+                if let Err(source) = client.batch_execute("ROLLBACK").await {
+                    return Err(DbError::ImportOutcomeUnknown {
+                        backend: "PostgreSQL",
+                        operation: "ROLLBACK",
+                        context: err_msg,
+                        source: Box::new(source),
+                    });
                 }
-                return Err(DbError::Query(format!("事务已回滚，{}", err_msg)));
+                return Err(DbError::Query(format!("事务已回滚，{err_msg}")));
+            }
+            if e.as_db_error().is_none_or(|db_error| {
+                db_error.parsed_severity().is_none_or(|severity| {
+                    matches!(
+                        severity,
+                        tokio_postgres::error::Severity::Fatal
+                            | tokio_postgres::error::Severity::Panic
+                    )
+                }) || db_error.code().code().starts_with("08")
+            }) {
+                return Err(DbError::ImportOutcomeUnknown {
+                    backend: "PostgreSQL",
+                    operation: "STATEMENT",
+                    context: format!("statement {} of unwrapped import", index + 1),
+                    source: Box::new(e),
+                });
             }
 
             report.failed += 1;
@@ -189,7 +214,12 @@ pub(crate) async fn execute_batch(
         client
             .batch_execute("COMMIT")
             .await
-            .map_err(|e| DbError::Query(format!("提交事务失败: {}", e)))?;
+            .map_err(|source| DbError::ImportOutcomeUnknown {
+                backend: "PostgreSQL",
+                operation: "COMMIT",
+                context: "batch import".into(),
+                source: Box::new(source),
+            })?;
     }
 
     Ok(report)
@@ -389,54 +419,76 @@ pub(crate) async fn load_catalog(
             })
         };
 
-        // 4. 外键 — 聚合同一 constraint 的多列（复合外键）
+        // Constraint OIDs preserve identity even when names repeat in different schemas.
+        // conkey/confkey positions, not constraint_column_usage, pair composite FK columns.
         let fk_rows = client
             .query(
-                "SELECT kcu.COLUMN_NAME, \
-                        ccu.TABLE_NAME AS REFERENCED_TABLE_NAME, \
-                        ccu.COLUMN_NAME AS REFERENCED_COLUMN_NAME, \
-                        kcu.CONSTRAINT_NAME \
-                 FROM information_schema.KEY_COLUMN_USAGE kcu \
-                 JOIN information_schema.REFERENTIAL_CONSTRAINTS rc \
-                   ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME \
-                  AND kcu.TABLE_SCHEMA = rc.CONSTRAINT_SCHEMA \
-                 JOIN information_schema.CONSTRAINT_COLUMN_USAGE ccu \
-                   ON rc.UNIQUE_CONSTRAINT_NAME = ccu.CONSTRAINT_NAME \
-                  AND rc.UNIQUE_CONSTRAINT_SCHEMA = ccu.TABLE_SCHEMA \
-                 WHERE kcu.TABLE_SCHEMA = $1 \
-                   AND kcu.TABLE_NAME = $2 \
-                 ORDER BY kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION",
+                "SELECT con.oid, con.conname, source_att.attname, \
+                        ref_ns.nspname, ref_rel.relname, ref_att.attname \
+                 FROM pg_constraint con \
+                 JOIN pg_class source_rel ON source_rel.oid = con.conrelid \
+                 JOIN pg_namespace source_ns ON source_ns.oid = source_rel.relnamespace \
+                 JOIN pg_class ref_rel ON ref_rel.oid = con.confrelid \
+                 JOIN pg_namespace ref_ns ON ref_ns.oid = ref_rel.relnamespace \
+                 JOIN LATERAL generate_subscripts(con.conkey, 1) AS pos(n) ON true \
+                 JOIN pg_attribute source_att \
+                   ON source_att.attrelid = con.conrelid AND source_att.attnum = con.conkey[pos.n] \
+                 JOIN pg_attribute ref_att \
+                   ON ref_att.attrelid = con.confrelid AND ref_att.attnum = con.confkey[pos.n] \
+                 WHERE con.contype = 'f' AND source_ns.nspname = $1 \
+                   AND source_rel.relname = $2 \
+                 ORDER BY con.oid, pos.n",
                 &[&schema, &table_name.as_str()],
             )
             .await
-            .map_err(|e| DbError::Query(format!("查询外键失败: {}", e)))?;
-
-        // 按约束名聚合外键列
-        type FkAggregate = (Option<String>, Vec<String>, String, Vec<String>);
-        let mut fk_map: std::collections::BTreeMap<String, FkAggregate> =
-            std::collections::BTreeMap::new();
-        for row in &fk_rows {
-            let constraint: String = row.get(3);
-            let col: String = row.get(0);
-            let ref_table: String = row.get(1);
-            let ref_col: String = row.get(2);
-            let entry = fk_map
-                .entry(constraint.clone())
-                .or_insert_with(|| (Some(constraint.clone()), Vec::new(), ref_table, Vec::new()));
-            entry.1.push(col);
-            entry.3.push(ref_col);
+            .map_err(|e| DbError::Query(format!("查询 {schema}.{table_name} 外键失败: {e}")))?;
+        let mut fk_map = std::collections::BTreeMap::<u32, ForeignKeyMetadata>::new();
+        for row in fk_rows {
+            let id: u32 = row.get(0);
+            let ref_schema: String = row.get(3);
+            let ref_table: String = row.get(4);
+            let ref_table = if ref_schema == schema {
+                ref_table
+            } else {
+                format!("{ref_schema}.{ref_table}")
+            };
+            let fk = fk_map.entry(id).or_insert_with(|| ForeignKeyMetadata {
+                name: Some(row.get(1)),
+                from_columns: Vec::new(),
+                ref_table,
+                ref_columns: Vec::new(),
+            });
+            fk.from_columns.push(row.get(2));
+            fk.ref_columns.push(row.get(5));
         }
-        let foreign_keys: Vec<ForeignKeyMetadata> = fk_map
-            .into_values()
-            .map(
-                |(name, from_cols, ref_table, ref_cols)| ForeignKeyMetadata {
-                    name,
-                    from_columns: from_cols,
-                    ref_table,
-                    ref_columns: ref_cols,
-                },
+        let foreign_keys = fk_map.into_values().collect();
+
+        let unique_rows = client
+            .query(
+                "SELECT con.oid, con.conname, att.attname \
+                 FROM pg_constraint con \
+                 JOIN pg_class rel ON rel.oid = con.conrelid \
+                 JOIN pg_namespace ns ON ns.oid = rel.relnamespace \
+                 JOIN pg_index idx ON idx.indexrelid = con.conindid \
+                 JOIN LATERAL generate_subscripts(con.conkey, 1) AS pos(n) \
+                   ON pos.n <= idx.indnkeyatts \
+                 JOIN pg_attribute att \
+                   ON att.attrelid = con.conrelid AND att.attnum = con.conkey[pos.n] \
+                 WHERE con.contype = 'u' AND ns.nspname = $1 AND rel.relname = $2 \
+                 ORDER BY con.oid, pos.n",
+                &[&schema, &table_name.as_str()],
             )
-            .collect();
+            .await
+            .map_err(|e| DbError::Query(format!("查询 {schema}.{table_name} 唯一键失败: {e}")))?;
+        let mut unique_map = std::collections::BTreeMap::<u32, KeyMetadata>::new();
+        for row in unique_rows {
+            let key = unique_map.entry(row.get(0)).or_insert_with(|| KeyMetadata {
+                name: Some(row.get(1)),
+                columns: Vec::new(),
+            });
+            key.columns.push(row.get(2));
+        }
+        let unique_keys = unique_map.into_values().collect();
 
         let is_pk = |col_name: &str| pk_columns.iter().any(|pk| pk == col_name);
 
@@ -469,7 +521,7 @@ pub(crate) async fn load_catalog(
             schema: Some(schema.clone()),
             columns,
             primary_key,
-            unique_keys: Vec::new(),
+            unique_keys,
             foreign_keys,
         });
     }
@@ -488,6 +540,11 @@ pub(crate) async fn execute_typed(
     config: &ConnectionConfig,
     sql: &str,
 ) -> Result<ExecutionOutcome, DbError> {
+    if super::postgres_tab::transaction_command(sql).is_some() {
+        return Err(DbError::Query(
+            "PostgreSQL transaction control requires a SQL Tab session".into(),
+        ));
+    }
     let client = POOL_MANAGER.get_pg_client(config).await?;
     let mut client = client.lock().await;
     execute_typed_with_client(&mut client, sql).await
@@ -502,9 +559,25 @@ pub(crate) async fn execute_typed_cancellable(
     if cancellation.is_cancelled() {
         return Err(DbError::Cancelled);
     }
+    if super::postgres_tab::transaction_command(sql).is_some() {
+        return Err(DbError::Query(
+            "PostgreSQL transaction control requires a SQL Tab session".into(),
+        ));
+    }
 
-    let client = POOL_MANAGER.get_pg_client(config).await?;
-    let mut client = client.lock().await;
+    let client = tokio::select! {
+        result = POOL_MANAGER.get_pg_client(config) => result?,
+        _ = cancellation.cancelled() => return Err(DbError::Cancelled),
+    };
+    let mut client = tokio::select! {
+        guard = client.lock() => guard,
+        _ = cancellation.cancelled() => return Err(DbError::Cancelled),
+    };
+    // A queued request may be cancelled while waiting for the pooled client.
+    // Do not dispatch user SQL after that cancellation.
+    if cancellation.is_cancelled() {
+        return Err(DbError::Cancelled);
+    }
     let cancel_token = client.cancel_token();
     let query = execute_typed_with_client(&mut client, sql);
     tokio::pin!(query);
@@ -522,7 +595,7 @@ pub(crate) async fn execute_typed_cancellable(
     }
 }
 
-async fn cancel_pg_query(
+pub(super) async fn cancel_pg_query(
     config: &ConnectionConfig,
     token: tokio_postgres::CancelToken,
 ) -> Result<(), DbError> {
@@ -541,7 +614,7 @@ async fn cancel_pg_query(
     }
 }
 
-async fn execute_typed_with_client(
+pub(super) async fn execute_typed_with_client(
     client: &mut tokio_postgres::Client,
     sql: &str,
 ) -> Result<ExecutionOutcome, DbError> {
@@ -557,54 +630,7 @@ async fn execute_typed_with_client(
         .transaction()
         .await
         .map_err(|e| DbError::Query(format!("PG BEGIN result query: {e}")))?;
-    let result = async {
-        let statement = transaction
-            .prepare(sql)
-            .await
-            .map_err(|e| DbError::Query(format!("PG prepare query: {e}")))?;
-        let columns = statement.columns();
-        let typed_columns = pg_result_columns(columns);
-        let portal = transaction
-            .bind(&statement, &[])
-            .await
-            .map_err(|e| DbError::Query(format!("PG bind query portal: {e}")))?;
-        let max_rows = constants::database::MAX_RESULT_SET_ROWS;
-        let portal_limit = max_rows
-            .checked_add(1)
-            .and_then(|limit| i32::try_from(limit).ok())
-            .ok_or_else(|| {
-                DbError::Query("PG result row limit exceeds portal protocol limit".into())
-            })?;
-        let rows = transaction
-            .query_portal(&portal, portal_limit)
-            .await
-            .map_err(|e| DbError::Query(format!("PG fetch bounded query portal: {e}")))?;
-        let is_truncated = rows.len() > max_rows;
-        let displayed_rows = rows.into_iter().take(max_rows);
-        let mut cells = Vec::with_capacity(displayed_rows.len() * columns.len());
-
-        for row in displayed_rows {
-            for (index, column) in columns.iter().enumerate() {
-                cells.push(pg_row_value(&row, index, column.type_())?);
-            }
-        }
-
-        let row_count = cells.len() / columns.len().max(1);
-        let completeness = if is_truncated {
-            ResultCompleteness::Truncated {
-                displayed: row_count,
-            }
-        } else {
-            ResultCompleteness::Complete
-        };
-        Ok(ExecutionOutcome::single_result(ResultSet {
-            columns: typed_columns,
-            cells,
-            row_count,
-            completeness,
-        }))
-    }
-    .await;
+    let result = execute_typed_with_transaction(&transaction, sql).await;
 
     match result {
         Ok(outcome) => transaction
@@ -612,8 +638,94 @@ async fn execute_typed_with_client(
             .await
             .map(|()| outcome)
             .map_err(|e| DbError::Query(format!("PG COMMIT result query: {e}"))),
-        Err(error) => rollback_pg_transaction(transaction, error).await,
+        Err(error) => rollback_pg_transaction(transaction, error.into_error()).await,
     }
+}
+
+/// Distinguishes server-side transaction failure from local result decoding failure.
+pub(super) enum PgQueryError {
+    Server(DbError),
+    Decode(DbError),
+}
+
+impl PgQueryError {
+    pub(super) fn into_error(self) -> DbError {
+        match self {
+            Self::Server(error) | Self::Decode(error) => error,
+        }
+    }
+}
+
+fn classify_tab_query_error(operation: &'static str, error: tokio_postgres::Error) -> DbError {
+    if error.code().is_none() {
+        DbError::Connection(format!("{operation}: {error}"))
+    } else {
+        DbError::Query(format!("{operation}: {error}"))
+    }
+}
+
+/// A bounded portal inside an explicitly owned Tab transaction; never commits or rolls back.
+pub(super) async fn execute_typed_with_transaction(
+    transaction: &tokio_postgres::Transaction<'_>,
+    sql: &str,
+) -> Result<ExecutionOutcome, PgQueryError> {
+    if !is_query_statement(sql, &DatabaseType::PostgreSQL) {
+        let affected = transaction.execute(sql, &[]).await.map_err(|error| {
+            PgQueryError::Server(classify_tab_query_error("PG execute statement", error))
+        })?;
+        return Ok(ExecutionOutcome::affected_rows(affected));
+    }
+
+    let statement = transaction.prepare(sql).await.map_err(|error| {
+        PgQueryError::Server(classify_tab_query_error("PG prepare query", error))
+    })?;
+    let columns = statement.columns();
+    let typed_columns = pg_result_columns(columns);
+    let portal = transaction.bind(&statement, &[]).await.map_err(|error| {
+        PgQueryError::Server(classify_tab_query_error("PG bind query portal", error))
+    })?;
+    let max_rows = constants::database::MAX_RESULT_SET_ROWS;
+    let portal_limit = max_rows
+        .checked_add(1)
+        .and_then(|limit| i32::try_from(limit).ok())
+        .ok_or_else(|| {
+            PgQueryError::Decode(DbError::Query(
+                "PG result row limit exceeds portal protocol limit".into(),
+            ))
+        })?;
+    let rows = transaction
+        .query_portal(&portal, portal_limit)
+        .await
+        .map_err(|error| {
+            PgQueryError::Server(classify_tab_query_error(
+                "PG fetch bounded query portal",
+                error,
+            ))
+        })?;
+    let is_truncated = rows.len() > max_rows;
+    let displayed_rows = rows.into_iter().take(max_rows);
+    let mut cells = Vec::with_capacity(displayed_rows.len() * columns.len());
+
+    for row in displayed_rows {
+        for (index, column) in columns.iter().enumerate() {
+            cells.push(pg_row_value(&row, index, column.type_()).map_err(PgQueryError::Decode)?);
+        }
+    }
+
+    let row_count = cells.len() / columns.len().max(1);
+    let completeness = if is_truncated {
+        ResultCompleteness::Truncated {
+            displayed: row_count,
+        }
+    } else {
+        ResultCompleteness::Complete
+    };
+    Ok(ExecutionOutcome::single_result(ResultSet {
+        columns: typed_columns,
+        cells,
+        row_count,
+        completeness,
+    }))
 }
 
 async fn rollback_pg_transaction(
@@ -727,10 +839,11 @@ fn pg_row_value(
             DbValue::Bytes(value.into())
         });
     }
-    Ok(DbValue::Other {
-        native_type: type_info.name().to_owned(),
-        display: format!("<unsupported PostgreSQL type oid={}>", type_info.oid()),
-    })
+    Err(DbError::Query(format!(
+        "PG decode column {index}: unsupported PostgreSQL type {} (oid {})",
+        type_info.name(),
+        type_info.oid()
+    )))
 }
 
 fn is_pg_text_type(type_info: &Type) -> bool {
@@ -782,6 +895,9 @@ fn decode_pg_numeric(raw: PgNumericRaw) -> Result<String, String> {
     const HEADER_BYTES: usize = 8;
     const POSITIVE: u16 = 0x0000;
     const NEGATIVE: u16 = 0x4000;
+    const NAN: u16 = 0xc000;
+    const POSITIVE_INFINITY: u16 = 0xd000;
+    const NEGATIVE_INFINITY: u16 = 0xf000;
 
     if raw.0.len() < HEADER_BYTES || !raw.0.len().is_multiple_of(2) {
         return Err("invalid NUMERIC binary payload length".into());
@@ -797,6 +913,14 @@ fn decode_pg_numeric(raw: PgNumericRaw) -> Result<String, String> {
         return Err("NUMERIC digit count does not match payload".into());
     }
     let sign = words[2];
+    if digit_count == 0 {
+        match sign {
+            NAN => return Ok("NaN".into()),
+            POSITIVE_INFINITY => return Ok("Infinity".into()),
+            NEGATIVE_INFINITY => return Ok("-Infinity".into()),
+            _ => {}
+        }
+    }
     if sign != POSITIVE && sign != NEGATIVE {
         return Err(format!("unsupported NUMERIC sign code {sign:#06x}"));
     }
@@ -1054,6 +1178,22 @@ fn extract_pk(
     }
 }
 
+fn check_pg_expected_rows(
+    actual: u64,
+    expected: ExpectedRows,
+    operation: &str,
+) -> Result<(), DbError> {
+    match expected {
+        ExpectedRows::Exactly(count) if actual != count => Err(DbError::Query(format!(
+            "PG {operation}: expected {count} rows, affected {actual}"
+        ))),
+        ExpectedRows::AtLeast(count) if actual < count => Err(DbError::Query(format!(
+            "PG {operation}: expected at least {count} rows, affected {actual}"
+        ))),
+        _ => Ok(()),
+    }
+}
+
 pub(crate) async fn apply_mutations(
     config: &ConnectionConfig,
     batch: &MutationBatch,
@@ -1203,13 +1343,7 @@ pub(crate) async fn apply_mutations(
                         .await
                         .map_err(|e| DbError::Query(format!("PG UPDATE: {e}")))?
                         as u64;
-                    if let ExpectedRows::Exactly(e) = expected_rows
-                        && n != *e
-                    {
-                        return Err(DbError::Query(format!(
-                            "PG UPDATE: expected {e} rows, affected {n}"
-                        )));
-                    }
+                    check_pg_expected_rows(n, *expected_rows, "UPDATE")?;
                     n
                 }
                 Mutation::Delete {
@@ -1257,13 +1391,7 @@ pub(crate) async fn apply_mutations(
                         .await
                         .map_err(|e| DbError::Query(format!("PG DELETE: {e}")))?
                         as u64;
-                    if let ExpectedRows::Exactly(e) = expected_rows
-                        && n != *e
-                    {
-                        return Err(DbError::Query(format!(
-                            "PG DELETE: expected {e} rows, affected {n}"
-                        )));
-                    }
+                    check_pg_expected_rows(n, *expected_rows, "DELETE")?;
                     n
                 }
             };
@@ -1279,13 +1407,12 @@ pub(crate) async fn apply_mutations(
     match result {
         Ok(result) => match client.batch_execute("COMMIT").await {
             Ok(()) => Ok(result),
-            Err(commit_error) => {
-                rollback_pg_mutation_batch(
-                    &client,
-                    DbError::Query(format!("PG COMMIT: {commit_error}")),
-                )
-                .await
-            }
+            Err(source) => Err(DbError::MutationOutcomeUnknown {
+                backend: "PostgreSQL",
+                operation: "COMMIT",
+                context: "commit acknowledgement unavailable".into(),
+                source: Box::new(source),
+            }),
         },
         Err(error) => rollback_pg_mutation_batch(&client, error).await,
     }
@@ -1297,8 +1424,11 @@ async fn rollback_pg_mutation_batch(
 ) -> Result<MutationBatchResult, DbError> {
     match client.batch_execute("ROLLBACK").await {
         Ok(()) => Err(original_error),
-        Err(rollback_error) => Err(DbError::Query(format!(
-            "{original_error}; PG ROLLBACK failed: {rollback_error}"
-        ))),
+        Err(source) => Err(DbError::MutationOutcomeUnknown {
+            backend: "PostgreSQL",
+            operation: "ROLLBACK",
+            context: format!("rollback after {original_error}"),
+            source: Box::new(source),
+        }),
     }
 }

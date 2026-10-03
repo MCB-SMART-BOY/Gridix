@@ -37,7 +37,7 @@
 - [x] T3: `SchemaCatalog` application closure
 - [x] T4: Grid 使用 `ResultSet` + typed `MutationBatch` 保存
 - [x] T5: PostgreSQL/MySQL typed mutation、catalog 与类型边界支持
-- [ ] T6: Release Acceptance — PostgreSQL/MySQL workflow 是已配置的验收门；SQLite GUI journey 已于 2026-09-25 用 Xvfb + gridix-driver 驱动取证（连接创建、查询、Grid 编辑保存、重开后校验通过），CSV/JSON/SQL 导出证据仍缺（原生保存对话框无法在驱动会话中呈现，见 `docs/LIMITATIONS.md`）
+- [ ] T6: Release Acceptance — PostgreSQL/MySQL workflow 是已配置的验收门；SQLite GUI 在 2026-09-25 已取得连接创建、查询、Grid 编辑保存和重开校验的独立证据；2026-10-03 使用 Xvfb + GTK 原生文件选择器取得已存在 `after` 行的 CSV/JSON/SQL GUI 导出证据。两次运行不是同一数据库的连续完整旅程，导出截图/文件尚在本机临时目录，完整同库旅程及发布归档仍未完成（见 `docs/LIMITATIONS.md`）。
 
 这表示实现状态，不表示任何版本已经发布或已通过完整发布验收。
 

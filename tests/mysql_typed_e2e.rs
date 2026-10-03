@@ -15,7 +15,8 @@
 
 use gridix::core::constants;
 use gridix::data::{
-    ConnectionConfig, POOL_MANAGER, apply_mutations, execute_typed, load_schema_catalog,
+    ConnectionConfig, DbError, POOL_MANAGER, apply_mutations, execute_import_batch, execute_typed,
+    load_schema_catalog,
 };
 use std::sync::Arc;
 mod common;
@@ -654,6 +655,72 @@ async fn catalog_load() {
 }
 
 #[tokio::test]
+async fn catalog_composite_constraints_preserve_pairing_and_unique_keys() {
+    let Some(config) = mysql_config() else {
+        return;
+    };
+    execute_typed(&config, "DROP TABLE IF EXISTS gridix_meta_child_mysql")
+        .await
+        .unwrap();
+    execute_typed(&config, "DROP TABLE IF EXISTS gridix_meta_parent_mysql")
+        .await
+        .unwrap();
+    execute_typed(
+        &config,
+        "CREATE TABLE gridix_meta_parent_mysql (a INT, b INT, UNIQUE KEY parent_pair (b, a))",
+    )
+    .await
+    .unwrap();
+    execute_typed(
+        &config,
+        "CREATE TABLE gridix_meta_child_mysql (x INT, y INT, z VARCHAR(30), \
+         UNIQUE KEY child_pair (y, x), UNIQUE KEY prefix_only (z(5)), \
+         CONSTRAINT child_pair_fk FOREIGN KEY (x, y) REFERENCES gridix_meta_parent_mysql (b, a), \
+         CONSTRAINT child_pair_fk_other FOREIGN KEY (y, x) \
+           REFERENCES gridix_meta_parent_mysql (b, a))",
+    )
+    .await
+    .unwrap();
+
+    let catalog = load_schema_catalog(&config, SchemaRevision(1))
+        .await
+        .unwrap();
+    let parent = catalog.table("gridix_meta_parent_mysql").unwrap();
+    assert_eq!(parent.unique_keys.len(), 1);
+    assert_eq!(parent.unique_keys[0].columns, ["b", "a"]);
+    let child = catalog.table("gridix_meta_child_mysql").unwrap();
+    assert_eq!(child.unique_keys.len(), 1);
+    assert_eq!(child.unique_keys[0].name.as_deref(), Some("child_pair"));
+    assert_eq!(child.unique_keys[0].columns, ["y", "x"]);
+    assert_eq!(child.foreign_keys.len(), 2);
+    assert!(
+        child
+            .foreign_keys
+            .iter()
+            .any(|fk| fk.name.as_deref() == Some("child_pair_fk")
+                && fk.from_columns == ["x", "y"]
+                && fk.ref_table == "gridix_meta_parent_mysql"
+                && fk.ref_columns == ["b", "a"])
+    );
+    assert!(
+        child
+            .foreign_keys
+            .iter()
+            .any(|fk| fk.name.as_deref() == Some("child_pair_fk_other")
+                && fk.from_columns == ["y", "x"]
+                && fk.ref_table == "gridix_meta_parent_mysql"
+                && fk.ref_columns == ["b", "a"])
+    );
+
+    execute_typed(&config, "DROP TABLE gridix_meta_child_mysql")
+        .await
+        .unwrap();
+    execute_typed(&config, "DROP TABLE gridix_meta_parent_mysql")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn mysql_pool_reuses_handle_and_evicts_oldest_under_pressure() {
     let Some(config) = mysql_config() else {
         eprintln!("SKIP: GRIDIX_TEST_MYSQL_URL not set");
@@ -685,4 +752,506 @@ async fn mysql_pool_reuses_handle_and_evicts_oldest_under_pressure() {
         "the oldest MySQL pool must be disconnected after eviction"
     );
     POOL_MANAGER.clear_all().await;
+}
+
+#[tokio::test]
+async fn mysql_varbinary_identity_preserves_non_utf8_bytes() {
+    let Some(config) = mysql_config() else { return };
+    execute_typed(&config, "DROP TABLE IF EXISTS gridix_binary_identity_mysql")
+        .await
+        .unwrap();
+    execute_typed(&config, "CREATE TABLE gridix_binary_identity_mysql (id VARBINARY(2) PRIMARY KEY, v INT) ENGINE=InnoDB").await.unwrap();
+    execute_typed(
+        &config,
+        "INSERT INTO gridix_binary_identity_mysql VALUES (X'FF00', 1)",
+    )
+    .await
+    .unwrap();
+    let rows = single_result_set(
+        execute_typed(&config, "SELECT id, v FROM gridix_binary_identity_mysql")
+            .await
+            .unwrap(),
+    );
+    assert_eq!(rows.cell(0, 0), &DbValue::Bytes(Arc::from([255u8, 0])));
+    let batch = MutationBatch {
+        mutations: vec![Mutation::Update {
+            table: col("gridix_binary_identity_mysql"),
+            identity: pk(vec![("id", rows.cell(0, 0).clone())]),
+            changes: vec![(col("v"), InputValue::Value(DbValue::Int(2)))],
+            expected_rows: ExpectedRows::Exactly(1),
+        }],
+        atomic: true,
+    };
+    apply_mutations(&config, &batch).await.unwrap();
+    let updated = single_result_set(
+        execute_typed(&config, "SELECT v FROM gridix_binary_identity_mysql")
+            .await
+            .unwrap(),
+    );
+    assert_eq!(updated.cell(0, 0), &DbValue::Int(2));
+    execute_typed(&config, "DROP TABLE gridix_binary_identity_mysql")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn mysql_at_least_mutation_failure_rolls_back_prior_insert() {
+    let Some(config) = mysql_config() else { return };
+    execute_typed(&config, "DROP TABLE IF EXISTS gridix_expected_rows_mysql")
+        .await
+        .unwrap();
+    execute_typed(
+        &config,
+        "CREATE TABLE gridix_expected_rows_mysql (id INT PRIMARY KEY) ENGINE=InnoDB",
+    )
+    .await
+    .unwrap();
+    let batch = MutationBatch {
+        mutations: vec![
+            Mutation::Insert {
+                table: col("gridix_expected_rows_mysql"),
+                columns: vec![col("id")],
+                values: vec![InputValue::Value(DbValue::Int(1))],
+            },
+            Mutation::Delete {
+                table: col("gridix_expected_rows_mysql"),
+                identity: pk(vec![("id", DbValue::Int(999))]),
+                expected_rows: ExpectedRows::AtLeast(1),
+            },
+        ],
+        atomic: true,
+    };
+    assert!(matches!(
+        apply_mutations(&config, &batch).await,
+        Err(DbError::Query(_))
+    ));
+    let rows = single_result_set(
+        execute_typed(&config, "SELECT id FROM gridix_expected_rows_mysql")
+            .await
+            .unwrap(),
+    );
+    assert_eq!(rows.row_count, 0);
+    execute_typed(&config, "DROP TABLE gridix_expected_rows_mysql")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn mysql_myisam_mutation_failed_batch_reports_unknown_and_preserves_insert() {
+    let Some(config) = mysql_config() else { return };
+    let table = "gridix_myisam_mutation_rollback";
+    execute_typed(&config, &format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .unwrap();
+    execute_typed(
+        &config,
+        &format!("CREATE TABLE {table} (id INT PRIMARY KEY) ENGINE=MyISAM"),
+    )
+    .await
+    .unwrap();
+    let batch = MutationBatch {
+        mutations: vec![
+            Mutation::Insert {
+                table: col(table),
+                columns: vec![col("id")],
+                values: vec![InputValue::Value(DbValue::Int(1))],
+            },
+            Mutation::Insert {
+                table: col(table),
+                columns: vec![col("id")],
+                values: vec![InputValue::Value(DbValue::Int(1))],
+            },
+        ],
+        atomic: true,
+    };
+    let error = apply_mutations(&config, &batch).await.unwrap_err();
+    assert!(matches!(
+        &error,
+        DbError::MutationOutcomeUnknown {
+            operation: "ROLLBACK",
+            ..
+        }
+    ));
+    assert!(error.to_string().contains("non-transactional"), "{error}");
+    let rows = single_result_set(
+        execute_typed(&config, &format!("SELECT id FROM {table}"))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(rows.row_count, 1);
+    assert_eq!(rows.cell(0, 0), &DbValue::Int(1));
+    execute_typed(&config, &format!("DROP TABLE {table}"))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn mysql_import_consumes_all_procedure_results_before_success() {
+    let Some(config) = mysql_config() else { return };
+    execute_import_batch(
+        &config,
+        vec!["DROP PROCEDURE IF EXISTS gridix_late_error_mysql".into()],
+        false,
+        true,
+    )
+    .await
+    .unwrap();
+    execute_import_batch(&config, vec!["CREATE PROCEDURE gridix_late_error_mysql() BEGIN SELECT 1; SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='late failure'; END".into()], false, true).await.unwrap();
+    let statements = vec!["CALL gridix_late_error_mysql()".into()];
+    let report = execute_import_batch(&config, statements.clone(), false, false)
+        .await
+        .unwrap();
+    assert_eq!((report.succeeded, report.failed), (0, 1));
+    assert!(
+        execute_import_batch(&config, statements, false, true)
+            .await
+            .is_err()
+    );
+    execute_import_batch(
+        &config,
+        vec!["DROP PROCEDURE gridix_late_error_mysql".into()],
+        false,
+        true,
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn mysql_wrapped_import_rejects_control_before_writing() {
+    let Some(config) = mysql_config() else { return };
+    execute_typed(&config, "DROP TABLE IF EXISTS gridix_wrapped_import_mysql")
+        .await
+        .unwrap();
+    execute_typed(
+        &config,
+        "CREATE TABLE gridix_wrapped_import_mysql (id INT PRIMARY KEY) ENGINE=InnoDB",
+    )
+    .await
+    .unwrap();
+    for statement in [
+        "COMMIT/**/WORK".to_string(),
+        "CHECK TABLE gridix_wrapped_import_mysql".to_string(),
+        "PREPARE gridix_escape FROM 'COMMIT'".to_string(),
+        "EXECUTE gridix_escape".to_string(),
+        "SELECT 1 --\u{0001}'\n; COMMIT; -- '\nSELECT * FROM missing_table;".to_string(),
+        "SELECT 1--\u{00a0}2; COMMIT".to_string(),
+        "SELECT 1 AS -- '\nDELIMITER ;\nCOMMIT; -- '\nINSERT INTO missing_table_xyz VALUES (2);"
+            .to_string(),
+        "SELECT 1 AS\nDELIMITER ;\nCOMMIT;".to_string(),
+    ] {
+        let statements = vec![
+            "INSERT INTO gridix_wrapped_import_mysql VALUES (1)".into(),
+            statement,
+        ];
+        let result = execute_import_batch(&config, statements, true, true).await;
+        assert!(
+            matches!(&result, Err(DbError::Query(error)) if error.contains("事务导入拒绝执行")),
+            "{result:?}"
+        );
+        let rows = single_result_set(
+            execute_typed(&config, "SELECT id FROM gridix_wrapped_import_mysql")
+                .await
+                .unwrap(),
+        );
+        assert_eq!(rows.row_count, 0);
+    }
+    execute_typed(&config, "DROP TABLE gridix_wrapped_import_mysql")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn mysql_wrapped_import_bare_cr_comments_never_execute_delete() {
+    use gridix::core::{
+        SqlDialect, TransferDirection, TransferFormat, TransferFormatOptions, TransferSession,
+        TransferSqlOptions, plan_sql_transfer_content,
+    };
+    let Some(config) = mysql_config() else { return };
+    let table = "gridix_import_cr_comments_mysql";
+    execute_typed(&config, &format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .expect("remove prior fixture");
+    execute_typed(
+        &config,
+        &format!("CREATE TABLE {table} (id INT PRIMARY KEY) ENGINE=InnoDB"),
+    )
+    .await
+    .expect("create isolated import fixture");
+    let session = TransferSession {
+        direction: TransferDirection::Import,
+        format: TransferFormat::Sql,
+        sql_dialect: SqlDialect::MySql,
+        options: TransferFormatOptions::Sql(TransferSqlOptions::default()),
+        ..Default::default()
+    };
+
+    for comment in ["-- note", "# note"] {
+        execute_typed(&config, &format!("DELETE FROM {table}"))
+            .await
+            .expect("clear fixture");
+        execute_typed(&config, &format!("INSERT INTO {table} VALUES (1)"))
+            .await
+            .expect("seed row that a stray DELETE would remove");
+        let sql = format!(
+            "INSERT INTO {table} VALUES (2); {comment}\rDELETE FROM {table};\nINSERT INTO {table} VALUES (3);"
+        );
+        let statements = plan_sql_transfer_content(&sql, &session)
+            .expect("plan MySQL import")
+            .into_sql_statements()
+            .expect("SQL statements");
+        let report = execute_import_batch(&config, statements, true, true)
+            .await
+            .expect("execute imports without the commented DELETE");
+        assert_eq!(report.succeeded, 2, "{comment}");
+        let rows = single_result_set(
+            execute_typed(&config, &format!("SELECT id FROM {table} ORDER BY id"))
+                .await
+                .expect("inspect persisted rows"),
+        );
+        assert_eq!(rows.row_count, 3, "{comment}");
+        for (index, id) in [1, 2, 3].into_iter().enumerate() {
+            assert_eq!(rows.cell(index, 0), &DbValue::Int(id), "{comment}");
+        }
+    }
+    execute_typed(&config, &format!("DROP TABLE {table}"))
+        .await
+        .expect("drop isolated import fixture");
+}
+
+#[tokio::test]
+async fn mysql_wrapped_import_non_ascii_dashes_preserve_delete_predicate() {
+    use gridix::core::{
+        SqlDialect, TransferDirection, TransferFormat, TransferFormatOptions, TransferSession,
+        TransferSqlOptions, plan_sql_transfer_content,
+    };
+    let Some(config) = mysql_config() else { return };
+    let table = "gridix_import_non_ascii_comment_mysql";
+    execute_typed(&config, &format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .expect("remove prior fixture");
+    execute_typed(
+        &config,
+        &format!("CREATE TABLE {table} (id INT PRIMARY KEY, `\u{00a0}x` INT) ENGINE=InnoDB"),
+    )
+    .await
+    .expect("create isolated import fixture");
+    execute_typed(&config, &format!("INSERT INTO {table} VALUES (1, -1)"))
+        .await
+        .expect("seed row whose predicate is false");
+    let sql = format!("DELETE FROM {table} WHERE 1--\u{00a0}x;");
+    let session = TransferSession {
+        direction: TransferDirection::Import,
+        format: TransferFormat::Sql,
+        sql_dialect: SqlDialect::MySql,
+        options: TransferFormatOptions::Sql(TransferSqlOptions::default()),
+        ..Default::default()
+    };
+    let statements = plan_sql_transfer_content(&sql, &session)
+        .expect("plan MySQL import without removing the predicate")
+        .into_sql_statements()
+        .expect("SQL statements");
+    assert_eq!(statements, [sql.trim_end_matches(';')]);
+    let report = execute_import_batch(&config, statements, true, true)
+        .await
+        .expect("execute import with intact predicate");
+    assert_eq!(report.succeeded, 1);
+    let rows = single_result_set(
+        execute_typed(&config, &format!("SELECT id FROM {table}"))
+            .await
+            .expect("inspect persisted row"),
+    );
+    assert_eq!(rows.row_count, 1);
+    assert_eq!(rows.cell(0, 0), &DbValue::Int(1));
+    execute_typed(&config, &format!("DROP TABLE {table}"))
+        .await
+        .expect("drop isolated fixture");
+}
+
+#[tokio::test]
+async fn mysql_wrapped_myisam_import_failed_statement_reports_unknown_and_keeps_write() {
+    let Some(config) = mysql_config() else { return };
+    let table = "gridix_myisam_import_rollback";
+    execute_typed(&config, &format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .unwrap();
+    execute_typed(
+        &config,
+        &format!("CREATE TABLE {table} (id INT PRIMARY KEY) ENGINE=MyISAM"),
+    )
+    .await
+    .unwrap();
+    let statements = vec![
+        format!("INSERT INTO {table} VALUES (1)"),
+        format!("INSERT INTO {table} VALUES (1)"),
+    ];
+    let error = execute_import_batch(&config, statements, true, true)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        &error,
+        DbError::ImportOutcomeUnknown {
+            operation: "ROLLBACK",
+            ..
+        }
+    ));
+    assert!(error.to_string().contains("第 2 条"), "{error}");
+    assert!(error.to_string().contains("non-transactional"), "{error}");
+    let rows = single_result_set(
+        execute_typed(&config, &format!("SELECT id FROM {table}"))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(rows.row_count, 1);
+    assert_eq!(rows.cell(0, 0), &DbValue::Int(1));
+    execute_typed(&config, &format!("DROP TABLE {table}"))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn mysql_wrapped_innodb_import_failed_statement_confirms_rollback() {
+    let Some(config) = mysql_config() else { return };
+    let table = "gridix_innodb_import_rollback";
+    execute_typed(&config, &format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .unwrap();
+    execute_typed(
+        &config,
+        &format!("CREATE TABLE {table} (id INT PRIMARY KEY) ENGINE=InnoDB"),
+    )
+    .await
+    .unwrap();
+    let statements = vec![
+        format!("INSERT INTO {table} VALUES (1)"),
+        format!("INSERT INTO {table} VALUES (1)"),
+    ];
+    let error = execute_import_batch(&config, statements, true, true)
+        .await
+        .unwrap_err();
+    assert!(matches!(error, DbError::Query(_)));
+    let rows = single_result_set(
+        execute_typed(&config, &format!("SELECT id FROM {table}"))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(rows.row_count, 0);
+    execute_typed(&config, &format!("DROP TABLE {table}"))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn mysql_sql_export_import_preserves_microseconds() {
+    use gridix::core::{
+        SqlDialect, TransferDirection, TransferFormat, TransferFormatOptions, TransferSchema,
+        TransferSession, TransferSqlOptions, plan_export_transfer,
+    };
+    let Some(config) = mysql_config() else { return };
+    execute_typed(&config, "DROP TABLE IF EXISTS gridix_fraction_export_mysql")
+        .await
+        .unwrap();
+    execute_typed(&config, "CREATE TABLE gridix_fraction_export_mysql (dt DATETIME(6), t TIME(6), txt VARCHAR(40)) ENGINE=InnoDB").await.unwrap();
+    let source = single_result_set(execute_typed(&config,
+        "SELECT CAST('2024-01-02 01:02:03.123456' AS DATETIME(6)) AS dt, CAST('01:02:03.123456' AS TIME(6)) AS t, CONVERT(0x615C62 USING utf8mb4) AS txt"
+    ).await.unwrap());
+    let session = TransferSession {
+        direction: TransferDirection::Export,
+        format: TransferFormat::Sql,
+        sql_dialect: SqlDialect::MySql,
+        schema: TransferSchema {
+            target_name: Some("gridix_fraction_export_mysql".into()),
+            ..Default::default()
+        },
+        options: TransferFormatOptions::Sql(TransferSqlOptions {
+            use_transaction: false,
+            batch_size: 0,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let sql = plan_export_transfer(&source, &session)
+        .unwrap()
+        .into_rendered_text()
+        .unwrap();
+    execute_import_batch(&config, vec![sql], false, true)
+        .await
+        .unwrap();
+    let persisted = single_result_set(
+        execute_typed(
+            &config,
+            "SELECT dt, t, txt FROM gridix_fraction_export_mysql",
+        )
+        .await
+        .unwrap(),
+    );
+    for index in 0..3 {
+        assert_eq!(persisted.cell(0, index), source.cell(0, index));
+    }
+    execute_typed(&config, "DROP TABLE gridix_fraction_export_mysql")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn mysql_csv_json_import_uses_backtick_identifiers() {
+    use gridix::core::{
+        SqlDialect, TransferDirection, TransferFormat, TransferFormatOptions, TransferSchema,
+        TransferSession, plan_import_transfer,
+    };
+    let Some(config) = mysql_config() else { return };
+    execute_typed(&config, "DROP TABLE IF EXISTS gridix_dialect_import_mysql")
+        .await
+        .unwrap();
+    execute_typed(
+        &config,
+        "CREATE TABLE gridix_dialect_import_mysql (id INT PRIMARY KEY) ENGINE=InnoDB",
+    )
+    .await
+    .unwrap();
+    for (format, content) in [
+        (TransferFormat::Csv, "id\n1\n"),
+        (TransferFormat::Json, "[{\"id\":2}]"),
+    ] {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), content).unwrap();
+        let session = TransferSession {
+            direction: TransferDirection::Import,
+            format,
+            sql_dialect: SqlDialect::MySql,
+            schema: TransferSchema {
+                target_name: Some("gridix_dialect_import_mysql".into()),
+                ..Default::default()
+            },
+            options: match format {
+                TransferFormat::Csv => TransferFormatOptions::Delimited(Default::default()),
+                _ => TransferFormatOptions::Json(Default::default()),
+            },
+            ..Default::default()
+        };
+        let statements = plan_import_transfer(file.path(), &session)
+            .unwrap()
+            .into_sql_statements()
+            .unwrap();
+        assert!(statements[0].starts_with("INSERT INTO `gridix_dialect_import_mysql` (`id`)"));
+        let report = execute_import_batch(&config, statements, true, true)
+            .await
+            .unwrap();
+        assert_eq!(report.failed, 0);
+    }
+    let result = single_result_set(
+        execute_typed(
+            &config,
+            "SELECT id FROM gridix_dialect_import_mysql ORDER BY id",
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!(
+        (result.cell(0, 0), result.cell(1, 0)),
+        (&DbValue::Int(1), &DbValue::Int(2))
+    );
+    execute_typed(&config, "DROP TABLE gridix_dialect_import_mysql")
+        .await
+        .unwrap();
 }

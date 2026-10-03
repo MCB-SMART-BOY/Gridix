@@ -19,6 +19,38 @@ pub enum DbError {
         duration: std::time::Duration,
     },
 
+    /// COMMIT/ROLLBACK 的结果无法确认；专用连接已关闭，不能安全重试写入。
+    #[error("PostgreSQL {command} 结果不确定，SQL Tab 连接已关闭；请先核对数据库状态")]
+    TransactionOutcomeUnknown {
+        command: &'static str,
+        #[source]
+        source: Option<tokio_postgres::Error>,
+    },
+
+    /// Mutation batch COMMIT or ROLLBACK acknowledgement failed; do not replay the staged edits until database state is checked.
+    #[error(
+        "{backend} mutation {operation} outcome unknown ({context}): {source}; verify database state before retrying"
+    )]
+    MutationOutcomeUnknown {
+        backend: &'static str,
+        operation: &'static str,
+        context: String,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    /// Import statement or transaction acknowledgement is uncertain; a retry may duplicate rows.
+    #[error(
+        "{backend} import {operation} outcome unknown ({context}): {source}; inspect database state before retrying"
+    )]
+    ImportOutcomeUnknown {
+        backend: &'static str,
+        operation: &'static str,
+        context: String,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
     /// 通用连接错误（向后兼容）
     #[error("连接错误: {0}")]
     Connection(String),

@@ -7,10 +7,8 @@
 //! - `h/l` - 切换格式
 //! - `Ctrl+R` - 刷新预览
 
-mod import_parser;
 mod import_types;
 
-pub use import_parser::parse_sql_file;
 pub use import_types::*;
 
 use super::common::{
@@ -128,7 +126,10 @@ impl ImportDialog {
 
         let has_file = state.file_path.is_some();
         let has_preview = state.preview.is_some();
-        let can_import = has_file && has_preview && state.error.is_none();
+        let effective_mode = Self::effective_mode_for_format(state);
+        let is_execution_blocked =
+            effective_mode == ImportMode::Execute && state.is_unknown_outcome_unconfirmed();
+        let can_import = has_file && has_preview && state.error.is_none() && !is_execution_blocked;
         let mut initial_action = ImportAction::None;
 
         if let Some(key_action) = Self::detect_key_action(ctx, has_file, can_import) {
@@ -164,10 +165,11 @@ impl ImportDialog {
         }
 
         let style = DialogStyle::LARGE;
-        let effective_mode = Self::effective_mode_for_format(state);
         let footer_has_file = state.file_path.is_some();
-        let footer_can_confirm =
-            footer_has_file && state.preview.is_some() && state.error.is_none();
+        let footer_can_confirm = footer_has_file
+            && state.preview.is_some()
+            && state.error.is_none()
+            && !is_execution_blocked;
         let footer_disabled_reason = Self::disabled_reason(state);
         let footer_copy_sql = state
             .preview
@@ -224,6 +226,16 @@ impl ImportDialog {
                                 );
                             },
                         );
+                        if state.requires_unknown_confirmation {
+                            DialogContent::warning_text(
+                                ui,
+                                "上次导入的事务结果未知：请先核对数据库状态，避免重复写入。",
+                            );
+                            ui.checkbox(
+                                &mut state.has_confirmed_unknown_outcome,
+                                "我已核对数据库状态，确认仍需重新导入",
+                            );
+                        }
 
                         if state.file_path.is_some() {
                             DialogContent::section_with_description(
@@ -759,6 +771,10 @@ impl ImportDialog {
             Some("请先生成预览，再执行导入或复制。")
         } else if state.error.is_some() {
             Some("当前预览存在错误，请修正配置后再继续。")
+        } else if Self::effective_mode_for_format(state) == ImportMode::Execute
+            && state.is_unknown_outcome_unconfirmed()
+        {
+            Some("先核对上一次导入结果，再勾选确认后重新导入。")
         } else {
             None
         }
@@ -1021,6 +1037,27 @@ mod tests {
 
         assert_eq!(action, None);
 
+        ctx.end_pass().textures_delta.clear();
+    }
+    #[test]
+    fn import_dialog_unknown_outcome_requires_acknowledgement_before_execution() {
+        let ctx = egui::Context::default();
+        let mut is_open = true;
+        let mut state = ImportState {
+            file_path: Some("/tmp/previous-import.sql".into()),
+            preview: Some(ImportPreview::default()),
+            requires_unknown_confirmation: true,
+            ..Default::default()
+        };
+        begin_key_pass(&ctx, Key::Enter);
+        let action = ImportDialog::show(&ctx, &mut is_open, &mut state, false);
+        assert!(matches!(action, ImportAction::None));
+        ctx.end_pass().textures_delta.clear();
+
+        state.has_confirmed_unknown_outcome = true;
+        begin_key_pass(&ctx, Key::Enter);
+        let action = ImportDialog::show(&ctx, &mut is_open, &mut state, false);
+        assert!(matches!(action, ImportAction::Execute));
         ctx.end_pass().textures_delta.clear();
     }
 }

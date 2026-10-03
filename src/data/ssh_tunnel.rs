@@ -11,6 +11,10 @@ use thiserror::Error;
 use tokio::io::copy_bidirectional;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, RwLock};
+use tokio::task::{JoinHandle, JoinSet};
+use tokio_util::sync::CancellationToken;
+
+const SSH_DISCONNECT_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(5);
 
 // ============================================================================
 // 错误类型
@@ -293,11 +297,10 @@ impl Handler for SshClientHandler {
 pub struct SshTunnel {
     /// 本地监听地址
     local_addr: SocketAddr,
-    /// 是否正在运行
-    running: Arc<RwLock<bool>>,
-    /// 隧道任务句柄（保持任务存活，防止被丢弃）
-    #[allow(dead_code)] // 字段用于保持任务生命周期，不需要直接访问
-    task_handle: Option<tokio::task::JoinHandle<()>>,
+    /// 停止监听器和所有转发连接的取消信号
+    cancellation: CancellationToken,
+    /// 拥有监听任务，停止时等待所有子任务退出
+    task_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl SshTunnel {
@@ -315,27 +318,26 @@ impl SshTunnel {
         let ssh_handle = Self::connect_ssh(config).await?;
         let ssh_handle = Arc::new(Mutex::new(ssh_handle));
 
-        let running = Arc::new(RwLock::new(true));
-        let running_clone = running.clone();
+        let cancellation = CancellationToken::new();
         let remote_host = config.remote_host.clone();
         let remote_port = config.remote_port;
 
-        // 启动隧道转发任务
+        let task_cancellation = cancellation.clone();
         let task_handle = tokio::spawn(async move {
             Self::run_tunnel(
                 listener,
                 ssh_handle,
                 remote_host,
                 remote_port,
-                running_clone,
+                task_cancellation,
             )
             .await;
         });
 
         Ok(Self {
             local_addr: actual_local_addr,
-            running,
-            task_handle: Some(task_handle),
+            cancellation,
+            task_handle: Mutex::new(Some(task_handle)),
         })
     }
 
@@ -384,23 +386,26 @@ impl SshTunnel {
         Ok(session)
     }
 
-    /// 运行隧道转发
+    /// 运行隧道转发，所有连接均隶属监听任务，关闭前必须收束。
     async fn run_tunnel(
         listener: TcpListener,
         ssh_handle: Arc<Mutex<Handle<SshClientHandler>>>,
         remote_host: String,
         remote_port: u16,
-        running: Arc<RwLock<bool>>,
+        cancellation: CancellationToken,
     ) {
-        while *running.read().await {
+        let mut forwards = JoinSet::new();
+        loop {
+            let has_forwards = !forwards.is_empty();
             tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => break,
                 accept_result = listener.accept() => {
                     match accept_result {
                         Ok((local_stream, _)) => {
                             let ssh_handle = ssh_handle.clone();
                             let remote_host = remote_host.clone();
-
-                            tokio::spawn(async move {
+                            forwards.spawn(async move {
                                 if let Err(e) = Self::forward_connection(
                                     local_stream,
                                     ssh_handle,
@@ -411,15 +416,39 @@ impl SshTunnel {
                                 }
                             });
                         }
-                        Err(e) => {
-                            tracing::warn!(error = %e, "SSH 隧道接受连接错误");
-                        }
+                        Err(e) => tracing::warn!(error = %e, "SSH 隧道接受连接错误"),
                     }
                 }
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
-                    // 检查是否应该停止
+                Some(result) = forwards.join_next(), if has_forwards => {
+                    if let Err(error) = result {
+                        tracing::warn!(error = %error, "SSH 隧道转发任务失败");
+                    }
                 }
             }
+        }
+        drop(listener);
+        forwards.abort_all();
+        while let Some(result) = forwards.join_next().await {
+            if let Err(error) = result
+                && !error.is_cancelled()
+            {
+                tracing::warn!(error = %error, "SSH 隧道转发任务失败");
+            }
+        }
+        Self::disconnect_ssh(ssh_handle).await;
+    }
+
+    async fn disconnect_ssh(ssh_handle: Arc<Mutex<Handle<SshClientHandler>>>) {
+        let handle = ssh_handle.lock().await;
+        match tokio::time::timeout(
+            SSH_DISCONNECT_TIMEOUT,
+            handle.disconnect(russh::Disconnect::ByApplication, "Tunnel stopped", "en"),
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => tracing::warn!(error = %error, "关闭 SSH 隧道会话失败"),
+            Err(error) => tracing::warn!(error = %error, "关闭 SSH 隧道会话超时"),
         }
     }
 
@@ -456,15 +485,30 @@ impl SshTunnel {
         self.local_addr.port()
     }
 
-    /// 停止隧道
+    /// 停止隧道，关闭监听器和活动的转发流后返回。
     pub async fn stop(&self) {
-        let mut running = self.running.write().await;
-        *running = false;
+        self.cancellation.cancel();
+        let mut task_handle = self.task_handle.lock().await;
+        if let Some(handle) = task_handle.take()
+            && let Err(error) = handle.await
+            && !error.is_cancelled()
+        {
+            tracing::warn!(error = %error, "SSH 隧道监听任务失败");
+        }
     }
 
     /// 检查隧道是否正在运行
     pub async fn is_running(&self) -> bool {
-        *self.running.read().await
+        !self.cancellation.is_cancelled()
+    }
+}
+
+impl Drop for SshTunnel {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+        if let Some(handle) = self.task_handle.get_mut().take() {
+            handle.abort();
+        }
     }
 }
 
@@ -501,22 +545,28 @@ impl SshTunnelManager {
             }
         }
 
-        // 创建新隧道
         let tunnel = Arc::new(SshTunnel::start(config).await?);
+        Ok(self.register_started(name, tunnel).await)
+    }
 
-        // 原子地存储或获取已有隧道（防止并发创建）
-        {
+    /// 已经启动的竞争者必须在返回胜者之前关闭。
+    async fn register_started(&self, name: &str, tunnel: Arc<SshTunnel>) -> Arc<SshTunnel> {
+        let existing = {
             let mut tunnels = self.tunnels.write().await;
-            if let Some(existing) = tunnels.get(name)
-                && existing.is_running().await
-            {
-                // 另一个调用者已创建，使用已有的并丢弃新创建的
-                return Ok(existing.clone());
+            match tunnels.get(name) {
+                Some(existing) if !existing.cancellation.is_cancelled() => Some(existing.clone()),
+                _ => {
+                    tunnels.insert(name.to_string(), tunnel.clone());
+                    None
+                }
             }
-            tunnels.insert(name.to_string(), tunnel.clone());
+        };
+        if let Some(existing) = existing {
+            tunnel.stop().await;
+            existing
+        } else {
+            tunnel
         }
-
-        Ok(tunnel)
     }
 
     /// 停止指定隧道
@@ -558,3 +608,41 @@ pub static SSH_TUNNEL_MANAGER: std::sync::LazyLock<SshTunnelManager> =
 // ============================================================================
 // 测试
 // ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn make_local_tunnel() -> Arc<SshTunnel> {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+        let cancellation = CancellationToken::new();
+        let task_cancellation = cancellation.clone();
+        let task_handle = tokio::spawn(async move {
+            tokio::select! {
+                _ = task_cancellation.cancelled() => {}
+                _ = listener.accept() => {}
+            }
+        });
+        Arc::new(SshTunnel {
+            local_addr,
+            cancellation,
+            task_handle: Mutex::new(Some(task_handle)),
+        })
+    }
+
+    #[tokio::test]
+    async fn tunnel_registration_race_loser_closes_listener_before_return() {
+        let manager = SshTunnelManager::new();
+        let winner = make_local_tunnel().await;
+        let loser = make_local_tunnel().await;
+        manager.register_started("same", winner.clone()).await;
+        let selected = manager.register_started("same", loser.clone()).await;
+
+        assert!(Arc::ptr_eq(&selected, &winner));
+        assert!(!loser.is_running().await);
+        assert!(TcpStream::connect(loser.local_addr()).await.is_err());
+        manager.stop_all().await;
+        assert!(TcpStream::connect(winner.local_addr()).await.is_err());
+    }
+}

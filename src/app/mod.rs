@@ -31,8 +31,55 @@ use action::command_palette::CommandPaletteState;
 pub(in crate::app) struct GridWorkspaceId {
     tab_id: String,
     connection_name: String,
+    connection_id: crate::domain::ids::ConnectionId,
     database_name: Option<String>,
     table_name: String,
+}
+/// Submitted edits are retired on commit; the owning grid is locked until its result is fresh.
+struct GridSubmittedEdits {
+    workspace_id: GridWorkspaceId,
+    connection_id: crate::domain::ids::ConnectionId,
+    modified_cells: HashMap<(usize, usize), String>,
+    rows_to_delete: Vec<usize>,
+    new_rows: Vec<Vec<String>>,
+}
+
+impl GridSubmittedEdits {
+    fn capture(
+        workspace_id: GridWorkspaceId,
+        connection_id: crate::domain::ids::ConnectionId,
+        state: &ui::DataGridState,
+    ) -> Self {
+        Self {
+            workspace_id,
+            connection_id,
+            modified_cells: state.modified_cells.clone(),
+            rows_to_delete: state.rows_to_delete.clone(),
+            new_rows: state.new_rows.clone(),
+        }
+    }
+
+    fn retire_from(&self, state: &mut ui::DataGridState) {
+        for (cell, submitted) in &self.modified_cells {
+            if state.modified_cells.get(cell) == Some(submitted) {
+                state.modified_cells.remove(cell);
+            }
+        }
+        for row in &self.rows_to_delete {
+            if let Some(index) = state
+                .rows_to_delete
+                .iter()
+                .position(|current| current == row)
+            {
+                state.rows_to_delete.remove(index);
+            }
+        }
+        for submitted in &self.new_rows {
+            if state.new_rows.first() == Some(submitted) {
+                state.new_rows.remove(0);
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -47,6 +94,20 @@ impl GridWorkspaceStore {
 
     fn load(&self, workspace_id: &GridWorkspaceId) -> Option<ui::DataGridState> {
         self.states.get(workspace_id).cloned()
+    }
+
+    fn unlock_refreshed_tab(&mut self, tab_id: &str, connection_name: &str, request_id: u64) {
+        for (workspace_id, state) in &mut self.states {
+            if workspace_id.tab_id == tab_id
+                && workspace_id.connection_name == connection_name
+                && !state.save_in_flight
+                && !state.has_unknown_save_outcome
+                && state.refresh_after_save_request_id == Some(request_id)
+            {
+                state.needs_refresh_after_save = false;
+                state.refresh_after_save_request_id = None;
+            }
+        }
     }
 
     fn remove_connection(&mut self, connection_name: &str) {
@@ -103,6 +164,9 @@ pub struct DbManagerApp {
     pub state: crate::state::UiState,
     app_config: AppConfig,
     grid_workspaces: GridWorkspaceStore,
+    pending_grid_saves: HashMap<crate::domain::ids::TaskId, GridSubmittedEdits>,
+    /// An import lost its transaction acknowledgement; require explicit verification before retry.
+    import_outcome_unknown: bool,
     active_grid_workspace_enabled: bool,
     dock_state: egui_dock::DockState<ui::dock_tabs::DockTab>,
     keybindings: KeyBindings,
@@ -273,6 +337,8 @@ impl DbManagerApp {
             },
             app_config,
             grid_workspaces: GridWorkspaceStore::default(),
+            pending_grid_saves: HashMap::new(),
+            import_outcome_unknown: false,
             active_grid_workspace_enabled: false,
             dock_state,
             keybindings,
@@ -293,13 +359,12 @@ impl DbManagerApp {
         &self.session.tab_manager
     }
 
-    pub(crate) fn tab_manager_mut(&mut self) -> &mut QueryTabManager {
-        &mut self.session.tab_manager
-    }
-
     /// Dock tab 关闭时的清理：持久化状态、取消查询、移除工作区
     pub(crate) fn on_dock_tab_close(&mut self, tab_index: usize) {
         self.persist_active_tab_state_for_navigation();
+        if self.session.tab_manager.tabs.len() <= 1 {
+            return;
+        }
         // Clone needed values before mutable operations
         let pending_id = self
             .session
@@ -317,6 +382,7 @@ impl DbManagerApp {
             self.cancel_query_request_silently(request_id);
         }
         if let Some(ref id) = tab_id {
+            self.close_pg_sessions_for_tab(id);
             self.warn_if_tab_has_unsaved_grid_edits(id);
             self.remove_grid_workspaces_for_tab(id);
         }
@@ -335,13 +401,12 @@ impl DbManagerApp {
         table_name: &str,
     ) -> Option<GridWorkspaceId> {
         let tab_id = self.session.tab_manager.get_active()?.id.clone();
-        let connection_name = self.session.manager.active.clone()?;
-        let database_name = self
-            .session
-            .manager
-            .get_active()
-            .and_then(|connection| connection.selected_database.clone());
+        let connection = self.session.manager.get_active()?;
+        let connection_name = connection.config.name.clone();
+        let connection_id = connection.id;
+        let database_name = connection.selected_database.clone();
         Some(GridWorkspaceId {
+            connection_id,
             tab_id,
             connection_name,
             database_name,
@@ -358,11 +423,71 @@ impl DbManagerApp {
     }
 
     pub(in crate::app) fn persist_active_grid_workspace(&mut self) {
-        let Some(workspace_id) = self.active_grid_workspace_id() else {
+        let Some(mut workspace_id) = self.active_grid_workspace_id() else {
             return;
         };
+        if let Some(result) = self.state.grid_state.result_set.as_ref() {
+            let matches_stored_workspace = self
+                .grid_workspaces
+                .states
+                .get(&workspace_id)
+                .and_then(|stored| stored.result_set.as_ref())
+                .is_some_and(|baseline| std::sync::Arc::ptr_eq(baseline, result));
+            if !matches_stored_workspace {
+                let tab_source = self.session.tab_manager.get_active().and_then(|tab| {
+                    (tab.selected_table.as_deref() == Some(workspace_id.table_name.as_str())
+                        && tab
+                            .result_set
+                            .as_ref()
+                            .is_some_and(|baseline| std::sync::Arc::ptr_eq(baseline, result)))
+                    .then(|| tab.result_origin.clone())
+                    .flatten()
+                });
+                let Some((connection_id, database_name)) = tab_source else {
+                    // A foreign baseline must not be stored under the current identity.
+                    return;
+                };
+                workspace_id.connection_id = connection_id;
+                workspace_id.database_name = database_name;
+            }
+        }
         self.grid_workspaces
             .save(workspace_id, &self.state.grid_state);
+    }
+
+    fn retire_submitted_grid_edits(&mut self, submitted: &GridSubmittedEdits) -> bool {
+        let is_visible = self.active_grid_workspace_id().as_ref() == Some(&submitted.workspace_id);
+        if is_visible {
+            submitted.retire_from(&mut self.state.grid_state);
+            self.persist_active_grid_workspace();
+        } else if let Some(state) = self.grid_workspaces.states.get_mut(&submitted.workspace_id) {
+            submitted.retire_from(state);
+        }
+        is_visible && !self.state.grid_state.has_changes()
+    }
+
+    /// A completed save either needs a fresh baseline or may be retried after confirmed rollback.
+    fn finish_grid_save_guard(
+        &mut self,
+        workspace_id: &GridWorkspaceId,
+        is_committed: bool,
+        has_unknown_outcome: bool,
+    ) {
+        let is_visible = self.active_grid_workspace_id().as_ref() == Some(workspace_id);
+        let state = if is_visible {
+            Some(&mut self.state.grid_state)
+        } else {
+            self.grid_workspaces.states.get_mut(workspace_id)
+        };
+        if let Some(state) = state {
+            state.save_in_flight = false;
+            state.needs_refresh_after_save = is_committed || has_unknown_outcome;
+            state.has_unknown_save_outcome = has_unknown_outcome;
+            state.refresh_after_save_request_id = None;
+        }
+        if is_visible {
+            self.persist_active_grid_workspace();
+        }
     }
 
     fn sync_active_grid_focus(&mut self) {
@@ -383,6 +508,43 @@ impl DbManagerApp {
         self.active_grid_workspace_enabled = self.state.selected_table.is_some();
         self.restore_grid_surface_from_active_tab();
         self.sync_table_metadata();
+    }
+
+    pub(in crate::app) fn reconcile_sidebar_selection(
+        &mut self,
+        previous_connection: Option<String>,
+        sidebar_selected_table: Option<String>,
+        actions: &mut ui::SidebarActions,
+    ) {
+        if (actions.query_table.is_some() || actions.select_database.is_some())
+            && self.session.manager.active != previous_connection
+        {
+            // The sidebar can switch connection while rendering a table/database tree.
+            // Restore the departing identity before persisting its grid workspace.
+            let next_connection = self.session.manager.active.take();
+            self.session.manager.active = previous_connection;
+            if actions.query_table.is_some()
+                && self.active_grid_workspace_enabled
+                && (self.state.grid_state.has_changes()
+                    || self.state.grid_state.save_in_flight
+                    || self.state.grid_state.has_unknown_save_outcome)
+            {
+                actions.query_table = None;
+                self.session
+                    .notifications
+                    .warning("当前表格仍有未保存或待核对的修改；请在新标签页切换连接并查询");
+                return;
+            }
+            self.switch_grid_workspace(None);
+            self.session.manager.active = next_connection;
+        }
+        if actions.query_table.is_none()
+            && actions.select_database.is_none()
+            && actions.show_table_schema.is_none()
+            && actions.disconnect.is_none()
+        {
+            self.state.selected_table = sidebar_selected_table;
+        }
     }
 
     /// 从 schema_catalogs 同步当前选中表的 TableMetadata 到 grid_state。
@@ -441,25 +603,50 @@ impl DbManagerApp {
         }
     }
 
-    pub(in crate::app) fn remove_grid_workspace_for_table(&mut self, table_name: &str) {
-        let Some(connection_name) = self.session.manager.active.clone() else {
-            return;
-        };
-        let database_name = self
+    pub(in crate::app) fn remove_grid_workspace_for_table(
+        &mut self,
+        connection_name: &str,
+        database_name: &Option<String>,
+        table_name: &str,
+    ) {
+        self.grid_workspaces
+            .remove_table(connection_name, database_name, table_name);
+        let connection_id = self
             .session
             .manager
-            .get_active()
-            .and_then(|connection| connection.selected_database.clone());
-        self.grid_workspaces
-            .remove_table(&connection_name, &database_name, table_name);
+            .connections
+            .get(connection_name)
+            .map(|conn| conn.id);
+        self.pending_grid_saves.retain(|_, pending| {
+            pending.workspace_id.connection_name != connection_name
+                || &pending.workspace_id.database_name != database_name
+                || pending.workspace_id.table_name != table_name
+                || Some(pending.connection_id) != connection_id
+        });
+        self.session.grid_save_executing = !self.pending_grid_saves.is_empty();
+        self.session.refresh_executing_flag();
     }
 
-    pub(in crate::app) fn remove_grid_workspaces_for_database(&mut self, database_name: &str) {
-        let Some(connection_name) = self.session.manager.active.clone() else {
-            return;
-        };
+    pub(in crate::app) fn remove_grid_workspaces_for_database(
+        &mut self,
+        connection_name: &str,
+        database_name: &str,
+    ) {
         self.grid_workspaces
-            .remove_database(&connection_name, database_name);
+            .remove_database(connection_name, database_name);
+        let connection_id = self
+            .session
+            .manager
+            .connections
+            .get(connection_name)
+            .map(|conn| conn.id);
+        self.pending_grid_saves.retain(|_, pending| {
+            pending.workspace_id.connection_name != connection_name
+                || pending.workspace_id.database_name.as_deref() != Some(database_name)
+                || Some(pending.connection_id) != connection_id
+        });
+        self.session.grid_save_executing = !self.pending_grid_saves.is_empty();
+        self.session.refresh_executing_flag();
     }
 
     // 注意：connect, select_database, disconnect, delete_connection, execute,
@@ -530,6 +717,12 @@ impl eframe::App for DbManagerApp {
         for key in active_keys {
             self.session.task_registry.cancel_by_key(&key);
         }
+        for connection in self.session.manager.connections.values() {
+            self.session
+                .task_registry
+                .cancel_queries_for_connection(connection.id);
+            crate::data::close_pg_connection_sessions(connection.id);
+        }
 
         // 清理连接池，确保所有数据库连接正确关闭
         self.session.runtime.block_on(async {
@@ -541,7 +734,7 @@ impl eframe::App for DbManagerApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{DbManagerApp, GridWorkspaceId, GridWorkspaceStore};
+    use super::{DbManagerApp, GridSubmittedEdits, GridWorkspaceId, GridWorkspaceStore};
     use crate::ui::DataGridState;
 
     fn workspace(
@@ -553,6 +746,7 @@ mod tests {
         GridWorkspaceId {
             tab_id: tab_id.to_string(),
             connection_name: connection.to_string(),
+            connection_id: crate::domain::ids::ConnectionId::default(),
             database_name: database.map(str::to_string),
             table_name: table.to_string(),
         }
@@ -685,6 +879,88 @@ mod tests {
         assert_eq!(restored_left.new_rows[0][0], "draft-a");
         assert_eq!(restored_right.cursor, (9, 1));
         assert_eq!(restored_right.new_rows[0][0], "draft-b");
+    }
+
+    #[test]
+    fn grid_save_late_completion_retires_only_submitted_workspace() {
+        let mut app = DbManagerApp::new_for_test();
+        app.session.manager.add(crate::data::ConnectionConfig::new(
+            "local",
+            crate::data::DatabaseType::SQLite,
+        ));
+        app.session.manager.active = Some("local".to_string());
+        app.switch_grid_workspace(Some("users".to_string()));
+        app.state
+            .grid_state
+            .modified_cells
+            .insert((0, 0), "saved".into());
+        let submitted = GridSubmittedEdits::capture(
+            app.active_grid_workspace_id().expect("users workspace"),
+            app.session
+                .manager
+                .get_active()
+                .expect("local connection")
+                .id,
+            &app.state.grid_state,
+        );
+        app.switch_grid_workspace(Some("orders".to_string()));
+        app.state
+            .grid_state
+            .new_rows
+            .push(vec!["unsaved order".into()]);
+
+        assert!(!app.retire_submitted_grid_edits(&submitted));
+        assert_eq!(app.state.grid_state.new_rows[0][0], "unsaved order");
+        app.switch_grid_workspace(Some("users".to_string()));
+        assert!(!app.state.grid_state.has_changes());
+    }
+
+    #[test]
+    fn dock_navigation_round_trip_preserves_grid_drafts_and_document_focus() {
+        let mut app = DbManagerApp::new_for_test();
+        app.session.manager.add(crate::data::ConnectionConfig::new(
+            "local",
+            crate::data::DatabaseType::SQLite,
+        ));
+        app.session.manager.active = Some("local".to_string());
+        app.session.tab_manager.tabs[0].selected_table = Some("users".into());
+        app.session.tab_manager.tabs[0].uses_grid_workspace = true;
+        app.switch_grid_workspace(Some("users".into()));
+        app.state
+            .grid_state
+            .modified_cells
+            .insert((0, 0), "edited".into());
+        app.state.grid_state.rows_to_delete.push(1);
+        app.state.grid_state.new_rows.push(vec!["new".into()]);
+        let first_id = app.session.tab_manager.tabs[0].id.clone();
+        app.open_new_query_tab();
+        app.activate_query_tab(0);
+        assert_eq!(
+            app.session
+                .tab_manager
+                .get_active()
+                .map(|tab| tab.id.as_str()),
+            Some(first_id.as_str())
+        );
+        assert_eq!(app.state.grid_state.modified_cells[&(0, 0)], "edited");
+        assert_eq!(app.state.grid_state.rows_to_delete, vec![1]);
+        assert_eq!(app.state.grid_state.new_rows, vec![vec!["new".to_string()]]);
+        let path = app
+            .dock_state
+            .find_tab_from(|tab| {
+                matches!(tab, crate::ui::dock_tabs::DockTab::Surface {
+                document_id: Some(id), .. } if id == &first_id)
+            })
+            .expect("SQL document remains docked");
+        assert_eq!(
+            app.dock_state
+                .node(path.node_path())
+                .expect("SQL leaf")
+                .get_leaf()
+                .expect("leaf")
+                .active,
+            path.tab,
+        );
     }
 
     #[test]

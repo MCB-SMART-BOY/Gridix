@@ -11,7 +11,7 @@ use crate::app::DbManagerApp;
 use crate::core::RightInspectorTab;
 use crate::state::{WorkbenchPlacement, WorkbenchSurfaceKind};
 use egui_dock::tab_viewer::OnCloseResponse;
-use egui_dock::{DockState, NodeIndex, SurfaceIndex, TabViewer};
+use egui_dock::{DockState, NodeIndex, TabViewer};
 
 /// Canonical April-shell screenshot proportions for the dock workspace.
 ///
@@ -27,10 +27,12 @@ pub enum DockTab {
     Surface {
         kind: WorkbenchSurfaceKind,
         title: String,
+        document_id: Option<String>,
     },
     SqlDocument {
         index: usize,
         title: String,
+        document_id: Option<String>,
     },
     TableData {
         title: String,
@@ -56,13 +58,18 @@ pub enum AuxPanelKind {
 impl DockTab {
     pub fn surface(kind: WorkbenchSurfaceKind) -> Self {
         let title = kind.descriptor().title;
-        Self::Surface { kind, title }
+        Self::Surface {
+            kind,
+            title,
+            document_id: None,
+        }
     }
 
     pub fn surface_with_title(kind: WorkbenchSurfaceKind, title: impl Into<String>) -> Self {
         Self::Surface {
             kind,
             title: title.into(),
+            document_id: None,
         }
     }
 
@@ -93,6 +100,7 @@ pub fn default_layout() -> DockState<DockTab> {
     DockState::new(vec![DockTab::SqlDocument {
         index: 0,
         title: "查询 1".into(),
+        document_id: None,
     }])
 }
 
@@ -102,7 +110,9 @@ pub fn default_surface_layout(
 ) -> DockState<DockTab> {
     let query_tab_id = active_query_tab_id.into();
     let mut state = DockState::new(vec![DockTab::surface(
-        WorkbenchSurfaceKind::SurfaceResult { query_tab_id },
+        WorkbenchSurfaceKind::SurfaceResult {
+            query_tab_id: query_tab_id.clone(),
+        },
     )]);
     let tree = state.main_surface_mut();
     let [center, _right] = tree.split_right(
@@ -113,10 +123,11 @@ pub fn default_surface_layout(
     let _ = tree.split_below(
         center,
         DEFAULT_BOTTOM_RETAIN_RATIO,
-        vec![DockTab::surface_with_title(
-            WorkbenchSurfaceKind::SqlDocument { index: 0 },
-            "查询 1",
-        )],
+        vec![DockTab::Surface {
+            kind: WorkbenchSurfaceKind::SqlDocument { index: 0 },
+            title: "查询 1".into(),
+            document_id: Some(query_tab_id.clone()),
+        }],
     );
     state
 }
@@ -141,12 +152,8 @@ pub fn ensure_surface_tab(state: &mut DockState<DockTab>, kind: WorkbenchSurface
 pub fn has_surface_tab(state: &DockState<DockTab>, kind: &WorkbenchSurfaceKind) -> bool {
     let target = kind.surface_id();
     state
-        .get_surface(SurfaceIndex::main())
-        .is_some_and(|surface| {
-            surface
-                .iter_all_tabs()
-                .any(|(_, tab)| tab.surface_kind().surface_id() == target)
-        })
+        .iter_all_tabs()
+        .any(|(_, tab)| tab.surface_kind().surface_id() == target)
 }
 
 // ── 同步：每帧渲染前调用 ──────────────────────────────────────────────
@@ -158,86 +165,137 @@ pub fn refresh_dock_from_session(state: &mut DockState<DockTab>, app: &DbManager
     sync_er_visibility(state, app.state.show_er_diagram);
 }
 
-fn sync_sql_documents(state: &mut DockState<DockTab>, tab_manager: &crate::ui::QueryTabManager) {
-    let mgr_count = tab_manager.tabs.len();
+pub(crate) fn sync_sql_documents(
+    state: &mut DockState<DockTab>,
+    tab_manager: &crate::ui::QueryTabManager,
+) {
     let use_surface_documents = uses_surface_documents(state);
-
-    // 1. 移除 dock 中索引越界的 SQL document tab
-    remove_tabs(state, |t| {
-        matches!(t, DockTab::SqlDocument { index, .. } if *index >= mgr_count)
-            || matches!(
-                t,
-                DockTab::Surface {
-                    kind: WorkbenchSurfaceKind::SqlDocument { index },
-                    ..
-                } if *index >= mgr_count
+    remove_tabs(state, |tab| {
+        sql_document_reference(tab).is_some_and(|(index, document_id)| {
+            document_id.map_or_else(
+                || index >= tab_manager.tabs.len(),
+                |id| !tab_manager.tabs.iter().any(|query| query.id == id),
             )
+        })
     });
 
-    // 2. 修复剩余 tabs 的索引，使其与 tab_manager 顺序一致
-    let tree = state.main_surface_mut();
-    let mut next_index = 0usize;
-    for node in tree.iter_mut() {
+    let mut present = std::collections::HashSet::new();
+    for (_, node) in state.iter_all_nodes_mut() {
         if let Some(tabs) = node.tabs_mut() {
             for tab in tabs.iter_mut() {
-                if let DockTab::SqlDocument { index, title } = tab {
-                    if *index < mgr_count {
-                        *title = tab_manager.tabs[*index].title.clone();
-                    }
-                    *index = next_index;
-                    next_index += 1;
-                } else if let DockTab::Surface {
-                    kind: WorkbenchSurfaceKind::SqlDocument { index },
-                    title,
-                } = tab
-                {
-                    if *index < mgr_count {
-                        *title = tab_manager.tabs[*index].title.clone();
-                    }
-                    *index = next_index;
-                    next_index += 1;
+                if let Some(id) = bind_sql_document(tab, tab_manager) {
+                    present.insert(id);
                 }
             }
         }
     }
 
-    // 3. 添加缺失的 tabs — 找到已有的 SQL document leaf 并追加
-    if next_index < mgr_count {
-        // 找到第一个 SQL document leaf 节点
-        let mut target: Option<NodeIndex> = None;
-        for (i, node) in tree.iter().enumerate() {
-            if node.is_leaf() && node.tabs().unwrap_or(&[]).iter().any(is_sql_document_tab) {
-                target = Some(NodeIndex(i));
-                break;
-            }
+    let tree = state.main_surface_mut();
+    let target = tree.iter().enumerate().find_map(|(i, node)| {
+        (node.is_leaf() && node.tabs().unwrap_or(&[]).iter().any(is_sql_document_tab))
+            .then_some(NodeIndex(i))
+    });
+    for (index, query) in tab_manager.tabs.iter().enumerate() {
+        if present.contains(query.id.as_str()) {
+            continue;
         }
-        // 如果找到了，追加到该 leaf；否则用 split_right 创建新的
-        for (i, query_tab) in tab_manager.tabs.iter().enumerate().skip(next_index) {
-            let title = query_tab.title.clone();
-            let tab = if use_surface_documents {
-                DockTab::surface_with_title(WorkbenchSurfaceKind::SqlDocument { index: i }, title)
-            } else {
-                DockTab::SqlDocument { index: i, title }
-            };
-            if let Some(ref node_idx) = target {
-                tree.set_focused_node(*node_idx);
-                tree.push_to_focused_leaf(tab);
-            } else {
-                split_root_or_append(tree, WorkbenchPlacement::Right, tab);
+        let tab = if use_surface_documents {
+            DockTab::Surface {
+                kind: WorkbenchSurfaceKind::SqlDocument { index },
+                title: query.title.clone(),
+                document_id: Some(query.id.clone()),
             }
+        } else {
+            DockTab::SqlDocument {
+                index,
+                title: query.title.clone(),
+                document_id: Some(query.id.clone()),
+            }
+        };
+        if let Some(node) = target {
+            tree.set_focused_node(node);
+            tree.push_to_focused_leaf(tab);
+        } else {
+            split_root_or_append(tree, WorkbenchPlacement::Right, tab);
         }
+    }
+}
+
+fn bind_sql_document<'a>(
+    tab: &mut DockTab,
+    tab_manager: &'a crate::ui::QueryTabManager,
+) -> Option<&'a str> {
+    let (index, title, document_id) = sql_document_binding(tab)?;
+    if document_id.is_none() {
+        *document_id = tab_manager.tabs.get(*index).map(|query| query.id.clone());
+    }
+    let (position, query) = tab_manager
+        .tabs
+        .iter()
+        .enumerate()
+        .find(|(_, query)| Some(&query.id) == document_id.as_ref())?;
+    *index = position;
+    if *title != query.title {
+        title.clone_from(&query.title);
+    }
+    Some(&query.id)
+}
+
+fn sql_document_reference(tab: &DockTab) -> Option<(usize, Option<&str>)> {
+    match tab {
+        DockTab::SqlDocument {
+            index, document_id, ..
+        }
+        | DockTab::Surface {
+            kind: WorkbenchSurfaceKind::SqlDocument { index },
+            document_id,
+            ..
+        } => Some((*index, document_id.as_deref())),
+        _ => None,
+    }
+}
+
+fn sql_document_binding(
+    tab: &mut DockTab,
+) -> Option<(&mut usize, &mut String, &mut Option<String>)> {
+    match tab {
+        DockTab::SqlDocument {
+            index,
+            title,
+            document_id,
+        }
+        | DockTab::Surface {
+            kind: WorkbenchSurfaceKind::SqlDocument { index },
+            title,
+            document_id,
+        } => Some((index, title, document_id)),
+        _ => None,
+    }
+}
+
+pub fn activate_sql_document(state: &mut DockState<DockTab>, document_id: &str) {
+    if let Some(path) = state.find_tab_from(|tab| {
+        sql_document_reference(tab).is_some_and(|(_, id)| id == Some(document_id))
+    }) {
+        let _ = state.set_active_tab(path);
+        state.set_focused_node_and_surface(path.node_path());
+    }
+}
+
+fn resolve_sql_document_index(
+    tab: &DockTab,
+    tab_manager: &crate::ui::QueryTabManager,
+) -> Option<usize> {
+    let (index, document_id) = sql_document_reference(tab)?;
+    match document_id {
+        Some(id) => tab_manager.tabs.iter().position(|query| query.id == id),
+        None => (index < tab_manager.tabs.len()).then_some(index),
     }
 }
 
 fn sync_er_visibility(state: &mut DockState<DockTab>, show: bool) {
     let use_surface_tabs = uses_surface_tabs(state);
-    let has_er = {
-        if let Some(surface) = state.get_surface(SurfaceIndex::main()) {
-            surface.iter_all_tabs().any(|(_, t)| is_er_diagram_tab(t))
-        } else {
-            false
-        }
-    };
+    let has_er = state.iter_all_tabs().any(|(_, tab)| is_er_diagram_tab(tab));
 
     match (show, has_er) {
         (true, false) => {
@@ -305,28 +363,20 @@ fn is_er_diagram_tab(tab: &DockTab) -> bool {
 
 fn uses_surface_tabs(state: &DockState<DockTab>) -> bool {
     state
-        .get_surface(SurfaceIndex::main())
-        .is_some_and(|surface| {
-            surface
-                .iter_all_tabs()
-                .any(|(_, tab)| matches!(tab, DockTab::Surface { .. }))
-        })
+        .iter_all_tabs()
+        .any(|(_, tab)| matches!(tab, DockTab::Surface { .. }))
 }
 
 fn uses_surface_documents(state: &DockState<DockTab>) -> bool {
-    state
-        .get_surface(SurfaceIndex::main())
-        .is_some_and(|surface| {
-            surface.iter_all_tabs().any(|(_, tab)| {
-                matches!(
-                    tab,
-                    DockTab::Surface {
-                        kind: WorkbenchSurfaceKind::SqlDocument { .. },
-                        ..
-                    }
-                )
-            })
-        })
+    state.iter_all_tabs().any(|(_, tab)| {
+        matches!(
+            tab,
+            DockTab::Surface {
+                kind: WorkbenchSurfaceKind::SqlDocument { .. },
+                ..
+            }
+        )
+    })
 }
 
 // ── TabViewer ─────────────────────────────────────────────────────────
@@ -349,11 +399,15 @@ impl TabViewer for WorkspaceViewer<'_> {
         match tab {
             DockTab::Surface {
                 kind: WorkbenchSurfaceKind::SqlDocument { index },
+                document_id,
                 ..
             }
-            | DockTab::SqlDocument { index, .. } => {
-                sql_document_dock_id(self.app.tab_manager(), *index)
-            }
+            | DockTab::SqlDocument {
+                index, document_id, ..
+            } => document_id.as_deref().map_or_else(
+                || sql_document_dock_id(self.app.tab_manager(), *index),
+                |id| egui::Id::new(("dock-sql", id)),
+            ),
             DockTab::Surface { kind, .. } => egui::Id::new(("dock-surface", kind)),
             DockTab::TableData { title } => egui::Id::new(("dock-table", title)),
             DockTab::ErDiagram => egui::Id::new("dock-er"),
@@ -376,22 +430,36 @@ impl TabViewer for WorkspaceViewer<'_> {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
-        self.app
-            .render_workbench_surface_in_ui(ui, tab.surface_kind());
+        let kind = if is_sql_document_tab(tab) {
+            let Some(index) = resolve_sql_document_index(tab, self.app.tab_manager()) else {
+                return;
+            };
+            WorkbenchSurfaceKind::SqlDocument { index }
+        } else {
+            tab.surface_kind()
+        };
+        self.app.render_workbench_surface_in_ui(ui, kind);
+    }
+
+    fn on_tab_button(&mut self, tab: &mut Self::Tab, response: &egui::Response) {
+        if response.clicked()
+            && let Some(index) = resolve_sql_document_index(tab, self.app.tab_manager())
+        {
+            self.app.activate_query_tab(index);
+        }
     }
 
     fn on_close(&mut self, tab: &mut Self::Tab) -> OnCloseResponse {
-        match tab {
-            DockTab::Surface {
-                kind: WorkbenchSurfaceKind::SqlDocument { index },
-                ..
-            } => {
-                if self.app.tab_manager().tabs.len() <= 1 {
-                    return OnCloseResponse::Ignore;
-                }
-                self.app.on_dock_tab_close(*index);
-                OnCloseResponse::Close
+        if is_sql_document_tab(tab) {
+            if self.app.tab_manager().tabs.len() <= 1 {
+                return OnCloseResponse::Ignore;
             }
+            if let Some(index) = resolve_sql_document_index(tab, self.app.tab_manager()) {
+                self.app.on_dock_tab_close(index);
+            }
+            return OnCloseResponse::Close;
+        }
+        match tab {
             DockTab::Surface {
                 kind: WorkbenchSurfaceKind::ErDiagram,
                 ..
@@ -399,24 +467,11 @@ impl TabViewer for WorkspaceViewer<'_> {
                 self.app.toggle_er_diagram_visibility();
                 OnCloseResponse::Close
             }
-            DockTab::Surface { .. } => OnCloseResponse::Close,
-            DockTab::SqlDocument { index, .. } => {
-                // 至少保留一个 SQL document
-                if self.app.tab_manager().tabs.len() <= 1 {
-                    return OnCloseResponse::Ignore;
-                }
-                // 清理：持久化状态、取消查询、移除工作区
-                self.app.on_dock_tab_close(*index);
-                OnCloseResponse::Close
-            }
             DockTab::ErDiagram => {
                 self.app.toggle_er_diagram_visibility();
                 OnCloseResponse::Close
             }
-            DockTab::TableData { .. }
-            | DockTab::SchemaObject { .. }
-            | DockTab::Welcome
-            | DockTab::AuxPanel { .. } => OnCloseResponse::Close,
+            _ => OnCloseResponse::Close,
         }
     }
 }
@@ -428,14 +483,8 @@ mod tests {
     use crate::ui::QueryTabManager;
 
     fn all_tabs(state: &DockState<DockTab>) -> Vec<DockTab> {
-        state
-            .get_surface(SurfaceIndex::main())
-            .expect("main surface should exist")
-            .iter_all_tabs()
-            .map(|(_, tab)| tab.clone())
-            .collect()
+        state.iter_all_tabs().map(|(_, tab)| tab.clone()).collect()
     }
-
     #[test]
     fn default_layout_uses_sql_document() {
         let state = default_layout();
@@ -445,6 +494,7 @@ mod tests {
             vec![DockTab::SqlDocument {
                 index: 0,
                 title: "查询 1".to_string(),
+                document_id: None,
             }]
         );
     }
@@ -488,7 +538,7 @@ mod tests {
         let docs: Vec<_> = all_tabs(&state)
             .into_iter()
             .filter_map(|tab| match tab {
-                DockTab::SqlDocument { index, title } => Some((index, title)),
+                DockTab::SqlDocument { index, title, .. } => Some((index, title)),
                 _ => None,
             })
             .collect();
@@ -502,6 +552,7 @@ mod tests {
     fn sync_sql_documents_preserves_surface_tabs_when_adding_missing_docs() {
         let mut state = default_surface_layout("tab-a", RightInspectorTab::Properties);
         let mut manager = QueryTabManager::new();
+        manager.tabs[0].id = "tab-a".to_string();
         manager.tabs[0].title = "first".to_string();
         manager.new_tab();
         manager.tabs[1].title = "second".to_string();
@@ -514,6 +565,7 @@ mod tests {
                 DockTab::Surface {
                     kind: WorkbenchSurfaceKind::SqlDocument { index },
                     title,
+                    ..
                 } => Some((index, title)),
                 _ => None,
             })
@@ -546,10 +598,12 @@ mod tests {
             DockTab::SqlDocument {
                 index: 0,
                 title: "keep".to_string(),
+                document_id: None,
             },
             DockTab::SqlDocument {
                 index: 99,
                 title: "stale".to_string(),
+                document_id: None,
             },
         ]);
         let manager = QueryTabManager::new();
@@ -566,8 +620,187 @@ mod tests {
             DockTab::SqlDocument {
                 index: 0,
                 title: "查询 1".to_string(),
+                document_id: Some(manager.tabs[0].id.clone()),
             }
         );
+    }
+
+    #[test]
+    fn dock_reorder_keeps_sql_identity_through_sync_and_close() {
+        let mut manager = QueryTabManager::new();
+        manager.tabs[0].sql = "SELECT 'A'".into();
+        manager.tabs[0].title = "A".into();
+        manager.new_tab();
+        manager.tabs[1].sql = "SELECT 'B'".into();
+        manager.tabs[1].title = "B".into();
+        let first_id = manager.tabs[0].id.clone();
+        let second_id = manager.tabs[1].id.clone();
+        let mut dock = DockState::new(vec![
+            DockTab::Surface {
+                kind: WorkbenchSurfaceKind::SqlDocument { index: 1 },
+                title: "B".into(),
+                document_id: Some(second_id.clone()),
+            },
+            DockTab::Surface {
+                kind: WorkbenchSurfaceKind::SqlDocument { index: 0 },
+                title: "A".into(),
+                document_id: Some(first_id),
+            },
+        ]);
+
+        sync_sql_documents(&mut dock, &manager);
+        sync_sql_documents(&mut dock, &manager);
+        let docs: Vec<_> = all_tabs(&dock)
+            .iter()
+            .filter_map(sql_document_reference)
+            .map(|(index, id)| (index, id.map(str::to_string)))
+            .collect();
+        assert_eq!(
+            docs,
+            vec![
+                (1, Some(second_id.clone())),
+                (0, Some(manager.tabs[0].id.clone()))
+            ]
+        );
+        assert_eq!(manager.tabs[docs[0].0].sql, "SELECT 'B'");
+        assert_eq!(manager.tabs[docs[1].0].sql, "SELECT 'A'");
+
+        manager.close_tab(0);
+        sync_sql_documents(&mut dock, &manager);
+        let docs: Vec<_> = all_tabs(&dock)
+            .iter()
+            .filter_map(sql_document_reference)
+            .map(|(index, id)| (index, id.map(str::to_string)))
+            .collect();
+        assert_eq!(docs, vec![(0, Some(second_id))]);
+        assert_eq!(manager.tabs[docs[0].0].sql, "SELECT 'B'");
+    }
+
+    fn click_dock_document(viewer: &mut WorkspaceViewer<'_>, tab: &mut DockTab) {
+        let ctx = egui::Context::default();
+        let mut position = egui::Pos2::ZERO;
+        for _ in 0..2 {
+            ctx.begin_pass(egui::RawInput::default());
+            egui::Area::new("dock_click_test".into()).show(&ctx, |ui| {
+                position = ui.button("B").rect.center();
+            });
+            ctx.end_pass().textures_delta.clear();
+        }
+        ctx.begin_pass(egui::RawInput {
+            events: vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            ..Default::default()
+        });
+        egui::Area::new("dock_click_test".into()).show(&ctx, |ui| {
+            let response = ui.button("B");
+            assert!(response.clicked());
+            viewer.on_tab_button(tab, &response);
+        });
+        ctx.end_pass().textures_delta.clear();
+    }
+
+    #[test]
+    fn detached_document_keeps_identity_content_and_close_target_after_preceding_close() {
+        let mut app = DbManagerApp::new_for_test();
+        for (index, title) in ["A", "B", "C"].iter().enumerate() {
+            if index > 0 {
+                app.session.tab_manager.new_tab();
+            }
+            app.session.tab_manager.tabs[index].sql = format!("SELECT '{title}'");
+            app.session.tab_manager.tabs[index].title = (*title).into();
+        }
+        let [a_id, b_id, c_id] =
+            std::array::from_fn(|index| app.session.tab_manager.tabs[index].id.clone());
+        let mut dock = default_surface_layout(a_id.clone(), RightInspectorTab::Properties);
+        sync_sql_documents(&mut dock, app.tab_manager());
+        let b_path = dock
+            .find_tab_from(|tab| {
+                sql_document_reference(tab).is_some_and(|(_, id)| id == Some(b_id.as_str()))
+            })
+            .expect("B docked");
+        let floating = dock.detach_tab(
+            b_path,
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, 480.0)),
+        );
+        sync_sql_documents(&mut dock, app.tab_manager());
+        sync_sql_documents(&mut dock, app.tab_manager());
+        assert_eq!(
+            dock.iter_all_tabs()
+                .filter(|(_, tab)| {
+                    sql_document_reference(tab).is_some_and(|(_, id)| id == Some(b_id.as_str()))
+                })
+                .count(),
+            1
+        );
+        let mut stale_b_tab = dock
+            .iter_all_tabs()
+            .find_map(|(_, tab)| {
+                sql_document_reference(tab)
+                    .is_some_and(|(_, id)| id == Some(b_id.as_str()))
+                    .then(|| tab.clone())
+            })
+            .expect("B before A closes");
+
+        let mut a_tab = dock
+            .find_tab_from(|tab| {
+                sql_document_reference(tab).is_some_and(|(_, id)| id == Some(a_id.as_str()))
+            })
+            .and_then(|path| dock.remove_tab(path))
+            .expect("A docked");
+        assert_eq!(
+            WorkspaceViewer { app: &mut app }.on_close(&mut a_tab),
+            OnCloseResponse::Close
+        );
+        sync_sql_documents(&mut dock, app.tab_manager());
+        let b_path = dock
+            .find_tab_from(|tab| {
+                sql_document_reference(tab).is_some_and(|(_, id)| id == Some(b_id.as_str()))
+            })
+            .expect("B stays detached");
+        assert_eq!(b_path.surface, floating);
+        let b_tab = dock.remove_tab(b_path).expect("B tab");
+        assert_eq!(
+            b_tab,
+            DockTab::Surface {
+                kind: WorkbenchSurfaceKind::SqlDocument { index: 0 },
+                title: "B".into(),
+                document_id: Some(b_id.clone()),
+            }
+        );
+        assert_eq!(
+            sql_document_reference(&stale_b_tab),
+            Some((1, Some(b_id.as_str())))
+        );
+        assert_eq!(
+            resolve_sql_document_index(&stale_b_tab, app.tab_manager()),
+            Some(0)
+        );
+        assert_eq!(app.tab_manager().tabs[0].sql, "SELECT 'B'");
+
+        click_dock_document(&mut WorkspaceViewer { app: &mut app }, &mut stale_b_tab);
+        assert_eq!(
+            app.tab_manager().get_active().map(|tab| tab.id.as_str()),
+            Some(b_id.as_str())
+        );
+        assert_eq!(
+            WorkspaceViewer { app: &mut app }.on_close(&mut stale_b_tab),
+            OnCloseResponse::Close
+        );
+        assert_eq!(app.tab_manager().tabs[0].id, c_id);
+        assert_eq!(app.tab_manager().tabs.len(), 1);
     }
 
     #[test]
@@ -653,6 +886,7 @@ mod tests {
         let sql = DockTab::SqlDocument {
             index: 2,
             title: "Query".to_string(),
+            document_id: None,
         }
         .surface_kind()
         .descriptor();

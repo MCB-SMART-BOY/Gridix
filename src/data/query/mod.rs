@@ -1,13 +1,16 @@
 //! 数据库查询执行模块
 //!
 //! 提供对 SQLite、PostgreSQL、MySQL 的统一查询接口。
-//! PostgreSQL 和 MySQL 使用连接池优化性能。
+//! PostgreSQL 独立 SQL Tab backend 与配置共享元数据连接分离；MySQL 使用连接池。
 
 #![allow(dead_code)] // 公开 API，部分功能预留
 
 pub(crate) mod mysql;
 pub(crate) mod postgres;
+mod postgres_tab;
 pub(crate) mod sqlite;
+pub use postgres_tab::PgTabQueryReceiver;
+pub(crate) use postgres_tab::{TransactionCommand, transaction_command};
 
 use super::ssh_tunnel::{SSH_TUNNEL_MANAGER, SshTunnel};
 use super::*;
@@ -150,6 +153,43 @@ pub async fn execute_typed_cancellable(
             mysql::execute_typed_cancellable(&effective_config, sql, cancellation).await
         }
     }
+}
+
+/// Enqueue a PostgreSQL SQL Tab query synchronously to preserve editor submission order.
+/// Metadata, grid and standalone callers continue using the configuration-keyed pool.
+pub fn enqueue_pg_tab_query(
+    config: &ConnectionConfig,
+    sql: &str,
+    connection: crate::domain::ids::ConnectionId,
+    document: crate::domain::ids::DocumentId,
+    cancellation: &tokio_util::sync::CancellationToken,
+    runtime: &tokio::runtime::Handle,
+) -> Result<PgTabQueryReceiver, DbError> {
+    postgres_tab::enqueue_query(config, sql, (connection, document), cancellation, runtime)
+}
+
+pub async fn await_pg_tab_query(
+    response: PgTabQueryReceiver,
+) -> Result<crate::domain::execution::ExecutionOutcome, DbError> {
+    postgres_tab::await_query(response).await
+}
+
+/// Close a SQL Tab backend, rolling back any open transaction via socket closure.
+pub fn close_pg_tab_session(
+    connection: crate::domain::ids::ConnectionId,
+    document: crate::domain::ids::DocumentId,
+) {
+    postgres_tab::close_tab((connection, document));
+}
+
+/// Close this document's SQL Tab backends across all connections.
+pub fn close_pg_document_sessions(document: crate::domain::ids::DocumentId) {
+    postgres_tab::close_document(document);
+}
+
+/// Close all SQL Tab backends for a connection; pooled metadata/grid clients remain separate.
+pub fn close_pg_connection_sessions(connection: crate::domain::ids::ConnectionId) {
+    postgres_tab::close_connection(connection);
 }
 
 async fn await_setup_with_cancellation<F, T>(
@@ -299,8 +339,8 @@ async fn setup_ssh_tunnel_if_enabled(
         .validate()
         .map_err(|e| DbError::Connection(format!("SSH 配置无效: {}", e)))?;
 
-    // 创建隧道标识符（基于配置生成唯一名称）
-    let tunnel_name = ssh_config.tunnel_name();
+    // 与断连回收及池键共用按连接实例隔离的隧道身份。
+    let tunnel_name = config.ssh_tunnel_name();
 
     // 获取或创建隧道（带超时）
     let timeout_duration = Duration::from_secs(constants::database::SSH_TUNNEL_TIMEOUT_SECS);
@@ -649,7 +689,7 @@ fn skip_sql_ws_and_comments(sql: &str, mut i: usize) -> usize {
         }
         if i + 1 < bytes.len() && bytes[i] == b'-' && bytes[i + 1] == b'-' {
             i += 2;
-            while i < bytes.len() && bytes[i] != b'\n' {
+            while i < bytes.len() && !matches!(bytes[i], b'\r' | b'\n') {
                 i += 1;
             }
             continue;
@@ -698,7 +738,7 @@ fn contains_keyword_outside_literals(sql: &str, keyword: &str) -> bool {
         // 跳过行注释
         if i + 1 < bytes.len() && bytes[i] == b'-' && bytes[i + 1] == b'-' {
             i += 2;
-            while i < bytes.len() && bytes[i] != b'\n' {
+            while i < bytes.len() && !matches!(bytes[i], b'\r' | b'\n') {
                 i += 1;
             }
             continue;

@@ -14,6 +14,14 @@ pub struct RuntimeEvent {
     pub outcome: RuntimeOutcome,
 }
 
+/// 过期查询结果仍须提示的 PostgreSQL 事务控制最终状态。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransactionCompletion {
+    Committed,
+    RolledBack,
+    Unknown,
+}
+
 /// 运行时事件的具体结果
 pub enum RuntimeOutcome {
     /// 连接完成
@@ -35,6 +43,7 @@ pub enum RuntimeOutcome {
     ActiveTablesReloaded {
         connection: ConnectionId,
         conn_name: String,
+        database: String,
         result: Result<Vec<String>, String>,
     },
 
@@ -50,6 +59,7 @@ pub enum RuntimeOutcome {
     TableDropped {
         connection: ConnectionId,
         conn_name: String,
+        database: Option<String>,
         table: String,
         result: Result<(), String>,
     },
@@ -57,10 +67,13 @@ pub enum RuntimeOutcome {
     /// 查询执行完成
     ExecutionFinished {
         document: DocumentId,
+        /// ID assigned when this SQL was submitted, not the Tab's current pending ID.
+        request_id: u64,
         sql: String,
         connection_name: String,
         tab_id: String,
         result: Result<crate::domain::execution::ExecutionOutcome, String>,
+        transaction_completion: Option<TransactionCompletion>,
         elapsed_ms: u64,
     },
 
@@ -75,7 +88,7 @@ pub enum RuntimeOutcome {
     GridSaved {
         table_view: TableViewId,
         table: String,
-        result: Result<ImportExecutionReport, String>,
+        result: Result<ImportExecutionReport, crate::data::DbError>,
         elapsed_ms: u64,
     },
 
@@ -89,7 +102,7 @@ pub enum RuntimeOutcome {
 
     /// 导入完成
     ImportDone {
-        result: Result<ImportExecutionReport, String>,
+        result: Result<ImportExecutionReport, crate::data::DbError>,
         elapsed_ms: u64,
     },
 

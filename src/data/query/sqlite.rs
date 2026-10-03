@@ -271,13 +271,13 @@ fn dbvalue_to_rusqlite(v: &DbValue) -> Result<rusqlite::types::Value, DbError> {
             "{:04}-{:02}-{:02}",
             d.year, d.month, d.day
         ))),
-        DbValue::Time(t) => Ok(rusqlite::types::Value::Text(format!(
-            "{:02}:{:02}:{:02}",
-            t.hour, t.minute, t.second
-        ))),
+        DbValue::Time(t) => Ok(rusqlite::types::Value::Text(t.storage_text())),
         DbValue::DateTime(dt) => Ok(rusqlite::types::Value::Text(format!(
-            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-            dt.date.year, dt.date.month, dt.date.day, dt.time.hour, dt.time.minute, dt.time.second
+            "{:04}-{:02}-{:02} {}",
+            dt.date.year,
+            dt.date.month,
+            dt.date.day,
+            dt.time.storage_text()
         ))),
         DbValue::Bytes(b) => Ok(rusqlite::types::Value::Blob(b.to_vec())),
         DbValue::Json(j) => Ok(rusqlite::types::Value::Text(j.to_string())),
@@ -294,6 +294,13 @@ pub(crate) fn execute_batch(
     use_transaction: bool,
     stop_on_error: bool,
 ) -> Result<ImportExecutionReport, DbError> {
+    if use_transaction {
+        crate::core::validate_wrapped_import_statements(
+            statements,
+            crate::core::SqlDialect::Standard,
+        )
+        .map_err(|error| DbError::Query(format!("SQLite 事务导入拒绝执行: {error}")))?;
+    }
     let mut conn = SqliteConn::open(&config.database)
         .map_err(|e| DbError::Connection(format!("SQLite 连接失败: {}", e)))?;
 
@@ -373,6 +380,12 @@ fn execute_typed_with_connection(
     let mut stmt = conn
         .prepare(sql)
         .map_err(|e| DbError::Query(e.to_string()))?;
+    if stmt.column_count() == 0 {
+        let affected = stmt
+            .execute([])
+            .map_err(|e| DbError::Query(e.to_string()))? as u64;
+        return Ok(ExecutionOutcome::affected_rows(affected));
+    }
 
     // 从 column_names 获取列名（rusqlite 0.39 的 columns() API 不可用）
     let col_names: Vec<String> = stmt.column_names().into_iter().map(String::from).collect();
@@ -463,12 +476,7 @@ use crate::domain::metadata::{
     ColumnMetadata as CatalogColumn, ForeignKeyMetadata, KeyMetadata, SchemaCatalog, TableMetadata,
 };
 
-/// 一次性加载 SQLite 数据库的完整 schema catalog。
-///
-/// 在单个连接中执行：
-/// 1. `sqlite_master` → 表列表
-/// 2. 每表 `PRAGMA table_info` → 列信息（含 PK）
-/// 3. 每表 `PRAGMA foreign_key_list` → 外键
+/// 一次性加载 SQLite 数据库的完整 schema catalog（列、键与外键）。
 ///
 /// 返回的 SchemaCatalog 可直接用于 autocomplete、grid PK、ER 图。
 pub(crate) fn load_catalog(
@@ -487,9 +495,9 @@ pub(crate) fn load_catalog(
 
     let table_names: Vec<String> = stmt
         .query_map([], |row| row.get(0))
-        .map_err(|e| DbError::Query(e.to_string()))?
-        .filter_map(|r| r.ok())
-        .collect();
+        .map_err(|e| DbError::Query(format!("读取 SQLite 表列表失败: {e}")))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| DbError::Query(format!("解析 SQLite 表列表失败: {e}")))?;
 
     let mut tables = Vec::with_capacity(table_names.len());
 
@@ -500,7 +508,7 @@ pub(crate) fn load_catalog(
             .prepare(&pragma_sql)
             .map_err(|e| DbError::Query(e.to_string()))?;
 
-        let col_rows: Vec<(usize, String, String, bool, Option<String>, bool)> = col_stmt
+        let col_rows: Vec<(usize, String, String, bool, Option<String>, i64)> = col_stmt
             .query_map([], |row| {
                 Ok((
                     row.get::<_, i64>(0)? as usize,   // cid
@@ -508,17 +516,16 @@ pub(crate) fn load_catalog(
                     row.get::<_, String>(2)?,         // type
                     row.get::<_, bool>(3)?,           // notnull
                     row.get::<_, Option<String>>(4)?, // dflt_value
-                    row.get::<_, i64>(5)? > 0,        // pk
+                    row.get(5)?,                      // pk order (0 if not a PK)
                 ))
             })
-            .map_err(|e| DbError::Query(e.to_string()))?
-            .filter_map(|r| r.ok())
-            .collect();
-
+            .map_err(|e| DbError::Query(format!("读取 {table_name} 列信息失败: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| DbError::Query(format!("解析 {table_name} 列信息失败: {e}")))?;
         let columns: Vec<CatalogColumn> = col_rows
             .iter()
             .map(
-                |(pos, name, data_type, notnull, default, is_pk)| CatalogColumn {
+                |(pos, name, data_type, notnull, default, pk_order)| CatalogColumn {
                     name: name.clone(),
                     position: *pos,
                     type_info: crate::domain::value::DbTypeInfo {
@@ -527,17 +534,19 @@ pub(crate) fn load_catalog(
                         nullable: Some(!notnull),
                     },
                     is_nullable: !notnull,
-                    is_primary_key: *is_pk,
+                    is_primary_key: *pk_order > 0,
                     default_value: default.clone(),
                 },
             )
             .collect();
 
-        let pk_columns: Vec<String> = columns
+        let mut ordered_pk: Vec<(i64, String)> = col_rows
             .iter()
-            .filter(|c| c.is_primary_key)
-            .map(|c| c.name.clone())
+            .filter(|row| row.5 > 0)
+            .map(|row| (row.5, row.1.clone()))
             .collect();
+        ordered_pk.sort_by_key(|row| row.0);
+        let pk_columns: Vec<String> = ordered_pk.into_iter().map(|row| row.1).collect();
         let primary_key = if pk_columns.is_empty() {
             None
         } else {
@@ -546,6 +555,54 @@ pub(crate) fn load_catalog(
                 columns: pk_columns,
             })
         };
+
+        // Only full-column, non-partial unique indexes represent table-wide unique keys.
+        let index_sql = format!("PRAGMA index_list('{}')", table_name.replace('\'', "''"));
+        let mut index_stmt = conn
+            .prepare(&index_sql)
+            .map_err(|e| DbError::Query(format!("读取 {table_name} 索引失败: {e}")))?;
+        let indexes = index_stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(1)?,
+                    row.get::<_, bool>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, bool>(4)?,
+                ))
+            })
+            .map_err(|e| DbError::Query(format!("读取 {table_name} 索引失败: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| DbError::Query(format!("解析 {table_name} 索引失败: {e}")))?;
+        let mut unique_keys = Vec::new();
+        for (index_name, is_unique, origin, is_partial) in indexes {
+            if !is_unique || origin == "pk" || is_partial {
+                continue;
+            }
+            let index_sql = format!("PRAGMA index_info('{}')", index_name.replace('\'', "''"));
+            let mut index_stmt = conn
+                .prepare(&index_sql)
+                .map_err(|e| DbError::Query(format!("读取 {index_name} 列失败: {e}")))?;
+            let index_columns = index_stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, i64>(1)?, row.get::<_, Option<String>>(2)?))
+                })
+                .map_err(|e| DbError::Query(format!("读取 {index_name} 列失败: {e}")))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| DbError::Query(format!("解析 {index_name} 列失败: {e}")))?;
+            if index_columns
+                .iter()
+                .any(|(cid, name)| *cid < 0 || name.is_none())
+            {
+                continue;
+            }
+            unique_keys.push(KeyMetadata {
+                name: Some(index_name),
+                columns: index_columns
+                    .into_iter()
+                    .filter_map(|(_, name)| name)
+                    .collect(),
+            });
+        }
 
         // 3. PRAGMA foreign_key_list → 外键
         let fk_sql = format!(
@@ -556,34 +613,64 @@ pub(crate) fn load_catalog(
             .prepare(&fk_sql)
             .map_err(|e| DbError::Query(e.to_string()))?;
 
-        let fk_rows: Vec<(String, String, String)> = fk_stmt
+        let mut fk_rows = fk_stmt
             .query_map([], |row| {
                 Ok((
-                    row.get::<_, String>(2)?, // table (referenced)
-                    row.get::<_, String>(3)?, // from
-                    row.get::<_, String>(4)?, // to
+                    row.get::<_, i64>(0)?,            // constraint id
+                    row.get::<_, i64>(1)?,            // column position
+                    row.get::<_, String>(2)?,         // referenced table
+                    row.get::<_, String>(3)?,         // local column
+                    row.get::<_, Option<String>>(4)?, // referenced column (null for implicit PK)
                 ))
             })
-            .map_err(|e| DbError::Query(e.to_string()))?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        let foreign_keys: Vec<ForeignKeyMetadata> = fk_rows
-            .into_iter()
-            .map(|(ref_table, from_col, to_col)| ForeignKeyMetadata {
+            .map_err(|e| DbError::Query(format!("读取 {table_name} 外键失败: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| DbError::Query(format!("解析 {table_name} 外键失败: {e}")))?;
+        fk_rows.sort_by_key(|row| (row.0, row.1));
+        let mut fk_map = std::collections::BTreeMap::<i64, ForeignKeyMetadata>::new();
+        for (id, position, ref_table, from_col, to_col) in fk_rows {
+            let ref_col = match to_col {
+                Some(column) => column,
+                None => {
+                    let ref_sql = format!("PRAGMA table_info('{}')", ref_table.replace('\'', "''"));
+                    let mut ref_stmt = conn
+                        .prepare(&ref_sql)
+                        .map_err(|e| DbError::Query(format!("读取 {ref_table} 主键失败: {e}")))?;
+                    let ref_pk = ref_stmt
+                        .query_map([], |row| {
+                            Ok((row.get::<_, i64>(5)?, row.get::<_, String>(1)?))
+                        })
+                        .map_err(|e| DbError::Query(format!("读取 {ref_table} 主键失败: {e}")))?
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|e| DbError::Query(format!("解析 {ref_table} 主键失败: {e}")))?;
+                    ref_pk
+                        .into_iter()
+                        .find(|(order, _)| *order == position + 1)
+                        .map(|(_, name)| name)
+                        .ok_or_else(|| {
+                            DbError::Query(format!(
+                                "{table_name} 外键引用 {ref_table}，无法解析第 {position} 个主键列"
+                            ))
+                        })?
+                }
+            };
+            let fk = fk_map.entry(id).or_insert_with(|| ForeignKeyMetadata {
                 name: None,
-                from_columns: vec![from_col],
+                from_columns: Vec::new(),
                 ref_table,
-                ref_columns: vec![to_col],
-            })
-            .collect();
+                ref_columns: Vec::new(),
+            });
+            fk.from_columns.push(from_col);
+            fk.ref_columns.push(ref_col);
+        }
+        let foreign_keys = fk_map.into_values().collect();
 
         tables.push(TableMetadata {
             name: table_name.clone(),
             schema: None,
             columns,
             primary_key,
-            unique_keys: Vec::new(),
+            unique_keys,
             foreign_keys,
         });
     }

@@ -32,23 +32,22 @@ fn schema_invalidation_for(hints: &crate::data::SqlUiHints) -> SchemaInvalidatio
     }
 }
 
-/// 网格保存批次回包的处置结果（纯决策，便于单测 B1 不变量）。
+/// 网格保存批次的可确认状态；未知结果不允许重试同一草稿。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GridSaveOutcome {
-    /// 整批成功：清除编辑状态并刷新该表。
     CommittedClearEdits,
-    /// 整批回滚（部分失败或执行错误）：保留编辑，显示错误。
     RolledBackKeepEdits,
+    UnknownKeepEditsLocked,
 }
 
-/// 根据批量执行报告判定网格保存的处置方式。
-///
-/// 仅当整批成功（无失败语句）时才清除编辑；否则事务已回滚，DB 未变，保留编辑供重试。
 fn classify_grid_save_outcome(
-    result: &Result<crate::data::ImportExecutionReport, String>,
+    result: &Result<crate::data::ImportExecutionReport, crate::data::DbError>,
 ) -> GridSaveOutcome {
     match result {
         Ok(report) if report.failed == 0 => GridSaveOutcome::CommittedClearEdits,
+        Err(crate::data::DbError::MutationOutcomeUnknown { .. }) => {
+            GridSaveOutcome::UnknownKeepEditsLocked
+        }
         _ => GridSaveOutcome::RolledBackKeepEdits,
     }
 }
@@ -206,7 +205,11 @@ impl DbManagerApp {
         match result {
             Ok(tables) => {
                 if let Some(conn) = self.session.manager.connections.get_mut(&name) {
-                    conn.set_connected(tables.clone());
+                    if conn.config.db_type == crate::types::DatabaseType::SQLite {
+                        conn.set_connected(tables.clone());
+                    } else {
+                        conn.set_connected_with_databases(tables.clone());
+                    }
                 }
 
                 if is_active {
@@ -234,6 +237,8 @@ impl DbManagerApp {
                     self.handle_connection_error(&name, e);
                 } else if let Some(conn) = self.session.manager.connections.get_mut(&name) {
                     conn.set_error(e);
+                    self.cancel_queries_for_connection(connection);
+                    crate::data::close_pg_connection_sessions(connection);
                 }
             }
         }
@@ -276,6 +281,19 @@ impl DbManagerApp {
         let is_active = self.session.manager.active.as_deref() == Some(conn_name.as_str());
         match result {
             Ok(tables) => {
+                if self
+                    .session
+                    .manager
+                    .connections
+                    .get(&conn_name)
+                    .is_some_and(|conn| conn.selected_database.as_deref() != Some(db_name.as_str()))
+                {
+                    self.cancel_queries_for_connection(connection);
+                    crate::data::close_pg_connection_sessions(connection);
+                }
+                if is_active {
+                    self.switch_grid_workspace(None);
+                }
                 if let Some(conn) = self.session.manager.connections.get_mut(&conn_name) {
                     conn.set_database(db_name.clone(), tables.clone());
                 }
@@ -286,14 +304,22 @@ impl DbManagerApp {
                         db_name,
                         tables.len()
                     ));
-                    self.session.autocomplete.set_tables(tables);
+                    if let Some(catalog) = self
+                        .session
+                        .schema_catalogs
+                        .get(&(connection, db_name.clone()))
+                    {
+                        self.session.autocomplete.set_from_catalog(catalog);
+                    } else {
+                        self.session.autocomplete.clear();
+                        self.session.autocomplete.set_tables(tables);
+                    }
                     self.state
                         .sidebar_panel_state
                         .selection
                         .reset_for_database_change();
                     self.load_triggers();
                     self.load_routines();
-                    self.switch_grid_workspace(None);
                     self.clear_result();
                     // 切库后若 ER 图打开，重载为新库的 schema（修复审计 ER-6）。
                     if self.state.show_er_diagram {
@@ -351,6 +377,15 @@ impl DbManagerApp {
 
         match result {
             Ok(()) => {
+                let is_selected_database = self
+                    .session
+                    .manager
+                    .connections
+                    .get(&conn_name)
+                    .is_some_and(|conn| conn.selected_database.as_deref() == Some(&db_name));
+                if is_active && is_selected_database {
+                    self.switch_grid_workspace(None);
+                }
                 let mut dropped_selected_database = false;
                 if let Some(conn) = self.session.manager.connections.get_mut(&conn_name) {
                     conn.databases.retain(|database| database != &db_name);
@@ -362,14 +397,13 @@ impl DbManagerApp {
                     }
                 }
 
-                self.remove_grid_workspaces_for_database(&db_name);
+                self.remove_grid_workspaces_for_database(&conn_name, &db_name);
                 if is_active {
                     self.state
                         .sidebar_panel_state
                         .selection
                         .reset_for_database_change();
                     if dropped_selected_database {
-                        self.switch_grid_workspace(None);
                         self.clear_result();
                         self.state.selected_table = None;
                         self.clear_search();
@@ -403,6 +437,7 @@ impl DbManagerApp {
         _ctx: &egui::Context,
         connection: crate::domain::ids::ConnectionId,
         conn_name: String,
+        database: Option<String>,
         table_name: String,
         result: Result<(), String>,
     ) {
@@ -414,20 +449,31 @@ impl DbManagerApp {
             );
             return;
         }
-        let is_active = self.session.manager.active.as_deref() == Some(conn_name.as_str());
+        let is_active_database = self.session.manager.active.as_deref() == Some(conn_name.as_str())
+            && self
+                .session
+                .manager
+                .get_active()
+                .is_some_and(|conn| conn.selected_database.as_ref() == database.as_ref());
+        let is_active_target =
+            is_active_database && self.state.selected_table.as_deref() == Some(table_name.as_str());
 
         match result {
             Ok(()) => {
-                if let Some(conn) = self.session.manager.connections.get_mut(&conn_name) {
+                if is_active_target {
+                    self.switch_grid_workspace(None);
+                }
+                if let Some(conn) = self.session.manager.connections.get_mut(&conn_name)
+                    && conn.selected_database.as_ref() == database.as_ref()
+                {
                     conn.tables.retain(|table| table != &table_name);
-                    if is_active {
+                    if is_active_database {
                         self.session.autocomplete.set_tables(conn.tables.clone());
                     }
                 }
 
-                self.remove_grid_workspace_for_table(&table_name);
-                if is_active && self.state.selected_table.as_deref() == Some(table_name.as_str()) {
-                    self.switch_grid_workspace(None);
+                self.remove_grid_workspace_for_table(&conn_name, &database, &table_name);
+                if is_active_target {
                     self.clear_result();
                     self.state.selected_table = None;
                     self.state.sidebar_section = ui::SidebarSection::Tables;
@@ -439,7 +485,7 @@ impl DbManagerApp {
                     .success(format!("表 '{}' 已删除", table_name));
 
                 // 侧栏删表后，若 ER 图打开则重载，避免显示已删除的表（修复审计 ER-5）。
-                if is_active && self.state.show_er_diagram {
+                if is_active_database && self.state.show_er_diagram {
                     self.load_er_diagram_data();
                 }
             }
@@ -461,14 +507,29 @@ impl DbManagerApp {
         _ctx: &egui::Context,
         connection: crate::domain::ids::ConnectionId,
         conn_name: String,
+        database: String,
         result: Result<Vec<String>, String>,
     ) {
-        let is_active = self.session.manager.active.as_deref() == Some(conn_name.as_str());
-        if !is_active || !self.does_runtime_connection_match(&conn_name, connection) {
+        let is_current_database = self
+            .session
+            .manager
+            .connections
+            .get(&conn_name)
+            .is_some_and(|conn| {
+                conn.selected_database
+                    .as_deref()
+                    .unwrap_or(&conn.config.database)
+                    == database.as_str()
+            });
+        if self.session.manager.active.as_deref() != Some(conn_name.as_str())
+            || !self.does_runtime_connection_match(&conn_name, connection)
+            || !is_current_database
+        {
             tracing::debug!(
                 connection = ?connection,
                 conn_name = %conn_name,
-                "忽略非当前连接的表列表刷新"
+                database = %database,
+                "忽略非当前数据库的表列表刷新"
             );
             return;
         }
@@ -520,7 +581,7 @@ impl DbManagerApp {
     fn handle_import_done(
         &mut self,
         _ctx: &egui::Context,
-        result: Result<crate::data::ImportExecutionReport, String>,
+        result: Result<crate::data::ImportExecutionReport, crate::data::DbError>,
         elapsed_ms: u64,
     ) {
         self.session.import_executing = false;
@@ -541,8 +602,16 @@ impl DbManagerApp {
                     ));
                 }
             }
+            Err(error @ crate::data::DbError::ImportOutcomeUnknown { .. }) => {
+                self.import_outcome_unknown = true;
+                self.state.import_state.requires_unknown_confirmation = true;
+                self.state.import_state.has_confirmed_unknown_outcome = false;
+                self.session.notifications.error(format!(
+                    "导入事务结果未知，不能直接重试；先核对数据库状态，再明确确认重新导入: {error}"
+                ));
+            }
             Err(e) => {
-                self.session.notifications.error(format!("导入失败: {}", e));
+                self.session.notifications.error(format!("导入失败: {e}"));
             }
         }
 
@@ -551,16 +620,26 @@ impl DbManagerApp {
 
     /// 处理网格保存批次完成消息
     ///
-    /// 成功（整批提交）→ 清除编辑状态并刷新该表（修复 B1）。
-    /// 失败（整批回滚）→ 保留编辑、显示错误，便于用户修正后重试。
+    /// 成功（整批提交）→ 清除编辑状态并刷新该表；确认回滚→保留编辑供重试；
+    /// 提交/回滚回执未知→隔离草稿，等待用户核对数据库状态。
     fn handle_grid_save_done(
         &mut self,
         ctx: &egui::Context,
-        result: Result<crate::data::ImportExecutionReport, String>,
+        task_id: crate::domain::ids::TaskId,
+        result: Result<crate::data::ImportExecutionReport, crate::data::DbError>,
         table: String,
         elapsed_ms: u64,
     ) {
-        self.session.grid_save_executing = false;
+        let submitted = self
+            .pending_grid_saves
+            .remove(&task_id)
+            .filter(|submitted| {
+                self.does_runtime_connection_match(
+                    &submitted.workspace_id.connection_name,
+                    submitted.connection_id,
+                )
+            });
+        self.session.grid_save_executing = !self.pending_grid_saves.is_empty();
         self.session.refresh_executing_flag();
 
         match (classify_grid_save_outcome(&result), result) {
@@ -569,13 +648,23 @@ impl DbManagerApp {
                     "已保存 {} 处修改到「{}」({}ms)",
                     report.succeeded, table, elapsed_ms
                 ));
-                // 整批成功：清除编辑状态并刷新该表以反映数据库真实数据。
-                self.state.grid_state.clear_edits();
-                if self.state.selected_table.as_deref() == Some(table.as_str()) {
-                    self.dispatch_app_action(
-                        ctx,
-                        crate::app::action::action_system::AppAction::RefreshSelectedTable,
-                    );
+                if let Some(submitted) = submitted {
+                    let should_refresh = self.retire_submitted_grid_edits(&submitted);
+                    self.finish_grid_save_guard(&submitted.workspace_id, true, false);
+                    if should_refresh {
+                        self.dispatch_app_action(
+                            ctx,
+                            crate::app::action::action_system::AppAction::RefreshSelectedTable,
+                        );
+                    }
+                }
+            }
+            (GridSaveOutcome::UnknownKeepEditsLocked, Err(error)) => {
+                self.session.notifications.error(format!(
+                    "保存结果未知，不能直接重试「{table}」；请先核对数据库状态，再放弃草稿并刷新表格: {error}"
+                ));
+                if let Some(submitted) = submitted {
+                    self.finish_grid_save_guard(&submitted.workspace_id, false, true);
                 }
             }
             (_, Ok(report)) => {
@@ -586,11 +675,17 @@ impl DbManagerApp {
                     report.total.saturating_sub(report.succeeded),
                     detail
                 ));
+                if let Some(submitted) = submitted {
+                    self.finish_grid_save_guard(&submitted.workspace_id, false, false);
+                }
             }
             (_, Err(e)) => {
                 self.session
                     .notifications
-                    .error(format!("保存失败，已回滚: {}", e));
+                    .error(format!("保存失败，已回滚: {e}"));
+                if let Some(submitted) = submitted {
+                    self.finish_grid_save_guard(&submitted.workspace_id, false, false);
+                }
             }
         }
 
@@ -694,6 +789,100 @@ impl DbManagerApp {
         self.session.needs_repaint = true;
     }
 
+    fn notify_stale_transaction_completion(
+        &mut self,
+        outcome: &crate::session::runtime_event::RuntimeOutcome,
+    ) {
+        use crate::session::runtime_event::{RuntimeOutcome, TransactionCompletion};
+        let RuntimeOutcome::ExecutionFinished {
+            transaction_completion: Some(completion),
+            result,
+            ..
+        } = outcome
+        else {
+            return;
+        };
+        match completion {
+            TransactionCompletion::Committed => {
+                self.session
+                    .notifications
+                    .warning("先前 PostgreSQL COMMIT 已完成；取消或后续查询未撤销提交");
+            }
+            TransactionCompletion::RolledBack => {
+                self.session
+                    .notifications
+                    .warning("先前 PostgreSQL ROLLBACK 已完成");
+            }
+            TransactionCompletion::Unknown => {
+                let detail = result
+                    .as_ref()
+                    .err()
+                    .map_or("无更多错误信息", String::as_str);
+                self.session.notifications.error(format!(
+                    "先前 PostgreSQL 事务结果不确定；重试前请核对数据库: {detail}"
+                ));
+            }
+        }
+    }
+
+    /// A task may still be current for connection A's key after the Tab is reused by B.
+    /// Both the submission ID and live connection must match before touching UI state.
+    fn is_current_query_event(&self, event: &crate::session::runtime_event::RuntimeEvent) -> bool {
+        use crate::session::runtime_event::RuntimeOutcome;
+        use crate::session::task_registry::OperationKey;
+        let RuntimeOutcome::ExecutionFinished {
+            document,
+            request_id,
+            connection_name,
+            tab_id,
+            ..
+        } = &event.outcome
+        else {
+            return true;
+        };
+        let OperationKey::Query {
+            connection,
+            document: key_document,
+        } = &event.key
+        else {
+            return false;
+        };
+        *key_document == *document
+            && self.session.manager.active.as_deref() == Some(connection_name.as_str())
+            && self.does_runtime_connection_match(connection_name, *connection)
+            && self.session.tab_manager.tabs.iter().any(|tab| {
+                tab.id == *tab_id
+                    && super::request_lifecycle::query_document_id(&tab.id) == *document
+                    && tab.pending_request_id == Some(*request_id)
+            })
+    }
+
+    /// A rejected completion still ends its own pending request, never a replacement request.
+    fn finish_rejected_query_request(
+        &mut self,
+        outcome: &crate::session::runtime_event::RuntimeOutcome,
+    ) {
+        let crate::session::runtime_event::RuntimeOutcome::ExecutionFinished {
+            tab_id,
+            request_id,
+            ..
+        } = outcome
+        else {
+            return;
+        };
+        if let Some(tab) = self
+            .session
+            .tab_manager
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.id == *tab_id && tab.pending_request_id == Some(*request_id))
+        {
+            tab.pending_request_id = None;
+            tab.executing = false;
+            self.session.refresh_executing_flag();
+        }
+    }
+
     /// 处理统一运行时事件（T1 cutover）。
     fn handle_runtime_event(
         &mut self,
@@ -704,7 +893,21 @@ impl DbManagerApp {
             .session
             .task_registry
             .is_current(&event.key, event.task_id)
+            || !self.is_current_query_event(&event)
         {
+            if let crate::session::runtime_event::RuntimeOutcome::GridSaved {
+                result,
+                table,
+                elapsed_ms,
+                ..
+            } = event.outcome
+            {
+                // An older save can still have committed even after a newer save was submitted.
+                self.handle_grid_save_done(ctx, event.task_id, result, table, elapsed_ms);
+            } else {
+                self.notify_stale_transaction_completion(&event.outcome);
+                self.finish_rejected_query_request(&event.outcome);
+            }
             self.session.task_registry.complete(event.task_id);
             self.session.task_registry.cleanup();
             self.session.needs_repaint = true;
@@ -731,9 +934,10 @@ impl DbManagerApp {
             RuntimeOutcome::ActiveTablesReloaded {
                 connection,
                 conn_name,
+                database,
                 result,
             } => {
-                self.handle_active_tables_reloaded(ctx, connection, conn_name, result);
+                self.handle_active_tables_reloaded(ctx, connection, conn_name, database, result);
             }
             RuntimeOutcome::DatabaseDropped {
                 connection,
@@ -746,10 +950,11 @@ impl DbManagerApp {
             RuntimeOutcome::TableDropped {
                 connection,
                 conn_name,
+                database,
                 table,
                 result,
             } => {
-                self.handle_table_dropped(ctx, connection, conn_name, table, result);
+                self.handle_table_dropped(ctx, connection, conn_name, database, table, result);
             }
             RuntimeOutcome::GridSaved {
                 result,
@@ -757,9 +962,10 @@ impl DbManagerApp {
                 elapsed_ms,
                 ..
             } => {
-                self.handle_grid_save_done(ctx, result, table, elapsed_ms);
+                self.handle_grid_save_done(ctx, event.task_id, result, table, elapsed_ms);
             }
             RuntimeOutcome::ExecutionFinished {
+                request_id,
                 sql,
                 connection_name: conn_name,
                 tab_id,
@@ -768,7 +974,7 @@ impl DbManagerApp {
                 ..
             } => {
                 self.handle_query_execution_finished(
-                    ctx, sql, conn_name, tab_id, result, elapsed_ms,
+                    sql, conn_name, tab_id, request_id, result, elapsed_ms,
                 );
             }
             RuntimeOutcome::ImportDone { result, elapsed_ms } => {
@@ -781,17 +987,26 @@ impl DbManagerApp {
                 ..
             } => match catalog {
                 Ok(schema) => {
-                    // Populate grid metadata before schema is moved into catalogs
-                    if let Some(table_name) = &self.state.selected_table.clone()
-                        && let Some(tm) = schema.table(table_name)
-                    {
-                        self.state.grid_state.table_metadata =
-                            Some(std::sync::Arc::new(tm.clone()));
+                    let is_active_catalog = self.session.manager.get_active().is_some_and(|conn| {
+                        conn.id == connection_id
+                            && conn
+                                .selected_database
+                                .as_deref()
+                                .unwrap_or(&conn.config.database)
+                                == database
+                    });
+                    if is_active_catalog {
+                        self.session.autocomplete.set_from_catalog(&schema);
                     }
-                    self.session.autocomplete.set_from_catalog(&schema);
                     self.session
                         .schema_catalogs
                         .insert((connection_id, database), schema);
+                    if is_active_catalog {
+                        self.sync_table_metadata();
+                        if self.state.show_er_diagram {
+                            self.load_er_diagram_data();
+                        }
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(connection_id = ?connection_id, database = %database, error = %e, "Schema 目录加载失败");
@@ -852,13 +1067,43 @@ impl DbManagerApp {
         self.session.needs_repaint = true;
     }
 
+    fn is_query_result_blocked_by_grid_draft(&self, tab_index: usize, conn_name: &str) -> bool {
+        let Some(tab) = self.session.tab_manager.tabs.get(tab_index) else {
+            return false;
+        };
+        if !tab.uses_grid_workspace {
+            return false;
+        }
+        let (Some(table_name), Some(conn)) = (
+            tab.selected_table.as_ref(),
+            self.session.manager.connections.get(conn_name),
+        ) else {
+            return false;
+        };
+        let workspace_id = crate::app::GridWorkspaceId {
+            tab_id: tab.id.clone(),
+            connection_name: conn_name.to_owned(),
+            connection_id: conn.id,
+            database_name: conn.selected_database.clone(),
+            table_name: table_name.clone(),
+        };
+        let state = if self.active_grid_workspace_id().as_ref() == Some(&workspace_id) {
+            Some(&self.state.grid_state)
+        } else {
+            self.grid_workspaces.states.get(&workspace_id)
+        };
+        state.is_some_and(|state| {
+            state.has_changes() || state.save_in_flight || state.has_unknown_save_outcome
+        })
+    }
+
     /// 处理查询执行完成（T1 cutover — 替代 handle_query_done）。
     fn handle_query_execution_finished(
         &mut self,
-        _ctx: &egui::Context,
         sql: String,
         conn_name: String,
         tab_id: String,
+        request_id: u64,
         result: Result<crate::domain::execution::ExecutionOutcome, String>,
         elapsed_ms: u64,
     ) {
@@ -875,6 +1120,7 @@ impl DbManagerApp {
         };
         let is_active_tab = tab_index == self.session.tab_manager.active_index;
         let is_explain = is_explain_sql(&sql);
+        let completed_request_id = Some(request_id);
         let sql_hints = crate::data::analyze_sql_for_ui(&sql);
         let is_update_or_delete = sql_hints.is_update_or_delete;
         let is_insert = sql_hints.is_insert;
@@ -886,6 +1132,23 @@ impl DbManagerApp {
             .get(&conn_name)
             .map(|c| c.config.db_type.display_name().to_string())
             .unwrap_or_default();
+        if result.is_ok()
+            && !is_explain
+            && self.is_query_result_blocked_by_grid_draft(tab_index, &conn_name)
+        {
+            if let Some(tab) = self.session.tab_manager.tabs.get_mut(tab_index) {
+                tab.pending_request_id = None;
+                tab.executing = false;
+            }
+            self.session
+                .query_history
+                .add(sql.clone(), db_type, true, None);
+            self.session
+                .notifications
+                .warning("查询已完成，但表格有未保存或待核对的修改；保留原结果与草稿");
+            self.invalidate_after_schema_change(&sql_hints, &conn_name);
+            return;
+        }
 
         match result {
             Ok(outcome) => {
@@ -979,10 +1242,27 @@ impl DbManagerApp {
                                 .set_columns(table.clone(), arc.column_names());
                         }
                         self.state.grid_state.result_set = typed_arc;
+                        if !columns_empty
+                            && !self.state.grid_state.save_in_flight
+                            && !self.state.grid_state.has_unknown_save_outcome
+                            && self.state.grid_state.refresh_after_save_request_id
+                                == completed_request_id
+                            && completed_request_id.is_some()
+                        {
+                            self.state.grid_state.needs_refresh_after_save = false;
+                            self.state.grid_state.refresh_after_save_request_id = None;
+                        }
                         self.reveal_bottom_panel_for_query(crate::core::BottomPanelTab::Results);
-                        self.state.grid_state.rows_to_delete.clear();
+                        if !self.state.grid_state.save_in_flight
+                            && !self.state.grid_state.has_unknown_save_outcome
+                        {
+                            self.state.grid_state.rows_to_delete.clear();
+                        }
                         self.persist_active_grid_workspace();
                     }
+                } else if !is_explain && !columns_empty {
+                    self.grid_workspaces
+                        .unlock_refreshed_tab(&tab_id, &conn_name, request_id);
                 }
                 if is_drop_table
                     && let Some(conn) = self.session.manager.connections.get_mut(&conn_name)
@@ -1027,13 +1307,16 @@ mod tests {
         select_ready_state_er_layout_strategy,
     };
     use crate::app::DbManagerApp;
+    use crate::app::GridSubmittedEdits;
     use crate::data::{
         Connection, ConnectionConfig, DatabaseType, ImportExecutionReport, analyze_sql_for_ui,
     };
     use crate::domain::execution::ExecutionOutcome;
+    use crate::domain::ids::TaskId;
     use crate::domain::result::ResultSet;
     use crate::ui::{ERLayoutStrategy, ERTable, RelationType, Relationship, RelationshipOrigin};
     use eframe::egui;
+    use std::num::NonZeroU64;
 
     #[test]
     fn schema_invalidation_maps_ddl_to_reloads() {
@@ -1067,6 +1350,162 @@ mod tests {
     }
 
     #[test]
+    fn inactive_catalog_completion_does_not_change_active_grid_metadata() {
+        use crate::domain::ids::SchemaRevision;
+        use crate::domain::metadata::{KeyMetadata, SchemaCatalog, TableMetadata};
+        use crate::session::runtime_event::{RuntimeEvent, RuntimeOutcome};
+        use crate::session::task_registry::{OperationKey, TaskKind};
+
+        let mut app = DbManagerApp::new_for_test();
+        for name in ["old", "current"] {
+            let mut config = ConnectionConfig::new(name, DatabaseType::SQLite);
+            config.database = format!("/tmp/{name}.sqlite");
+            app.session.manager.add(config);
+        }
+        app.session.manager.active = Some("current".into());
+        app.state.selected_table = Some("users".into());
+        let current_id = app.session.manager.get_active().expect("current").id;
+        let old_id = app.session.manager.connections.get("old").expect("old").id;
+        let table = |name: &str| TableMetadata {
+            name: name.into(),
+            schema: None,
+            columns: vec![],
+            primary_key: None,
+            unique_keys: vec![],
+            foreign_keys: vec![],
+        };
+        let current_table = table("users");
+        app.session.schema_catalogs.insert(
+            (current_id, "/tmp/current.sqlite".into()),
+            SchemaCatalog {
+                revision: SchemaRevision(0),
+                tables: vec![current_table.clone()],
+            },
+        );
+        app.state.grid_state.table_metadata = Some(std::sync::Arc::new(current_table));
+        let key = OperationKey::Catalog {
+            connection: old_id,
+            database: "/tmp/old.sqlite".into(),
+        };
+        let (task_id, _) = app
+            .session
+            .task_registry
+            .register(key.clone(), TaskKind::Catalog);
+        app.handle_runtime_event(
+            &egui::Context::default(),
+            RuntimeEvent {
+                task_id,
+                key,
+                outcome: RuntimeOutcome::CatalogLoaded {
+                    connection_id: old_id,
+                    database: "/tmp/old.sqlite".into(),
+                    catalog: Ok(SchemaCatalog {
+                        revision: SchemaRevision(0),
+                        tables: vec![TableMetadata {
+                            primary_key: Some(KeyMetadata {
+                                name: Some("old_primary_key".into()),
+                                columns: vec!["old_id".into()],
+                            }),
+                            ..table("users")
+                        }],
+                    }),
+                    revision: SchemaRevision(0),
+                },
+            },
+        );
+
+        assert_eq!(
+            app.state
+                .grid_state
+                .table_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.primary_key.as_ref()),
+            None,
+        );
+        assert_eq!(
+            app.session
+                .schema_catalogs
+                .get(&(old_id, "/tmp/old.sqlite".into()))
+                .expect("old cache")
+                .tables[0]
+                .primary_key
+                .as_ref()
+                .expect("cached old primary key")
+                .columns[0],
+            "old_id",
+        );
+    }
+
+    #[test]
+    fn active_catalog_completion_refreshes_open_sqlite_er_shell() {
+        use crate::domain::ids::SchemaRevision;
+        use crate::domain::metadata::{ColumnMetadata, SchemaCatalog, TableMetadata};
+        use crate::domain::value::{DbTypeFamily, DbTypeInfo};
+        use crate::session::runtime_event::{RuntimeEvent, RuntimeOutcome};
+        use crate::session::task_registry::{OperationKey, TaskKind};
+
+        let mut app = DbManagerApp::new_for_test();
+        let mut config = ConnectionConfig::new("demo", DatabaseType::SQLite);
+        config.database = "/tmp/er-catalog.sqlite".into();
+        app.session.manager.add(config);
+        app.session.manager.active = Some("demo".into());
+        let conn = app
+            .session
+            .manager
+            .connections
+            .get_mut("demo")
+            .expect("connection");
+        conn.set_connected(vec!["users".into()]);
+        let id = conn.id;
+        app.load_er_diagram_data();
+        assert!(app.state.er_diagram_state.tables[0].columns.is_empty());
+
+        let key = OperationKey::Catalog {
+            connection: id,
+            database: "/tmp/er-catalog.sqlite".into(),
+        };
+        let (task_id, _) = app
+            .session
+            .task_registry
+            .register(key.clone(), TaskKind::Catalog);
+        app.handle_runtime_event(
+            &egui::Context::default(),
+            RuntimeEvent {
+                task_id,
+                key,
+                outcome: RuntimeOutcome::CatalogLoaded {
+                    connection_id: id,
+                    database: "/tmp/er-catalog.sqlite".into(),
+                    catalog: Ok(SchemaCatalog {
+                        revision: SchemaRevision(0),
+                        tables: vec![TableMetadata {
+                            name: "users".into(),
+                            schema: None,
+                            columns: vec![ColumnMetadata {
+                                name: "id".into(),
+                                position: 1,
+                                type_info: DbTypeInfo {
+                                    family: DbTypeFamily::Integer,
+                                    native_name: "INTEGER".into(),
+                                    nullable: Some(false),
+                                },
+                                is_nullable: false,
+                                is_primary_key: true,
+                                default_value: None,
+                            }],
+                            primary_key: None,
+                            unique_keys: vec![],
+                            foreign_keys: vec![],
+                        }],
+                    }),
+                    revision: SchemaRevision(0),
+                },
+            },
+        );
+        assert_eq!(app.state.er_diagram_state.tables[0].columns[0].name, "id");
+    }
+
+    #[test]
     fn grid_save_clears_edits_only_when_whole_batch_commits() {
         // B1: 整批成功 → 清编辑
         let ok = Ok(ImportExecutionReport {
@@ -1096,12 +1535,503 @@ mod tests {
         );
 
         // 执行层直接报错（事务回滚）→ 保留编辑
-        let err: Result<ImportExecutionReport, String> =
-            Err("事务已回滚，第 2 条语句执行失败".to_string());
+        let err: Result<ImportExecutionReport, crate::data::DbError> =
+            Err(crate::data::DbError::Query("constraint violation".into()));
         assert_eq!(
             classify_grid_save_outcome(&err),
             GridSaveOutcome::RolledBackKeepEdits
         );
+    }
+
+    #[test]
+    fn database_switch_keeps_unsaved_grid_rows_in_original_database() {
+        let first = tempfile::NamedTempFile::new().expect("first temporary database");
+        let second = tempfile::NamedTempFile::new().expect("second temporary database");
+        let first_name = first.path().to_string_lossy().into_owned();
+        let second_name = second.path().to_string_lossy().into_owned();
+        let mut app = DbManagerApp::new_for_test();
+        app.session
+            .manager
+            .add(ConnectionConfig::new("local", DatabaseType::SQLite));
+        app.session.manager.active = Some("local".into());
+        let connection_id = app.session.manager.get_active().expect("connection").id;
+        app.session
+            .manager
+            .connections
+            .get_mut("local")
+            .expect("connection")
+            .set_database(first_name.clone(), vec![]);
+        app.switch_grid_workspace(Some("users".into()));
+        app.state
+            .grid_state
+            .new_rows
+            .push(vec!["first draft".into()]);
+        app.state.grid_state.save_in_flight = true;
+
+        app.session
+            .pending_database_requests
+            .insert("local".into(), second_name.clone());
+        app.handle_database_selected(
+            &egui::Context::default(),
+            connection_id,
+            "local".into(),
+            second_name.clone(),
+            Ok(vec![]),
+        );
+        app.switch_grid_workspace(Some("users".into()));
+        assert!(app.state.grid_state.new_rows.is_empty());
+        assert!(!app.state.grid_state.save_in_flight);
+        app.state
+            .grid_state
+            .new_rows
+            .push(vec!["second draft".into()]);
+
+        app.session
+            .pending_database_requests
+            .insert("local".into(), first_name.clone());
+        app.handle_database_selected(
+            &egui::Context::default(),
+            connection_id,
+            "local".into(),
+            first_name,
+            Ok(vec![]),
+        );
+        app.switch_grid_workspace(Some("users".into()));
+        assert_eq!(app.state.grid_state.new_rows, vec![vec!["first draft"]]);
+        assert!(app.state.grid_state.save_in_flight);
+    }
+
+    #[test]
+    fn grid_save_inactive_owner_does_not_restore_committed_drafts() {
+        let mut app = DbManagerApp::new_for_test();
+        app.session
+            .manager
+            .add(ConnectionConfig::new("local", DatabaseType::SQLite));
+        app.session.manager.active = Some("local".into());
+        app.session.tab_manager.tabs[0].selected_table = Some("users".into());
+        app.session.tab_manager.tabs[0].uses_grid_workspace = true;
+        app.switch_grid_workspace(Some("users".into()));
+        app.state.grid_state.new_rows.push(vec!["inserted".into()]);
+        app.state
+            .grid_state
+            .modified_cells
+            .insert((0, 0), "changed-pk".into());
+        let owner = app.active_grid_workspace_id().expect("table workspace");
+        let connection_id = app
+            .session
+            .manager
+            .get_active()
+            .expect("local connection")
+            .id;
+        let submitted =
+            GridSubmittedEdits::capture(owner.clone(), connection_id, &app.state.grid_state);
+        let task_id = TaskId(NonZeroU64::new(1).expect("nonzero task id"));
+        app.pending_grid_saves.insert(task_id, submitted);
+        app.state.grid_state.save_in_flight = true;
+        app.open_new_query_tab();
+        app.switch_grid_workspace(Some("orders".into()));
+        app.state
+            .grid_state
+            .new_rows
+            .push(vec!["other draft".into()]);
+
+        app.handle_grid_save_done(
+            &egui::Context::default(),
+            task_id,
+            Ok(ImportExecutionReport {
+                total: 2,
+                succeeded: 2,
+                failed: 0,
+                first_error: None,
+            }),
+            "users".into(),
+            1,
+        );
+
+        assert_eq!(
+            app.state.grid_state.new_rows,
+            vec![vec!["other draft".to_string()]]
+        );
+        app.activate_query_tab(0);
+        assert!(
+            !app.state.grid_state.has_changes(),
+            "the committed insert and PK edit must not replay"
+        );
+        assert!(
+            app.state.grid_state.needs_refresh_after_save,
+            "the owner's old result cannot be edited"
+        );
+        assert!(!app.state.grid_state.save_in_flight);
+    }
+
+    fn deliver_committed_grid_save(app: &mut DbManagerApp, task_id: TaskId) {
+        let mut report = ImportExecutionReport::new(1);
+        report.succeeded = 1;
+        app.handle_grid_save_done(
+            &egui::Context::default(),
+            task_id,
+            Ok(report),
+            "users".into(),
+            1,
+        );
+    }
+
+    #[test]
+    fn grid_save_replaced_same_name_connection_cannot_retire_new_draft() {
+        let mut app = DbManagerApp::new_for_test();
+        let config = ConnectionConfig::new("local", DatabaseType::SQLite);
+        app.session.manager.add(config.clone());
+        app.session.manager.active = Some("local".into());
+        app.switch_grid_workspace(Some("users".into()));
+        app.state
+            .grid_state
+            .new_rows
+            .push(vec!["same draft".into()]);
+        let workspace_id = app.active_grid_workspace_id().expect("users workspace");
+        let old_id = app.session.manager.get_active().expect("old connection").id;
+        let old_task = TaskId(NonZeroU64::new(10).expect("nonzero task id"));
+        app.pending_grid_saves.insert(
+            old_task,
+            GridSubmittedEdits::capture(workspace_id.clone(), old_id, &app.state.grid_state),
+        );
+        app.state.grid_state.save_in_flight = true;
+
+        app.disconnect("local".into());
+        app.session.manager.connections.remove("local");
+        app.session.manager.add(config);
+        app.session.manager.active = Some("local".into());
+        app.switch_grid_workspace(Some("users".into()));
+        let new_id = app.session.manager.get_active().expect("new connection").id;
+        assert_ne!(old_id, new_id);
+        let new_workspace_id = app.active_grid_workspace_id().expect("new users workspace");
+        assert_ne!(new_workspace_id, workspace_id);
+        assert_eq!(new_workspace_id.connection_id, new_id);
+        assert!(app.state.grid_state.new_rows.is_empty());
+        app.state
+            .grid_state
+            .new_rows
+            .push(vec!["same draft".into()]);
+        let new_task = TaskId(NonZeroU64::new(11).expect("nonzero task id"));
+        app.pending_grid_saves.insert(
+            new_task,
+            GridSubmittedEdits::capture(new_workspace_id, new_id, &app.state.grid_state),
+        );
+        app.state.grid_state.save_in_flight = true;
+        deliver_committed_grid_save(&mut app, old_task);
+        assert_eq!(app.state.grid_state.new_rows, vec![vec!["same draft"]]);
+        assert!(app.state.grid_state.save_in_flight);
+        assert!(!app.state.grid_state.needs_refresh_after_save);
+        assert!(app.pending_grid_saves.contains_key(&new_task));
+
+        app.switch_grid_workspace(Some("orders".into()));
+        deliver_committed_grid_save(&mut app, new_task);
+        app.switch_grid_workspace(Some("users".into()));
+        assert!(!app.state.grid_state.has_changes());
+        assert!(!app.state.grid_state.save_in_flight);
+        assert!(app.state.grid_state.needs_refresh_after_save);
+    }
+
+    #[test]
+    fn grid_save_rollback_unlocks_original_draft_for_retry() {
+        let mut app = DbManagerApp::new_for_test();
+        app.session
+            .manager
+            .add(ConnectionConfig::new("local", DatabaseType::SQLite));
+        app.session.manager.active = Some("local".into());
+        app.switch_grid_workspace(Some("users".into()));
+        app.state.grid_state.new_rows.push(vec!["unsaved".into()]);
+        let submitted = GridSubmittedEdits::capture(
+            app.active_grid_workspace_id().expect("users workspace"),
+            app.session
+                .manager
+                .get_active()
+                .expect("local connection")
+                .id,
+            &app.state.grid_state,
+        );
+        let task_id = TaskId(NonZeroU64::new(3).expect("nonzero task id"));
+        app.pending_grid_saves.insert(task_id, submitted);
+        app.state.grid_state.save_in_flight = true;
+
+        app.handle_grid_save_done(
+            &egui::Context::default(),
+            task_id,
+            Err(crate::data::DbError::Query("constraint violation".into())),
+            "users".into(),
+            1,
+        );
+
+        assert_eq!(
+            app.state.grid_state.new_rows,
+            vec![vec!["unsaved".to_string()]]
+        );
+        assert!(!app.state.grid_state.is_save_locked());
+    }
+
+    #[test]
+    fn grid_save_unknown_commit_keeps_draft_locked_until_discard_and_refresh() {
+        let mut app = DbManagerApp::new_for_test();
+        app.session
+            .manager
+            .add(ConnectionConfig::new("local", DatabaseType::SQLite));
+        app.session.manager.active = Some("local".into());
+        app.switch_grid_workspace(Some("users".into()));
+        app.state.grid_state.new_rows.push(vec!["uncertain".into()]);
+        let workspace_id = app.active_grid_workspace_id().expect("users workspace");
+        let connection_id = app
+            .session
+            .manager
+            .get_active()
+            .expect("local connection")
+            .id;
+        let submitted =
+            GridSubmittedEdits::capture(workspace_id, connection_id, &app.state.grid_state);
+        let task_id = TaskId(NonZeroU64::new(4).expect("nonzero task id"));
+        app.pending_grid_saves.insert(task_id, submitted);
+        app.state.grid_state.save_in_flight = true;
+
+        app.handle_grid_save_done(
+            &egui::Context::default(),
+            task_id,
+            Err(crate::data::DbError::MutationOutcomeUnknown {
+                backend: "PostgreSQL",
+                operation: "COMMIT",
+                context: "test batch".into(),
+                source: Box::new(std::io::Error::other("acknowledgement lost")),
+            }),
+            "users".into(),
+            1,
+        );
+        assert_eq!(app.state.grid_state.new_rows, vec![vec!["uncertain"]]);
+        assert!(app.state.grid_state.has_unknown_save_outcome);
+        assert!(app.state.grid_state.is_save_locked());
+        app.state.grid_state.clear_edits();
+        assert!(!app.state.grid_state.has_unknown_save_outcome);
+        assert!(app.state.grid_state.is_save_locked());
+    }
+
+    fn deliver_query_completion(
+        app: &mut DbManagerApp,
+        connection_name: &str,
+        connection: crate::domain::ids::ConnectionId,
+        task_id: TaskId,
+        request_id: u64,
+        sql: &str,
+        result: Result<ExecutionOutcome, String>,
+    ) {
+        use crate::session::runtime_event::{RuntimeEvent, RuntimeOutcome};
+        use crate::session::task_registry::OperationKey;
+        let tab_id = app
+            .session
+            .tab_manager
+            .get_active()
+            .expect("active tab")
+            .id
+            .clone();
+        let document = super::super::request_lifecycle::query_document_id(&tab_id);
+        app.handle_runtime_event(
+            &egui::Context::default(),
+            RuntimeEvent {
+                task_id,
+                key: OperationKey::Query {
+                    connection,
+                    document,
+                },
+                outcome: RuntimeOutcome::ExecutionFinished {
+                    document,
+                    request_id,
+                    sql: sql.into(),
+                    connection_name: connection_name.into(),
+                    tab_id,
+                    result,
+                    transaction_completion: None,
+                    elapsed_ms: 1,
+                },
+            },
+        );
+    }
+
+    #[test]
+    fn grid_save_pk_change_waits_for_post_commit_table_refresh() {
+        let mut app = DbManagerApp::new_for_test();
+        app.session
+            .manager
+            .add(ConnectionConfig::new("local", DatabaseType::SQLite));
+        app.session.manager.active = Some("local".into());
+        app.switch_grid_workspace(Some("users".into()));
+        let owner = app.active_grid_workspace_id().expect("users workspace");
+        app.state
+            .grid_state
+            .modified_cells
+            .insert((0, 0), "new-pk".into());
+        let connection_id = app
+            .session
+            .manager
+            .get_active()
+            .expect("local connection")
+            .id;
+        let submitted =
+            GridSubmittedEdits::capture(owner.clone(), connection_id, &app.state.grid_state);
+        let task_id = TaskId(NonZeroU64::new(2).expect("nonzero task id"));
+        app.pending_grid_saves.insert(task_id, submitted);
+        app.state.grid_state.save_in_flight = true;
+        // Avoid launching a database request: the owning workspace is inactive at completion.
+        app.switch_grid_workspace(Some("orders".into()));
+        app.handle_grid_save_done(
+            &egui::Context::default(),
+            task_id,
+            Ok(ImportExecutionReport {
+                total: 1,
+                succeeded: 1,
+                failed: 0,
+                first_error: None,
+            }),
+            "users".into(),
+            1,
+        );
+        app.switch_grid_workspace(Some("users".into()));
+        assert!(app.state.grid_state.is_save_locked());
+
+        let connection = app
+            .session
+            .manager
+            .get_active()
+            .expect("local connection")
+            .id;
+        let document = super::super::request_lifecycle::query_document_id(
+            &app.session.tab_manager.get_active().expect("active tab").id,
+        );
+        let key = crate::session::task_registry::OperationKey::Query {
+            connection,
+            document,
+        };
+        let (old_task, _) = app
+            .session
+            .task_registry
+            .register(key.clone(), crate::session::task_registry::TaskKind::Query);
+        let refresh_sql = format!(
+            "SELECT * FROM \"users\" LIMIT {};",
+            crate::core::constants::database::DEFAULT_QUERY_LIMIT
+        );
+        app.state.grid_state.refresh_after_save_request_id = Some(42);
+        let tab = app
+            .session
+            .tab_manager
+            .get_active_mut()
+            .expect("active tab");
+        tab.pending_request_id = Some(42);
+        tab.executing = true;
+        deliver_query_completion(
+            &mut app,
+            "local",
+            connection,
+            old_task,
+            41,
+            &refresh_sql,
+            Ok(ExecutionOutcome::single_result(ResultSet::empty())),
+        );
+        assert!(
+            app.state.grid_state.is_save_locked(),
+            "an earlier response cannot unlock the stale PK"
+        );
+        let tab = app.session.tab_manager.get_active().expect("active tab");
+        assert_eq!(tab.pending_request_id, Some(42));
+        assert!(tab.executing);
+        let (current_task, _) = app
+            .session
+            .task_registry
+            .register(key, crate::session::task_registry::TaskKind::Query);
+        deliver_query_completion(
+            &mut app,
+            "local",
+            connection,
+            current_task,
+            42,
+            &refresh_sql,
+            Ok(ExecutionOutcome::single_result(ResultSet {
+                columns: std::sync::Arc::new([crate::domain::result::ResultColumn {
+                    name: "id".into(),
+                    type_info: crate::domain::value::DbTypeInfo {
+                        family: crate::domain::value::DbTypeFamily::Text,
+                        native_name: "TEXT".into(),
+                        nullable: None,
+                    },
+                }]),
+                cells: vec![crate::domain::value::DbValue::Text("new-pk".into())],
+                row_count: 1,
+                completeness: crate::domain::result::ResultCompleteness::Complete,
+            })),
+        );
+        assert!(!app.state.grid_state.is_save_locked());
+        assert_eq!(
+            app.state
+                .grid_state
+                .result_set
+                .as_ref()
+                .expect("fresh result")
+                .cell(0, 0)
+                .display(),
+            "new-pk"
+        );
+    }
+
+    #[test]
+    fn grid_refresh_inactive_tab_unlocks_after_matching_success() {
+        use crate::session::task_registry::{OperationKey, TaskKind};
+        let mut app = DbManagerApp::new_for_test();
+        app.session
+            .manager
+            .add(ConnectionConfig::new("local", DatabaseType::SQLite));
+        app.session.manager.active = Some("local".into());
+        app.switch_grid_workspace(Some("users".into()));
+        app.state.grid_state.needs_refresh_after_save = true;
+        app.state.grid_state.refresh_after_save_request_id = Some(19);
+        let tab_id = app
+            .session
+            .tab_manager
+            .get_active()
+            .expect("owner tab")
+            .id
+            .clone();
+        let connection = app.session.manager.connections["local"].id;
+        let document = super::super::request_lifecycle::query_document_id(&tab_id);
+        let (task_id, _) = app.session.task_registry.register(
+            OperationKey::Query {
+                connection,
+                document,
+            },
+            TaskKind::Query,
+        );
+        app.session
+            .tab_manager
+            .get_active_mut()
+            .expect("owner tab")
+            .pending_request_id = Some(19);
+        app.open_new_query_tab();
+        let result = ResultSet {
+            columns: std::sync::Arc::new([crate::domain::result::ResultColumn {
+                name: "id".into(),
+                type_info: crate::domain::value::DbTypeInfo {
+                    family: crate::domain::value::DbTypeFamily::Integer,
+                    native_name: "INTEGER".into(),
+                    nullable: None,
+                },
+            }]),
+            cells: vec![crate::domain::value::DbValue::Int(1)],
+            row_count: 1,
+            completeness: crate::domain::result::ResultCompleteness::Complete,
+        };
+        deliver_query_completion(
+            &mut app,
+            "local",
+            connection,
+            task_id,
+            19,
+            "SELECT * FROM \"users\" LIMIT 1000;",
+            Ok(ExecutionOutcome::single_result(result)),
+        );
+        app.activate_query_tab(0);
+        assert!(!app.state.grid_state.is_save_locked());
     }
 
     #[test]
@@ -1123,10 +2053,10 @@ mod tests {
             .clone();
 
         app.handle_query_execution_finished(
-            &egui::Context::default(),
             "EXPLAIN SELECT 1".to_string(),
             "missing".to_string(),
             tab_id.clone(),
+            1,
             Ok(ExecutionOutcome::single_result(ResultSet::empty())),
             12,
         );
@@ -1163,10 +2093,10 @@ mod tests {
         }
 
         app.handle_query_execution_finished(
-            &egui::Context::default(),
             "EXPLAIN SELECT missing_column".to_string(),
             "missing".to_string(),
             tab_id.clone(),
+            7,
             Err("no such column: missing_column".to_string()),
             3,
         );
@@ -1673,6 +2603,7 @@ mod tests {
                 outcome: crate::session::runtime_event::RuntimeOutcome::ActiveTablesReloaded {
                     connection: connection_id,
                     conn_name: connection_name.clone(),
+                    database: String::new(),
                     result: Ok(vec!["stale".to_string()]),
                 },
             },
@@ -1685,6 +2616,7 @@ mod tests {
                 outcome: crate::session::runtime_event::RuntimeOutcome::ActiveTablesReloaded {
                     connection: connection_id,
                     conn_name: connection_name.clone(),
+                    database: String::new(),
                     result: Ok(vec!["latest".to_string()]),
                 },
             },
@@ -1730,7 +2662,7 @@ mod tests {
                 task_id: stale_task_id,
                 key: key.clone(),
                 outcome: crate::session::runtime_event::RuntimeOutcome::ImportDone {
-                    result: Err("stale import".to_string()),
+                    result: Err(crate::data::DbError::Query("stale import".into())),
                     elapsed_ms: 1,
                 },
             },
@@ -1820,10 +2752,12 @@ mod tests {
                 key: key.clone(),
                 outcome: crate::session::runtime_event::RuntimeOutcome::ExecutionFinished {
                     document,
+                    request_id: 1,
                     sql: "SELECT stale".to_string(),
                     connection_name: "test".to_string(),
                     tab_id,
                     result: Err("stale query failed".to_string()),
+                    transaction_completion: None,
                     elapsed_ms: 1,
                 },
             },
@@ -1841,6 +2775,198 @@ mod tests {
         );
         assert!(tab.last_error.is_none());
         assert!(app.session.task_registry.is_current(&key, current_task_id));
+    }
+
+    #[test]
+    fn query_completion_previous_connection_cannot_overwrite_new_submission() {
+        use crate::session::task_registry::{OperationKey, TaskKind};
+        for is_same_name_reconnect in [false, true] {
+            let mut app = DbManagerApp::new_for_test();
+            app.session
+                .manager
+                .add(ConnectionConfig::new("old", DatabaseType::SQLite));
+            let old_connection = app.session.manager.connections["old"].id;
+            let document = super::super::request_lifecycle::query_document_id(
+                &app.session.tab_manager.get_active().expect("active tab").id,
+            );
+            let old_key = OperationKey::Query {
+                connection: old_connection,
+                document,
+            };
+            let (old_task, _) = app
+                .session
+                .task_registry
+                .register(old_key.clone(), TaskKind::Query);
+            let new_name = if is_same_name_reconnect { "old" } else { "new" };
+            app.session
+                .manager
+                .add(ConnectionConfig::new(new_name, DatabaseType::SQLite));
+            app.session.manager.active = Some(new_name.into());
+            let new_connection = app.session.manager.connections[new_name].id;
+            assert_ne!(old_connection, new_connection);
+            let new_key = OperationKey::Query {
+                connection: new_connection,
+                document,
+            };
+            let (new_task, _) = app
+                .session
+                .task_registry
+                .register(new_key.clone(), TaskKind::Query);
+            let tab = app
+                .session
+                .tab_manager
+                .get_active_mut()
+                .expect("active tab");
+            tab.pending_request_id = Some(2);
+            tab.executing = true;
+            deliver_query_completion(
+                &mut app,
+                "old",
+                old_connection,
+                old_task,
+                1,
+                "SELECT old",
+                Err("old query error".into()),
+            );
+            let tab = app.session.tab_manager.get_active().expect("active tab");
+            assert!(tab.executing);
+            assert_eq!(tab.pending_request_id, Some(2));
+            assert!(tab.last_error.is_none());
+            assert!(app.session.task_registry.is_current(&new_key, new_task));
+            deliver_query_completion(
+                &mut app,
+                new_name,
+                new_connection,
+                new_task,
+                2,
+                "SELECT new",
+                Ok(ExecutionOutcome::affected_rows(1)),
+            );
+            let tab = app.session.tab_manager.get_active().expect("active tab");
+            assert!(!tab.executing);
+            assert_eq!(tab.pending_request_id, None);
+            assert!(tab.last_error.is_none());
+        }
+    }
+    #[test]
+    fn query_completion_after_connection_switch_clears_only_its_pending_request() {
+        use crate::session::task_registry::{OperationKey, TaskKind};
+        let mut app = DbManagerApp::new_for_test();
+        app.session
+            .manager
+            .add(ConnectionConfig::new("old", DatabaseType::SQLite));
+        let old_connection = app.session.manager.connections["old"].id;
+        let tab_id = app
+            .session
+            .tab_manager
+            .get_active()
+            .expect("tab")
+            .id
+            .clone();
+        let document = super::super::request_lifecycle::query_document_id(&tab_id);
+        let key = OperationKey::Query {
+            connection: old_connection,
+            document,
+        };
+        let (task_id, _) = app.session.task_registry.register(key, TaskKind::Query);
+        let tab = app.session.tab_manager.get_active_mut().expect("tab");
+        tab.pending_request_id = Some(17);
+        tab.executing = true;
+        app.session
+            .manager
+            .add(ConnectionConfig::new("new", DatabaseType::SQLite));
+        app.session.manager.active = Some("new".into());
+
+        deliver_query_completion(
+            &mut app,
+            "old",
+            old_connection,
+            task_id,
+            17,
+            "SELECT old",
+            Ok(ExecutionOutcome::affected_rows(1)),
+        );
+        let tab = app.session.tab_manager.get_active().expect("tab");
+        assert_eq!(tab.pending_request_id, None);
+        assert!(!tab.executing);
+        assert!(tab.last_error.is_none());
+    }
+
+    fn deliver_stale_commit(
+        completion: crate::session::runtime_event::TransactionCompletion,
+        result: Result<ExecutionOutcome, String>,
+    ) -> DbManagerApp {
+        use crate::session::runtime_event::{RuntimeEvent, RuntimeOutcome};
+        use crate::session::task_registry::{OperationKey, TaskKind};
+        let mut app = DbManagerApp::new_for_test();
+        let tab_id = app.session.tab_manager.get_active().unwrap().id.clone();
+        let document =
+            crate::domain::ids::DocumentId::from(uuid::Uuid::parse_str(&tab_id).unwrap());
+        let key = OperationKey::Query {
+            connection: crate::domain::ids::ConnectionId::from(uuid::Uuid::new_v4()),
+            document,
+        };
+        let (task_id, _) = app
+            .session
+            .task_registry
+            .register(key.clone(), TaskKind::Query);
+        app.session.task_registry.remove_key(&key);
+        app.handle_runtime_event(
+            &egui::Context::default(),
+            RuntimeEvent {
+                task_id,
+                key,
+                outcome: RuntimeOutcome::ExecutionFinished {
+                    document,
+                    request_id: 1,
+                    sql: "COMMIT".into(),
+                    connection_name: "test".into(),
+                    tab_id,
+                    result,
+                    transaction_completion: Some(completion),
+                    elapsed_ms: 1,
+                },
+            },
+        );
+        app
+    }
+
+    #[test]
+    fn stale_commit_unknown_outcome_warns_without_overwriting_tab() {
+        let app = deliver_stale_commit(
+            crate::session::runtime_event::TransactionCompletion::Unknown,
+            Err("结果不确定".into()),
+        );
+        assert!(
+            app.session
+                .notifications
+                .latest_message()
+                .is_some_and(
+                    |message| message.contains("结果不确定") && message.contains("核对数据库")
+                )
+        );
+        assert!(
+            app.session
+                .tab_manager
+                .get_active()
+                .unwrap()
+                .last_error
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn stale_commit_success_reports_actual_commit() {
+        let app = deliver_stale_commit(
+            crate::session::runtime_event::TransactionCompletion::Committed,
+            Ok(ExecutionOutcome::affected_rows(0)),
+        );
+        assert!(
+            app.session
+                .notifications
+                .latest_message()
+                .is_some_and(|message| message.contains("COMMIT 已完成"))
+        );
     }
 
     #[test]
@@ -2053,3 +3179,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "grid_identity_tests.rs"]
+mod grid_identity_tests;

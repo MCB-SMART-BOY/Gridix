@@ -53,3 +53,5 @@ pub use transfer::{
     plan_sql_transfer_content, preview_export_transfer, preview_import_transfer,
     preview_sql_transfer_content, write_transfer_plan,
 };
+
+pub(crate) use transfer::validate_wrapped_import_statements;

@@ -21,6 +21,8 @@ pub struct QueryTab {
     pub sql: String,
     /// 类型化结果集（canonical 数据源）
     pub result_set: Option<std::sync::Arc<crate::domain::result::ResultSet>>,
+    /// Origin of the current query result; stale results must never bind to a new connection/database.
+    pub result_origin: Option<(crate::domain::ids::ConnectionId, Option<String>)>,
     /// 是否正在执行
     pub executing: bool,
     /// 最后一条消息
@@ -53,6 +55,7 @@ impl QueryTab {
             title: "新查询".to_string(),
             sql: String::new(),
             result_set: None,
+            result_origin: None,
             executing: false,
             last_message: None,
             last_error: None,
@@ -65,6 +68,17 @@ impl QueryTab {
             uses_grid_workspace: false,
             pending_request_id: None,
         }
+    }
+
+    /// Return whether this tab's result belongs to the currently selected database instance.
+    pub fn is_result_from(
+        &self,
+        connection: crate::domain::ids::ConnectionId,
+        database: Option<&str>,
+    ) -> bool {
+        self.result_origin
+            .as_ref()
+            .is_some_and(|(id, source_db)| *id == connection && source_db.as_deref() == database)
     }
 
     /// 从 SQL 内容创建 Tab

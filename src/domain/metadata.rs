@@ -52,6 +52,7 @@ pub struct KeyMetadata {
 pub struct ForeignKeyMetadata {
     pub name: Option<String>,
     pub from_columns: Vec<String>,
+    /// 同一 schema 内仅存表名，跨 schema 引用存 `schema.table`。
     pub ref_table: String,
     pub ref_columns: Vec<String>,
 }

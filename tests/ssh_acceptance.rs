@@ -4,10 +4,13 @@
 //! only when `GRIDIX_ACCEPTANCE=1` is set, and then a missing fixture variable is a hard failure.
 //! The manually triggered SSH acceptance workflow sets that flag.
 
-use gridix::data::ssh_tunnel::SSH_TUNNEL_MANAGER;
+use gridix::data::ssh_tunnel::{SSH_TUNNEL_MANAGER, SshTunnelManager};
 use gridix::data::{ConnectionConfig, DatabaseType, SshAuthMethod, SshTunnelConfig, execute_typed};
 use gridix::domain::execution::{ExecutionOutcome, StatementOutcome};
 use gridix::domain::value::DbValue;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tokio::time::{Duration, timeout};
 
 mod common;
 use common::{acceptance_requested, pg_config_from_url, required_env};
@@ -62,4 +65,40 @@ async fn ssh_tunnel_forwards_postgresql_query() {
     assert_eq!(result.row_count, 1);
     assert!(matches!(result.cell(0, 0), DbValue::Int(1)));
     SSH_TUNNEL_MANAGER.stop_all().await;
+}
+
+#[tokio::test]
+async fn ssh_tunnel_stop_closes_active_forward_and_listener() {
+    if !acceptance_requested() {
+        eprintln!("skipping SSH tunnel acceptance: set GRIDIX_ACCEPTANCE=1 and its fixtures");
+        return;
+    }
+    let manager = SshTunnelManager::new();
+    let config = ssh_config_from_env();
+    let tunnel = manager.get_or_create("stop-test", &config).await.unwrap();
+    let port = tunnel.local_port();
+    let mut stream = TcpStream::connect(tunnel.local_addr()).await.unwrap();
+
+    // PostgreSQL SSLRequest: the backend responds with one byte before authentication.
+    stream
+        .write_all(&[0, 0, 0, 8, 4, 210, 22, 47])
+        .await
+        .unwrap();
+    let mut response = [0; 1];
+    timeout(Duration::from_secs(10), stream.read_exact(&mut response))
+        .await
+        .expect("tunnel did not forward to PostgreSQL")
+        .unwrap();
+    assert!(matches!(response[0], b'S' | b'N'));
+
+    manager.stop("stop-test").await;
+    assert!(!tunnel.is_running().await);
+    assert_eq!(
+        timeout(Duration::from_secs(10), stream.read(&mut response))
+            .await
+            .expect("active tunnel stream remained open")
+            .unwrap(),
+        0
+    );
+    assert!(TcpStream::connect(("127.0.0.1", port)).await.is_err());
 }

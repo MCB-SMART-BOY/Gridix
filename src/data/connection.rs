@@ -92,9 +92,10 @@ pub struct ConnectionManager {
 
 impl ConnectionManager {
     /// 添加新连接配置
-    pub fn add(&mut self, config: ConnectionConfig) {
+    pub fn add(&mut self, mut config: ConnectionConfig) {
         let name = config.name.clone();
         let id = ConnectionId::default();
+        config.runtime_connection_id = Some(id);
         self.connection_ids.insert(name.clone(), id);
         let mut conn = Connection::new(config);
         conn.id = id;
@@ -128,5 +129,48 @@ impl ConnectionManager {
         if let Some(conn) = self.connections.get_mut(name) {
             conn.reset();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::DatabaseType;
+
+    #[test]
+    fn ssh_connections_with_shared_endpoint_keep_independent_pool_ownership() {
+        let mut config = ConnectionConfig::new("first", DatabaseType::PostgreSQL);
+        config.ssh_config.enabled = true;
+        config.ssh_config.ssh_host = "jump.example.com".into();
+        config.ssh_config.ssh_username = "alice".into();
+        config.ssh_config.remote_host = "db.internal".into();
+        config.ssh_config.remote_port = 5432;
+        let mut manager = ConnectionManager::default();
+        manager.add(config.clone());
+        config.name = "second".into();
+        manager.add(config.clone());
+
+        let first = &manager.get_by_name("first").unwrap().config;
+        let second = &manager.get_by_name("second").unwrap().config;
+        assert_ne!(first.ssh_tunnel_name(), second.ssh_tunnel_name());
+        assert_ne!(first.pool_key(), second.pool_key());
+    }
+
+    #[test]
+    fn ssh_connection_replaced_under_same_name_cannot_stop_new_tunnel() {
+        let mut config = ConnectionConfig::new("shared", DatabaseType::PostgreSQL);
+        config.ssh_config.enabled = true;
+        let mut manager = ConnectionManager::default();
+        manager.add(config.clone());
+        let previous = manager.get_by_name("shared").unwrap();
+        let previous_id = previous.id;
+        let previous_tunnel = previous.config.ssh_tunnel_name();
+        let previous_pool = previous.config.pool_key();
+
+        manager.add(config);
+        let replacement = manager.get_by_name("shared").unwrap();
+        assert_ne!(previous_id, replacement.id);
+        assert_ne!(previous_tunnel, replacement.config.ssh_tunnel_name());
+        assert_ne!(previous_pool, replacement.config.pool_key());
     }
 }

@@ -606,6 +606,9 @@ fn cmd_launch() -> Result<(Option<ManagedXvfb>, Child, String), String> {
     let mut gridix = match start_gridix(&bin, &display, xauth_path.as_deref()) {
         Ok(child) => child,
         Err(error) => {
+            if let Some(managed) = xvfb.as_mut() {
+                stop_child(&mut managed.child);
+            }
             return Err(combine_cleanup_error(error, cleanup_xvfb_auth(&mut xvfb)));
         }
     };
@@ -1025,13 +1028,12 @@ fn cmd_assert_export(args: &[String]) -> Result<(), String> {
             let mut reader = csv::ReaderBuilder::new()
                 .has_headers(false)
                 .from_reader(bytes.as_slice());
-            if reader
-                .records()
-                .next()
-                .transpose()
-                .map_err(|error| format!("invalid CSV export {}: {error}", args[1]))?
-                .is_none()
-            {
+            let mut has_record = false;
+            for record in reader.records() {
+                record.map_err(|error| format!("invalid CSV export {}: {error}", args[1]))?;
+                has_record = true;
+            }
+            if !has_record {
                 return Err(format!("CSV export has no records: {}", args[1]));
             }
         }
@@ -1302,6 +1304,17 @@ mod tests {
         let csv = directory.path().join("acceptance.csv");
         std::fs::write(&csv, "name,note\nafter,\n").unwrap();
         cmd_assert_export(&["csv".into(), csv.display().to_string(), "after".into()]).unwrap();
+
+        let invalid_csv = directory.path().join("invalid.csv");
+        std::fs::write(&invalid_csv, "id,name\n1,after,extra\n").unwrap();
+        assert!(
+            cmd_assert_export(&[
+                "csv".into(),
+                invalid_csv.display().to_string(),
+                "after".into(),
+            ])
+            .is_err()
+        );
 
         let json = directory.path().join("acceptance.json");
         std::fs::write(&json, r#"[{"name":"after","note":null}]"#).unwrap();

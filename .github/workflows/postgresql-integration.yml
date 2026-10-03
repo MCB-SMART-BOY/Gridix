@@ -72,3 +72,4 @@ jobs:
           cargo test --test postgres_typed_e2e -- --nocapture --test-threads=1
           cargo test --test postgres_cancel_integration -- --nocapture --test-threads=1
           cargo test --test postgres_pool_acceptance -- --nocapture --test-threads=1
+          cargo test --test postgres_tab_sessions -- --nocapture --test-threads=1

@@ -1,7 +1,7 @@
 //! 统一异步任务注册表
 //!
 //! 取代 Session 中分散的 `pending_*` HashMap，提供：
-//! - 按 `OperationKey` 去重（同一操作的新任务自动取消旧任务）
+//! - 按 `OperationKey` 保留最新 UI 回包；普通注册会取消旧任务，PostgreSQL SQL 队列例外
 //! - 统一 stale-guard（通过 `is_current()` 丢弃过期回包）
 //! - `CancellationToken` 生命周期管理
 
@@ -11,7 +11,7 @@ use std::time::Instant;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-/// 操作的唯一标识（同键互斥：新任务自动取消旧任务）
+/// 操作标识；普通注册同键互斥，PostgreSQL Tab 队列仅将最新查询用于 UI 回包
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub enum OperationKey {
     Connect(ConnectionId),
@@ -36,6 +36,7 @@ pub enum OperationKey {
     },
     TableDelete {
         connection: ConnectionId,
+        database: Option<String>,
         table: String,
     },
     Import,
@@ -101,6 +102,7 @@ pub struct TaskEntry {
 ///
 /// 使用模式：
 /// 1. `register(key, kind)` → 取消同一 key 的旧任务，返回新 `TaskId`
+///    PostgreSQL SQL Tab 使用 `register_queued_query` 保留早先的 SQL 执行顺序。
 /// 2. 异步任务完成后通过 `RuntimeEvent { task_id, key, outcome }` 回包
 /// 3. `is_current(&key, task_id)` → 丢弃过期回包
 #[derive(Debug, Default)]
@@ -125,6 +127,25 @@ impl TaskRegistry {
 
         self.latest.insert(key.clone(), id);
 
+        (id, token)
+    }
+
+    /// Enqueue a PostgreSQL SQL Tab submission without cancelling earlier SQL on that Tab.
+    /// Older completions remain stale for UI rendering but must still run before newer SQL.
+    pub fn register_queued_query(
+        &mut self,
+        connection: ConnectionId,
+        document: DocumentId,
+    ) -> (TaskId, CancellationToken) {
+        let id = self.next_task_id();
+        let token = CancellationToken::new();
+        self.latest.insert(
+            OperationKey::Query {
+                connection,
+                document,
+            },
+            id,
+        );
         (id, token)
     }
 
@@ -201,16 +222,13 @@ impl TaskRegistry {
         }
     }
 
-    /// 取消所有满足 `predicate` 的当前任务。
+    /// Cancel every matching task, including older SQL already queued behind a newer query.
     fn cancel_matching(&mut self, predicate: impl Fn(&OperationKey) -> bool) {
-        let keys: Vec<OperationKey> = self
-            .latest
-            .keys()
-            .filter(|key| predicate(key))
-            .cloned()
-            .collect();
-        for key in keys {
-            self.cancel_by_key(&key);
+        self.latest.retain(|key, _| !predicate(key));
+        for entry in self.tasks.values_mut() {
+            if predicate(&entry.key) {
+                Self::request_cancellation(entry);
+            }
         }
     }
 
@@ -465,6 +483,64 @@ mod tests {
             registry.is_current(&key, task2),
             "task2 should remain current"
         );
+    }
+
+    #[tokio::test]
+    async fn register_queued_query_newer_submission_preserves_earlier_sql() {
+        let mut registry = TaskRegistry::default();
+        let connection = ConnectionId::default();
+        let document = DocumentId::default();
+        let key = OperationKey::Query {
+            connection,
+            document,
+        };
+        let (first_id, first_token) = registry.register_queued_query(connection, document);
+        registry.attach(
+            first_id,
+            key.clone(),
+            TaskKind::Query,
+            tokio::spawn(async {}),
+            first_token.clone(),
+        );
+        let (second_id, _) = registry.register_queued_query(connection, document);
+
+        assert!(
+            !first_token.is_cancelled(),
+            "earlier submitted SQL must still execute"
+        );
+        assert!(!registry.is_current(&key, first_id));
+        assert!(registry.is_current(&key, second_id));
+    }
+
+    #[tokio::test]
+    async fn cancel_queries_for_document_queued_submissions_cancels_all() {
+        let mut registry = TaskRegistry::default();
+        let connection = ConnectionId::default();
+        let document = DocumentId::default();
+        let key = OperationKey::Query {
+            connection,
+            document,
+        };
+        let (first_id, first_token) = registry.register_queued_query(connection, document);
+        registry.attach(
+            first_id,
+            key.clone(),
+            TaskKind::Query,
+            tokio::spawn(async {}),
+            first_token.clone(),
+        );
+        let (second_id, second_token) = registry.register_queued_query(connection, document);
+        registry.attach(
+            second_id,
+            key,
+            TaskKind::Query,
+            tokio::spawn(async {}),
+            second_token.clone(),
+        );
+
+        registry.cancel_queries_for_document(document);
+        assert!(first_token.is_cancelled());
+        assert!(second_token.is_cancelled());
     }
 
     #[tokio::test]

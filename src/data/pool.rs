@@ -15,20 +15,43 @@ use tokio::sync::{Mutex, RwLock};
 pub struct PoolManager {
     /// MySQL 连接池缓存
     mysql_pools: RwLock<HashMap<String, (mysql_async::Pool, Instant)>>,
-    /// PostgreSQL 客户端缓存（tokio-postgres 使用长连接）。
-    /// 元组第三项是后台连接任务句柄，断开时中止以免泄漏连接（审计 CONN-F7）。
+    /// PostgreSQL 客户端缓存；连接任务与最后一个借用者共同拥有生命周期。
     pg_clients: RwLock<HashMap<String, PgClientEntry>>,
 }
 
-/// PostgreSQL 客户端缓存条目：互斥客户端、最近使用时间、后台连接任务句柄。
-///
-/// `Client` 可以并发发送普通查询；portal 查询却需要独占的可变客户端。将整个
-/// 客户端置于异步互斥锁中，确保所有协议操作不会与有界 portal 的同步收尾交错。
-type PgClientEntry = (
-    Arc<Mutex<tokio_postgres::Client>>,
-    Instant,
-    tokio::task::JoinHandle<()>,
-);
+/// An in-use client keeps its connection task alive even after cache eviction.
+/// Dropping the last lease closes the backend without interrupting borrowed operations.
+pub struct PgPooledClient {
+    client: Mutex<tokio_postgres::Client>,
+    connection_task: tokio::task::JoinHandle<()>,
+}
+
+impl std::ops::Deref for PgPooledClient {
+    type Target = Mutex<tokio_postgres::Client>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.client
+    }
+}
+
+impl Drop for PgPooledClient {
+    fn drop(&mut self) {
+        self.connection_task.abort();
+    }
+}
+
+type PgClientEntry = (Arc<PgPooledClient>, Instant);
+/// Dedicated SQL-tab backend. Dropping it closes the socket and rolls back open transactions.
+pub(crate) struct PgDedicatedConnection {
+    pub client: tokio_postgres::Client,
+    connection_task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for PgDedicatedConnection {
+    fn drop(&mut self) {
+        self.connection_task.abort();
+    }
+}
 
 impl PoolManager {
     /// 创建新的连接池管理器
@@ -46,24 +69,10 @@ impl PoolManager {
     ) -> Result<mysql_async::Pool, DbError> {
         let key = config.pool_key();
 
-        // 检查缓存并验证连接池健康 — 健康检查和移除在写锁内原子执行
-        let cached_pool = {
-            let mut pools = self.mysql_pools.write().await;
-            if let Some((pool, last_used)) = pools.get_mut(&key) {
-                // 尝试获取连接以验证连接池是否健康
-                if pool.get_conn().await.is_ok() {
-                    *last_used = Instant::now();
-                    return Ok(pool.clone());
-                }
-                // 不健康 — 移除并断开
-                let (pool, _) = pools.remove(&key).expect("just checked");
-                Some(pool)
-            } else {
-                None
-            }
-        };
-        if let Some(pool) = cached_pool {
-            pool.disconnect().await.ok();
+        // Health checks can wait for a connection when this pool is saturated. Never hold
+        // the cache lock across that await: unrelated databases still need their own pools.
+        if let Some(pool) = self.get_healthy_mysql_pool(&key).await {
+            return Ok(pool);
         }
 
         // 创建新连接池，使用常量配置连接池参数
@@ -126,6 +135,39 @@ impl PoolManager {
         }
 
         Ok(pool)
+    }
+
+    async fn get_healthy_mysql_pool(&self, key: &str) -> Option<mysql_async::Pool> {
+        loop {
+            let pool = self
+                .mysql_pools
+                .read()
+                .await
+                .get(key)
+                .map(|(pool, _)| pool.clone())?;
+            let is_healthy = pool.get_conn().await.is_ok();
+            let mut pools = self.mysql_pools.write().await;
+            if !pools
+                .get(key)
+                .is_some_and(|(current, _)| Arc::ptr_eq(&current.metrics(), &pool.metrics()))
+            {
+                continue;
+            }
+            if is_healthy {
+                if let Some((_, last_used)) = pools.get_mut(key) {
+                    *last_used = Instant::now();
+                }
+                return Some(pool);
+            }
+            let stale = pools.remove(key).map(|(pool, _)| pool);
+            drop(pools);
+            if let Some(stale) = stale
+                && let Err(error) = stale.disconnect().await
+            {
+                tracing::warn!(%error, "disconnect unhealthy MySQL pool failed");
+            }
+            return None;
+        }
     }
 
     /// 配置 MySQL SSL 选项
@@ -205,47 +247,77 @@ impl PoolManager {
     pub async fn get_pg_client(
         &self,
         config: &ConnectionConfig,
-    ) -> Result<Arc<Mutex<tokio_postgres::Client>>, DbError> {
+    ) -> Result<Arc<PgPooledClient>, DbError> {
         let key = config.pool_key();
 
-        // 检查缓存并验证连接健康 — 在写锁内原子执行
-        {
-            let mut clients = self.pg_clients.write().await;
-            if let Some((client, last_used, _handle)) = clients.get_mut(&key) {
-                if !client.lock().await.is_closed() {
-                    *last_used = Instant::now();
-                    return Ok(client.clone());
-                }
-                // 连接已关闭 — 移除并中止其后台任务
-                if let Some((_, _, handle)) = clients.remove(&key) {
-                    handle.abort();
-                }
-            }
+        if let Some(client) = self.get_healthy_pg_client(&key).await {
+            return Ok(client);
         }
 
-        // 创建新连接（根据 SSL 模式选择连接方式）
-        let (client, conn_handle) = Self::connect_pg_with_ssl(config).await?;
-        let client = Arc::new(Mutex::new(client));
-
-        // 存入缓存（限制缓存数量，防止内存溢出）
-        {
-            let mut clients = self.pg_clients.write().await;
-
-            // 如果缓存已满，移除最久未使用的客户端
-            if clients.len() >= constants::database::pool::MAX_POSTGRES_CLIENTS
-                && let Some(oldest_key) = clients
-                    .iter()
-                    .min_by_key(|(_, (_, last_used, _))| *last_used)
-                    .map(|(key, _)| key.clone())
-                && let Some((_, _, handle)) = clients.remove(&oldest_key)
-            {
-                handle.abort();
-            }
-
-            clients.insert(key, (client.clone(), Instant::now(), conn_handle));
+        // Connection establishment happens outside the cache lock. Concurrent cold misses
+        // may connect twice, but only one backend becomes the shared cache entry.
+        let (connection, connection_task) = Self::connect_pg_with_ssl(config).await?;
+        let client = Arc::new(PgPooledClient {
+            client: Mutex::new(connection),
+            connection_task,
+        });
+        let mut clients = self.pg_clients.write().await;
+        if let Some((existing, last_used)) = clients.get_mut(&key) {
+            *last_used = Instant::now();
+            return Ok(existing.clone());
         }
 
+        // Removing a borrowed entry only detaches it from the cache; its lease
+        // keeps the backend alive until the last borrower finishes.
+        if clients.len() >= constants::database::pool::MAX_POSTGRES_CLIENTS
+            && let Some(oldest_key) = clients
+                .iter()
+                .min_by_key(|(_, (_, last_used))| *last_used)
+                .map(|(key, _)| key.clone())
+        {
+            clients.remove(&oldest_key);
+        }
+        // The cache stays bounded even when the LRU has active borrowers.
+        clients.insert(key, (client.clone(), Instant::now()));
         Ok(client)
+    }
+
+    async fn get_healthy_pg_client(&self, key: &str) -> Option<Arc<PgPooledClient>> {
+        loop {
+            let client = self
+                .pg_clients
+                .read()
+                .await
+                .get(key)
+                .map(|(client, _)| client.clone())?;
+            let is_healthy = !client.lock().await.is_closed();
+            let mut clients = self.pg_clients.write().await;
+            if !clients
+                .get(key)
+                .is_some_and(|(current, _)| Arc::ptr_eq(current, &client))
+            {
+                continue;
+            }
+            if is_healthy {
+                if let Some((_, last_used)) = clients.get_mut(key) {
+                    *last_used = Instant::now();
+                }
+                return Some(client);
+            }
+            clients.remove(key);
+            return None;
+        }
+    }
+
+    /// Open a PostgreSQL backend outside the configuration-keyed metadata/grid pool.
+    pub(crate) async fn connect_pg_dedicated(
+        config: &ConnectionConfig,
+    ) -> Result<PgDedicatedConnection, DbError> {
+        let (client, connection_task) = Self::connect_pg_with_ssl(config).await?;
+        Ok(PgDedicatedConnection {
+            client,
+            connection_task,
+        })
     }
 
     /// 根据 SSL 模式连接 PostgreSQL。返回客户端及其后台连接任务句柄。
@@ -312,18 +384,21 @@ impl PoolManager {
 
         match config.db_type {
             DatabaseType::MySQL => {
-                let mut pools = self.mysql_pools.write().await;
-                if let Some((pool, _)) = pools.remove(&key) {
-                    // 断开连接池
-                    pool.disconnect().await.ok();
+                let pool = self
+                    .mysql_pools
+                    .write()
+                    .await
+                    .remove(&key)
+                    .map(|(pool, _)| pool);
+                if let Some(pool) = pool
+                    && let Err(error) = pool.disconnect().await
+                {
+                    tracing::warn!(%error, "disconnect removed MySQL pool failed");
                 }
             }
             DatabaseType::PostgreSQL => {
-                let mut clients = self.pg_clients.write().await;
-                // 中止后台连接任务，及时关闭 TCP 连接，避免泄漏（修复审计 CONN-F7）。
-                if let Some((_, _, handle)) = clients.remove(&key) {
-                    handle.abort();
-                }
+                // Existing leases finish before their backend task is stopped.
+                self.pg_clients.write().await.remove(&key);
             }
             DatabaseType::SQLite => {
                 // SQLite 不需要连接池
@@ -333,19 +408,20 @@ impl PoolManager {
 
     /// 清除所有连接池
     pub async fn clear_all(&self) {
-        {
-            let mut pools = self.mysql_pools.write().await;
-            for (_, (pool, _)) in pools.drain() {
-                pool.disconnect().await.ok();
+        let pools: Vec<_> = self
+            .mysql_pools
+            .write()
+            .await
+            .drain()
+            .map(|(_, (pool, _))| pool)
+            .collect();
+        for pool in pools {
+            if let Err(error) = pool.disconnect().await {
+                tracing::warn!(%error, "disconnect cleared MySQL pool failed");
             }
         }
-        {
-            let mut clients = self.pg_clients.write().await;
-            // 中止所有后台连接任务，避免任务泄漏（审计 CONN-F7）。
-            for (_, (_, _, handle)) in clients.drain() {
-                handle.abort();
-            }
-        }
+        // Disconnect idle backends now; active leases close on their final drop.
+        self.pg_clients.write().await.clear();
     }
 }
 

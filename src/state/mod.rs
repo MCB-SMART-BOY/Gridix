@@ -124,7 +124,7 @@ impl Default for UiState {
             create_user_dialog_state: CreateUserDialogState::default(),
             show_welcome_setup_dialog: false,
             show_er_diagram: false,
-            er_diagram_state: ERDiagramState::default(),
+            er_diagram_state: ERDiagramState::new(),
             search_text: String::new(),
             search_column: None,
             selected_row: None,

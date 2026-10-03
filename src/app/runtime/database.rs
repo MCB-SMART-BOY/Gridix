@@ -7,7 +7,8 @@ use std::time::Instant;
 use crate::app::dialogs::host::DialogId;
 use crate::core::constants;
 use crate::data::{
-    ConnectResult, ConnectionConfig, DatabaseType, DbError, connect_database, drop_database,
+    ConnectResult, ConnectionConfig, DatabaseType, DbError, await_pg_tab_query,
+    close_pg_connection_sessions, connect_database, drop_database, enqueue_pg_tab_query,
     execute_typed, execute_typed_cancellable, get_tables_for_database, load_schema_catalog,
     secret::SecretStore, ssh_tunnel::SSH_TUNNEL_MANAGER,
 };
@@ -33,6 +34,32 @@ fn prepare_tab_for_query_execution(
     tab.query_time_ms = None;
     tab.pending_request_id = Some(request_id);
     tab.update_title();
+}
+
+fn classify_transaction_completion(
+    command: Option<crate::data::query::TransactionCommand>,
+    result: &Result<crate::domain::execution::ExecutionOutcome, DbError>,
+) -> Option<crate::session::runtime_event::TransactionCompletion> {
+    use crate::data::query::TransactionCommand;
+    use crate::session::runtime_event::TransactionCompletion;
+    match result {
+        Err(DbError::TransactionOutcomeUnknown { .. }) => Some(TransactionCompletion::Unknown),
+        Ok(_) => match command {
+            Some(TransactionCommand::Commit) => Some(TransactionCompletion::Committed),
+            Some(TransactionCommand::Rollback) => Some(TransactionCompletion::RolledBack),
+            _ => None,
+        },
+        Err(DbError::Connection(_) | DbError::Timeout { .. })
+            if matches!(
+                command,
+                Some(TransactionCommand::Commit | TransactionCommand::Rollback)
+            ) =>
+        {
+            // The actor may have been aborted after sending control SQL but before its reply.
+            Some(TransactionCompletion::Unknown)
+        }
+        Err(_) => None,
+    }
 }
 
 /// 连接错误是否应该打开「安装/初始化引导」。
@@ -126,6 +153,12 @@ impl DbManagerApp {
 
     /// 连接到数据库
     pub(in crate::app) fn connect(&mut self, name: String) {
+        if !self.session.manager.connections.contains_key(&name) {
+            return;
+        }
+        if self.session.manager.active.as_deref() != Some(name.as_str()) {
+            self.switch_grid_workspace(None);
+        }
         if let Some(conn) = self.session.manager.connections.get(&name) {
             let config = conn.config.clone();
             let connection_id = conn.id;
@@ -279,6 +312,7 @@ impl DbManagerApp {
                     outcome: RuntimeOutcome::ActiveTablesReloaded {
                         connection: connection_id,
                         conn_name: active_name,
+                        database,
                         result: tables_result,
                     },
                 }))
@@ -320,9 +354,10 @@ impl DbManagerApp {
             crate::session::task_registry::TaskKind::SelectDatabase,
         );
 
-        // 为 catalog 加载克隆必要值（第一个 spawn 会 move 它们）
+        // Catalog identity and the connection target must describe the same database.
         let catalog_db = database.clone();
-        let catalog_config = config.clone();
+        let mut catalog_config = config.clone();
+        catalog_config.database = catalog_db.clone();
         let catalog_tx = tx.clone();
         self.session.runtime.spawn(async move {
             use tokio::time::{Duration, timeout};
@@ -404,7 +439,7 @@ impl DbManagerApp {
 
             // 停止关联的 SSH 隧道
             if config.ssh_config.enabled {
-                let tunnel_name = config.ssh_config.tunnel_name();
+                let tunnel_name = config.ssh_tunnel_name();
                 handle.spawn(async move {
                     SSH_TUNNEL_MANAGER.stop(&tunnel_name).await;
                 });
@@ -416,9 +451,13 @@ impl DbManagerApp {
             });
         }
 
+        if self.session.manager.active.as_deref() == Some(&name) {
+            self.switch_grid_workspace(None);
+        }
         self.session.manager.disconnect(&name);
         if let Some(connection_id) = connection_id {
             self.cancel_queries_for_connection(connection_id);
+            close_pg_connection_sessions(connection_id);
         }
         self.session.pending_connect_requests.remove(&name);
         self.session.pending_database_requests.remove(&name);
@@ -447,7 +486,6 @@ impl DbManagerApp {
         self.remove_grid_workspaces_for_connection(&name);
         if self.session.manager.active.as_deref() == Some(&name) {
             self.session.manager.active = None;
-            self.switch_grid_workspace(None);
             self.clear_result();
             self.session.autocomplete.clear();
             self.state.sidebar_panel_state.clear_triggers();
@@ -589,6 +627,7 @@ impl DbManagerApp {
         }
         let connection_id = conn.id;
         let target_connection = conn.config.name.clone();
+        let target_database = conn.selected_database.clone();
 
         let use_backticks = matches!(conn.config.db_type, crate::data::DatabaseType::MySQL);
         let quoted_table = match ui::quote_identifier(table, use_backticks) {
@@ -604,6 +643,7 @@ impl DbManagerApp {
         let sql = format!("DROP TABLE {};", quoted_table);
         let key = crate::session::task_registry::OperationKey::TableDelete {
             connection: connection_id,
+            database: target_database.clone(),
             table: table_name.clone(),
         };
         let (task_id, _cancel_token) = self.session.task_registry.register(
@@ -624,6 +664,7 @@ impl DbManagerApp {
                     outcome: RuntimeOutcome::TableDropped {
                         connection: connection_id,
                         conn_name: target_connection,
+                        database: target_database,
                         table: table_name,
                         result,
                     },
@@ -656,6 +697,31 @@ impl DbManagerApp {
 
         let config = conn.config.clone();
         let connection_id = conn.id;
+        let result_database = conn.selected_database.clone();
+        let is_explain = crate::domain::explain::is_explain_sql(&sql);
+        if !is_explain
+            && self.active_grid_workspace_enabled
+            && (self.state.grid_state.has_changes()
+                || self.state.grid_state.save_in_flight
+                || self.state.grid_state.has_unknown_save_outcome)
+        {
+            self.session
+                .notifications
+                .warning("表格仍有未保存或待核对的修改；请保存或放弃草稿后再查询");
+            return None;
+        }
+        let preserve_result = is_explain
+            || (self.active_grid_workspace_enabled
+                && self.session.tab_manager.get_active().is_some_and(|tab| {
+                    tab.is_result_from(connection_id, result_database.as_deref())
+                        && tab
+                            .result_set
+                            .as_ref()
+                            .zip(self.state.grid_state.result_set.as_ref())
+                            .is_some_and(|(tab_result, grid_result)| {
+                                std::sync::Arc::ptr_eq(tab_result, grid_result)
+                            })
+                }));
         let tx = self.session.tx.clone();
 
         tracing::info!(connection = %active_name, sql_length = sql.len(), "开始执行查询");
@@ -678,18 +744,34 @@ impl DbManagerApp {
         self.session.history_index = None;
 
         self.session.executing = true;
-        let is_explain = crate::domain::explain::is_explain_sql(&sql);
-        if !is_explain {
+        if !preserve_result {
             self.clear_result();
         }
         self.session.last_query_time_ms = None;
         let request_id = self.session.next_query_request_id();
+        if self.state.grid_state.needs_refresh_after_save
+            && !is_explain
+            && let Some(table) = self.state.selected_table.as_deref()
+            && let Ok(quoted_table) =
+                ui::quote_identifier(table, config.db_type == DatabaseType::MySQL)
+            && sql
+                == format!(
+                    "SELECT * FROM {} LIMIT {};",
+                    quoted_table,
+                    constants::database::DEFAULT_QUERY_LIMIT
+                )
+        {
+            self.state.grid_state.refresh_after_save_request_id = Some(request_id);
+        }
         let mut target_tab_id = String::new();
 
         // 同步 SQL 到当前 Tab 并设置执行状态
         if let Some(tab) = self.session.tab_manager.get_active_mut() {
             tab.pending_request_id.take();
-            prepare_tab_for_query_execution(tab, &sql, request_id, is_explain);
+            prepare_tab_for_query_execution(tab, &sql, request_id, preserve_result);
+            if !is_explain {
+                tab.result_origin = Some((connection_id, result_database));
+            }
             target_tab_id = tab.id.clone();
         }
         if is_explain {
@@ -699,65 +781,92 @@ impl DbManagerApp {
         } else {
             self.state.explain_state.hide_for_tab(&target_tab_id);
         }
-        // TaskRegistry::register() 已在下方自动 supersede 同一 key 的旧任务
 
-        // 使用 QueryTab 的稳定 UUID 作为 DocumentId，保证同一 Tab 的连续查询
-        // 能被 TaskRegistry 正确去重（同一 key 的新任务 supersede 旧任务）
-        let query_document_id = uuid::Uuid::parse_str(&target_tab_id)
-            .map(crate::domain::ids::DocumentId::from)
-            .unwrap_or_else(|_| {
-                crate::domain::ids::DocumentId::from(uuid::Uuid::new_v5(
-                    &uuid::Uuid::NAMESPACE_OID,
-                    target_tab_id.as_bytes(),
-                ))
-            });
+        // Stable SQL Tab UUID plus connection identity keeps every PostgreSQL backend isolated.
+        let query_document_id = super::request_lifecycle::query_document_id(&target_tab_id);
         let tx_tab_id = target_tab_id;
         let _task_conn_name = active_name.clone();
         let tx_conn_name = active_name;
 
-        // TaskRegistry 注册 — 保存 cancel_token 用于取消
+        // PostgreSQL requests remain in submission order; older completions are UI-stale
+        // but their SQL must never be cancelled implicitly when a newer query is queued.
         let query_key = crate::session::task_registry::OperationKey::Query {
             connection: connection_id,
             document: query_document_id,
         };
-        let (query_task_id, cancel_token) = self.session.task_registry.register(
-            query_key.clone(),
-            crate::session::task_registry::TaskKind::Query,
-        );
+        let (query_task_id, cancel_token) = if config.db_type == DatabaseType::PostgreSQL {
+            self.session
+                .task_registry
+                .register_queued_query(connection_id, query_document_id)
+        } else {
+            self.session.task_registry.register(
+                query_key.clone(),
+                crate::session::task_registry::TaskKind::Query,
+            )
+        };
         let query_key_for_attach = query_key.clone();
         let cancel_token_for_attach = cancel_token.clone();
+        let pending_pg_query = if config.db_type == DatabaseType::PostgreSQL {
+            Some(enqueue_pg_tab_query(
+                &config,
+                &sql,
+                connection_id,
+                query_document_id,
+                &cancel_token,
+                self.session.runtime.handle(),
+            ))
+        } else {
+            None
+        };
 
+        let transaction_command = (config.db_type == DatabaseType::PostgreSQL)
+            .then(|| crate::data::query::transaction_command(&sql))
+            .flatten();
         let query_handle = self.session.runtime.spawn(async move {
             use tokio::time::{Duration, sleep};
             let start = Instant::now();
             let timeout_secs = constants::database::QUERY_TIMEOUT_SECS;
-            let sql_for_exec = sql.clone();
-            let typed_fut = execute_typed_cancellable(&config, &sql_for_exec, &cancel_token);
+            let typed_fut = async {
+                match pending_pg_query {
+                    Some(Ok(response)) => await_pg_tab_query(response).await,
+                    Some(Err(error)) => Err(error),
+                    None => execute_typed_cancellable(&config, &sql, &cancel_token).await,
+                }
+            };
             let timeout_fut = sleep(Duration::from_secs(timeout_secs));
             let cancel_fut = cancel_token.cancelled();
             tokio::pin!(typed_fut);
             tokio::pin!(timeout_fut);
             tokio::pin!(cancel_fut);
-            let outcome: Result<crate::domain::execution::ExecutionOutcome, String> = tokio::select! {
-                result = &mut typed_fut => result.map_err(|e| e.to_string()),
+            let (typed_outcome, did_timeout) = tokio::select! {
+                result = &mut typed_fut => (result, false),
                 _ = &mut timeout_fut => {
                     cancel_token.cancel();
-                    let _ = (&mut typed_fut).await;
-                    Err(format!(
-                        "查询超时 ({}秒)。您可以使用 Ctrl+Q 取消正在运行的查询",
-                        timeout_secs
-                    ))
+                    ((&mut typed_fut).await, true)
                 }
-                _ = &mut cancel_fut => {
-                    (&mut typed_fut).await.map_err(|e| e.to_string())
-                }
+                _ = &mut cancel_fut => ((&mut typed_fut).await, false),
+            };
+            let transaction_completion =
+                classify_transaction_completion(transaction_command, &typed_outcome);
+            let outcome = if did_timeout && transaction_command.is_none() && typed_outcome.is_err()
+            {
+                Err(format!(
+                    "查询超时 ({}秒)。您可以使用 Ctrl+Q 取消正在运行的查询",
+                    timeout_secs
+                ))
+            } else {
+                typed_outcome.map_err(|error| error.to_string())
             };
 
             let elapsed_ms = start.elapsed().as_millis() as u64;
 
             match &outcome {
                 Ok(outcome) => {
-                    tracing::info!(statements = outcome.statements.len(), elapsed_ms, "查询执行成功");
+                    tracing::info!(
+                        statements = outcome.statements.len(),
+                        elapsed_ms,
+                        "查询执行成功"
+                    );
                 }
                 Err(err) => {
                     if err.starts_with("查询超时") {
@@ -776,10 +885,12 @@ impl DbManagerApp {
                     key: query_key,
                     outcome: RuntimeOutcome::ExecutionFinished {
                         document: query_document_id,
+                        request_id,
                         sql: sql.clone(),
                         connection_name: tx_conn_name.clone(),
                         tab_id: tx_tab_id.clone(),
                         result: outcome,
+                        transaction_completion,
                         elapsed_ms,
                     },
                 }));
@@ -818,7 +929,20 @@ impl DbManagerApp {
                 ));
             }
         }
+        if let Some(connection_id) = self
+            .session
+            .manager
+            .connections
+            .get(name)
+            .map(|conn| conn.id)
+        {
+            self.cancel_queries_for_connection(connection_id);
+            close_pg_connection_sessions(connection_id);
+        }
         self.session.autocomplete.clear();
+        if self.session.manager.active.as_deref() == Some(name) {
+            self.switch_grid_workspace(None);
+        }
         if let Some(conn) = self.session.manager.connections.get_mut(name) {
             conn.set_error(error);
         }
@@ -916,14 +1040,54 @@ impl DbManagerApp {
             return;
         };
 
-        let config = conn.config.clone();
+        if !self
+            .session
+            .tab_manager
+            .get_active()
+            .is_some_and(|tab| tab.is_result_from(conn.id, conn.selected_database.as_deref()))
+        {
+            self.session
+                .notifications
+                .warning("表格结果不属于当前连接或数据库，请重新查询后再保存");
+            return;
+        }
+        let Some(workspace_id) = self.grid_workspace_id_for_table(&table) else {
+            self.session
+                .notifications
+                .warning("保存表格时找不到活动工作区");
+            return;
+        };
         let connection_id = conn.id;
+        if self.state.grid_state.is_save_locked()
+            || self.pending_grid_saves.values().any(|pending| {
+                pending.connection_id == connection_id && pending.workspace_id == workspace_id
+            })
+        {
+            self.session
+                .notifications
+                .warning("当前工作区正在保存或等待刷新，请刷新表格后再提交修改");
+            return;
+        }
+        if self.state.grid_state.editing_cell.is_some()
+            || self.state.grid_state.pending_new_row_edit.is_some()
+        {
+            self.session
+                .notifications
+                .warning("请先结束单元格编辑，再保存表格");
+            return;
+        }
+        let submitted = crate::app::GridSubmittedEdits::capture(
+            workspace_id.clone(),
+            connection_id,
+            &self.state.grid_state,
+        );
+        let config = conn.config.clone();
 
-        // 使用确定性 TableViewId：相同连接+表名 → 相同 ID
+        // The task key is document-scoped, even for two tabs viewing the same table.
         let table_view_id = crate::domain::ids::TableViewId::from_components(
             connection_id,
             &conn.config.database,
-            "", // SQLite 无 schema 概念
+            &workspace_id.tab_id,
             &table,
         );
         let key = crate::session::task_registry::OperationKey::GridSave {
@@ -933,6 +1097,10 @@ impl DbManagerApp {
             key.clone(),
             crate::session::task_registry::TaskKind::GridSave,
         );
+        self.pending_grid_saves.insert(task_id, submitted);
+        self.state.grid_state.save_in_flight = true;
+        self.state.grid_state.clear_save_state();
+        self.persist_active_grid_workspace();
 
         let tx = self.session.tx.clone();
         self.session.grid_save_executing = true;
@@ -944,11 +1112,9 @@ impl DbManagerApp {
         self.session.runtime.spawn(async move {
             let start = Instant::now();
 
-            let result: Result<crate::data::ImportExecutionReport, String> =
-                crate::data::query::apply_mutations(&config, &batch)
-                    .await
-                    .map(Self::mutation_result_to_report)
-                    .map_err(|e| e.to_string());
+            let result = crate::data::query::apply_mutations(&config, &batch)
+                .await
+                .map(Self::mutation_result_to_report);
 
             let elapsed_ms = start.elapsed().as_millis() as u64;
 
@@ -979,9 +1145,62 @@ impl DbManagerApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        connection_error_warrants_onboarding, prepare_tab_for_query_execution,
-        ssh_password_ref_for_deletion,
+        classify_transaction_completion, connection_error_warrants_onboarding,
+        prepare_tab_for_query_execution, ssh_password_ref_for_deletion,
     };
+
+    #[test]
+    fn transaction_completion_closed_backend_reports_unknown_not_rollback() {
+        use crate::data::query::TransactionCommand;
+        use crate::session::runtime_event::TransactionCompletion;
+
+        let closed = Err(crate::data::DbError::Connection("backend closed".into()));
+        assert_eq!(
+            classify_transaction_completion(Some(TransactionCommand::Commit), &closed),
+            Some(TransactionCompletion::Unknown)
+        );
+        assert_eq!(
+            classify_transaction_completion(Some(TransactionCommand::Rollback), &closed),
+            Some(TransactionCompletion::Unknown)
+        );
+        let rejected = Err(crate::data::DbError::Query("no active transaction".into()));
+        assert_eq!(
+            classify_transaction_completion(Some(TransactionCommand::Commit), &rejected),
+            None
+        );
+    }
+
+    #[test]
+    fn connection_switch_keeps_unsaved_grid_rows_in_original_connection() {
+        let mut app = crate::app::DbManagerApp::new_for_test();
+        for name in ["first", "second"] {
+            let mut config =
+                crate::data::ConnectionConfig::new(name, crate::types::DatabaseType::SQLite);
+            config.database = ":memory:".into();
+            app.session.manager.add(config);
+        }
+        app.session.manager.active = Some("first".into());
+        app.switch_grid_workspace(Some("users".into()));
+        app.state
+            .grid_state
+            .new_rows
+            .push(vec!["first draft".into()]);
+        app.state.grid_state.save_in_flight = true;
+
+        app.connect("second".into());
+        app.switch_grid_workspace(Some("users".into()));
+        assert!(app.state.grid_state.new_rows.is_empty());
+        assert!(!app.state.grid_state.save_in_flight);
+        app.state
+            .grid_state
+            .new_rows
+            .push(vec!["second draft".into()]);
+
+        app.connect("first".into());
+        app.switch_grid_workspace(Some("users".into()));
+        assert_eq!(app.state.grid_state.new_rows, vec![vec!["first draft"]]);
+        assert!(app.state.grid_state.save_in_flight);
+    }
 
     #[test]
     fn disconnect_releases_metadata_loading_for_inactive_connection() {

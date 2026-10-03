@@ -11,7 +11,8 @@
 //! - Schema 目录加载
 
 use gridix::data::{
-    ConnectionConfig, DatabaseType, apply_mutations, execute_typed, load_schema_catalog,
+    ConnectionConfig, DatabaseType, apply_mutations, execute_import_batch, execute_typed,
+    load_schema_catalog,
 };
 use gridix::domain::execution::{ExecutionOutcome, StatementOutcome};
 use gridix::domain::ids::SchemaRevision;
@@ -19,7 +20,7 @@ use gridix::domain::mutation::{
     ColumnRef, ExpectedRows, InputValue, Mutation, MutationBatch, RowIdentity,
 };
 use gridix::domain::result::{ResultCompleteness, ResultSet};
-use gridix::domain::value::DbValue;
+use gridix::domain::value::{DbDate, DbDateTime, DbTime, DbValue};
 use tempfile::NamedTempFile;
 
 // ── helpers ──
@@ -380,6 +381,21 @@ async fn default_value() {
     assert_eq!(rs.cell(1, 1), &DbValue::Text("2024-01-01".into()));
 }
 
+#[tokio::test]
+async fn typed_pragma_setter_returns_affected_rows_and_preserves_value() {
+    let db = NamedTempFile::new().unwrap();
+    let config = sqlite_config(db.path());
+
+    let outcome = execute_typed(&config, "PRAGMA user_version = 1")
+        .await
+        .unwrap();
+    assert_affected(outcome, 0);
+
+    let result = single_result_set(execute_typed(&config, "PRAGMA user_version").await.unwrap());
+    assert_eq!(result.row_count, 1);
+    assert_eq!(result.cell(0, 0), &DbValue::Int(1));
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Test 5: Schema 目录加载
 // ═══════════════════════════════════════════════════════════════════
@@ -477,4 +493,316 @@ async fn catalog_load() {
     // ── Verify "logs" table (no PK) ──
     let logs = catalog.table("logs").expect("logs table must exist");
     assert!(logs.primary_key.is_none(), "logs has no PK");
+}
+
+#[tokio::test]
+async fn catalog_composite_constraints_preserve_identity_and_order() {
+    let db = NamedTempFile::new().unwrap();
+    let config = sqlite_config(db.path());
+    rusqlite::Connection::open(db.path())
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE parent (a INT, b INT, PRIMARY KEY (b, a)); \
+             CREATE TABLE other (id INT PRIMARY KEY); \
+             CREATE TABLE child (x INT, y INT, z INT, \
+               CONSTRAINT child_unique UNIQUE (y, x), \
+               FOREIGN KEY (x, y) REFERENCES parent (b, a), \
+               FOREIGN KEY (z) REFERENCES other (id)); \
+             CREATE UNIQUE INDEX child_standalone ON child (z, x); \
+             CREATE UNIQUE INDEX child_partial ON child (x) WHERE x > 0; \
+             CREATE UNIQUE INDEX child_expression ON child (lower(x));",
+        )
+        .unwrap();
+
+    let catalog = load_schema_catalog(&config, SchemaRevision(1))
+        .await
+        .unwrap();
+    let parent = catalog.table("parent").unwrap();
+    assert_eq!(parent.primary_key.as_ref().unwrap().columns, vec!["b", "a"]);
+    assert!(parent.unique_keys.is_empty());
+    let child = catalog.table("child").unwrap();
+    assert_eq!(child.unique_keys.len(), 2);
+    assert!(
+        child
+            .unique_keys
+            .iter()
+            .any(|key| key.columns == ["y", "x"])
+    );
+    assert!(child
+        .unique_keys
+        .iter()
+        .any(|key| key.name.as_deref() == Some("child_standalone")
+            && key.columns == ["z", "x"]));
+    assert_eq!(child.foreign_keys.len(), 2);
+    assert!(
+        child
+            .foreign_keys
+            .iter()
+            .any(|fk| fk.from_columns == ["x", "y"]
+                && fk.ref_table == "parent"
+                && fk.ref_columns == ["b", "a"])
+    );
+    assert!(
+        child.foreign_keys.iter().any(|fk| fk.from_columns == ["z"]
+            && fk.ref_table == "other"
+            && fk.ref_columns == ["id"])
+    );
+}
+
+#[tokio::test]
+async fn catalog_implicit_composite_fk_uses_referenced_primary_key_order() {
+    let db = NamedTempFile::new().unwrap();
+    let config = sqlite_config(db.path());
+    rusqlite::Connection::open(db.path())
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE parent (a INT, b INT, PRIMARY KEY (b, a)); \
+             CREATE TABLE child (x INT, y INT, FOREIGN KEY (x, y) REFERENCES parent);",
+        )
+        .unwrap();
+    let catalog = load_schema_catalog(&config, SchemaRevision(1))
+        .await
+        .unwrap();
+    let fk = &catalog.table("child").unwrap().foreign_keys[0];
+    assert_eq!(fk.from_columns, ["x", "y"]);
+    assert_eq!(fk.ref_columns, ["b", "a"]);
+}
+
+#[tokio::test]
+async fn sqlite_typed_time_fractional_seconds_survive_binding() {
+    let db = NamedTempFile::new().unwrap();
+    let config = sqlite_config(db.path());
+    execute_typed(&config, "CREATE TABLE fractional_times (t TEXT, dt TEXT)")
+        .await
+        .unwrap();
+    let time = DbTime {
+        hour: 1,
+        minute: 2,
+        second: 3,
+        nanos: 123_456_000,
+    };
+    let datetime = DbDateTime {
+        date: DbDate {
+            year: 2024,
+            month: 1,
+            day: 2,
+        },
+        time,
+    };
+    apply_mutations(
+        &config,
+        &MutationBatch {
+            mutations: vec![Mutation::Insert {
+                table: col("fractional_times"),
+                columns: vec![col("t"), col("dt")],
+                values: vec![
+                    InputValue::Value(DbValue::Time(time)),
+                    InputValue::Value(DbValue::DateTime(datetime)),
+                ],
+            }],
+            atomic: true,
+        },
+    )
+    .await
+    .unwrap();
+    let rows = single_result_set(
+        execute_typed(&config, "SELECT t, dt FROM fractional_times")
+            .await
+            .unwrap(),
+    );
+    assert_eq!(rows.cell(0, 0), &DbValue::Text("01:02:03.123456".into()));
+    assert_eq!(
+        rows.cell(0, 1),
+        &DbValue::Text("2024-01-02 01:02:03.123456".into())
+    );
+}
+
+#[tokio::test]
+async fn sqlite_sql_export_binary_roundtrips_as_blob() {
+    use gridix::core::{
+        SqlDialect, TransferDirection, TransferFormat, TransferFormatOptions, TransferSchema,
+        TransferSession, TransferSqlOptions, plan_export_transfer,
+    };
+    let db = NamedTempFile::new().unwrap();
+    let config = sqlite_config(db.path());
+    execute_typed(&config, "CREATE TABLE binary_export (b BLOB)")
+        .await
+        .unwrap();
+    let result = single_result_set(execute_typed(&config, "SELECT X'00FF' AS b").await.unwrap());
+    let session = TransferSession {
+        direction: TransferDirection::Export,
+        format: TransferFormat::Sql,
+        sql_dialect: SqlDialect::Standard,
+        schema: TransferSchema {
+            target_name: Some("binary_export".into()),
+            ..Default::default()
+        },
+        options: TransferFormatOptions::Sql(TransferSqlOptions {
+            use_transaction: false,
+            batch_size: 0,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let sql = plan_export_transfer(&result, &session)
+        .unwrap()
+        .into_rendered_text()
+        .unwrap();
+    execute_import_batch(&config, vec![sql], false, true)
+        .await
+        .unwrap();
+    let value = single_result_set(
+        execute_typed(&config, "SELECT typeof(b), hex(b) FROM binary_export")
+            .await
+            .unwrap(),
+    );
+    assert_eq!(value.cell(0, 0), &DbValue::Text("blob".into()));
+    assert_eq!(value.cell(0, 1), &DbValue::Text("00FF".into()));
+}
+
+#[tokio::test]
+async fn sqlite_wrapped_import_rejects_commit_before_writing() {
+    let db = NamedTempFile::new().unwrap();
+    let config = sqlite_config(db.path());
+    execute_typed(
+        &config,
+        "CREATE TABLE wrapped_import (id INTEGER PRIMARY KEY)",
+    )
+    .await
+    .unwrap();
+    let statements = vec![
+        "INSERT INTO wrapped_import VALUES (1)".into(),
+        "COMMIT/**/TRANSACTION".into(),
+        "INSERT INTO missing_table VALUES (2)".into(),
+    ];
+    let error = execute_import_batch(&config, statements, true, true)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("关闭事务包装"));
+    let rows = single_result_set(
+        execute_typed(&config, "SELECT id FROM wrapped_import")
+            .await
+            .unwrap(),
+    );
+    assert_eq!(rows.row_count, 0);
+}
+
+#[tokio::test]
+async fn sqlite_wrapped_import_bom_cannot_hide_commit() {
+    let db = NamedTempFile::new().unwrap();
+    let config = sqlite_config(db.path());
+    execute_typed(&config, "CREATE TABLE wrapped_import (id INTEGER)")
+        .await
+        .unwrap();
+    let statements = vec![
+        "INSERT INTO wrapped_import VALUES (1)".into(),
+        "\u{feff}COMMIT".into(),
+        "INSERT INTO missing_table VALUES (2)".into(),
+    ];
+    let error = execute_import_batch(&config, statements, true, true)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("关闭事务包装"), "{error}");
+    let count = single_result_set(
+        execute_typed(&config, "SELECT count(*) FROM wrapped_import")
+            .await
+            .unwrap(),
+    );
+    assert_eq!(count.cell(0, 0), &DbValue::Int(0));
+}
+
+#[tokio::test]
+async fn sqlite_wrapped_import_quoted_identifiers_cannot_hide_commit() {
+    let db = NamedTempFile::new().unwrap();
+    let config = sqlite_config(db.path());
+    execute_typed(&config, "CREATE TABLE wrapped_import (v INTEGER)")
+        .await
+        .unwrap();
+    for identifier in ["`a'`", "[a']"] {
+        let statements = vec![
+            "INSERT INTO wrapped_import VALUES (1)".into(),
+            format!("SELECT 1 AS {identifier}; COMMIT; -- '\nSELECT * FROM missing_table;"),
+        ];
+        let error = execute_import_batch(&config, statements, true, true)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("关闭事务包装"), "{error}");
+        let count = single_result_set(
+            execute_typed(&config, "SELECT count(*) FROM wrapped_import")
+                .await
+                .unwrap(),
+        );
+        assert_eq!(count.cell(0, 0), &DbValue::Int(0));
+    }
+}
+
+#[tokio::test]
+async fn sqlite_sql_import_preserves_multiline_literal_spaces_and_empty_lines() {
+    use gridix::core::{
+        TransferDirection, TransferFormat, TransferFormatOptions, TransferSession,
+        TransferSqlOptions, plan_sql_transfer_content,
+    };
+    let db = NamedTempFile::new().unwrap();
+    let config = sqlite_config(db.path());
+    execute_typed(&config, "CREATE TABLE multiline_import (v TEXT)")
+        .await
+        .unwrap();
+    let session = TransferSession {
+        direction: TransferDirection::Import,
+        format: TransferFormat::Sql,
+        options: TransferFormatOptions::Sql(TransferSqlOptions {
+            use_transaction: false,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let statements = plan_sql_transfer_content(
+        "INSERT INTO multiline_import(v) VALUES ('a  \n  b\n\n c');",
+        &session,
+    )
+    .unwrap()
+    .into_sql_statements()
+    .unwrap();
+    execute_import_batch(&config, statements, false, true)
+        .await
+        .unwrap();
+    let rows = single_result_set(
+        execute_typed(&config, "SELECT v FROM multiline_import")
+            .await
+            .unwrap(),
+    );
+    assert_eq!(rows.cell(0, 0), &DbValue::Text("a  \n  b\n\n c".into()));
+}
+
+#[tokio::test]
+async fn sqlite_sql_import_preserves_crlf_inside_string_literal() {
+    use gridix::core::{
+        TransferDirection, TransferFormat, TransferFormatOptions, TransferSession,
+        TransferSqlOptions, plan_sql_transfer_content,
+    };
+    let db = NamedTempFile::new().unwrap();
+    let config = sqlite_config(db.path());
+    execute_typed(&config, "CREATE TABLE crlf_import (v TEXT)")
+        .await
+        .unwrap();
+    let session = TransferSession {
+        direction: TransferDirection::Import,
+        format: TransferFormat::Sql,
+        options: TransferFormatOptions::Sql(TransferSqlOptions::default()),
+        ..Default::default()
+    };
+    let statements =
+        plan_sql_transfer_content("INSERT INTO crlf_import(v) VALUES ('a\r\nb');", &session)
+            .unwrap()
+            .into_sql_statements()
+            .unwrap();
+    execute_import_batch(&config, statements, true, true)
+        .await
+        .unwrap();
+    let rows = single_result_set(
+        execute_typed(&config, "SELECT v FROM crlf_import")
+            .await
+            .unwrap(),
+    );
+    assert_eq!(rows.cell(0, 0), &DbValue::Text("a\r\nb".into()));
 }

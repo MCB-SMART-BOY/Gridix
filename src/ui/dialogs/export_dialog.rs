@@ -120,6 +120,7 @@ impl ExportConfig {
         TransferSession {
             direction: TransferDirection::Export,
             format: self.format.into(),
+            sql_dialect: SqlDialect::from(db_type),
             schema: TransferSchema::from_columns(
                 Some(table_name.to_string()),
                 Some(table_name.to_string()),
@@ -144,7 +145,6 @@ impl ExportConfig {
                 ExportFormat::Sql => TransferFormatOptions::Sql(TransferSqlOptions {
                     use_transaction: self.sql_use_transaction,
                     batch_size: self.sql_batch_size,
-                    dialect: SqlDialect::from(db_type),
                     ..Default::default()
                 }),
                 ExportFormat::Json => TransferFormatOptions::Json(TransferJsonOptions {

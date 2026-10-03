@@ -96,6 +96,50 @@ fn collect_er_diagram_surface_actions(
     actions
 }
 
+/// While DockArea borrows the live tree, commands temporarily write to a fallback.
+/// Transfer only surfaces created in that window; the fallback's startup seed is not
+/// itself a request to reopen a surface the user closed in the live tree.
+fn merge_dock_reveals(
+    dock: &mut egui_dock::DockState<ui::dock_tabs::DockTab>,
+    temporary: &egui_dock::DockState<ui::dock_tabs::DockTab>,
+    initial_result: &WorkbenchSurfaceKind,
+) {
+    let Some(surface) = temporary.get_surface(egui_dock::SurfaceIndex::main()) else {
+        return;
+    };
+    for (_, tab) in surface.iter_all_tabs() {
+        if let ui::dock_tabs::DockTab::Surface { kind, .. } = tab
+            && kind != initial_result
+            && !matches!(
+                kind,
+                WorkbenchSurfaceKind::ErDiagram | WorkbenchSurfaceKind::SqlDocument { .. }
+            )
+        {
+            ui::dock_tabs::ensure_surface_tab(dock, kind.clone());
+        }
+    }
+}
+
+fn finish_dock_frame(
+    dock: &mut egui_dock::DockState<ui::dock_tabs::DockTab>,
+    temporary: &egui_dock::DockState<ui::dock_tabs::DockTab>,
+    initial_result: &WorkbenchSurfaceKind,
+    tab_manager: &ui::QueryTabManager,
+) {
+    merge_dock_reveals(dock, temporary, initial_result);
+    let Some(active) = tab_manager.get_active() else {
+        return;
+    };
+    if matches!(
+        initial_result,
+        WorkbenchSurfaceKind::SurfaceResult { query_tab_id } if query_tab_id == &active.id
+    ) {
+        return;
+    }
+    ui::dock_tabs::sync_sql_documents(dock, tab_manager);
+    ui::dock_tabs::activate_sql_document(dock, &active.id);
+}
+
 impl DbManagerApp {
     fn render_query_output_placeholder(
         &mut self,
@@ -255,10 +299,12 @@ impl DbManagerApp {
                                 // 同步表加载态，让侧栏区分"加载中"与"空 schema"（审计 SM-3）。
                                 self.state.sidebar_panel_state.loading_tables =
                                     self.session.connecting;
-                                let (actions, filter_changed) = ui::Sidebar::show_in_ui(
+                                let previous_connection = self.session.manager.active.clone();
+                                let mut sidebar_selected_table = self.state.selected_table.clone();
+                                let (mut actions, filter_changed) = ui::Sidebar::show_in_ui(
                                     ui,
                                     &mut self.session.manager,
-                                    &mut self.state.selected_table,
+                                    &mut sidebar_selected_table,
                                     &mut self.state.show_connection_dialog,
                                     is_sidebar_focused,
                                     self.state.sidebar_section,
@@ -268,6 +314,11 @@ impl DbManagerApp {
                                     &mut self.state.grid_state.filters,
                                     &columns,
                                     &mut self.state.pending_filter_input_focus,
+                                );
+                                self.reconcile_sidebar_selection(
+                                    previous_connection,
+                                    sidebar_selected_table,
+                                    &mut actions,
                                 );
                                 sidebar_actions = actions;
 
@@ -365,13 +416,20 @@ impl DbManagerApp {
                             egui::vec2(main_width, editor_area_height),
                             egui::Layout::top_down(egui::Align::LEFT),
                             |ui| {
+                                let initial_result =
+                                    self.active_bottom_panel_surface_kind(BottomPanelTab::Results);
                                 let fallback_dock = self.default_workbench_surface_layout();
                                 let mut dock =
                                     std::mem::replace(&mut self.dock_state, fallback_dock);
                                 ui::dock_tabs::refresh_dock_from_session(&mut dock, self);
                                 let mut viewer = ui::dock_tabs::WorkspaceViewer { app: self };
                                 egui_dock::DockArea::new(&mut dock).show_inside(ui, &mut viewer);
-                                // Put dock_state back
+                                finish_dock_frame(
+                                    &mut dock,
+                                    &self.dock_state,
+                                    &initial_result,
+                                    &self.session.tab_manager,
+                                );
                                 self.dock_state = dock;
                             },
                         );
@@ -771,7 +829,6 @@ impl DbManagerApp {
             && self.session.manager.active.as_deref() != Some(&conn_name)
         {
             self.connect(conn_name);
-            self.switch_grid_workspace(None);
             self.clear_result();
             self.session.autocomplete.clear();
             self.state.sidebar_panel_state.clear_triggers();
@@ -1007,6 +1064,17 @@ impl DbManagerApp {
 
     /// 处理查询表数据
     fn handle_query_table(&mut self, ctx: &egui::Context, table: String) {
+        if self.active_grid_workspace_enabled
+            && self.state.selected_table.as_deref() != Some(table.as_str())
+            && (self.state.grid_state.has_changes()
+                || self.state.grid_state.save_in_flight
+                || self.state.grid_state.has_unknown_save_outcome)
+        {
+            self.session
+                .notifications
+                .warning("当前表格仍有未保存或待核对的修改；请先保存或在新标签页查询其他表");
+            return;
+        }
         self.switch_grid_workspace(Some(table));
         self.dispatch_app_action(ctx, AppAction::QuerySelectedTable);
     }
@@ -1259,8 +1327,10 @@ impl DbManagerApp {
             {
                 self.cancel_query_request_silently(request_id);
             }
+            let is_closing = self.session.tab_manager.tabs.len() > 1 && closing_tab_id.is_some();
             self.session.tab_manager.close_tab(idx);
-            if let Some(tab_id) = closing_tab_id {
+            if is_closing && let Some(tab_id) = closing_tab_id {
+                self.close_pg_sessions_for_tab(&tab_id);
                 self.warn_if_tab_has_unsaved_grid_edits(&tab_id);
                 self.remove_grid_workspaces_for_tab(&tab_id);
             }
@@ -1301,6 +1371,7 @@ impl DbManagerApp {
             }
             self.session.tab_manager.close_other_tabs();
             for tab_id in closing_tab_ids {
+                self.close_pg_sessions_for_tab(&tab_id);
                 self.remove_grid_workspaces_for_tab(&tab_id);
             }
         }
@@ -1340,6 +1411,7 @@ impl DbManagerApp {
             }
             self.session.tab_manager.close_tabs_to_right();
             for tab_id in closing_tab_ids {
+                self.close_pg_sessions_for_tab(&tab_id);
                 self.remove_grid_workspaces_for_tab(&tab_id);
             }
         }
@@ -1381,7 +1453,7 @@ impl DbManagerApp {
 mod tests {
     use super::{
         ErDiagramSurfaceAction, WorkspaceSurface, clamped_sql_editor_height,
-        classify_workspace_surface, collect_er_diagram_surface_actions,
+        classify_workspace_surface, collect_er_diagram_surface_actions, finish_dock_frame,
         select_sql_editor_status_message, workbench_main_width,
     };
     use crate::app::DbManagerApp;
@@ -1437,6 +1509,56 @@ mod tests {
             .connections
             .insert("demo".to_string(), connection);
         app.session.manager.active = Some("demo".to_string());
+    }
+
+    #[test]
+    fn dock_switch_during_render_preserves_new_results_reveal() {
+        let mut app = DbManagerApp::new_for_test();
+        prime_active_connection_with_tables(&mut app, &[]);
+        let connection_id = app
+            .session
+            .manager
+            .get_active()
+            .expect("demo connection")
+            .id;
+        app.open_new_query_tab();
+        app.activate_query_tab(0);
+        let initial_result = app.active_bottom_panel_surface_kind(BottomPanelTab::Results);
+        let fallback = app.default_workbench_surface_layout();
+        let mut dock = std::mem::replace(&mut app.dock_state, fallback);
+        app.session.tab_manager.tabs[1].result_set = Some(std::sync::Arc::new(ResultSet::empty()));
+        app.session.tab_manager.tabs[1].result_origin = Some((connection_id, Some("main".into())));
+
+        app.activate_query_tab(1);
+        let new_result = app.active_bottom_panel_surface_kind(BottomPanelTab::Results);
+        assert_ne!(new_result, initial_result);
+        finish_dock_frame(
+            &mut dock,
+            &app.dock_state,
+            &initial_result,
+            &app.session.tab_manager,
+        );
+        app.dock_state = dock;
+
+        assert!(app.has_workbench_surface_tab(&new_result));
+        assert!(app.has_workbench_surface_tab(&initial_result));
+        let id = &app.session.tab_manager.tabs[1].id;
+        let path = app
+            .dock_state
+            .find_tab_from(|tab| {
+                matches!(tab, crate::ui::dock_tabs::DockTab::Surface {
+                document_id: Some(document_id), .. } if document_id == id)
+            })
+            .expect("new SQL document docked");
+        assert_eq!(
+            app.dock_state
+                .node(path.node_path())
+                .expect("SQL leaf")
+                .get_leaf()
+                .expect("leaf")
+                .active,
+            path.tab,
+        );
     }
 
     #[test]

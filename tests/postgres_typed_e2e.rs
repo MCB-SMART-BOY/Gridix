@@ -16,7 +16,8 @@
 
 use gridix::core::constants;
 use gridix::data::{
-    ConnectionConfig, POOL_MANAGER, apply_mutations, execute_typed, load_schema_catalog,
+    ConnectionConfig, DbError, POOL_MANAGER, apply_mutations, execute_import_batch, execute_typed,
+    load_schema_catalog,
 };
 use std::sync::Arc;
 mod common;
@@ -731,6 +732,111 @@ async fn catalog_load() {
 }
 
 #[tokio::test]
+async fn catalog_composite_constraints_preserve_pairing_and_unique_keys() {
+    let Some(config) = pg_config() else {
+        return;
+    };
+    execute_typed(&config, "DROP TABLE IF EXISTS gridix_meta_child_pg")
+        .await
+        .unwrap();
+    execute_typed(&config, "DROP TABLE IF EXISTS gridix_meta_parent_pg")
+        .await
+        .unwrap();
+    execute_typed(
+        &config,
+        "CREATE TABLE gridix_meta_parent_pg (a INT, b INT, extra INT, \
+         CONSTRAINT gridix_meta_parent_unique UNIQUE (b, a) INCLUDE (extra))",
+    )
+    .await
+    .unwrap();
+    execute_typed(
+        &config,
+        "CREATE TABLE gridix_meta_child_pg (x INT, y INT, z INT, \
+         CONSTRAINT gridix_meta_child_unique UNIQUE (y, x), \
+         CONSTRAINT gridix_meta_child_fk FOREIGN KEY (x, y) \
+           REFERENCES gridix_meta_parent_pg (b, a), \
+         CONSTRAINT gridix_meta_child_fk_other FOREIGN KEY (z, x) \
+           REFERENCES gridix_meta_parent_pg (b, a))",
+    )
+    .await
+    .unwrap();
+
+    let catalog = load_schema_catalog(&config, SchemaRevision(1))
+        .await
+        .unwrap();
+    let parent = catalog.table("gridix_meta_parent_pg").unwrap();
+    assert_eq!(parent.unique_keys.len(), 1);
+    assert_eq!(parent.unique_keys[0].columns, ["b", "a"]);
+    assert!(parent.primary_key.is_none());
+    let child = catalog.table("gridix_meta_child_pg").unwrap();
+    assert_eq!(child.unique_keys.len(), 1);
+    assert_eq!(
+        child.unique_keys[0].name.as_deref(),
+        Some("gridix_meta_child_unique")
+    );
+    assert_eq!(child.unique_keys[0].columns, ["y", "x"]);
+    assert_eq!(child.foreign_keys.len(), 2);
+    assert!(
+        child
+            .foreign_keys
+            .iter()
+            .any(|fk| fk.name.as_deref() == Some("gridix_meta_child_fk")
+                && fk.from_columns == ["x", "y"]
+                && fk.ref_table == "gridix_meta_parent_pg"
+                && fk.ref_columns == ["b", "a"])
+    );
+    assert!(child.foreign_keys.iter().any(|fk| fk.name.as_deref()
+        == Some("gridix_meta_child_fk_other")
+        && fk.from_columns == ["z", "x"]
+        && fk.ref_table == "gridix_meta_parent_pg"
+        && fk.ref_columns == ["b", "a"]));
+
+    execute_typed(&config, "DROP TABLE gridix_meta_child_pg")
+        .await
+        .unwrap();
+    execute_typed(&config, "DROP TABLE gridix_meta_parent_pg")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn pg_typed_unsupported_value_fails_without_exportable_placeholder() {
+    let Some(config) = pg_config() else {
+        eprintln!("SKIP: GRIDIX_TEST_PG_URL not set");
+        return;
+    };
+    let error = execute_typed(
+        &config,
+        "SELECT '00000000-0000-0000-0000-000000000001'::uuid",
+    )
+    .await
+    .expect_err("unsupported PostgreSQL value must not become display text");
+    assert!(
+        matches!(error, DbError::Query(message) if message.contains("unsupported PostgreSQL type uuid"))
+    );
+    let result = single_result_set(
+        execute_typed(&config, "SELECT 17::integer")
+            .await
+            .expect("standalone backend must recover after local decode error"),
+    );
+    assert_eq!(result.cells.as_slice(), &[DbValue::Int(17)]);
+}
+
+#[tokio::test]
+async fn pg_typed_unsupported_type_null_remains_sql_null() {
+    let Some(config) = pg_config() else {
+        eprintln!("SKIP: GRIDIX_TEST_PG_URL not set");
+        return;
+    };
+    let result = single_result_set(
+        execute_typed(&config, "SELECT NULL::uuid")
+            .await
+            .expect("unknown native type does not change SQL NULL semantics"),
+    );
+    assert_eq!(result.cells.as_slice(), &[DbValue::Null]);
+}
+
+#[tokio::test]
 async fn pg_pool_reuses_handle_and_evicts_oldest_under_pressure() {
     let Some(config) = pg_config() else {
         eprintln!("SKIP: GRIDIX_TEST_PG_URL not set");
@@ -747,6 +853,9 @@ async fn pg_pool_reuses_handle_and_evicts_oldest_under_pressure() {
         .await
         .expect("PostgreSQL pool fixture must reuse its client");
     assert!(Arc::ptr_eq(&first, &reused));
+    let evicted = Arc::downgrade(&first);
+    drop(reused);
+    drop(first);
 
     for index in 0..constants::database::pool::MAX_POSTGRES_CLIENTS {
         let mut pressure_config = config.clone();
@@ -757,10 +866,274 @@ async fn pg_pool_reuses_handle_and_evicts_oldest_under_pressure() {
             .expect("PostgreSQL pressure fixture must connect");
     }
 
-    let recreated = POOL_MANAGER
+    let _recreated = POOL_MANAGER
         .get_pg_client(&config)
         .await
         .expect("PostgreSQL pool must recreate an evicted client");
-    assert!(!Arc::ptr_eq(&first, &recreated));
+    assert!(
+        evicted.upgrade().is_none(),
+        "idle oldest client must be evicted"
+    );
     POOL_MANAGER.clear_all().await;
+}
+
+#[tokio::test]
+async fn pg_wrapped_import_rejects_later_transaction_control_before_any_write() {
+    let Some(config) = pg_config() else {
+        eprintln!("SKIP: GRIDIX_TEST_PG_URL not set");
+        return;
+    };
+    let table = format!("gridix_import_control_{}", uuid::Uuid::new_v4().simple());
+    execute_typed(&config, &format!("CREATE TABLE {table} (value INTEGER)"))
+        .await
+        .expect("create isolated import fixture");
+
+    for control in [
+        "/* after first write */ ROLLBACK; SELECT 1",
+        "ABORT",
+        "COMMIT/**/WORK",
+        "SELECT 1 # 1; COMMIT",
+        "PREPARE TRANSACTION 'gridix_test'",
+    ] {
+        let result = execute_import_batch(
+            &config,
+            vec![
+                format!("INSERT INTO {table} VALUES (1)"),
+                control.to_owned(),
+            ],
+            true,
+            true,
+        )
+        .await;
+        assert!(matches!(result, Err(DbError::Query(_))), "{control}");
+        let count = single_result_set(
+            execute_typed(&config, &format!("SELECT count(*) FROM {table}"))
+                .await
+                .expect("inspect committed records"),
+        );
+        assert_eq!(count.cell(0, 0), &DbValue::Int(0), "{control}");
+    }
+    execute_typed(&config, &format!("DROP TABLE {table}"))
+        .await
+        .expect("drop isolated import fixture");
+}
+
+#[tokio::test]
+async fn pg_unwrapped_import_lost_statement_reply_requires_verification() {
+    let Some(config) = pg_config() else {
+        eprintln!("SKIP: GRIDIX_TEST_PG_URL not set");
+        return;
+    };
+    let table = format!("gridix_import_unknown_{}", uuid::Uuid::new_v4().simple());
+    execute_typed(&config, &format!("CREATE TABLE {table} (value INTEGER)"))
+        .await
+        .expect("create isolated import fixture");
+    let result = execute_import_batch(
+        &config,
+        vec![
+            format!("INSERT INTO {table} VALUES (1)"),
+            "SELECT pg_terminate_backend(pg_backend_pid())".into(),
+        ],
+        false,
+        false,
+    )
+    .await;
+    assert!(
+        matches!(
+            result,
+            Err(DbError::ImportOutcomeUnknown {
+                operation: "STATEMENT",
+                ..
+            })
+        ),
+        "unwrapped import lost its reply: {result:?}"
+    );
+    // Observe through a fresh connection; the terminated import client may still be cached.
+    let url = std::env::var("GRIDIX_TEST_PG_URL").expect("fixture URL");
+    let (observer, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+        .await
+        .expect("connect independent observer");
+    let connection_task = tokio::spawn(connection);
+    let count: i64 = observer
+        .query_one(&format!("SELECT count(*) FROM {table}"), &[])
+        .await
+        .expect("inspect committed insert")
+        .get(0);
+    assert_eq!(count, 1);
+    observer
+        .batch_execute(&format!("DROP TABLE {table}"))
+        .await
+        .expect("drop isolated import fixture");
+    drop(observer);
+    connection_task
+        .await
+        .expect("observer connection task")
+        .expect("observer IO");
+}
+
+#[tokio::test]
+async fn pg_wrapped_import_cr_comment_retains_following_insert() {
+    use gridix::core::{
+        SqlDialect, TransferDirection, TransferFormat, TransferFormatOptions, TransferSession,
+        TransferSqlOptions, plan_sql_transfer_content,
+    };
+    let Some(config) = pg_config() else {
+        eprintln!("SKIP: GRIDIX_TEST_PG_URL not set");
+        return;
+    };
+    let table = format!("gridix_import_cr_{}", uuid::Uuid::new_v4().simple());
+    execute_typed(&config, &format!("CREATE TABLE {table} (value INTEGER)"))
+        .await
+        .expect("create isolated import fixture");
+    let session = TransferSession {
+        direction: TransferDirection::Import,
+        format: TransferFormat::Sql,
+        sql_dialect: SqlDialect::Postgres,
+        options: TransferFormatOptions::Sql(TransferSqlOptions::default()),
+        ..Default::default()
+    };
+    let content =
+        format!("INSERT INTO {table} VALUES (1); -- note\rINSERT INTO {table} VALUES (2);");
+    let statements = plan_sql_transfer_content(&content, &session)
+        .expect("plan SQL import")
+        .into_sql_statements()
+        .expect("statements");
+    let report = execute_import_batch(&config, statements, true, true)
+        .await
+        .expect("execute both inserts");
+    assert_eq!(report.succeeded, 2);
+    let count = single_result_set(
+        execute_typed(&config, &format!("SELECT count(*) FROM {table}"))
+            .await
+            .expect("inspect imported rows"),
+    );
+    assert_eq!(count.cell(0, 0), &DbValue::Int(2));
+    execute_typed(&config, &format!("DROP TABLE {table}"))
+        .await
+        .expect("drop isolated import fixture");
+}
+
+#[tokio::test]
+async fn pg_wrapped_import_cr_comment_and_identifier_controls_fail_before_writes() {
+    let Some(config) = pg_config() else {
+        eprintln!("SKIP: GRIDIX_TEST_PG_URL not set");
+        return;
+    };
+    let table = format!("gridix_import_lexer_{}", uuid::Uuid::new_v4().simple());
+    execute_typed(&config, &format!("CREATE TABLE {table} (value INTEGER)"))
+        .await
+        .expect("create isolated import fixture");
+
+    for control in [
+        "-- note\rCOMMIT; INSERT INTO missing_table VALUES (1)",
+        "SELECT 1 AS x$tag$; COMMIT; SELECT 1 AS x$tag$; INSERT INTO missing_table VALUES (1)",
+        "SELECT 1 `; COMMIT; -- `\nSELECT 1; INSERT INTO missing_table VALUES (1)",
+        "SELECT E'\\''; COMMIT; -- '; INSERT INTO missing_table VALUES (1)",
+        "SELECT 1 /* outer /* inner */ ' */; COMMIT; -- '; INSERT INTO missing_table VALUES (1)",
+        "SELECT $é$'$é$; COMMIT; -- '; INSERT INTO missing_table VALUES (1)",
+        "SELECT $💥$'$💥$; COMMIT; -- '; INSERT INTO missing_table VALUES (1)",
+        "SELECT 1 AS -- '\nDELIMITER ;\nCOMMIT; -- '\nINSERT INTO missing_table_xyz VALUES (2)",
+        "SELECT 1 AS\nDELIMITER ;\nCOMMIT;",
+    ] {
+        let result = execute_import_batch(
+            &config,
+            vec![
+                format!("INSERT INTO {table} VALUES (1)"),
+                control.to_owned(),
+            ],
+            true,
+            true,
+        )
+        .await;
+        assert!(
+            matches!(&result, Err(DbError::Query(error)) if error.contains("校验失败")),
+            "{control}: {result:?}"
+        );
+        let count = single_result_set(
+            execute_typed(&config, &format!("SELECT count(*) FROM {table}"))
+                .await
+                .expect("inspect committed records"),
+        );
+        assert_eq!(count.cell(0, 0), &DbValue::Int(0), "{control}");
+    }
+    execute_typed(&config, &format!("DROP TABLE {table}"))
+        .await
+        .expect("drop isolated import fixture");
+}
+
+#[tokio::test]
+async fn pg_wrapped_import_later_missing_table_rolls_back_prior_insert() {
+    let Some(config) = pg_config() else {
+        eprintln!("SKIP: GRIDIX_TEST_PG_URL not set");
+        return;
+    };
+    let table = format!("gridix_import_error_{}", uuid::Uuid::new_v4().simple());
+    let missing_table = format!("gridix_import_missing_{}", uuid::Uuid::new_v4().simple());
+    execute_typed(&config, &format!("CREATE TABLE {table} (value INTEGER)"))
+        .await
+        .expect("create isolated import fixture");
+
+    let result = execute_import_batch(
+        &config,
+        vec![
+            format!("INSERT INTO {table} VALUES (1)"),
+            format!("INSERT INTO {missing_table} VALUES (1)"),
+        ],
+        true,
+        true,
+    )
+    .await;
+    assert!(
+        matches!(&result, Err(DbError::Query(error)) if error.contains("事务已回滚")),
+        "{result:?}"
+    );
+    let count = single_result_set(
+        execute_typed(&config, &format!("SELECT count(*) FROM {table}"))
+            .await
+            .expect("inspect committed records"),
+    );
+    assert_eq!(count.cell(0, 0), &DbValue::Int(0));
+    execute_typed(&config, &format!("DROP TABLE {table}"))
+        .await
+        .expect("drop isolated import fixture");
+}
+
+#[tokio::test]
+async fn pg_at_least_mutation_failure_rolls_back_prior_insert() {
+    let Some(config) = pg_config() else {
+        eprintln!("SKIP: GRIDIX_TEST_PG_URL not set");
+        return;
+    };
+    let table = format!("gridix_expected_rows_{}", uuid::Uuid::new_v4().simple());
+    execute_typed(
+        &config,
+        &format!("CREATE TABLE {table} (id INTEGER PRIMARY KEY)"),
+    )
+    .await
+    .expect("create isolated mutation fixture");
+    let batch = MutationBatch {
+        mutations: vec![
+            Mutation::Insert {
+                table: col(&table),
+                columns: vec![col("id")],
+                values: vec![InputValue::Value(DbValue::Int(1))],
+            },
+            Mutation::Delete {
+                table: col(&table),
+                identity: pk(vec![("id", DbValue::Int(999))]),
+                expected_rows: ExpectedRows::AtLeast(1),
+            },
+        ],
+        atomic: true,
+    };
+    assert!(apply_mutations(&config, &batch).await.is_err());
+    let count = single_result_set(
+        execute_typed(&config, &format!("SELECT count(*) FROM {table}"))
+            .await
+            .expect("inspect committed records"),
+    );
+    assert_eq!(count.cell(0, 0), &DbValue::Int(0));
+    execute_typed(&config, &format!("DROP TABLE {table}"))
+        .await
+        .expect("drop isolated mutation fixture");
 }

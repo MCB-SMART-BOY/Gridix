@@ -84,7 +84,7 @@ src/
 │   ├── mod.rs           # UiState struct (~60 fields): focus, sidebar, editor, dialogs, ER, grid, theme
 │   └── workbench.rs     # WorkbenchState: activity bar, bottom panel, status bar, right inspector
 ├── app/                 # Transitional: DbManagerApp — being decomposed into Session + UiState
-│   ├── mod.rs           # DbManagerApp (~11 fields, target reached: ~11)
+│   ├── mod.rs           # DbManagerApp (12 fields; includes pending Grid save snapshots)
 │   ├── action/          # AppAction (60 variants) → AppEffect, command palette, CommandDescriptor registry
 │   ├── dialogs/host.rs  # DialogId (17 variants), active_dialog_owner
 │   ├── input/           # Keyboard routing (8-stage dispatch pipeline)
@@ -100,6 +100,7 @@ src/
 │   ├── runtime/         # tokio → mpsc → UI thread (gradually migrating to session/)
 │   │   ├── database.rs  # connect, execute (cancel+timeout), disconnect
 │   │   ├── handler.rs   # handle_messages() — poll with try_recv, dispatch
+│   │   ├── grid_identity_tests.rs  # connection/database transitions, async drop, stale Tab result guards
 │   │   ├── message.rs   # → re-exports session::message::Message
 │   │   ├── request_lifecycle.rs  # ID generation, cancel, tab sync
 │   │   ├── er_diagram.rs  # ER data loading, relationship inference
@@ -138,7 +139,7 @@ src/session/    (Layer 2)  — connection lifecycle, async dispatch (~30 fields)
      ↑
 src/state/      (Layer 3)  — UI rendering state (~60 fields)
      ↑
-src/app/ + ui/  (Layer 4)  — eframe App impl, rendering, input routing (DbManagerApp: ~11 fields)
+src/app/ + ui/  (Layer 4)  — eframe App impl, rendering, input routing (DbManagerApp: 12 fields)
 ```
 
 **v7.1.0:**

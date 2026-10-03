@@ -2,6 +2,7 @@
 
 use super::secret::{KeyringStore, SecretStore};
 use super::ssh_tunnel::SshTunnelConfig;
+use crate::domain::ids::ConnectionId;
 use crate::types::{DatabaseType, MySqlSslMode, PostgresSslMode};
 use serde::{Deserialize, Serialize};
 
@@ -36,22 +37,6 @@ pub(crate) fn url_encode(s: &str) -> String {
 /// 参考 libpq 规则：在单引号包裹时需要转义 `'` 和 `\`
 fn escape_pg_param(s: &str) -> String {
     s.replace('\\', "\\\\").replace('\'', "\\'")
-}
-
-pub(crate) fn load_password_secret(secret_ref: &str) -> Result<Option<String>, String> {
-    let store = KeyringStore;
-    store
-        .load(secret_ref)
-        .map(|opt| opt.map(|s| s.expose().to_string()))
-        .map_err(|e| e.to_string())
-}
-
-pub(crate) fn store_password_secret(secret_ref: &str, password: &str) -> Result<(), String> {
-    use crate::data::secret::SecretString;
-    let store = KeyringStore;
-    store
-        .store(secret_ref, &SecretString::new(password.to_string()))
-        .map_err(|e| e.to_string())
 }
 
 pub(crate) fn delete_password_secret(secret_ref: &str) -> Result<(), String> {
@@ -205,12 +190,20 @@ pub struct ConnectionConfig {
     /// 系统密钥链中的密码引用
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password_ref: Option<String>,
+    /// 仅在用户明确清空密码时设置；密钥链读取失败导致的空值不得触发删除。
+    /// 公开字段仅为保留 `ConnectionConfig { ..Default::default() }` 构造能力；调用方应使用 `mark_password_edited()`。
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub password_explicitly_cleared: bool,
     /// 数据库名（SQLite 为文件路径，MySQL/PostgreSQL 为可选的默认数据库）
     #[serde(default)]
     pub database: String,
     /// SSH 隧道配置
     #[serde(default)]
     pub ssh_config: SshTunnelConfig,
+    /// 当前会话的连接实例身份；不写入持久化配置。
+    #[serde(skip)]
+    pub runtime_connection_id: Option<ConnectionId>,
     /// MySQL SSL 模式
     #[serde(default)]
     pub mysql_ssl_mode: MySqlSslMode,
@@ -241,6 +234,7 @@ impl std::fmt::Debug for ConnectionConfig {
                 &self.password_ref.as_ref().map(|_| "<REDACTED>"),
             )
             .field("database", &self.database)
+            .field("runtime_connection_id", &self.runtime_connection_id)
             .field("ssh_config", &self.ssh_config)
             .field("mysql_ssl_mode", &self.mysql_ssl_mode)
             .field("postgres_ssl_mode", &self.postgres_ssl_mode)
@@ -268,6 +262,11 @@ impl ConnectionConfig {
             mysql_ssl_mode: MySqlSslMode::VerifyIdentity,
             ..Default::default()
         }
+    }
+
+    /// 标记用户在编辑器中明确清空了已保存的数据库密码。
+    pub fn mark_password_edited(&mut self) {
+        self.password_explicitly_cleared = self.password.is_empty() && self.password_ref.is_some();
     }
 
     /// 生成连接字符串（带数据库名）
@@ -317,12 +316,23 @@ impl ConnectionConfig {
         }
     }
 
+    /// 一个逻辑连接独占隧道；断开它不能停止其他连接的转发。
+    pub(crate) fn ssh_tunnel_name(&self) -> String {
+        format!(
+            "{}:{}:{:?}:{}",
+            self.name.len(),
+            self.name,
+            self.runtime_connection_id,
+            self.ssh_config.tunnel_name()
+        )
+    }
+
     fn pool_route_key_material(&self) -> String {
         if self.db_type.requires_network() && self.ssh_config.enabled {
             // The tunnel identifies the reusable forwarding path, while the
             // original TLS name identifies the remote database endpoint.
             let tls_server_name = self.tls_server_name.as_deref().unwrap_or(&self.host);
-            format!("ssh:{}:{}", self.ssh_config.tunnel_name(), tls_server_name)
+            format!("ssh:{}:{}", self.ssh_tunnel_name(), tls_server_name)
         } else {
             format!("direct:{}:{}", self.host, self.port)
         }

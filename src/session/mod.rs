@@ -77,6 +77,14 @@ pub struct Session {
     pub progress: ProgressManager,
 }
 
+impl Drop for Session {
+    fn drop(&mut self) {
+        for connection in self.manager.connections.values() {
+            crate::data::close_pg_connection_sessions(connection.id);
+        }
+    }
+}
+
 impl Session {
     /// 使用给定的运行时和通道创建新的 Session
     pub fn new(

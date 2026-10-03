@@ -9,20 +9,32 @@ This document distinguishes confirmed product limitations from release-acceptanc
 
 ## SQLite GUI release acceptance
 
-The driven X11 journey was exercised on 2026-09-25 with this outcome:
+The driven X11 journey was exercised on 2026-09-25; its create/edit/reopen steps
+and a later export run have separate evidence:
 
 | Journey step | Evidence | Status |
 |---|---|---|
-| Create a SQLite connection and run a query | result grid showing `SELECT * FROM "items" LIMIT 100` | captured |
-| Edit and save a Grid cell | `gridix-driver assert-reopened acceptance.db items name after` passed against the file on disk | captured |
-| Reopen the database and confirm the saved value | disconnect, reconnect, reload: grid shows `after` with no pending modification | captured |
-| Export the result as CSV, JSON, and SQL | — | not captured |
+| Create a SQLite connection and run a query | result grid showing `SELECT * FROM "items" LIMIT 100` (2026-09-25) | captured |
+| Edit and save a Grid cell | `gridix-driver assert-reopened acceptance.db items name after` passed against the file on disk (2026-09-25) | captured |
+| Reopen the database and confirm the saved value | disconnect, reconnect, reload: grid shows `after` with no pending modification (2026-09-25) | captured |
+| Export the result as CSV, JSON, and SQL | GUI `导出数据` → native save chooser → three non-empty files, independently checked with `gridix-driver assert-export` (2026-10-03) | captured in a separate run |
 
-Step 4 remains open. Export asks for a destination through `rfd::FileDialog::save_file()`,
-which needs a native file chooser (on Linux an `xdg-desktop-portal` file chooser). In a driven
-Xvfb session that dialog is not presented to the application, so no path comes back: no export
-file is written and the 导出数据 dialog stays open without a status message. Capturing the
-three exports requires an operator in a desktop session where the native dialog can appear.
+For the export run, a private D-Bus session with `xdg-desktop-portal` and its GTK
+backend presented the native file chooser on Xvfb. The GUI result showed `items`
+with the `after` row before export; the resulting CSV contained
+`id,name,note\n1,after,\n`, JSON contained `"name": "after"` and `"note": null`,
+and SQL contained `'after'` and `NULL`. Screenshots (`portal-app-table.png`,
+`chooser-csv-working.png`, `csv-after-path.png`, `json-success.png`,
+`sql-success.png`) and the three files are local, disposable artifacts in
+`/tmp/gridix-acceptance-2480feb4-1baf-4f56-985e-c836fbcf66f1/`; they have
+not been archived with a release.
+
+This export run used an existing SQLite fixture already containing `after`, not
+the database edited in the 2026-09-25 run. It closes the native-chooser/export
+evidence gap, but does **not** establish one continuous create → edit/save →
+reopen → export release-acceptance journey. Capture and retain that complete
+journey before accepting a release. A missing native chooser remains an
+environment-dependent feedback gap, not a confirmed data-loss defect.
 
 This is an acceptance-evidence boundary, not a confirmed product defect. `gridix-driver`
 now provides deterministic text entry (`type`), window-relative pointer actions (`move` and
@@ -38,8 +50,9 @@ gridix-driver assert-export sql acceptance.sql "'after'" NULL
 
 Those commands only validate the files and database supplied to them; they do not claim that
 the GUI created, edited, reopened, or exported them. Native file dialogs and semantic widget
-state remain outside the driver's scope, so the complete journey still requires an observed GUI
-run with retained screenshots and export artifacts.
+state remain outside the driver's scope. The observed export run used a native
+chooser and pointer input in addition to the driver's artifact assertions; the
+complete same-database journey still requires retained, observed GUI evidence.
 
 For a non-interactive launch, `gridix-driver launch --detach` returns after the window is ready
 and leaves the exact-PID session state for a later `quit`. When the regular `launch` command
@@ -59,6 +72,12 @@ open with no status message. `handle_export_with_config` writes `export_status` 
 indistinguishable from an export that never ran. This is a feedback gap rather than data loss;
 the workbook state is untouched.
 
+## SSH fixed local port across connections
+
+SSH tunnels are isolated per connection instance so disconnecting one cannot close another's
+active forwarding stream. If two live connections use the same nonzero `local_port`, only one
+can bind it; use the default `local_port = 0` for independently allocated loopback ports.
+
 ## MySQL cancellation coverage boundaries
 
 The direct MySQL 8.4 path is covered for `KILL QUERY`, observer permissions, marker disappearance, and a subsequent pool query. The following environments remain unverified:
@@ -70,14 +89,25 @@ The direct MySQL 8.4 path is covered for `KILL QUERY`, observer permissions, mar
 
 These are coverage boundaries, not known failures.
 
-## SSH credential handling hardening
+## Typed transfer boundaries
 
-The SSH connection path needs further hardening for keyring and credential-rotation behavior:
+CSV/TSV/JSON cannot round-trip arbitrary binary values, and delimited text that would be reinterpreted as NULL, a number or boolean is rejected rather than silently changed. Use SQL export with a matching target dialect for these values. Wrapped imports reject transaction controls before any write; PostgreSQL/MySQL statements containing backslashes are rejected under transaction wrapping because connection-dependent escape semantics cannot be safely inferred. Disable transaction wrapping only if partial writes are acceptable. MySQL permits only INSERT/UPDATE/DELETE/REPLACE/SELECT and rejects executable comments. Non-transactional MySQL engines or indirect transaction effects cannot be given an atomic rollback guarantee.
 
-- report missing or unreadable keyring passwords as actionable configuration errors before opening a network connection;
-- preserve the existing credential reference and report a warning when persisting a replacement password fails;
-- change tunnel identity after a user edits a password without storing, logging, or hashing the password itself;
-- log keyring cleanup failures during connection deletion while preserving best-effort connection cleanup.
+Successful MySQL DML can emit conversion or truncation warnings under a non-strict SQL mode without failing the import. A successful import is not proof that MySQL persisted the original values unchanged; check target data or use an appropriate strict server mode for fidelity-sensitive imports.
+
+## Table-grid refresh while editing
+
+When a table grid has unsaved edits, inserts, deletes or an unconfirmed save, Gridix preserves its original result baseline and refuses to replace it with an ordinary query result. Save or explicitly discard the draft before refreshing the table; to run unrelated SQL meanwhile, open another query tab. This avoids applying row-indexed edits to different primary keys after the server's row order changes.
+
+## Uncertain transaction acknowledgements
+
+If a PostgreSQL or MySQL grid mutation batch loses its COMMIT or ROLLBACK acknowledgement, Gridix cannot determine from the transport failure whether the batch committed. A MySQL ROLLBACK warning after non-transactional writes is treated the same way: it retains and locks that table workspace's edits rather than claiming rollback or retrying. Verify database state independently, discard the uncertain draft explicitly, then refresh the table successfully before editing. A wrapped import with an uncertain COMMIT/ROLLBACK or a MySQL incomplete-rollback warning, and an unwrapped import with a lost statement acknowledgement, require explicit verification and acknowledgement in the import dialog before another import. Non-transactional MySQL engines remain outside the atomicity guarantee.
+
+## SSH credential and tunnel acceptance
+
+Configuration changes now report missing keyring credentials, retain credential references on persistence failures, rotate tunnel identity after password edits, and log keyring cleanup failures. Explicitly clearing a database password revokes its saved reference; config parser logs no source lines, and connection previews mask encoded passwords.
+
+Tunnel shutdown now owns and closes active forwarding tasks. The SSH fixture tests for stopping an active forwarded connection and concurrent first-creation cleanup still require an observed run with a reachable SSH host and PostgreSQL backend; local tests without that fixture are not acceptance evidence.
 
 ## Narrow viewport dialogs
 

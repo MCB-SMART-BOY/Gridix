@@ -3,8 +3,22 @@
 //! 负责请求 ID、执行状态、取消信号与 pending 任务清理。
 
 use super::DbManagerApp;
+pub(in crate::app) fn query_document_id(tab_id: &str) -> crate::domain::ids::DocumentId {
+    uuid::Uuid::parse_str(tab_id)
+        .map(crate::domain::ids::DocumentId::from)
+        .unwrap_or_else(|_| {
+            crate::domain::ids::DocumentId::from(uuid::Uuid::new_v5(
+                &uuid::Uuid::NAMESPACE_OID,
+                tab_id.as_bytes(),
+            ))
+        })
+}
 
 impl DbManagerApp {
+    pub(in crate::app) fn close_pg_sessions_for_tab(&self, tab_id: &str) {
+        crate::data::close_pg_document_sessions(query_document_id(tab_id));
+    }
+
     pub(in crate::app) fn cancel_query_request_silently(&mut self, request_id: u64) {
         self.cancel_query_request_with_visibility(request_id, false);
     }
@@ -20,15 +34,7 @@ impl DbManagerApp {
         let Some(_request_id) = tab.pending_request_id else {
             return false;
         };
-        // 从 Tab ID 构造与 execute() 一致的 DocumentId
-        let document = uuid::Uuid::parse_str(&tab.id)
-            .map(crate::domain::ids::DocumentId::from)
-            .unwrap_or_else(|_| {
-                crate::domain::ids::DocumentId::from(uuid::Uuid::new_v5(
-                    &uuid::Uuid::NAMESPACE_OID,
-                    tab.id.as_bytes(),
-                ))
-            });
+        let document = query_document_id(&tab.id);
         self.session
             .task_registry
             .cancel_queries_for_document(document);
@@ -37,7 +43,9 @@ impl DbManagerApp {
             .user_cancelled_query_requests
             .insert(_request_id);
         self.clear_tab_pending_request(_request_id);
-        self.session.notifications.warning("已取消查询");
+        self.session
+            .notifications
+            .warning("已请求取消查询；执行结果仍需确认");
         self.session.refresh_executing_flag();
         self.session.needs_repaint = true;
         true
@@ -55,16 +63,35 @@ impl DbManagerApp {
 
     /// 从当前活动 Tab 同步 SQL 和结果到主视图
     pub(crate) fn sync_from_active_tab(&mut self) {
+        let is_current_result = self.session.manager.get_active().is_some_and(|connection| {
+            self.session.tab_manager.get_active().is_some_and(|tab| {
+                (tab.result_origin.is_none() && tab.result_set.is_none())
+                    || tab.is_result_from(connection.id, connection.selected_database.as_deref())
+            })
+        });
         let mut active_result_set = None;
         let mut query_bottom_panel_tab = None;
         if let Some(tab) = self.session.tab_manager.get_active() {
-            active_result_set = tab.result_set.clone();
-            self.session.last_query_time_ms = tab.query_time_ms;
-            self.state.selected_table = tab.selected_table.clone();
-            self.state.search_text = tab.search_text.clone();
-            self.state.search_column = tab.search_column.clone();
-            self.active_grid_workspace_enabled = tab.uses_grid_workspace;
-            query_bottom_panel_tab = if self.state.explain_state.should_show_for_tab(&tab.id) {
+            if is_current_result {
+                active_result_set = tab.result_set.clone();
+            }
+            self.session.last_query_time_ms =
+                is_current_result.then_some(tab.query_time_ms).flatten();
+            self.state.selected_table = is_current_result
+                .then(|| tab.selected_table.clone())
+                .flatten();
+            self.state.search_text = if is_current_result {
+                tab.search_text.clone()
+            } else {
+                String::new()
+            };
+            self.state.search_column = is_current_result
+                .then(|| tab.search_column.clone())
+                .flatten();
+            self.active_grid_workspace_enabled = is_current_result && tab.uses_grid_workspace;
+            query_bottom_panel_tab = if !is_current_result {
+                None
+            } else if self.state.explain_state.should_show_for_tab(&tab.id) {
                 Some(crate::core::BottomPanelTab::Explain)
             } else if tab.last_error.is_some() {
                 Some(crate::core::BottomPanelTab::Messages)
@@ -81,10 +108,10 @@ impl DbManagerApp {
             self.state.search_column = None;
             self.active_grid_workspace_enabled = false;
         }
-        self.sync_table_metadata();
         self.state.selected_row = None;
         self.state.selected_cell = None;
         self.restore_grid_surface_from_active_tab();
+        self.sync_table_metadata();
         self.state.grid_state.result_set = active_result_set;
         if let Some(tab) = query_bottom_panel_tab {
             self.reveal_bottom_panel_for_query(tab);
@@ -95,6 +122,26 @@ impl DbManagerApp {
     pub(in crate::app) fn persist_active_tab_state_for_navigation(&mut self) {
         self.persist_active_grid_workspace();
         self.sync_sql_to_active_tab();
+    }
+
+    /// Navigate through the same persistence boundary for dock, shortcuts and actions.
+    pub(crate) fn activate_query_tab(&mut self, index: usize) {
+        if index >= self.session.tab_manager.tabs.len()
+            || index == self.session.tab_manager.active_index
+        {
+            return;
+        }
+        self.persist_active_tab_state_for_navigation();
+        self.session.tab_manager.set_active(index);
+        self.sync_from_active_tab();
+        self.activate_active_sql_dock_tab();
+    }
+
+    pub(in crate::app) fn activate_active_sql_dock_tab(&mut self) {
+        crate::ui::dock_tabs::sync_sql_documents(&mut self.dock_state, &self.session.tab_manager);
+        if let Some(tab) = self.session.tab_manager.get_active() {
+            crate::ui::dock_tabs::activate_sql_document(&mut self.dock_state, &tab.id);
+        }
     }
 
     /// 更新活动 Tab 的元数据（modified 标记、标题）
@@ -119,14 +166,7 @@ impl DbManagerApp {
             .map(|t| t.id.clone());
 
         if let Some(ref tab_id) = target_tab_id {
-            let document = uuid::Uuid::parse_str(tab_id)
-                .map(crate::domain::ids::DocumentId::from)
-                .unwrap_or_else(|_| {
-                    crate::domain::ids::DocumentId::from(uuid::Uuid::new_v5(
-                        &uuid::Uuid::NAMESPACE_OID,
-                        tab_id.as_bytes(),
-                    ))
-                });
+            let document = query_document_id(tab_id);
             self.session
                 .task_registry
                 .cancel_queries_for_document(document);
@@ -162,5 +202,66 @@ impl DbManagerApp {
                 tab.executing = false;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::{ConnectionConfig, DatabaseType};
+    use crate::domain::ids::SchemaRevision;
+    use crate::domain::metadata::{SchemaCatalog, TableMetadata};
+
+    #[test]
+    fn returning_to_tab_projects_catalog_loaded_while_another_tab_was_active() {
+        let mut app = DbManagerApp::new_for_test();
+        let mut config = ConnectionConfig::new("demo", DatabaseType::SQLite);
+        config.database = "main".into();
+        app.session.manager.add(config);
+        app.session.manager.active = Some("demo".into());
+        let connection = app
+            .session
+            .manager
+            .connections
+            .get_mut("demo")
+            .expect("connection");
+        connection.selected_database = Some("main".into());
+        let connection_id = connection.id;
+
+        app.session.tab_manager.tabs[0].selected_table = Some("users".into());
+        app.session.tab_manager.tabs[0].uses_grid_workspace = true;
+        app.switch_grid_workspace(Some("users".into()));
+        app.state
+            .grid_state
+            .modified_cells
+            .insert((0, 0), "draft".into());
+        app.open_new_query_tab();
+        assert!(app.state.grid_state.table_metadata.is_none());
+
+        app.session.schema_catalogs.insert(
+            (connection_id, "main".into()),
+            SchemaCatalog {
+                revision: SchemaRevision(0),
+                tables: vec![TableMetadata {
+                    name: "users".into(),
+                    schema: None,
+                    columns: vec![],
+                    primary_key: None,
+                    unique_keys: vec![],
+                    foreign_keys: vec![],
+                }],
+            },
+        );
+        app.activate_query_tab(0);
+
+        assert_eq!(
+            app.state
+                .grid_state
+                .table_metadata
+                .as_ref()
+                .map(|table| table.name.as_str()),
+            Some("users"),
+        );
+        assert_eq!(app.state.grid_state.modified_cells[&(0, 0)], "draft");
     }
 }

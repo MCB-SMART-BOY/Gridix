@@ -38,9 +38,7 @@ pub use export_dialog::{ExportConfig, ExportDialog};
 pub use help_dialog::{
     HelpAction, HelpContext, HelpDialog, HelpOnboardingStep, HelpState, HelpTab, LearningTopic,
 };
-pub use import_dialog::{
-    ImportAction, ImportDialog, ImportFormat, ImportPreview, ImportState, parse_sql_file,
-};
+pub use import_dialog::{ImportAction, ImportDialog, ImportFormat, ImportPreview, ImportState};
 pub use keybindings_dialog::{KeyBindingsDialog, KeyBindingsDialogState};
 pub use schema_diff_dialog::{
     SchemaDiffDialog, SchemaDiffDialogState, SchemaDiffError, compare_tables,

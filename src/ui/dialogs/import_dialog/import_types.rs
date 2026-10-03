@@ -213,6 +213,10 @@ pub struct ImportState {
     pub loading: bool,
     /// 错误信息
     pub error: Option<String>,
+    /// A previous import's COMMIT/ROLLBACK acknowledgement was lost.
+    pub requires_unknown_confirmation: bool,
+    /// User explicitly verified database state before authorizing another import.
+    pub has_confirmed_unknown_outcome: bool,
 }
 
 impl ImportState {
@@ -220,7 +224,7 @@ impl ImportState {
         Self::default()
     }
 
-    pub fn to_transfer_session(&self, use_mysql_syntax: bool) -> TransferSession {
+    pub fn to_transfer_session(&self, dialect: SqlDialect) -> TransferSession {
         let source_name = self
             .file_path
             .as_ref()
@@ -230,15 +234,11 @@ impl ImportState {
             ImportFormat::Csv | ImportFormat::Tsv => Some(self.csv_config.table_name.clone()),
             ImportFormat::Json => Some(self.json_config.table_name.clone()),
         };
-        let dialect = if use_mysql_syntax {
-            SqlDialect::MySql
-        } else {
-            SqlDialect::Standard
-        };
 
         TransferSession {
             direction: TransferDirection::Import,
             format: self.format.to_transfer_format(),
+            sql_dialect: dialect,
             schema: TransferSchema {
                 source_name,
                 target_name,
@@ -257,7 +257,6 @@ impl ImportState {
                     strip_comments: self.sql_config.strip_comments,
                     strip_empty_lines: self.sql_config.strip_empty_lines,
                     stop_on_error: self.sql_config.stop_on_error,
-                    dialect,
                 }),
                 ImportFormat::Csv | ImportFormat::Tsv => {
                     TransferFormatOptions::Delimited(TransferDelimitedOptions {
@@ -281,6 +280,9 @@ impl ImportState {
                 }),
             },
         }
+    }
+    pub fn is_unknown_outcome_unconfirmed(&self) -> bool {
+        self.requires_unknown_confirmation && !self.has_confirmed_unknown_outcome
     }
 
     pub fn set_file(&mut self, path: PathBuf) {
@@ -353,5 +355,33 @@ mod tests {
         assert_eq!(ImportFormat::from_extension("tsv"), ImportFormat::Tsv);
         assert_eq!(ImportFormat::from_extension("TAB"), ImportFormat::Tsv);
         assert_eq!(ImportFormat::from_extension("csv"), ImportFormat::Csv);
+    }
+
+    #[test]
+    fn mysql_delimited_and_json_sessions_preserve_target_dialect() {
+        use super::ImportState;
+        use crate::core::{SqlDialect, TransferFormatOptions, plan_import_transfer};
+        let mut state = ImportState::new();
+        state.csv_config.table_name = "t".into();
+        state.json_config.table_name = "t".into();
+        for (format, content) in [
+            (ImportFormat::Csv, "id\n1\n"),
+            (ImportFormat::Tsv, "id\n1\n"),
+            (ImportFormat::Json, "[{\"id\":1}]"),
+        ] {
+            let file = tempfile::NamedTempFile::new().unwrap();
+            std::fs::write(file.path(), content).unwrap();
+            state.format = format;
+            let mut session = state.to_transfer_session(SqlDialect::MySql);
+            if format == ImportFormat::Tsv {
+                session.options =
+                    TransferFormatOptions::Delimited(crate::core::TransferDelimitedOptions {
+                        delimiter: '\t',
+                        ..Default::default()
+                    });
+            }
+            let plan = plan_import_transfer(file.path(), &session).unwrap();
+            assert!(plan.sql_statements().unwrap()[0].starts_with("INSERT INTO `t` (`id`)"));
+        }
     }
 }

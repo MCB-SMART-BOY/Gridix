@@ -18,18 +18,101 @@
 mod common;
 
 use std::sync::Arc;
+use std::task::{Context, Poll, Waker};
+use std::time::Duration;
 
 use common::{
     acceptance_serial_guard, assert_concurrent_queries_served, assert_select_round_trip,
     mysql_acceptance_config_or_skip,
 };
 use gridix::core::constants;
-use gridix::data::POOL_MANAGER;
+use gridix::data::{DbError, POOL_MANAGER, execute_typed_cancellable};
+use tokio_util::sync::CancellationToken;
 
 /// 并发压力倍数：任务数为池连接上限的该倍数，超出部分由池排队复用连接。
 const PRESSURE_MULTIPLIER: usize = 2;
 /// 回收/清空用例中的小规模并发数。
 const SMALL_CONCURRENCY: usize = 2;
+
+#[tokio::test]
+async fn mysql_pool_saturation_does_not_block_unrelated_pool_creation() {
+    let _serial = acceptance_serial_guard().await;
+    let Some(config) = mysql_acceptance_config_or_skip() else {
+        return;
+    };
+    POOL_MANAGER.clear_all().await;
+    let pool = POOL_MANAGER
+        .get_mysql_pool(&config)
+        .await
+        .expect("saturated pool fixture must connect");
+    let mut occupied = Vec::new();
+    for _ in 0..constants::database::pool::MYSQL_POOL_MAX_CONNECTIONS {
+        occupied.push(
+            pool.get_conn()
+                .await
+                .expect("pool capacity must be available"),
+        );
+    }
+
+    let mut waiting = Box::pin(POOL_MANAGER.get_mysql_pool(&config));
+    assert!(matches!(
+        waiting
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop())),
+        Poll::Pending
+    ));
+    let mut unrelated = config.clone();
+    unrelated.database = "information_schema".into();
+    let other_pool = tokio::time::timeout(
+        Duration::from_secs(3),
+        POOL_MANAGER.get_mysql_pool(&unrelated),
+    )
+    .await
+    .expect("saturated pool must not block unrelated pool lookup")
+    .expect("unrelated MySQL pool must connect");
+    drop(waiting);
+    drop(occupied);
+    drop(other_pool);
+}
+
+#[tokio::test]
+async fn mysql_pool_queued_query_cancel_returns_without_waiting_for_capacity() {
+    let _serial = acceptance_serial_guard().await;
+    let Some(config) = mysql_acceptance_config_or_skip() else {
+        return;
+    };
+    POOL_MANAGER.clear_all().await;
+    let pool = POOL_MANAGER
+        .get_mysql_pool(&config)
+        .await
+        .expect("pool fixture must connect");
+    let mut occupied = Vec::new();
+    for _ in 0..constants::database::pool::MYSQL_POOL_MAX_CONNECTIONS {
+        occupied.push(
+            pool.get_conn()
+                .await
+                .expect("pool capacity must be available"),
+        );
+    }
+    let cancellation = CancellationToken::new();
+    let mut pending = Box::pin(execute_typed_cancellable(
+        &config,
+        "SELECT 1",
+        &cancellation,
+    ));
+    assert!(matches!(
+        pending
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop())),
+        Poll::Pending
+    ));
+    cancellation.cancel();
+    let result = tokio::time::timeout(Duration::from_secs(3), pending)
+        .await
+        .expect("cancelled query must not wait for pool capacity");
+    assert!(matches!(result, Err(DbError::Cancelled)));
+    drop(occupied);
+}
 
 #[tokio::test]
 async fn mysql_pool_serves_more_concurrent_queries_than_pool_connection_limit() {

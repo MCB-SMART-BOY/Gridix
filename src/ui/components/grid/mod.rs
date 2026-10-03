@@ -85,8 +85,29 @@ impl DataGrid {
             return (actions, (0, 0));
         }
 
+        // 处理新增行的编辑
+        if let Some((virtual_idx, col_idx, new_value)) = state.pending_new_row_edit.take()
+            && !state.is_save_locked()
+        {
+            let new_row_idx = virtual_idx.saturating_sub(result.row_count);
+            if let Some(row_data) = state.new_rows.get_mut(new_row_idx)
+                && col_idx < row_data.len()
+            {
+                row_data[col_idx] = new_value;
+            }
+        }
+
         // 显示模式状态栏和操作按钮
         Self::show_mode_bar(ui, state, result, table_name, keybindings, &mut actions);
+        if state.is_save_locked() {
+            ui.label(if state.save_in_flight {
+                "保存中：此表暂不可编辑，可切换标签页；完成后请确认表格已刷新"
+            } else if state.has_unknown_save_outcome {
+                "保存结果未知：先核对数据库状态，再放弃草稿并刷新表格；不可直接重试"
+            } else {
+                "保存已提交：当前结果可能过期，请刷新表格后继续编辑"
+            });
+        }
 
         ui.add_space(2.0);
 
@@ -94,6 +115,12 @@ impl DataGrid {
 
         // 显示保存确认对话框
         Self::show_save_confirm_dialog(ui.ctx(), state, &mut actions);
+
+        // The toolbar may queue a batch before keyboard/cell widgets run in this frame.
+        // Freeze the captured snapshot immediately; the runtime takes ownership on return.
+        if actions.mutation_batch.is_some() {
+            state.save_in_flight = true;
+        }
 
         // 显示筛选状态栏（简洁版）
         let filter_changed = filter::show_filter_bar(ui, result, &mut state.filters);
@@ -129,27 +156,23 @@ impl DataGrid {
             );
         }
 
-        // 处理新增行的编辑
-        if let Some((virtual_idx, col_idx, new_value)) = state.pending_new_row_edit.take() {
-            let new_row_idx = virtual_idx.saturating_sub(result.row_count);
-            if let Some(row_data) = state.new_rows.get_mut(new_row_idx)
-                && col_idx < row_data.len()
-            {
-                row_data[col_idx] = new_value;
-            }
-        }
-
         let render_new_rows = state.new_rows.clone();
         let row_view = GridVirtualRows::new(result, &filtered_rows, &render_new_rows);
         let new_rows_count = state.new_rows.len();
         let filtered_count = row_view.len();
         let total_count = result.row_count + new_rows_count;
 
-        if state.pending_save && state.has_changes() {
-            Self::queue_mutation_batch(result, state, table_name, &mut actions);
+        if state.pending_save {
+            if state.is_save_locked() {
+                actions.message = Some("保存中或等待刷新：请先刷新表格".into());
+            } else if state.has_changes() {
+                Self::queue_mutation_batch(result, state, table_name, &mut actions);
+            }
             state.pending_save = false;
-        } else if state.pending_save {
-            state.pending_save = false;
+        }
+
+        if actions.mutation_batch.is_some() {
+            state.save_in_flight = true;
         }
 
         // 同步选择状态
@@ -331,6 +354,10 @@ impl DataGrid {
             actions.request_focus = true;
         }
 
+        // The runtime marks the owner in flight when it accepts the batch.
+        if actions.mutation_batch.is_some() {
+            state.save_in_flight = false;
+        }
         (actions, (filtered_count, total_count))
     }
 
@@ -456,23 +483,40 @@ impl DataGrid {
     ) {
         ui.add_space(16.0);
         if Self::show_add_row_button(ui, keybindings) {
-            let new_row = vec![String::new(); result.column_count()];
-            state.new_rows.push(new_row);
-            let new_row_index = result.row_count + state.new_rows.len() - 1;
-            state.cursor = (new_row_index, 0);
-            state.scroll_to_row = Some(new_row_index);
-            state.focused = true;
-            actions.message = Some("已添加新行".to_string());
+            if state.is_save_locked() {
+                actions.message = Some("保存中或等待刷新：请先刷新表格".into());
+            } else {
+                let new_row = vec![String::new(); result.column_count()];
+                state.new_rows.push(new_row);
+                let new_row_index = result.row_count + state.new_rows.len() - 1;
+                state.cursor = (new_row_index, 0);
+                state.scroll_to_row = Some(new_row_index);
+                state.focused = true;
+                actions.message = Some("已添加新行".to_string());
+            }
         }
         let has_changes = state.has_changes();
         if Self::show_save_button(ui, has_changes, keybindings)
             && let Some(table_name) = table_name
         {
-            Self::queue_mutation_batch(result, state, Some(table_name), actions);
+            if state.is_save_locked() {
+                actions.message = Some("保存中或等待刷新：请先刷新表格".into());
+            } else {
+                Self::queue_mutation_batch(result, state, Some(table_name), actions);
+            }
         }
         if Self::show_discard_button(ui, has_changes, keybindings) {
-            state.clear_edits();
-            actions.message = Some("已放弃所有修改".to_string());
+            if state.save_in_flight {
+                actions.message = Some("保存中：提交的修改尚不能放弃".into());
+            } else {
+                let had_unknown_outcome = state.has_unknown_save_outcome;
+                state.clear_edits();
+                actions.message = Some(if had_unknown_outcome {
+                    "已放弃结果未知的草稿；核对数据库后请刷新表格".into()
+                } else {
+                    "已放弃所有修改".into()
+                });
+            }
         }
         Self::show_edit_summary(ui, state, has_changes);
     }
@@ -586,6 +630,10 @@ impl DataGrid {
         table_name: Option<&str>,
         actions: &mut DataGridActions,
     ) {
+        if state.editing_cell.is_some() || state.pending_new_row_edit.is_some() {
+            actions.message = Some("请先结束单元格编辑，再保存表格".into());
+            return;
+        }
         let Some(table_name) = table_name else {
             actions.message = Some("请先选择要保存的表".to_string());
             return;

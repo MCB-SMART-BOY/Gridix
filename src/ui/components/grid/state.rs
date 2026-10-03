@@ -107,6 +107,14 @@ pub struct DataGridState {
     pub pending_new_row_edit: Option<(usize, usize, String)>,
     /// 列宽缓存
     pub column_width_cache: ColumnWidthCache,
+    /// A submitted batch owns this workspace until it finishes; no second batch may replay it.
+    pub save_in_flight: bool,
+    /// A committed batch invalidated the displayed row identities until a fresh query succeeds.
+    pub needs_refresh_after_save: bool,
+    /// Only a table requery started after commit may release the stale identity guard.
+    pub refresh_after_save_request_id: Option<u64>,
+    /// A COMMIT/ROLLBACK acknowledgement was lost; staged edits must not be replayed automatically.
+    pub has_unknown_save_outcome: bool,
 }
 
 impl DataGridState {
@@ -124,6 +132,9 @@ impl DataGridState {
         self.modified_cells.clear();
         self.rows_to_delete.clear();
         self.new_rows.clear();
+        // Discard is an explicit decision after inspecting an uncertain save's database state.
+        // The old row identities still require a fresh table query before editing resumes.
+        self.has_unknown_save_outcome = false;
         // 数据变化后清除列宽缓存
         self.column_width_cache.clear();
     }
@@ -132,6 +143,10 @@ impl DataGridState {
         !self.modified_cells.is_empty()
             || !self.rows_to_delete.is_empty()
             || !self.new_rows.is_empty()
+    }
+
+    pub fn is_save_locked(&self) -> bool {
+        self.save_in_flight || self.needs_refresh_after_save || self.has_unknown_save_outcome
     }
 
     /// 清除保存状态（取消确认后调用）。保留编辑内容。

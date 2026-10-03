@@ -178,6 +178,7 @@ jobs:
           : "${GRIDIX_TEST_PG_URL:?GRIDIX_TEST_PG_URL must be set for release acceptance}"
           cargo test --test postgres_typed_e2e -- --nocapture --test-threads=1
           cargo test --test postgres_cancel_integration -- --nocapture --test-threads=1
+          cargo test --test postgres_tab_sessions -- --nocapture --test-threads=1
       - name: Run PostgreSQL pool acceptance tests
         env:
           GRIDIX_ACCEPTANCE: "1"
@@ -188,6 +189,11 @@ jobs:
             exit 1
           }
           cargo test --test postgres_pool_acceptance -- --nocapture --test-threads=1
+
+  tls-acceptance:
+    name: Backend TLS Release Acceptance
+    needs: [quality]
+    uses: ./.github/workflows/tls-acceptance.yml
 
   mysql-acceptance:
     name: MySQL Release Acceptance
@@ -378,6 +384,8 @@ jobs:
           Type=Application
           Categories=Development;Database;
           EOF
+          ln -s usr/bin/gridix gridix.AppDir/AppRun
+          test -x gridix.AppDir/AppRun
 
       - name: Package AppImage
         run: appimagetool gridix.AppDir gridix.AppImage
@@ -386,7 +394,7 @@ jobs:
         run: |
           test -s gridix.AppImage
           file gridix.AppImage
-          ./gridix.AppImage --appimage-version
+          ./gridix.AppImage --appimage-extract-and-run --version
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -398,7 +406,7 @@ jobs:
   # 仅 push tag 时执行 — 直接下载 build stage 产物，不重复编译
   release:
     name: GitHub Release
-    needs: [quality, gui-smoke-evidence, postgresql-acceptance, mysql-acceptance, build, build-appimage]
+    needs: [quality, gui-smoke-evidence, postgresql-acceptance, mysql-acceptance, tls-acceptance, build, build-appimage]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

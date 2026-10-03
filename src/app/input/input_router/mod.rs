@@ -484,34 +484,42 @@ impl DbManagerApp {
         self.persist_active_tab_state_for_navigation();
         self.session.tab_manager.new_tab();
         self.sync_from_active_tab();
+        self.activate_active_sql_dock_tab();
     }
 
     pub(in crate::app) fn select_next_query_tab(&mut self) {
-        self.persist_active_tab_state_for_navigation();
-        self.session.tab_manager.next_tab();
-        self.sync_from_active_tab();
+        let count = self.session.tab_manager.tabs.len();
+        if count > 0 {
+            self.activate_query_tab((self.session.tab_manager.active_index + 1) % count);
+        }
     }
 
     pub(in crate::app) fn select_previous_query_tab(&mut self) {
-        self.persist_active_tab_state_for_navigation();
-        self.session.tab_manager.prev_tab();
-        self.sync_from_active_tab();
+        let count = self.session.tab_manager.tabs.len();
+        if count > 0 {
+            self.activate_query_tab((self.session.tab_manager.active_index + count - 1) % count);
+        }
     }
 
     pub(in crate::app) fn close_active_query_tab(&mut self) {
+        if self.session.tab_manager.tabs.len() <= 1 {
+            return;
+        }
         let closing_tab_id = self
             .session
             .tab_manager
             .get_active()
             .map(|tab| tab.id.clone());
-        if self.session.tab_manager.tabs.len() > 1
-            && let Some(request_id) = self
-                .session
-                .tab_manager
-                .get_active()
-                .and_then(|tab| tab.pending_request_id)
+        if let Some(request_id) = self
+            .session
+            .tab_manager
+            .get_active()
+            .and_then(|tab| tab.pending_request_id)
         {
             self.cancel_query_request_silently(request_id);
+        }
+        if let Some(tab_id) = &closing_tab_id {
+            self.close_pg_sessions_for_tab(tab_id);
         }
         self.session.tab_manager.close_active_tab();
         if let Some(tab_id) = closing_tab_id {
@@ -519,6 +527,7 @@ impl DbManagerApp {
             self.remove_grid_workspaces_for_tab(&tab_id);
         }
         self.sync_from_active_tab();
+        self.activate_active_sql_dock_tab();
     }
 }
 

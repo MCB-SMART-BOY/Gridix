@@ -405,6 +405,33 @@ mod tests {
     }
 
     #[test]
+    fn build_mutation_batch_after_pk_refresh_targets_committed_identity() {
+        let mut result = sample_result();
+        let mut state = DataGridState {
+            table_metadata: Some(single_pk_metadata()),
+            ..Default::default()
+        };
+        state.modified_cells.insert((0, 0), "2".into());
+        let first = build_mutation_batch(&result, &state, "users").expect("PK change");
+        assert!(matches!(
+            &first.mutations[0],
+            Mutation::Update { identity: RowIdentity::PrimaryKey(keys), .. }
+                if keys[0].1 == DbValue::Int(1)
+        ));
+
+        // The post-commit result is the only permitted baseline for a subsequent edit.
+        result.cells[0] = DbValue::Int(2);
+        state.modified_cells.clear();
+        state.modified_cells.insert((0, 1), "bob".into());
+        let second = build_mutation_batch(&result, &state, "users").expect("later edit");
+        assert!(matches!(
+            &second.mutations[0],
+            Mutation::Update { identity: RowIdentity::PrimaryKey(keys), .. }
+                if keys[0].1 == DbValue::Int(2)
+        ));
+    }
+
+    #[test]
     fn build_mutation_batch_empty_string_is_text_not_null() {
         let result = sample_result();
         let mut state = DataGridState {

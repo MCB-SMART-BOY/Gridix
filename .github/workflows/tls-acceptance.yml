@@ -1,6 +1,7 @@
 name: Backend TLS Acceptance
 
 on:
+  workflow_call:
   workflow_dispatch:
   schedule:
     - cron: '30 4 * * 1'

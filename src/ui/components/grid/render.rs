@@ -110,6 +110,10 @@ pub(crate) fn render_row_number(
 
         // 右键菜单 - 无边框按钮
         response.context_menu(|ui| {
+            if state.is_save_locked() {
+                ui.label("保存中或等待刷新：无法修改该行");
+                return;
+            }
             let menu_btn = |ui: &mut egui::Ui,
                             icon: &str,
                             text: &str,
@@ -235,7 +239,7 @@ fn render_editing_cell(
     let should_exit = consume_grid_edit_finish(ui);
 
     if should_exit || response.lost_focus() {
-        if state.edit_text != state.original_value {
+        if !state.is_save_locked() && state.edit_text != state.original_value {
             state
                 .modified_cells
                 .insert((row_idx, col_idx), state.edit_text.clone());
@@ -271,7 +275,7 @@ fn render_display_cell(
         state.focused = true;
     }
 
-    if response.double_clicked() && !is_row_deleted {
+    if response.double_clicked() && !is_row_deleted && !state.is_save_locked() {
         state.mode = GridMode::Insert;
         state.editing_cell = Some((row_idx, col_idx));
         state.edit_text = display_value.to_string();
@@ -282,6 +286,10 @@ fn render_display_cell(
 
     // 右键菜单 - 无边框按钮
     response.context_menu(|ui| {
+        if state.is_save_locked() {
+            ui.label("保存中或等待刷新：无法修改单元格");
+            return;
+        }
         let menu_btn = |ui: &mut egui::Ui, icon: &str, text: &str, tooltip: &str| -> bool {
             ui.add(
                 egui::Button::new(
@@ -442,12 +450,11 @@ fn render_new_row_editing_cell(
     let should_exit = consume_grid_edit_finish(ui);
 
     if should_exit || response.lost_focus() {
-        // 计算新增行的索引（row_idx - 原始结果行数）
-        // 由于 new_rows 的修改需要通过特殊方式处理，这里直接保存到 edit_text
         state.editing_cell = None;
         state.mode = GridMode::Normal;
-        // 新增行的编辑会通过 pending_new_row_edit 处理
-        state.pending_new_row_edit = Some((row_idx, col_idx, state.edit_text.clone()));
+        if !state.is_save_locked() {
+            state.pending_new_row_edit = Some((row_idx, col_idx, state.edit_text.clone()));
+        }
     }
 
     response.request_focus();
@@ -478,7 +485,7 @@ fn render_new_row_display_cell(
         state.focused = true;
     }
 
-    if response.double_clicked() {
+    if response.double_clicked() && !state.is_save_locked() {
         state.mode = GridMode::Insert;
         state.editing_cell = Some((row_idx, col_idx));
         state.edit_text = cell.to_string();
@@ -487,6 +494,10 @@ fn render_new_row_display_cell(
 
     // 右键菜单 - 无边框按钮
     response.context_menu(|ui| {
+        if state.is_save_locked() {
+            ui.label("保存中或等待刷新：无法修改新增行");
+            return;
+        }
         let menu_btn = |ui: &mut egui::Ui, icon: &str, text: &str, tooltip: &str| -> bool {
             ui.add(
                 egui::Button::new(

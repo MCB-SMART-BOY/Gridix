@@ -1573,11 +1573,75 @@ impl DbManagerApp {
         }
     }
 
+    /// A restored draft has its own baseline; the last query in this Tab may belong
+    /// to another connection. Rebinding discards only its UI reply, never the SQL task.
+    fn restore_draft_result_to_active_tab(&mut self) {
+        let Some(workspace_id) = self.active_grid_workspace_id() else {
+            return;
+        };
+        let Some(result) = self.state.grid_state.result_set.as_ref() else {
+            return;
+        };
+        let Some(stored) = self.grid_workspaces.states.get(&workspace_id) else {
+            return;
+        };
+        if !stored
+            .result_set
+            .as_ref()
+            .is_some_and(|baseline| std::sync::Arc::ptr_eq(baseline, result))
+        {
+            return;
+        }
+        let Some(tab) = self.session.tab_manager.get_active_mut() else {
+            return;
+        };
+        if tab
+            .result_set
+            .as_ref()
+            .is_some_and(|current| std::sync::Arc::ptr_eq(current, result))
+            && !tab.is_result_from(
+                workspace_id.connection_id,
+                workspace_id.database_name.as_deref(),
+            )
+        {
+            return;
+        }
+        tab.result_set = Some(result.clone());
+        tab.result_origin = Some((workspace_id.connection_id, workspace_id.database_name));
+        tab.selected_table = Some(workspace_id.table_name);
+        tab.uses_grid_workspace = true;
+        let has_replaced_query = tab.pending_request_id.take().is_some();
+        if has_replaced_query {
+            tab.executing = false;
+            self.session.refresh_executing_flag();
+            self.session
+                .notifications
+                .warning("先前查询仍可能在数据库执行，回包不会覆盖当前草稿；请核对执行结果");
+        }
+    }
+
     fn selected_table_query_effects(&mut self, clear_sql: bool) -> Vec<AppEffect> {
         let Some(table) = self.state.selected_table.clone() else {
             return Vec::new();
         };
+        if self.state.grid_state.save_in_flight {
+            self.restore_draft_result_to_active_tab();
+            self.session
+                .notifications
+                .warning("保存中：请等待提交完成后再刷新表格");
+            return Vec::new();
+        }
         self.switch_grid_workspace(Some(table.clone()));
+        if self.state.grid_state.has_changes()
+            || self.state.grid_state.save_in_flight
+            || self.state.grid_state.has_unknown_save_outcome
+        {
+            self.restore_draft_result_to_active_tab();
+            self.session
+                .notifications
+                .warning("表格仍有未保存或待核对的修改；请保存或放弃草稿后再查询");
+            return Vec::new();
+        }
 
         let query_sql = match ui::quote_identifier(&table, self.is_mysql()) {
             Ok(quoted_table) => format!(
@@ -1592,6 +1656,10 @@ impl DbManagerApp {
                 return Vec::new();
             }
         };
+        if let Some(tab) = self.session.tab_manager.get_active_mut() {
+            tab.selected_table = Some(table);
+            tab.uses_grid_workspace = true;
+        }
 
         if clear_sql {
             self.set_active_sql(String::new());
@@ -1602,9 +1670,7 @@ impl DbManagerApp {
     }
 
     fn switch_to_query_tab(&mut self, index: usize) {
-        self.persist_active_tab_state_for_navigation();
-        self.session.tab_manager.set_active(index);
-        self.sync_from_active_tab();
+        self.activate_query_tab(index);
     }
 
     fn open_filter_workspace(&mut self) {

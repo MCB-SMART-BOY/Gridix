@@ -540,11 +540,11 @@ impl DbManagerApp {
             WorkbenchSurfaceKind::SqlDocument { index } => {
                 self.render_sql_document_surface_in_ui(ui, index);
             }
-            WorkbenchSurfaceKind::SurfaceResult { .. } => {
-                self.render_bottom_panel_surface_body(ui, BottomPanelTab::Results);
+            WorkbenchSurfaceKind::SurfaceResult { query_tab_id } => {
+                self.render_bottom_panel_results_for(ui, &query_tab_id);
             }
-            WorkbenchSurfaceKind::Explain { .. } => {
-                self.render_bottom_panel_surface_body(ui, BottomPanelTab::Explain);
+            WorkbenchSurfaceKind::Explain { query_tab_id } => {
+                self.render_bottom_panel_explain_for(ui, &query_tab_id);
             }
             WorkbenchSurfaceKind::TableData { .. } | WorkbenchSurfaceKind::Welcome => {
                 self.render_workspace_content(ui);
@@ -596,8 +596,17 @@ impl DbManagerApp {
         }
 
         if self.tab_manager().active_index != index {
-            self.tab_manager_mut().active_index = index;
-            self.sync_from_active_tab();
+            if ui.ui_contains_pointer() && ui.input(|input| input.pointer.primary_clicked()) {
+                self.activate_query_tab(index);
+            } else {
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(&self.tab_manager().tabs[index].sql).monospace(),
+                    )
+                    .selectable(true),
+                );
+                return;
+            }
         }
         let actions = self.render_sql_document_in_ui(ui);
         self.handle_sql_editor_actions(actions);
@@ -620,9 +629,13 @@ impl DbManagerApp {
 
     fn render_bottom_panel_surface_body(&mut self, ui: &mut egui::Ui, active_tab: BottomPanelTab) {
         match active_tab {
-            BottomPanelTab::Results => self.render_bottom_panel_results(ui),
+            BottomPanelTab::Results => {
+                self.render_bottom_panel_results_for(ui, &self.active_query_tab_id());
+            }
             BottomPanelTab::Messages => self.render_bottom_panel_messages(ui),
-            BottomPanelTab::Explain => self.render_bottom_panel_explain(ui),
+            BottomPanelTab::Explain => {
+                self.render_bottom_panel_explain_for(ui, &self.active_query_tab_id());
+            }
             BottomPanelTab::History => self.render_bottom_panel_history(ui),
             BottomPanelTab::Tasks => self.render_bottom_panel_tasks(ui),
         }
@@ -665,10 +678,12 @@ impl DbManagerApp {
         let mut panel_state = self.state.sidebar_panel_state.clone();
         configure_sidebar_panels_for_activity(&mut panel_state, activity);
 
+        let previous_connection = self.session.manager.active.clone();
+        let mut sidebar_selected_table = self.state.selected_table.clone();
         let (mut actions, filter_changed) = ui::Sidebar::show_in_ui(
             ui,
             &mut self.session.manager,
-            &mut self.state.selected_table,
+            &mut sidebar_selected_table,
             &mut self.state.show_connection_dialog,
             is_focused,
             focused_section,
@@ -679,6 +694,7 @@ impl DbManagerApp {
             &columns,
             &mut self.state.pending_filter_input_focus,
         );
+        self.reconcile_sidebar_selection(previous_connection, sidebar_selected_table, &mut actions);
         if filter_changed {
             actions.filter_changed = true;
         }
@@ -944,6 +960,107 @@ impl DbManagerApp {
             render_connection_properties(ui, connection);
         });
     }
+    fn render_bottom_panel_results_for(&mut self, ui: &mut egui::Ui, query_tab_id: &str) {
+        let Some(tab) = self
+            .session
+            .tab_manager
+            .tabs
+            .iter()
+            .find(|tab| tab.id == query_tab_id)
+        else {
+            ui::WorkbenchBottomPanel::show_empty_state(ui, "SQL 文档不存在", "查询文档已经关闭。");
+            return;
+        };
+        if tab.executing && tab.result_set.is_none() {
+            ui::WorkbenchBottomPanel::show_loading_state(
+                ui,
+                "正在执行查询…",
+                "查询完成后结果会显示在这里，可点击工具栏 ⏹ 取消。",
+            );
+            return;
+        }
+        if self.active_query_tab_id() != query_tab_id {
+            if ui.ui_contains_pointer() && ui.input(|input| input.pointer.primary_clicked()) {
+                if let Some(index) = self
+                    .session
+                    .tab_manager
+                    .tabs
+                    .iter()
+                    .position(|tab| tab.id == query_tab_id)
+                {
+                    self.activate_query_tab(index);
+                }
+            } else {
+                self.render_inactive_result_grid(ui, query_tab_id);
+                return;
+            }
+        }
+        self.render_bottom_panel_results(ui);
+    }
+
+    fn render_inactive_result_grid(&mut self, ui: &mut egui::Ui, query_tab_id: &str) {
+        let Some(tab) = self
+            .session
+            .tab_manager
+            .tabs
+            .iter()
+            .find(|tab| tab.id == query_tab_id)
+        else {
+            return;
+        };
+        let Some(result) = &tab.result_set else {
+            ui::WorkbenchBottomPanel::show_empty_state(
+                ui,
+                "暂无结果",
+                "执行查询后，结果集会显示在这里。",
+            );
+            return;
+        };
+        if result.columns.is_empty() {
+            ui::WorkbenchBottomPanel::show_empty_state(ui, "语句执行成功", "没有返回列。");
+            return;
+        }
+        let workspace_id = if tab.uses_grid_workspace {
+            self.session.manager.get_active().and_then(|conn| {
+                tab.selected_table
+                    .as_ref()
+                    .map(|table| crate::app::GridWorkspaceId {
+                        tab_id: tab.id.clone(),
+                        connection_name: conn.config.name.clone(),
+                        connection_id: conn.id,
+                        database_name: conn.selected_database.clone(),
+                        table_name: table.clone(),
+                    })
+            })
+        } else {
+            None
+        };
+        // DataGrid's renderer mutates filter/keyboard state. A disposable view prevents
+        // an inactive surface from consuming pending edits or save confirmations.
+        let mut preview = workspace_id
+            .as_ref()
+            .and_then(|id| self.grid_workspaces.load(id))
+            .unwrap_or_default();
+        preview.focused = false;
+        preview.pending_save = false;
+        preview.show_save_confirm = false;
+        let mut selected_row = None;
+        let mut selected_cell = None;
+        ui.add_enabled_ui(false, |ui| {
+            let _ = ui::DataGrid::show_editable(
+                ui,
+                result,
+                &tab.search_text,
+                &tab.search_column,
+                &mut selected_row,
+                &mut selected_cell,
+                &mut preview,
+                None,
+                &self.keybindings,
+            );
+        });
+    }
+
     fn render_bottom_panel_results(&mut self, ui: &mut egui::Ui) {
         // 活动标签页正在执行查询时，显示执行中状态而不是"暂无结果"空态（修复审计 EL-02）。
         let active_executing = self
@@ -1021,10 +1138,19 @@ impl DbManagerApp {
         );
     }
 
-    fn render_bottom_panel_explain(&self, ui: &mut egui::Ui) {
-        let active_tab_id = self.active_query_tab_id();
+    fn render_bottom_panel_explain_for(&self, ui: &mut egui::Ui, active_tab_id: &str) {
+        if !self
+            .session
+            .tab_manager
+            .tabs
+            .iter()
+            .any(|tab| tab.id == active_tab_id)
+        {
+            ui::WorkbenchBottomPanel::show_empty_state(ui, "SQL 文档不存在", "查询文档已经关闭。");
+            return;
+        }
         let explain = &self.state.explain_state;
-        let belongs_to_active_tab = explain.query_tab_id.as_deref() == Some(active_tab_id.as_str());
+        let belongs_to_active_tab = explain.query_tab_id.as_deref() == Some(active_tab_id);
 
         if belongs_to_active_tab && explain.is_running {
             ui::WorkbenchBottomPanel::show_loading_state(
@@ -1034,7 +1160,7 @@ impl DbManagerApp {
             );
             return;
         }
-        if !explain.should_show_for_tab(&active_tab_id) {
+        if !explain.should_show_for_tab(active_tab_id) {
             ui::WorkbenchBottomPanel::show_empty_state(
                 ui,
                 "暂无执行计划",
@@ -1393,6 +1519,88 @@ mod tests {
                     .count()
             })
             .unwrap_or(0)
+    }
+
+    #[test]
+    fn inactive_results_surface_displays_owning_document_not_active_document() {
+        use crate::domain::result::{ResultColumn, ResultCompleteness, ResultSet};
+        use crate::domain::value::{DbTypeFamily, DbTypeInfo, DbValue};
+
+        fn result(value: &str) -> std::sync::Arc<ResultSet> {
+            std::sync::Arc::new(ResultSet {
+                columns: std::sync::Arc::new([ResultColumn {
+                    name: "value".into(),
+                    type_info: DbTypeInfo {
+                        family: DbTypeFamily::Text,
+                        native_name: "TEXT".into(),
+                        nullable: Some(false),
+                    },
+                }]),
+                cells: vec![DbValue::Text(value.into())],
+                row_count: 1,
+                completeness: ResultCompleteness::Complete,
+            })
+        }
+
+        fn collect_text(shape: &egui::Shape, text: &mut String) {
+            match shape {
+                egui::Shape::Text(label) => text.push_str(label.galley.text()),
+                egui::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        collect_text(shape, text);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut app = DbManagerApp::new_for_test();
+        let owner_id = app.session.tab_manager.tabs[0].id.clone();
+        app.session.tab_manager.tabs[0].result_set = Some(result("gridix-owner-a"));
+        app.session.tab_manager.new_tab();
+        app.session.tab_manager.tabs[1].result_set = Some(result("gridix-owner-b"));
+        app.sync_from_active_tab();
+        app.state
+            .grid_state
+            .modified_cells
+            .insert((0, 0), "B draft".into());
+        let ctx = egui::Context::default();
+        ctx.begin_pass(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, 600.0),
+            )),
+            ..Default::default()
+        });
+        let mut root = egui::Ui::new(
+            ctx.clone(),
+            egui::Id::new("result-test"),
+            egui::UiBuilder::new(),
+        );
+        egui::CentralPanel::default().show(&mut root, |ui| {
+            app.render_workbench_surface_in_ui(
+                ui,
+                WorkbenchSurfaceKind::SurfaceResult {
+                    query_tab_id: owner_id.clone(),
+                },
+            );
+        });
+        let mut output = ctx.end_pass();
+        let mut text = String::new();
+        for shape in &output.shapes {
+            collect_text(&shape.shape, &mut text);
+        }
+        output.textures_delta.clear();
+        assert!(
+            text.contains("gridix-owner-a"),
+            "owner result should render: {text}"
+        );
+        assert!(
+            !text.contains("gridix-owner-b"),
+            "active result must not leak: {text}"
+        );
+        assert_eq!(app.session.tab_manager.active_index, 1);
+        assert_eq!(app.state.grid_state.modified_cells[&(0, 0)], "B draft");
     }
 
     #[test]

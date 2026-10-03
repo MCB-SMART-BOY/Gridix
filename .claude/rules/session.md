@@ -32,16 +32,16 @@ Bridge between data/ (Layer 1) and state/ (Layer 3).
   `OperationKey::Connect(id)`, so the superseded task stays "current" for its own key: the id guard
   is what keeps its late reply from writing into the new connection object and swallowing the real
   reply.
+- `QueryTab.result_origin` records the submitting connection ID and database. Reopening a Tab on another identity must hide its result/table grid; saving requires a matching origin. Async table/database deletion workspaces use the event's target identity rather than whichever connection is active when the response arrives.
+- `RuntimeOutcome::ActiveTablesReloaded` carries the requested database name as well as `ConnectionId`; verify both at the UI boundary before applying sidebar tables/autocomplete. A current task key on an old database is not proof that the view still belongs to that database.
 
 **Key methods:**
 - `active_sql()`, `set_active_sql()`, `ensure_active_tab()`
 - `next_query_request_id()`
 - `refresh_connecting_flag()`, `refresh_executing_flag()`
-- `task_registry` — typed task registry (`register`/`attach`/`complete`/`cancel_by_key`) that
-  supersedes the pending-request maps for new runtime work. `OperationKey::Query { connection,
-  document }` is scoped by connection: `cancel_queries_for_connection` cancels only that
-  connection's in-flight queries, `cancel_queries_for_document` cancels one tab's query. Every
-  long-running task must be `attach`ed so `cancel_by_key` can reach its cancellation token.
+- `task_registry` — typed task registry (`register`/`register_queued_query`/`attach`/`complete`/`cancel_by_key`) supersedes pending-request maps. `OperationKey::Query { connection, document }` is scoped by connection: `cancel_queries_for_connection` and `cancel_queries_for_document` cancel *all* in-flight/queued matching tasks, not only the latest. PostgreSQL Tab submissions use `register_queued_query`, so newer SQL never implicitly cancels earlier SQL. Query completion also checks its submitted `request_id`, live `ConnectionId`, active connection and stable document ID before updating a Tab; a task current under a prior connection key must not overwrite a reused Tab or unlock a stale grid refresh. A stale `COMMIT`/`ROLLBACK` completion still reports confirmed success or `TransactionOutcomeUnknown` as a separate notification, never writing its result over the newer Tab state. Every long-running task must be `attach`ed to keep its cancellation token reachable.
+
+- A SQL Tab PostgreSQL backend is keyed by the connection's `ConnectionId` and the Tab's stable UUID-derived `DocumentId`. Closing a document via Dock or `CloseActiveQueryTab` closes its backends across all connections; disconnect and successful database switch close that connection's backends before other queries can reuse them. `Session::drop` closes all remaining registered backends before dropping its runtime.
 
 ## Message handling
 

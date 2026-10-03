@@ -1,6 +1,6 @@
 //! 数据库模块 - 连接管理、查询执行
 //!
-//! 支持 SQLite、PostgreSQL、MySQL 三种数据库，使用连接池优化性能。
+//! 支持 SQLite、PostgreSQL、MySQL 三种数据库；PostgreSQL SQL Tab 使用独立连接。
 
 // ============================================================================
 // 子模块
@@ -26,9 +26,7 @@ pub use error::DbError;
 
 // 配置
 pub use config::ConnectionConfig;
-pub(crate) use config::{
-    decrypt_password, delete_password_secret, load_password_secret, store_password_secret,
-};
+pub(crate) use config::{decrypt_password, delete_password_secret};
 
 // 连接管理
 #[allow(unused_imports)] // Connection 公开 API
@@ -40,10 +38,12 @@ pub use pool::{POOL_MANAGER, PoolManager};
 
 // 查询
 pub use query::{
-    ConnectResult, ImportExecutionReport, RoutineInfo, RoutineType, TriggerInfo, apply_mutations,
-    connect_database, drop_database, execute_import_batch, execute_typed,
-    execute_typed_cancellable, get_routines, get_tables_for_database, get_triggers,
-    infer_type_family, infer_value, load_schema_catalog,
+    ConnectResult, ImportExecutionReport, PgTabQueryReceiver, RoutineInfo, RoutineType,
+    TriggerInfo, apply_mutations, await_pg_tab_query, close_pg_connection_sessions,
+    close_pg_document_sessions, close_pg_tab_session, connect_database, drop_database,
+    enqueue_pg_tab_query, execute_import_batch, execute_typed, execute_typed_cancellable,
+    get_routines, get_tables_for_database, get_triggers, infer_type_family, infer_value,
+    load_schema_catalog,
 };
 pub(crate) use query::{SqlUiHints, analyze_sql_for_ui};
 

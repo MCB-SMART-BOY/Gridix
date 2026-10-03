@@ -5,9 +5,8 @@ use super::theme::ThemePreset;
 // AppConfig naturally owns connection configurations. The password migration
 // (decrypt/load/store) is transitional and will be removed once v4→v6 migration
 // window closes. This is an intentional exception, not a design flaw.
-use crate::data::{
-    ConnectionConfig, decrypt_password, load_password_secret, store_password_secret,
-};
+use crate::data::secret::{KeyringStore, SecretStore, SecretString};
+use crate::data::{ConnectionConfig, decrypt_password};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -735,19 +734,26 @@ fn backup_invalid_config(path: &Path) -> bool {
     }
 }
 
-fn hydrate_connection_passwords(connections: &mut [ConnectionConfig]) -> bool {
+/// TOML 错误的 Display 会引用原文件行；日志只能包含位置，不能包含原文。
+fn log_config_parse_error(path: &Path, error: &toml::de::Error) {
+    tracing::warn!(span = ?error.span(), path = ?path, "解析配置文件失败（TOML 语法错误）");
+}
+
+fn hydrate_connection_passwords<S: SecretStore>(
+    connections: &mut [ConnectionConfig],
+    store: &S,
+) -> bool {
     let mut migration_needed = false;
 
     for connection in connections {
-        if let Some(password_ref) = connection.password_ref.clone() {
-            match load_password_secret(&password_ref) {
+        if let Some(password_ref) = connection.password_ref.as_deref() {
+            match store.load(password_ref) {
                 Ok(Some(password)) => {
-                    connection.password = password;
+                    connection.password = password.expose().to_owned();
                 }
                 Ok(None) => {
                     tracing::warn!(
                         connection = %connection.name,
-                        password_ref = %password_ref,
                         "系统密钥链中缺少保存的密码，需要重新输入"
                     );
                     connection.password.clear();
@@ -755,7 +761,6 @@ fn hydrate_connection_passwords(connections: &mut [ConnectionConfig]) -> bool {
                 Err(e) => {
                     tracing::warn!(
                         connection = %connection.name,
-                        password_ref = %password_ref,
                         error = %e,
                         "读取系统密钥链中的密码失败，需要重新输入"
                     );
@@ -788,63 +793,94 @@ fn hydrate_connection_passwords(connections: &mut [ConnectionConfig]) -> bool {
     migration_needed
 }
 
-fn persist_connection_passwords(connections: &mut [ConnectionConfig]) -> Result<(), String> {
-    let mut warnings = Vec::new();
-
-    for connection in connections {
-        // DB 密码持久化
-        if !connection.password.is_empty() {
-            let password_ref = connection
-                .password_ref
-                .clone()
-                .unwrap_or_else(|| format!("connection:{}", uuid::Uuid::new_v4()));
-
-            match store_password_secret(&password_ref, &connection.password) {
-                Ok(()) => {
-                    connection.password_ref = Some(password_ref);
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        connection = %connection.name,
-                        error = %e,
-                        "无法将密码写入系统密钥链；连接配置仍会保存，但下次启动可能需要重新输入密码"
-                    );
-                    warnings.push(format!("{}: {}", connection.name, e));
-                }
-            }
-        }
-        // SSH 密码持久化
-        if connection.ssh_config.enabled && !connection.ssh_config.ssh_password.is_empty() {
-            let ssh_key = format!("ssh/{}", connection.name);
-            use crate::data::secret::{KeyringStore, SecretStore, SecretString};
-            let store = KeyringStore;
-            match store.store(
-                &ssh_key,
-                &SecretString::new(connection.ssh_config.ssh_password.clone()),
-            ) {
-                Ok(()) => {
-                    connection.ssh_config.password_ref = Some(ssh_key);
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        connection = %connection.name,
-                        error = %e,
-                        "无法将 SSH 密码写入系统密钥链；新密码未持久化，重启后可能仍引用旧凭据"
-                    );
-                    warnings.push(format!(
-                        "{}: SSH 密码未持久化，重启后可能仍引用旧凭据: {}",
-                        connection.name, e
-                    ));
-                }
-            }
+fn persist_database_password<S: SecretStore>(
+    connection: &mut ConnectionConfig,
+    store: &S,
+    warnings: &mut Vec<String>,
+) {
+    if connection.password_explicitly_cleared
+        && connection.password.is_empty()
+        && let Some(password_ref) = connection.password_ref.take()
+    {
+        // The active connection config may be cloned again on a later save.
+        // A previously removed key is already cleared, not a new failure.
+        let is_missing = matches!(store.load(&password_ref), Ok(None));
+        if !is_missing && let Err(e) = store.delete(&password_ref) {
+            tracing::warn!(
+                connection = %connection.name,
+                error = %e,
+                "无法删除已清空的数据库密码；引用已撤销，请手动清理系统密钥链中的旧凭据"
+            );
+            warnings.push(format!("{}: 清理旧数据库密码失败: {}", connection.name, e));
         }
     }
+    connection.password_explicitly_cleared = false;
+    if connection.password.is_empty() {
+        return;
+    }
 
+    let password_ref = connection
+        .password_ref
+        .clone()
+        .unwrap_or_else(|| format!("connection:{}", uuid::Uuid::new_v4()));
+    match store.store(
+        &password_ref,
+        &SecretString::new(connection.password.clone()),
+    ) {
+        Ok(()) => connection.password_ref = Some(password_ref),
+        Err(e) => {
+            tracing::warn!(
+                connection = %connection.name,
+                error = %e,
+                "无法将密码写入系统密钥链；连接配置仍会保存，但下次启动可能需要重新输入密码"
+            );
+            warnings.push(format!("{}: {}", connection.name, e));
+        }
+    }
+}
+
+fn persist_ssh_password<S: SecretStore>(
+    connection: &mut ConnectionConfig,
+    store: &S,
+    warnings: &mut Vec<String>,
+) {
+    if !connection.ssh_config.enabled || connection.ssh_config.ssh_password.is_empty() {
+        return;
+    }
+    let ssh_key = format!("ssh/{}", connection.name);
+    match store.store(
+        &ssh_key,
+        &SecretString::new(connection.ssh_config.ssh_password.clone()),
+    ) {
+        Ok(()) => connection.ssh_config.password_ref = Some(ssh_key),
+        Err(e) => {
+            tracing::warn!(
+                connection = %connection.name,
+                error = %e,
+                "无法将 SSH 密码写入系统密钥链；新密码未持久化，重启后可能仍引用旧凭据"
+            );
+            warnings.push(format!(
+                "{}: SSH 密码未持久化，重启后可能仍引用旧凭据: {}",
+                connection.name, e
+            ));
+        }
+    }
+}
+
+fn persist_connection_passwords<S: SecretStore>(
+    connections: &mut [ConnectionConfig],
+    store: &S,
+) -> Result<(), String> {
+    let mut warnings = Vec::new();
+    for connection in connections {
+        persist_database_password(connection, store, &mut warnings);
+        persist_ssh_password(connection, store, &mut warnings);
+    }
     if warnings.is_empty() {
         Ok(())
     } else {
         Err(format!(
-            "以下连接的密码未能写入系统密钥链: {}",
+            "以下连接的密码写入或清理失败: {}",
             warnings.join("; ")
         ))
     }
@@ -910,7 +946,7 @@ impl AppConfig {
         let mut config: Self = match toml::from_str(&content) {
             Ok(config) => config,
             Err(e) => {
-                tracing::warn!(error = %e, path = ?path, "解析配置文件失败");
+                log_config_parse_error(&path, &e);
                 backup_invalid_config(&path);
                 return Self::default();
             }
@@ -919,7 +955,7 @@ impl AppConfig {
         // 防止非法 UI/布局值（用户可能手动编辑配置）
         config.normalize();
 
-        let migration_needed = hydrate_connection_passwords(&mut config.connections);
+        let migration_needed = hydrate_connection_passwords(&mut config.connections, &KeyringStore);
         if migration_needed && let Err(e) = config.save() {
             tracing::warn!(error = %e, "迁移旧版密码到系统密钥链失败");
         }
@@ -936,7 +972,8 @@ impl AppConfig {
         self.version = self.version.max(CONFIG_VERSION_WORKBENCH);
         self.normalize();
 
-        let password_warning = persist_connection_passwords(&mut self.connections).err();
+        let password_warning =
+            persist_connection_passwords(&mut self.connections, &KeyringStore).err();
         let toml_str = toml::to_string_pretty(self).map_err(|e| e.to_string())?;
 
         // 原子写入：先写入临时文件，再重命名
@@ -979,6 +1016,158 @@ mod tests {
         AppConfig, BottomPanelTab, CONFIG_VERSION_WORKBENCH, ResultPlacement, TableOpenMode,
         WorkbenchActivity, WorkbenchConfig, WorkbenchDensity,
     };
+    use crate::data::DbError;
+    use crate::data::secret::{SecretStore, SecretString};
+    use crate::data::{ConnectionConfig, DatabaseType};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct TestStore {
+        secrets: Mutex<std::collections::HashMap<String, String>>,
+        deleted: Mutex<Vec<String>>,
+        fail_reads: bool,
+        fail_deletes: bool,
+    }
+
+    impl SecretStore for TestStore {
+        fn load(&self, key: &str) -> Result<Option<SecretString>, DbError> {
+            if self.fail_reads {
+                return Err(DbError::Keyring("unavailable".into()));
+            }
+            Ok(self
+                .secrets
+                .lock()
+                .unwrap()
+                .get(key)
+                .cloned()
+                .map(SecretString::new))
+        }
+
+        fn store(&self, key: &str, secret: &SecretString) -> Result<(), DbError> {
+            self.secrets
+                .lock()
+                .unwrap()
+                .insert(key.into(), secret.expose().into());
+            Ok(())
+        }
+
+        fn delete(&self, key: &str) -> Result<(), DbError> {
+            if self.fail_deletes {
+                return Err(DbError::Keyring("unavailable".into()));
+            }
+            self.deleted.lock().unwrap().push(key.into());
+            self.secrets.lock().unwrap().remove(key);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn database_password_explicit_clear_removes_ref_and_stays_cleared_after_reload() {
+        let store = TestStore::default();
+        let mut config = AppConfig::default();
+        let mut connection = ConnectionConfig::new("primary", DatabaseType::PostgreSQL);
+        connection.password_ref = Some("test/primary".into());
+        let generated_password = uuid::Uuid::new_v4().to_string();
+        store
+            .store("test/primary", &SecretString::new(generated_password))
+            .unwrap();
+        config.connections.push(connection);
+        super::hydrate_connection_passwords(&mut config.connections, &store);
+        assert!(!config.connections[0].password.is_empty());
+
+        config.connections[0].password.clear();
+        config.connections[0].mark_password_edited();
+        let mut stale_connection = config.connections.clone();
+        super::persist_connection_passwords(&mut config.connections, &store).unwrap();
+        super::persist_connection_passwords(&mut stale_connection, &store).unwrap();
+        let serialized = toml::to_string(&config).unwrap();
+        let mut reloaded: AppConfig = toml::from_str(&serialized).unwrap();
+        super::hydrate_connection_passwords(&mut reloaded.connections, &store);
+
+        assert!(reloaded.connections[0].password.is_empty());
+        assert!(reloaded.connections[0].password_ref.is_none());
+        assert!(store.load("test/primary").unwrap().is_none());
+    }
+
+    #[test]
+    fn database_password_unreadable_keyring_does_not_clear_saved_ref() {
+        let store = TestStore {
+            fail_reads: true,
+            ..Default::default()
+        };
+        let mut connections = vec![ConnectionConfig {
+            password_ref: Some("test/unreadable".into()),
+            ..ConnectionConfig::new("primary", DatabaseType::PostgreSQL)
+        }];
+        super::hydrate_connection_passwords(&mut connections, &store);
+        assert!(connections[0].password.is_empty());
+        super::persist_connection_passwords(&mut connections, &store).unwrap();
+        assert_eq!(
+            connections[0].password_ref.as_deref(),
+            Some("test/unreadable")
+        );
+        assert!(store.deleted.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn database_password_delete_failure_revokes_ref_and_reports_error() {
+        let store = TestStore {
+            fail_deletes: true,
+            ..Default::default()
+        };
+        store
+            .store(
+                "test/orphan",
+                &SecretString::new(uuid::Uuid::new_v4().to_string()),
+            )
+            .unwrap();
+        let mut connection = ConnectionConfig {
+            password_ref: Some("test/orphan".into()),
+            ..ConnectionConfig::new("primary", DatabaseType::PostgreSQL)
+        };
+        connection.mark_password_edited();
+        let result =
+            super::persist_connection_passwords(std::slice::from_mut(&mut connection), &store);
+        assert!(result.is_err());
+        assert!(connection.password_ref.is_none());
+    }
+
+    struct CapturedLog(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for CapturedLog {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn config_parse_error_log_excludes_sensitive_source_line() {
+        let marker = format!("marker-{}", uuid::Uuid::new_v4());
+        let content = format!("password = \"{marker}\" ]");
+        let error = toml::from_str::<AppConfig>(&content).unwrap_err();
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_writer({
+                let output = output.clone();
+                move || CapturedLog(output.clone())
+            })
+            .finish();
+        tracing::subscriber::with_default(subscriber, || {
+            super::log_config_parse_error(std::path::Path::new("config.toml"), &error);
+        });
+
+        let log = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        assert!(log.contains("config.toml"));
+        assert!(log.contains("span"));
+        assert!(!log.contains(&marker));
+    }
 
     #[test]
     fn load_from_toml_preserves_connections_when_legacy_password_is_broken() {
@@ -997,7 +1186,7 @@ mod tests {
         "#;
 
         let mut config: AppConfig = toml::from_str(content).expect("parse config");
-        super::hydrate_connection_passwords(&mut config.connections);
+        super::hydrate_connection_passwords(&mut config.connections, &TestStore::default());
 
         assert_eq!(config.connections.len(), 1);
         assert_eq!(config.connections[0].name, "primary");

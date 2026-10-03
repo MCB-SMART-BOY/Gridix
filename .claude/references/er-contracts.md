@@ -35,6 +35,10 @@ Focus: `FocusArea::ErDiagram` in the `Sidebar → DataGrid → ErDiagram → Sql
 - **Selection**: `selected_table` (index into `tables`), `interaction_mode()` (`ERDiagramInteractionMode::Navigation`/`Viewport`)
 - **Lifecycle**: `loading`, `needs_layout`, `capture_layout_snapshot()`/`restore_layout_snapshot_if_exact_match()` (for incremental stability), `current_load_generation()`
 - **Stale-guard**: `load_generation` is monotonic, bumped by `begin_loading()`/`clear()`. Async ER metadata fetches carry the generation through `RuntimeEvent` (`TaskId` + `OperationKey::Metadata`); handlers drop mismatched responses so a disconnected/old connection's schema cannot write into a new connection's ER state (audit B6-ER). Disconnect clears `er_diagram_state`, which bumps the generation.
+- Catalog lookup must use the exact producer key `(ConnectionId, database)`: SQLite uses the connection config's file path even though `selected_database` is `None`. Metadata and ER projection only follow the active connection/database; after a current catalog completes, an already open ER diagram reloads so a tables-first response cannot leave empty shells indefinitely.
+- An active connection can be selected before its connection reply arrives. Until `connected` is true, ER loading clears the prior graph without reporting an empty database; only a completed connection with zero tables produces the empty-table warning.
+
+`UiState::default()` constructs `ERDiagramState::new()` (zoom 1.0), not derived `ERDiagramState::default()` (zoom 0). Rendering a loaded table at zero zoom produces a zero-sized font and panics in epaint.
 
 ## Token map (visual design)
 

@@ -128,20 +128,22 @@ pub enum SqlDialect {
     #[default]
     Standard,
     MySql,
+    Postgres,
 }
 
 impl SqlDialect {
     pub const fn from_database_type(db_type: DatabaseType) -> Self {
         match db_type {
             DatabaseType::MySQL => Self::MySql,
-            DatabaseType::SQLite | DatabaseType::PostgreSQL => Self::Standard,
+            DatabaseType::PostgreSQL => Self::Postgres,
+            DatabaseType::SQLite => Self::Standard,
         }
     }
 
     fn quote_identifier(self, name: &str) -> String {
         match self {
             Self::MySql => format!("`{}`", name.replace('`', "``")),
-            Self::Standard => format!("\"{}\"", name.replace('"', "\"\"")),
+            Self::Standard | Self::Postgres => format!("\"{}\"", name.replace('"', "\"\"")),
         }
     }
 }
@@ -233,29 +235,114 @@ pub fn filter_result_for_export(result: &ResultSet, options: &ExportOptions) -> 
 
 fn export_cell_text(result: &ResultSet, row_idx: usize, col_idx: usize) -> String {
     if result.is_null(row_idx, col_idx) {
-        String::new()
-    } else {
-        result.cell(row_idx, col_idx).display()
+        return String::new();
+    }
+    match result.cell(row_idx, col_idx) {
+        crate::domain::value::DbValue::Time(time) => time.storage_text(),
+        crate::domain::value::DbValue::DateTime(datetime) => {
+            format!(
+                "{} {}",
+                crate::domain::value::DbValue::Date(datetime.date).display(),
+                datetime.time.storage_text()
+            )
+        }
+        value => value.display(),
     }
 }
 
-fn export_sql_literal(result: &ResultSet, row_idx: usize, col_idx: usize) -> String {
-    if result.is_null(row_idx, col_idx) {
-        "NULL".to_string()
-    } else {
-        format!(
-            "'{}'",
-            result.cell(row_idx, col_idx).display().replace("'", "''")
-        )
+fn export_sql_literal(
+    result: &ResultSet,
+    row_idx: usize,
+    col_idx: usize,
+    dialect: SqlDialect,
+) -> String {
+    use crate::domain::value::DbValue;
+    match result.cell(row_idx, col_idx) {
+        DbValue::Null => "NULL".to_string(),
+        DbValue::Bytes(bytes) => {
+            let hex = encode_sql_hex(bytes);
+            match dialect {
+                SqlDialect::Standard => format!("X'{hex}'"),
+                SqlDialect::MySql if hex.is_empty() => "X''".to_string(),
+                SqlDialect::MySql => format!("0x{hex}"),
+                SqlDialect::Postgres => format!("decode('{hex}', 'hex')"),
+            }
+        }
+        DbValue::Text(text) | DbValue::Decimal(text) => sql_text_literal(text, dialect),
+        _ => sql_text_literal(&export_cell_text(result, row_idx, col_idx), dialect),
+    }
+}
+
+fn encode_sql_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(&mut hex, "{byte:02X}").expect("writing to String cannot fail");
+    }
+    hex
+}
+
+fn sql_text_literal(text: &str, dialect: SqlDialect) -> String {
+    match dialect {
+        SqlDialect::MySql if text.is_empty() => "''".to_string(),
+        SqlDialect::MySql => format!(
+            "CONVERT(0x{} USING utf8mb4)",
+            encode_sql_hex(text.as_bytes())
+        ),
+        SqlDialect::Standard | SqlDialect::Postgres => format!("'{}'", text.replace('\'', "''")),
     }
 }
 
 fn export_json_value(result: &ResultSet, row_idx: usize, col_idx: usize) -> serde_json::Value {
-    if result.is_null(row_idx, col_idx) {
-        serde_json::Value::Null
-    } else {
-        serde_json::Value::String(result.cell(row_idx, col_idx).display())
+    use crate::domain::value::DbValue;
+    match result.cell(row_idx, col_idx) {
+        DbValue::Null => serde_json::Value::Null,
+        DbValue::Bool(value) => serde_json::Value::Bool(*value),
+        DbValue::Int(value) => serde_json::Value::from(*value),
+        DbValue::UInt(value) => serde_json::Value::from(*value),
+        DbValue::Float(value) => serde_json::Value::from(*value),
+        DbValue::Json(value) => value.clone(),
+        _ => serde_json::Value::String(export_cell_text(result, row_idx, col_idx)),
     }
+}
+
+fn validate_text_export(result: &ResultSet, format: ExportFormat) -> Result<(), String> {
+    use crate::domain::value::DbValue;
+    for row_idx in 0..result.row_count {
+        for col_idx in 0..result.column_count() {
+            let value = result.cell(row_idx, col_idx);
+            let column = &result.columns[col_idx].name;
+            if matches!(value, DbValue::Bytes(_)) {
+                return Err(format!(
+                    "{format:?} 不支持二进制值（第 {} 行，列 {column}）；请改用 SQL 导出",
+                    row_idx + 1
+                ));
+            }
+            if format == ExportFormat::Json
+                && let DbValue::Float(number) = value
+                && !number.is_finite()
+            {
+                return Err(format!(
+                    "JSON 不支持非有限浮点数（第 {} 行，列 {column}）；请改用 SQL 导出",
+                    row_idx + 1
+                ));
+            }
+            if matches!(format, ExportFormat::Csv | ExportFormat::Tsv)
+                && let DbValue::Text(text) = value
+                && (text.trim() != text
+                    || text.is_empty()
+                    || text.parse::<f64>().is_ok()
+                    || text.eq_ignore_ascii_case("true")
+                    || text.eq_ignore_ascii_case("false"))
+            {
+                return Err(format!(
+                    "{format:?} 无法无损导入此文本值（第 {} 行，列 {column}）；请改用 JSON 或 SQL 导出",
+                    row_idx + 1
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn escape_delimited_field(field: &str, delimiter: &str, quote: char) -> String {
@@ -351,7 +438,9 @@ fn render_sql(
             let values_list = (start..end)
                 .map(|row_idx| {
                     let values = (0..result.column_count())
-                        .map(|col_idx| export_sql_literal(result, row_idx, col_idx))
+                        .map(|col_idx| {
+                            export_sql_literal(result, row_idx, col_idx, options.sql_dialect)
+                        })
                         .collect::<Vec<_>>()
                         .join(", ");
                     format!("({})", values)
@@ -368,7 +457,7 @@ fn render_sql(
     } else {
         for row_idx in 0..result.row_count {
             let values = (0..result.column_count())
-                .map(|col_idx| export_sql_literal(result, row_idx, col_idx))
+                .map(|col_idx| export_sql_literal(result, row_idx, col_idx, options.sql_dialect))
                 .collect::<Vec<_>>()
                 .join(", ");
             output.push_str(&format!(
@@ -417,10 +506,19 @@ fn render_export_content(
     options: &ExportOptions,
 ) -> Result<String, String> {
     match options.format {
-        ExportFormat::Csv => Ok(render_delimited(result, options, options.csv_delimiter)),
-        ExportFormat::Tsv => Ok(render_delimited(result, options, '\t')),
+        ExportFormat::Csv => {
+            validate_text_export(result, options.format)?;
+            Ok(render_delimited(result, options, options.csv_delimiter))
+        }
+        ExportFormat::Tsv => {
+            validate_text_export(result, options.format)?;
+            Ok(render_delimited(result, options, '\t'))
+        }
         ExportFormat::Sql => render_sql(result, table_name, options),
-        ExportFormat::Json => render_json(result, options),
+        ExportFormat::Json => {
+            validate_text_export(result, options.format)?;
+            render_json(result, options)
+        }
     }
 }
 
@@ -729,7 +827,7 @@ pub fn import_csv_to_sql(
 
         let values = fields
             .iter()
-            .map(|field| sql_value_from_string(field))
+            .map(|field| sql_value_from_string_with_dialect(field, use_mysql_syntax))
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -999,18 +1097,17 @@ pub fn import_json_to_sql(
                 .iter()
                 .map(|col| {
                     obj.get(col)
-                        .map(json_value_to_sql)
+                        .map(|value| json_value_to_sql_with_dialect(value, use_mysql_syntax))
                         .unwrap_or_else(|| "NULL".to_string())
                 })
                 .collect::<Vec<_>>()
                 .join(", "),
             other => {
                 if columns.len() == 1 {
-                    json_value_to_sql(other)
+                    json_value_to_sql_with_dialect(other, use_mysql_syntax)
                 } else {
                     let mut values = Vec::with_capacity(columns.len());
-                    values.push(json_value_to_sql(other));
-                    values.extend((1..columns.len()).map(|_| "NULL".to_string()));
+                    values.push(json_value_to_sql_with_dialect(other, use_mysql_syntax));
                     values.join(", ")
                 }
             }
@@ -1116,26 +1213,33 @@ fn json_value_to_string(value: &serde_json::Value) -> String {
 /// 将 JSON 值转换为 SQL 值
 /// 将 JSON 值转换为 SQL 值
 pub fn json_value_to_sql(value: &serde_json::Value) -> String {
+    json_value_to_sql_with_dialect(value, false)
+}
+
+fn json_value_to_sql_with_dialect(value: &serde_json::Value, is_mysql: bool) -> String {
+    let dialect = if is_mysql {
+        SqlDialect::MySql
+    } else {
+        SqlDialect::Standard
+    };
     match value {
         serde_json::Value::Null => "NULL".to_string(),
         serde_json::Value::Bool(b) => if *b { "1" } else { "0" }.to_string(),
         serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::String(s) => format!("'{}'", s.replace('\'', "''")),
-        serde_json::Value::Array(arr) => {
-            let json_str = serde_json::to_string(arr).unwrap_or_else(|_| "[]".to_string());
-            format!("'{}'", json_str.replace('\'', "''"))
-        }
-        serde_json::Value::Object(obj) => {
-            let json_str = serde_json::to_string(obj).unwrap_or_else(|_| "{}".to_string());
-            format!("'{}'", json_str.replace('\'', "''"))
+        serde_json::Value::String(s) => sql_text_literal(s, dialect),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            sql_text_literal(&value.to_string(), dialect)
         }
     }
 }
 
 /// 将字符串转换为 SQL 值
 pub fn sql_value_from_string(s: &str) -> String {
-    let trimmed = s.trim();
+    sql_value_from_string_with_dialect(s, false)
+}
 
+fn sql_value_from_string_with_dialect(s: &str, is_mysql: bool) -> String {
+    let trimmed = s.trim();
     // Only truly empty means NULL. The literal string "null" is a valid CSV value.
     if trimmed.is_empty() {
         "NULL".to_string()
@@ -1146,7 +1250,12 @@ pub fn sql_value_from_string(s: &str) -> String {
     } else if trimmed.eq_ignore_ascii_case("false") {
         "0".to_string()
     } else {
-        format!("'{}'", trimmed.replace('\'', "''"))
+        let dialect = if is_mysql {
+            SqlDialect::MySql
+        } else {
+            SqlDialect::Standard
+        };
+        sql_text_literal(trimmed, dialect)
     }
 }
 

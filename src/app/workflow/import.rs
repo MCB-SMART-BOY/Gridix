@@ -2,7 +2,7 @@
 //!
 //! 处理 CSV、TSV、JSON、SQL 文件的统一传输逻辑。
 
-use crate::core::{plan_import_transfer, preview_import_transfer};
+use crate::core::{SqlDialect, plan_import_transfer, preview_import_transfer};
 use crate::data::execute_import_batch;
 use crate::ui;
 
@@ -10,10 +10,18 @@ use super::{DbManagerApp, message::Message};
 use crate::app::dialogs::host::DialogId;
 
 impl DbManagerApp {
+    fn active_import_sql_dialect(&self) -> SqlDialect {
+        self.session
+            .manager
+            .get_active()
+            .map_or(SqlDialect::Standard, |conn| conn.config.db_type.into())
+    }
+
     /// 打开导入对话框
     pub(in crate::app) fn handle_import(&mut self) {
         self.open_dialog(DialogId::Import);
         self.state.import_state.clear();
+        self.state.import_state.requires_unknown_confirmation = self.import_outcome_unknown;
     }
 
     /// 选择导入文件
@@ -35,7 +43,10 @@ impl DbManagerApp {
         let Some(ref path) = self.state.import_state.file_path else {
             return;
         };
-        let session = self.state.import_state.to_transfer_session(self.is_mysql());
+        let session = self
+            .state
+            .import_state
+            .to_transfer_session(self.active_import_sql_dialect());
 
         self.state.import_state.loading = true;
         self.state.import_state.error = None;
@@ -59,7 +70,20 @@ impl DbManagerApp {
         let Some(ref path) = self.state.import_state.file_path else {
             return;
         };
-        let session = self.state.import_state.to_transfer_session(self.is_mysql());
+        if self.session.import_executing {
+            self.session.notifications.warning("请等待当前导入完成");
+            return;
+        }
+        if self.import_outcome_unknown && !self.state.import_state.has_confirmed_unknown_outcome {
+            self.session
+                .notifications
+                .warning("先核对上一次导入的数据库状态，确认后才能再次导入");
+            return;
+        }
+        let session = self
+            .state
+            .import_state
+            .to_transfer_session(self.active_import_sql_dialect());
 
         let plan = match plan_import_transfer(path, &session) {
             Ok(plan) => plan,
@@ -97,6 +121,7 @@ impl DbManagerApp {
             return;
         };
         let config = conn.config.clone();
+        self.import_outcome_unknown = false;
         let key = crate::session::task_registry::OperationKey::Import;
         let (task_id, _cancel_token) = self
             .session
@@ -117,8 +142,7 @@ impl DbManagerApp {
             let start = std::time::Instant::now();
             let result =
                 execute_import_batch(&config, valid_statements, use_transaction, stop_on_error)
-                    .await
-                    .map_err(|e| e.to_string());
+                    .await;
             let elapsed_ms = start.elapsed().as_millis() as u64;
 
             use crate::session::runtime_event::{RuntimeEvent, RuntimeOutcome};

@@ -104,8 +104,6 @@ pub use dialogs::{
     ToolbarMenuItemId,
     ToolbarThemeDialog,
     ToolbarThemeDialogState,
-    // 导入对话框
-    parse_sql_file,
 };
 pub use panels::{
     HistoryPanel, HistoryPanelState, Sidebar, SidebarActions, SidebarDeleteTarget,

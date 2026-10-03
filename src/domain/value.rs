@@ -177,7 +177,7 @@ impl DbValue {
             (Null, _) => Ordering::Less,
             (_, Null) => Ordering::Greater,
 
-            // 数值族：按 f64 比较（对 Decimal 做解析，失败则回退到字典序）
+            // Decimal 与整数使用精确十进制比较；浮点数按其最短十进制表示比较。
             (Int(a), Int(b)) => a.cmp(b),
             (Int(a), UInt(b)) => (*a as i128).cmp(&(*b as i128)),
             (Int(a), Float(b)) => compare_f64(*a as f64, *b),
@@ -261,10 +261,80 @@ fn compare_f64(a: f64, b: f64) -> Ordering {
 }
 
 fn compare_decimal(a: &str, b: &str) -> Ordering {
-    // 尝试解析为 f64 比较，失败回退到字典序
-    match (a.parse::<f64>(), b.parse::<f64>()) {
-        (Ok(a), Ok(b)) => compare_f64(a, b),
+    match (parse_decimal_parts(a), parse_decimal_parts(b)) {
+        (Some(a), Some(b)) => {
+            if a.negative != b.negative {
+                return if a.negative {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                };
+            }
+            let order = a
+                .magnitude
+                .cmp(&b.magnitude)
+                .then_with(|| compare_decimal_digits(a.digits, b.digits));
+            if a.negative { order.reverse() } else { order }
+        }
         _ => a.cmp(b),
+    }
+}
+
+struct DecimalParts<'a> {
+    digits: &'a str,
+    negative: bool,
+    magnitude: i64,
+}
+
+fn parse_decimal_parts(value: &str) -> Option<DecimalParts<'_>> {
+    let (negative, unsigned) = match value.as_bytes().first() {
+        Some(b'-') => (true, &value[1..]),
+        Some(b'+') => (false, &value[1..]),
+        _ => (false, value),
+    };
+    let (mantissa, exponent) = unsigned.split_once(['e', 'E']).unwrap_or((unsigned, "0"));
+    let exponent = exponent.parse::<i64>().ok()?;
+    let fractional_digits = mantissa.split_once('.').map_or(0, |(_, part)| part.len());
+    if !mantissa.bytes().any(|byte| byte.is_ascii_digit())
+        || !mantissa
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte == b'.')
+        || mantissa.bytes().filter(|byte| *byte == b'.').count() > 1
+    {
+        return None;
+    }
+    let digits = mantissa.trim_start_matches('0');
+    let digits = digits.strip_prefix('.').unwrap_or(digits);
+    let first = digits.bytes().position(|byte| byte != b'0' && byte != b'.');
+    let Some(first) = first else {
+        return Some(DecimalParts {
+            digits: "0",
+            negative: false,
+            magnitude: 0,
+        });
+    };
+    let digits = &digits[first..];
+    let magnitude = (digits.bytes().filter(|byte| byte.is_ascii_digit()).count() as i64)
+        .checked_add(exponent)?
+        .checked_sub(fractional_digits as i64)?;
+    Some(DecimalParts {
+        digits,
+        negative,
+        magnitude,
+    })
+}
+
+fn compare_decimal_digits(a: &str, b: &str) -> Ordering {
+    let mut a_digits = a.bytes().filter(|byte| *byte != b'.');
+    let mut b_digits = b.bytes().filter(|byte| *byte != b'.');
+    loop {
+        match (a_digits.next(), b_digits.next()) {
+            (None, None) => return Ordering::Equal,
+            (Some(a), Some(b)) if a != b => return a.cmp(&b),
+            (Some(a), None) if a != b'0' => return Ordering::Greater,
+            (None, Some(b)) if b != b'0' => return Ordering::Less,
+            _ => {}
+        }
     }
 }
 
@@ -300,6 +370,15 @@ impl DbTime {
             nanos: 0,
         }
     }
+
+    /// 不丢失小数秒的数据库文本编码。
+    pub fn storage_text(&self) -> String {
+        let mut text = format!("{:02}:{:02}:{:02}", self.hour, self.minute, self.second);
+        if self.nanos != 0 {
+            text.push_str(format!(".{:09}", self.nanos).trim_end_matches('0'));
+        }
+        text
+    }
 }
 
 // ── 序列化支持 ──
@@ -313,14 +392,44 @@ impl serde::Serialize for DbValue {
             Self::UInt(u) => serializer.serialize_u64(*u),
             Self::Float(f) => serializer.serialize_f64(*f),
             Self::Decimal(s) | Self::Text(s) => serializer.serialize_str(s),
-            Self::Bytes(_) => serializer.serialize_str(&self.display()),
-            Self::Date(_) | Self::Time(_) | Self::DateTime(_) => {
-                serializer.serialize_str(&self.display())
-            }
+            Self::Bytes(bytes) => serializer.serialize_bytes(bytes),
+            Self::Date(_) => serializer.serialize_str(&self.display()),
+            Self::Time(time) => serializer.serialize_str(&time.storage_text()),
+            Self::DateTime(datetime) => serializer.serialize_str(&format!(
+                "{:04}-{:02}-{:02} {}",
+                datetime.date.year,
+                datetime.date.month,
+                datetime.date.day,
+                datetime.time.storage_text()
+            )),
             Self::Json(j) => j.serialize(serializer),
             Self::Uuid(u) => serializer.serialize_str(&u.to_string()),
             Self::Array(arr) => arr.serialize(serializer),
             Self::Other { display, .. } => serializer.serialize_str(display),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decimal_comparison_large_and_fractional_values_remains_exact() {
+        let a = DbValue::Decimal("9007199254740993".into());
+        let b = DbValue::Decimal("9007199254740992".into());
+        assert_eq!(a.cmp_semantic(&b), Ordering::Greater);
+        assert_eq!(
+            DbValue::Decimal("-1.01".into()).cmp_semantic(&DbValue::Decimal("-1.00".into())),
+            Ordering::Less
+        );
+        assert_eq!(
+            DbValue::Decimal("1.2e2".into()).cmp_semantic(&DbValue::Decimal("120.00".into())),
+            Ordering::Equal
+        );
+        assert_eq!(
+            DbValue::Decimal("0.0009".into()).cmp_semantic(&DbValue::Decimal("0.001".into())),
+            Ordering::Less
+        );
     }
 }

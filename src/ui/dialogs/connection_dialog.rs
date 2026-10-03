@@ -574,12 +574,17 @@ impl ConnectionDialog {
 
             Self::show_responsive_labeled_row(ui, "密码", |ui, row_class| {
                 let control_width = Self::control_width(ui, row_class, 320.0);
-                ui.add_sized(
-                    [control_width, 0.0],
-                    TextEdit::singleline(&mut config.password)
-                        .password(true)
-                        .char_limit(256),
-                );
+                if ui
+                    .add_sized(
+                        [control_width, 0.0],
+                        TextEdit::singleline(&mut config.password)
+                            .password(true)
+                            .char_limit(256),
+                    )
+                    .changed()
+                {
+                    config.mark_password_edited();
+                }
             });
         }
 
@@ -918,15 +923,9 @@ impl ConnectionDialog {
         action
     }
 
-    /// 连接字符串预览
+    /// 连接字符串预览（不构造包含密码的连接字符串）
     fn show_connection_preview(ui: &mut egui::Ui, config: &ConnectionConfig) {
-        let conn_str = config.connection_string();
-        let display_str = if !config.password.is_empty() {
-            conn_str.replace(&config.password, "****")
-        } else {
-            conn_str
-        };
-        DialogContent::code_block(ui, &display_str, 120.0);
+        DialogContent::code_block(ui, &config.connection_string_masked(), 120.0);
     }
 
     /// 底部按钮
@@ -1105,6 +1104,57 @@ mod tests {
             username: "postgres".to_string(),
             ..Default::default()
         }
+    }
+
+    fn preview_text(config: &ConnectionConfig) -> String {
+        fn collect_text(shape: &egui::Shape, text: &mut String) {
+            match shape {
+                egui::Shape::Text(shape) => text.push_str(shape.galley.text()),
+                egui::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        collect_text(shape, text);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let ctx = egui::Context::default();
+        ctx.begin_pass(RawInput::default());
+        let mut root = egui::Ui::new(
+            ctx.clone(),
+            egui::Id::new("preview-test"),
+            egui::UiBuilder::new(),
+        );
+        egui::CentralPanel::default().show(&mut root, |ui| {
+            ConnectionDialog::show_connection_preview(ui, config);
+        });
+        let mut output = ctx.end_pass();
+        let mut text = String::new();
+        for shape in &output.shapes {
+            collect_text(&shape.shape, &mut text);
+        }
+        output.textures_delta.clear();
+        text
+    }
+
+    #[test]
+    fn connection_preview_encoded_credentials_are_masked() {
+        let mut mysql = valid_server_config();
+        mysql.db_type = DatabaseType::MySQL;
+        mysql.password = format!("@{}", uuid::Uuid::new_v4());
+        let mysql_preview = preview_text(&mysql);
+        assert!(mysql_preview.contains("****"));
+        assert!(!mysql_preview.contains(&mysql.password));
+        assert!(!mysql_preview.contains(&format!("%40{}", &mysql.password[1..])));
+
+        let mut postgres = valid_server_config();
+        postgres.password = format!("'\\{}", uuid::Uuid::new_v4());
+        let pg_preview = preview_text(&postgres);
+        assert!(pg_preview.contains("****"));
+        assert!(!pg_preview.contains(&postgres.password));
+        let escaped = postgres.password.replace('\\', "\\\\").replace('\'', "\\'");
+        assert!(!pg_preview.contains(&escaped));
     }
 
     #[test]

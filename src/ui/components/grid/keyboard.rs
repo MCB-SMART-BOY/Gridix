@@ -754,8 +754,13 @@ fn display_sequence<'a>(sequence: &'a str, fallback: &'a str) -> &'a str {
 
 fn discard_all_changes(state: &mut DataGridState, actions: &mut DataGridActions, shortcut: &str) {
     if state.has_changes() {
+        let had_unknown_outcome = state.has_unknown_save_outcome;
         state.clear_edits();
-        actions.message = Some(format!("已放弃所有修改 ({})", shortcut));
+        actions.message = Some(if had_unknown_outcome {
+            format!("已放弃结果未知的草稿 ({shortcut})；核对数据库后请刷新表格")
+        } else {
+            format!("已放弃所有修改 ({shortcut})")
+        });
     }
 }
 
@@ -1077,6 +1082,36 @@ fn handle_detected_normal_action(
     half_page: usize,
     cmd: &mut CmdBuffer,
 ) {
+    if state.is_save_locked()
+        && matches!(
+            action,
+            GridKeyAction::AddRowBelow
+                | GridKeyAction::AddRowAbove
+                | GridKeyAction::SaveChanges
+                | GridKeyAction::EnterInsert
+                | GridKeyAction::AppendInsert
+                | GridKeyAction::ChangeCell
+                | GridKeyAction::ReplaceCell
+                | GridKeyAction::Paste
+                | GridKeyAction::UndoCellChange
+                | GridKeyAction::UnmarkDelete
+                | GridKeyAction::DeleteRow
+        )
+    {
+        actions.message = Some("保存中或等待刷新：当前工作区暂不可编辑，请刷新表格".into());
+        cmd.clear();
+        return;
+    }
+    if state.save_in_flight && action == GridKeyAction::DiscardChanges {
+        actions.message = Some("保存中：提交的修改尚不能放弃".into());
+        cmd.clear();
+        return;
+    }
+    if state.save_in_flight && action == GridKeyAction::Refresh {
+        actions.message = Some("保存中：请等待提交完成后再刷新表格".into());
+        cmd.clear();
+        return;
+    }
     let mut should_clear_cmd = true;
     match action {
         GridKeyAction::MoveLeft => {
@@ -1330,6 +1365,16 @@ fn handle_select_mode(
     cmd: &mut CmdBuffer,
 ) {
     if let Some(action) = detect_select_key_action(i) {
+        if state.is_save_locked()
+            && matches!(
+                action,
+                GridSelectAction::DeleteSelection | GridSelectAction::ChangeSelection
+            )
+        {
+            actions.message = Some("保存中或等待刷新：当前工作区暂不可编辑，请刷新表格".into());
+            exit_select_mode(state, cmd);
+            return;
+        }
         match action {
             GridSelectAction::MoveLeft | GridSelectAction::MoveWordLeft => {
                 move_cursor_by_display_offset(state, row_view, 0, -1, max_col);
@@ -1739,6 +1784,82 @@ mod tests {
         assert_eq!(state.editing_cell, Some((1, 1)));
         assert_eq!(state.edit_text, "bob");
         assert_eq!(state.original_value, "bob");
+    }
+
+    #[test]
+    fn grid_save_in_flight_blocks_prepend_and_edit_but_allows_navigation() {
+        let mut state = DataGridState::new();
+        state
+            .new_rows
+            .push(vec!["submitted".into(), "alice".into(), "mail".into()]);
+        state.save_in_flight = true;
+        let result = sample_result();
+
+        let prepend = send_key(
+            &mut state,
+            &result,
+            key_event_with_modifiers(Key::O, Modifiers::SHIFT),
+        );
+        assert!(
+            prepend
+                .message
+                .as_deref()
+                .is_some_and(|msg| msg.contains("暂不可编辑"))
+        );
+        assert_eq!(
+            state.new_rows.len(),
+            1,
+            "a prepend must not shift submitted rows"
+        );
+        state.cursor = (result.row_count, 1);
+        let edit = send_key(&mut state, &result, key_event(Key::I));
+        assert!(
+            edit.message
+                .as_deref()
+                .is_some_and(|msg| msg.contains("暂不可编辑"))
+        );
+        assert_eq!(state.editing_cell, None);
+        let save = send_key(
+            &mut state,
+            &result,
+            key_event_with_modifiers(Key::S, Modifiers::CTRL),
+        );
+        assert!(
+            save.message
+                .as_deref()
+                .is_some_and(|msg| msg.contains("暂不可编辑"))
+        );
+        assert!(
+            !state.pending_save,
+            "a second save must not replay the submitted insert"
+        );
+
+        let _ = send_key(&mut state, &result, key_event(Key::K));
+        assert_eq!(state.cursor, (result.row_count - 1, 1));
+        assert_eq!(state.new_rows[0][0], "submitted");
+    }
+
+    #[test]
+    fn grid_save_committed_pk_blocks_later_edit_until_refresh() {
+        let mut state = DataGridState::new();
+        state.needs_refresh_after_save = true;
+        state.cursor = (0, 0);
+        let result = sample_result();
+
+        let action = send_key(&mut state, &result, key_event(Key::I));
+        assert!(
+            action
+                .message
+                .as_deref()
+                .is_some_and(|msg| msg.contains("刷新"))
+        );
+        assert!(state.editing_cell.is_none());
+        let refresh = send_key(
+            &mut state,
+            &result,
+            key_event_with_modifiers(Key::R, Modifiers::CTRL),
+        );
+        assert!(refresh.refresh_requested);
     }
 
     #[test]
